@@ -144,7 +144,7 @@ export function AgentSettingsDialog({
   onClose,
 }: {
   agent: LocalAgent;
-  local: Pick<LocalAgentsState, "mcpServers" | "updateSettings" | "act">;
+  local: Pick<LocalAgentsState, "mcpServers" | "updateSettings" | "act" | "canManage">;
   onClose: () => void;
 }) {
   const [data, setData] = useState<LocalAgentMcpResponse | undefined>();
@@ -170,9 +170,9 @@ export function AgentSettingsDialog({
   );
 
   useEffect(() => {
-    // 先秒出列表，再在后台逐个估算大小
-    void load(false).then(() => load(true));
-  }, [load]);
+    // 先秒出列表，再在后台逐个估算大小（要起进程，没有管理权的设备只列出来）
+    void load(false).then(() => (local.canManage ? load(true) : undefined));
+  }, [load, local.canManage]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -250,9 +250,12 @@ export function AgentSettingsDialog({
             failed={error !== undefined}
             disabled={disabled}
             measuring={measuring}
-            busy={saving}
+            busy={saving || !local.canManage}
             onToggle={toggle}
           />
+          {!local.canManage && (
+            <p className="agent-mcp-hint">{t("这台设备只能查看。要修改，先申请管理权。")}</p>
+          )}
           <p className="agent-mcp-hint">
             {needsRestart
               ? t("这个 Agent 是在支持此设置之前启动的，保存后需要重启一次才会生效。")
@@ -273,7 +276,7 @@ export function AgentSettingsDialog({
           <button
             type="button"
             className="invite-submit"
-            disabled={!changed || saving || !data?.supported}
+            disabled={!changed || saving || !data?.supported || !local.canManage}
             onClick={() => void save(needsRestart)}
           >
             {saving ? t("保存中…") : needsRestart ? t("保存并重启") : t("保存")}

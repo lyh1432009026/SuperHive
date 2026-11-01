@@ -26,6 +26,8 @@ describe("LocalLaunch MCP selection", () => {
     }));
     const local = {
       enabled: true,
+      mode: "local",
+      canManage: true,
       providers: [{ provider: "claude", command: "claude", installed: true, version: "1" }],
       agents: [],
       create,

@@ -686,7 +686,7 @@ const keepAwakeStatusText: Record<KeepAwakeState["status"], string> = localized(
  * 房主在其他设备上：查看直接可用；要启动 Agent、改设置先申请管理权，经飞书或 Server 所在电脑批准。
  * compact 用在接入面板里，只留一行说明和按钮
  */
-function HostManageNotice({
+export function HostManageNotice({
   local,
   compact = false,
 }: {
@@ -872,7 +872,7 @@ function KeepAwakeSettingsGroup({ local }: { local: LocalAgentsState }) {
 }
 
 /** 在其他设备上登录：二维码 / 一次性链接、已登录设备、复制总令牌 */
-function OwnerDevicesGroup({ local }: { local: LocalAgentsState }) {
+export function OwnerDevicesGroup({ local }: { local: LocalAgentsState }) {
   const [devices, setDevices] = useState<OwnerDevice[]>();
   const [pair, setPair] = useState<{ url: string; expiresAt: string; qrDataUrl: string }>();
   const [error, setError] = useState<string>();
@@ -4169,9 +4169,15 @@ export function App({
                               <>
                                 <span
                                   className="member-local-badge"
-                                  title={t("由本机 Hive Server 启动")}
+                                  title={
+                                    local.mode === "device"
+                                      ? t("由 {0} 上的 Hive Server 启动", {
+                                          0: local.hostLabel ?? t("Server 所在电脑"),
+                                        })
+                                      : t("由本机 Hive Server 启动")
+                                  }
                                 >
-                                  {t("本机")}
+                                  {local.mode === "device" ? t("主机") : t("本机")}
                                 </span>
                                 {agentSettingsButton(participant.username)}
                               </>
@@ -4432,9 +4438,14 @@ export function App({
                 <h2 id="agent-dialog-title">{t("把 Agent 接入 Hive")}</h2>
                 <p id="agent-dialog-description">
                   {local.enabled
-                    ? t(
-                        "三步完成：选择 Agent、设置本机权限，然后一键在本机启动（也可以复制命令）。",
-                      )
+                    ? local.mode === "device"
+                      ? t(
+                          "三步完成：选择 Agent、设置权限，然后一键在 {0} 上启动（也可以复制命令）。",
+                          { 0: local.hostLabel ?? t("Server 所在电脑") },
+                        )
+                      : t(
+                          "三步完成：选择 Agent、设置本机权限，然后一键在本机启动（也可以复制命令）。",
+                        )
                     : t("三步完成：选择 Agent、设置本机权限，然后把命令复制到终端运行。")}
                 </p>
               </div>
@@ -4492,7 +4503,9 @@ export function App({
                     : agentStep === 2
                       ? t("允许 {0} 在本机做什么？", { 0: agentProviderLabel(agentProvider) })
                       : local.enabled
-                        ? t("在本机启动")
+                        ? local.mode === "device"
+                          ? t("在 {0} 上启动", { 0: local.hostLabel ?? t("Server 所在电脑") })
+                          : t("在本机启动")
                         : t("复制命令，到终端运行")}
                 </h3>
                 {agentStep === 1 && <p>{t("接入命令会根据所选 Agent 的运行环境自动调整。")}</p>}
@@ -4833,7 +4846,11 @@ export function App({
                     }}
                     key={tab.id}
                   >
-                    <strong>{tab.label}</strong>
+                    <strong>
+                      {tab.id === "computer" && local.mode === "device"
+                        ? t("Server 所在电脑")
+                        : tab.label}
+                    </strong>
                     <small>{tab.description}</small>
                   </button>
                 ))}
@@ -5375,8 +5392,12 @@ export function App({
                   <button
                     type="button"
                     className="room-archive"
-                    disabled={roomDialogBusy}
-                    title={t("仅本机房主可用")}
+                    disabled={roomDialogBusy || !local.canManage}
+                    title={
+                      local.canManage
+                        ? t("仅房主可用，不可恢复")
+                        : t("这台设备只能查看。要清空，先申请管理权。")
+                    }
                     onClick={() => {
                       setArchiveConfirmOpen(false);
                       setClearConfirmOpen(true);

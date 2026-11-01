@@ -902,5 +902,15 @@
   "退出其他所有已登录的设备？手机丢了或怀疑被盗用时用。": "Sign out all other devices? Use this if a phone is lost or you suspect misuse.",
   "退出其他所有设备": "Sign out other devices",
   "需要你批准": "Needs your approval",
-  "（这台）": " (this device)"
+  "（这台）": " (this device)",
+  "{0} 上的 Agent": "Agents on {0}",
+  "这台设备只能查看。要启动、停止或删除，先申请管理权。": "This device can only view. Request management access to start, stop or delete.",
+  "{0} 上没有找到": "Not found on {0}:",
+  "在 {0} 上启动": "Start on {0}",
+  "这台设备只能查看。要修改，先申请管理权。": "This device can only view. Request management access to make changes.",
+  "仅房主可用，不可恢复": "Owner only; cannot be undone",
+  "这台设备只能查看。要清空，先申请管理权。": "This device can only view. Request management access to clear the room.",
+  "由 {0} 上的 Hive Server 启动": "Started by the Hive Server on {0}",
+  "主机": "Host",
+  "三步完成：选择 Agent、设置权限，然后一键在 {0} 上启动（也可以复制命令）。": "Three steps: pick an agent, set its permissions, then start it on {0} in one click (or copy the command)."
 }

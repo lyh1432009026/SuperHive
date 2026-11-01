@@ -196,27 +196,38 @@ export function useLocalAgents(
         if (error.code === "DEVICE_SESSION_INVALID") {
           setSession({ enabled: false, reason: error.message });
         }
+        // 服务端说没有管理权（被拒、已过期、两边时钟不一致）：以服务端为准刷新
+        if (error.code === "MANAGE_REQUIRED") void loadSession();
         throw error;
       }
       return response;
     },
-    [base, mode],
+    [base, mode, loadSession],
   );
 
   const [waitingApproval, setWaitingApproval] = useState<HostApproval>();
+  // 页面卸载后不再轮询批准单
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   /** 等一张批准单出结果：批准返回 true，拒绝或过期返回 false */
   const awaitApproval = useCallback(
     async (approval: HostApproval): Promise<boolean> => {
       setWaitingApproval(approval);
       try {
-        for (;;) {
+        while (mountedRef.current) {
           await sleep(APPROVAL_POLL_MS);
           const response = await request(`/api/local/approvals/${approval.id}`);
           const current = ((await response.json()) as { approval: HostApproval }).approval;
           if (current.status !== "pending") return current.status === "approved";
         }
+        return false;
       } finally {
-        setWaitingApproval(undefined);
+        setWaitingApproval((current) => (current?.id === approval.id ? undefined : current));
       }
     },
     [request],
@@ -659,6 +670,12 @@ export function LocalAgentList({ local }: { local: LocalAgentsState }) {
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
   if (!local.enabled || local.agents.length === 0) return null;
+  // 房主设备没获批时只能看：按钮置灰，点不了
+  const locked = !local.canManage;
+  const title =
+    local.mode === "device"
+      ? t("{0} 上的 Agent", { 0: local.hostLabel ?? t("Server 所在电脑") })
+      : t("本机 Agent");
 
   const run = async (id: string, task: () => Promise<void>) => {
     setBusy(id);
@@ -673,8 +690,11 @@ export function LocalAgentList({ local }: { local: LocalAgentsState }) {
   };
 
   return (
-    <section className="local-agents" aria-label={t("本机 Agent")}>
-      <h4>{t("本机 Agent")}</h4>
+    <section className="local-agents" aria-label={title}>
+      <h4>{title}</h4>
+      {locked && (
+        <p className="settings-note">{t("这台设备只能查看。要启动、停止或删除，先申请管理权。")}</p>
+      )}
       <ul>
         {local.agents.map((agent) => {
           const live = agent.status !== "stopped" && agent.status !== "crashed";
@@ -692,14 +712,14 @@ export function LocalAgentList({ local }: { local: LocalAgentsState }) {
                     <>
                       <button
                         type="button"
-                        disabled={busy === agent.id}
+                        disabled={busy === agent.id || locked}
                         onClick={() => void run(agent.id, () => local.act(agent.id, "restart"))}
                       >
                         {t("重启")}
                       </button>
                       <button
                         type="button"
-                        disabled={busy === agent.id}
+                        disabled={busy === agent.id || locked}
                         onClick={() => void run(agent.id, () => local.act(agent.id, "stop"))}
                       >
                         {t("停止")}
@@ -709,7 +729,7 @@ export function LocalAgentList({ local }: { local: LocalAgentsState }) {
                     <>
                       <button
                         type="button"
-                        disabled={busy === agent.id}
+                        disabled={busy === agent.id || locked}
                         onClick={() => void run(agent.id, () => local.act(agent.id, "start"))}
                       >
                         {t("启动")}
@@ -717,7 +737,7 @@ export function LocalAgentList({ local }: { local: LocalAgentsState }) {
                       <button
                         type="button"
                         className="danger"
-                        disabled={busy === agent.id}
+                        disabled={busy === agent.id || locked}
                         aria-label={t("删除 {0}", { 0: agent.name })}
                         onClick={() => void run(agent.id, () => local.remove(agent.id))}
                       >
@@ -801,7 +821,7 @@ export function LocalLaunch({
   const [mcpFailed, setMcpFailed] = useState(false);
   const [mcpMeasuring, setMcpMeasuring] = useState(false);
   const [mcpDisabled, setMcpDisabled] = useState<Set<string>>(() => new Set());
-  const { mcpCandidates } = local;
+  const { mcpCandidates, canManage } = local;
   const mcpCwd = access === "read-only" ? undefined : cwd.trim() || undefined;
   useEffect(() => {
     if (!mcpSelectable || !mcpOpen) return;
@@ -812,6 +832,8 @@ export function LocalLaunch({
         const listed = await mcpCandidates(provider, mcpCwd);
         if (cancelled) return;
         setMcpData(listed);
+        // 估算大小要在 Server 所在电脑上起进程：没有管理权的设备只列出来
+        if (!canManage) return;
         setMcpMeasuring(true);
         const measured = await mcpCandidates(provider, mcpCwd, true);
         if (!cancelled) setMcpData(measured);
@@ -827,7 +849,7 @@ export function LocalLaunch({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [mcpCandidates, mcpCwd, mcpOpen, mcpSelectable, provider]);
+  }, [canManage, mcpCandidates, mcpCwd, mcpOpen, mcpSelectable, provider]);
 
   const submit = async () => {
     setSubmitting(true);
@@ -958,8 +980,10 @@ export function LocalLaunch({
           )}
           {info && !info.installed && (
             <p className="local-agent-error">
-              {t("本机没有找到")} <code>{info.command}</code> {t("命令，请先安装")} {providerLabel}{" "}
-              {t("并完成登录。")}
+              {local.mode === "device"
+                ? t("{0} 上没有找到", { 0: local.hostLabel ?? t("Server 所在电脑") })
+                : t("本机没有找到")}{" "}
+              <code>{info.command}</code> {t("命令，请先安装")} {providerLabel} {t("并完成登录。")}
             </p>
           )}
           {error && (
@@ -970,9 +994,15 @@ export function LocalLaunch({
           <button
             type="submit"
             className="local-launch-button"
-            disabled={submitting || !name.trim() || (info !== undefined && !info.installed)}
+            disabled={
+              submitting || !canManage || !name.trim() || (info !== undefined && !info.installed)
+            }
           >
-            {submitting ? t("正在启动…") : t("在本机启动")}
+            {submitting
+              ? t("正在启动…")
+              : local.mode === "device"
+                ? t("在 {0} 上启动", { 0: local.hostLabel ?? t("Server 所在电脑") })
+                : t("在本机启动")}
           </button>
         </form>
       )}

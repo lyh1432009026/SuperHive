@@ -59,7 +59,7 @@ describe("AgentSettingsDialog", () => {
     render(
       <AgentSettingsDialog
         agent={agent}
-        local={{ mcpServers, updateSettings, act }}
+        local={{ mcpServers, updateSettings, act, canManage: true }}
         onClose={() => undefined}
       />,
     );
@@ -80,6 +80,30 @@ describe("AgentSettingsDialog", () => {
     expect(await screen.findByText("已保存。")).toBeTruthy();
   });
 
+  it("only lists MCP on an owner device without management access: no measuring, no changes", async () => {
+    const mcpServers = vi.fn(async () => ({ ...listed, servers: listed.servers.slice(0, 2) }));
+    render(
+      <AgentSettingsDialog
+        agent={agent}
+        local={{
+          mcpServers,
+          updateSettings: async (_id, settings) => ({ ...agent, ...settings }),
+          act: async () => undefined,
+          canManage: false,
+        }}
+        onClose={() => undefined}
+      />,
+    );
+    expect(await screen.findByText("这台设备只能查看。要修改，先申请管理权。")).toBeTruthy();
+    // 测量会在 Server 所在电脑上起进程，没获批不发
+    expect(mcpServers).toHaveBeenCalledTimes(1);
+    expect(mcpServers).toHaveBeenCalledWith(agent.id, false);
+    for (const box of screen.getAllByRole("checkbox")) {
+      expect((box as HTMLInputElement).disabled).toBe(true);
+    }
+    expect((screen.getByRole("button", { name: "保存" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("asks for a restart when the running process predates the settings file", async () => {
     const act = vi.fn(async () => undefined);
     render(
@@ -89,6 +113,7 @@ describe("AgentSettingsDialog", () => {
           mcpServers: async () => ({ ...listed, servers: listed.servers.slice(0, 2) }),
           updateSettings: async (_id, settings) => ({ ...agent, ...settings }),
           act,
+          canManage: true,
         }}
         onClose={() => undefined}
       />,
