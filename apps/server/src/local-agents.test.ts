@@ -332,10 +332,111 @@ describe("local agent routes", () => {
       ).statusCode,
     ).toBe(403);
 
+    // 重启也绑定配置：获批后改了 MCP，旧批准单不算数
+    const claude = (
+      await app.inject({
+        method: "POST",
+        url: "/api/local/agents",
+        headers: owner,
+        payload: { provider: "claude", name: "rd-claude", access: "full", cwd: directory },
+      })
+    ).json().agent as { id: string };
+    const restart = (await call("POST", `/api/local/agents/${claude.id}/restart`)).json();
+    expect(restart.code).toBe("APPROVAL_REQUIRED");
+    await app.inject({
+      method: "POST",
+      url: `/api/local/approvals/${restart.approval.id}/decision`,
+      headers: owner,
+      payload: { allow: true },
+    });
+    expect(
+      (
+        await call("PUT", `/api/local/agents/${claude.id}/settings`, {
+          payload: { mcpDisabled: ["something"] },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/local/agents/${claude.id}/restart`,
+          headers: { ...device, "x-hive-approval": restart.approval.id },
+          ...remote,
+        })
+      ).json().code,
+    ).toBe("APPROVAL_REQUIRED");
+
     // 退出后立即失效
     await call("DELETE", `/api/local/owner-devices/${session.deviceId}`);
     expect((await call("GET", "/api/local/agents")).json().code).toBe("DEVICE_SESSION_INVALID");
     expect((await call("GET", "/api/local/session")).json().enabled).toBe(false);
+    // 失效的设备令牌不能退回去按本机身份放行：本机请求带着它也拿不到本机凭证
+    const stale = await app.inject({ method: "GET", url: "/api/local/session", headers: device });
+    expect(stale.json()).toMatchObject({ enabled: false });
+    expect(JSON.stringify(stale.json())).not.toContain(owner["x-hive-owner"]);
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/local/agents",
+          headers: { ...device, ...owner },
+        })
+      ).json().code,
+    ).toBe("DEVICE_SESSION_INVALID");
+  });
+
+  it("drops an owner device's WebSocket once its session expires, like HTTP", async () => {
+    let now = Date.now();
+    const app = await buildApp({
+      databasePath: ":memory:",
+      token: "join-token",
+      staticDir: "/definitely-not-present",
+      now: () => now,
+      accessSweepMs: 30,
+      localAgents: { cli, serverUrl: "http://127.0.0.1:8787", spawn: fakeSpawner().spawn, probe },
+    });
+    closeApp = () => app.close();
+    const { ownerToken } = (await app.inject({ method: "GET", url: "/api/local/session" })).json();
+    const pair = (
+      await app.inject({
+        method: "POST",
+        url: "/api/local/owner-devices/pair",
+        headers: { "x-hive-owner": ownerToken },
+        payload: { origin: "http://10.0.0.8:8787" },
+      })
+    ).json() as { url: string };
+    const { token } = (
+      await app.inject({
+        method: "POST",
+        url: "/api/owner-login",
+        payload: { ticket: new URL(pair.url).searchParams.get("login"), deviceName: "iPad" },
+        remoteAddress: "10.0.0.20",
+      })
+    ).json() as { token: string };
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const port = (app.server.address() as { port: number }).port;
+    const { default: WebSocket } = await import("ws");
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const events: Array<{ type: string; code?: string }> = [];
+    socket.on("message", (raw) => events.push(JSON.parse(raw.toString())));
+    await new Promise((resolve) => socket.once("open", resolve));
+    socket.send(
+      JSON.stringify({
+        type: "participant.join",
+        username: "rd",
+        participantType: "human",
+        roomId: "general",
+        token,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(events.some((event) => event.type === "room.snapshot")).toBe(true),
+    );
+    const closed = new Promise<number>((resolve) => socket.once("close", resolve));
+    now += 31 * 24 * 60 * 60_000;
+    expect(await closed).toBe(4401);
+    expect(events.at(-1)).toMatchObject({ type: "error", code: "SESSION_REVOKED" });
   });
 
   it("hands the owner token only to requests from this machine", async () => {

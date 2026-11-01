@@ -151,7 +151,10 @@ export class OwnerDevices {
       if (used.changes !== 1) return undefined;
       source = "pair";
     } else if (ticket.startsWith(IM_PREFIX)) {
-      const [encoded, signature] = ticket.slice(IM_PREFIX.length).split(".");
+      // 只认「载荷.签名」两段：多出的尾巴不能换出新票
+      const parts = ticket.slice(IM_PREFIX.length).split(".");
+      if (parts.length !== 2) return undefined;
+      const [encoded, signature] = parts as [string, string];
       if (!encoded || !signature) return undefined;
       const payload = Buffer.from(encoded, "base64url").toString();
       const expected = Buffer.from(this.sign(payload));
@@ -167,7 +170,8 @@ export class OwnerDevices {
       this.db.prepare("DELETE FROM owner_im_tickets_used WHERE expires_at < ?").run(this.now());
       const used = this.db
         .prepare("INSERT OR IGNORE INTO owner_im_tickets_used(token_hash, expires_at) VALUES(?, ?)")
-        .run(hash(ticket), Number(expires));
+        // 按签名覆盖的载荷去重：同一张票换种编码写法也算用过
+        .run(hash(payload), Number(expires));
       if (used.changes !== 1) return undefined;
       source = "im";
       connectionId = connection;
@@ -243,11 +247,18 @@ export class OwnerDevices {
     return until;
   }
 
+  /** 还没退出的设备（包括已超期、闲置失效但可能还连着的） */
+  unrevokedIds(): string[] {
+    return (
+      this.db.prepare("SELECT id FROM owner_devices WHERE revoked_at IS NULL").all() as Array<{
+        id: string;
+      }>
+    ).map((row) => row.id);
+  }
+
   /** 全部退出（丢了设备时用）；except 是发起操作的这台 */
   revokeAll(except?: string): string[] {
-    const ids = this.list()
-      .map((device) => device.id)
-      .filter((id) => id !== except);
+    const ids = this.unrevokedIds().filter((id) => id !== except);
     for (const id of ids) this.revoke(id);
     return ids;
   }

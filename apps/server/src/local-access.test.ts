@@ -17,13 +17,21 @@ describe("checkLocalRequest", () => {
     expect(checkLocalRequest(request("::ffff:127.0.0.1"), lan)).toEqual({ local: true });
     expect(
       checkLocalRequest(
-        request("10.0.0.8", { host: "10.0.0.8:8787", origin: "http://10.0.0.8:5188" }),
+        request("10.0.0.8", { host: "10.0.0.8:8787", origin: "http://10.0.0.8:8787" }),
         lan,
       ),
     ).toEqual({ local: true });
-    // dev：页面在 5188，Server 在 8787
+    // dev：页面在 5188，Server 在 8787，登记过的网页端口才放行
+    const dev = { originPorts: ["5188"] };
     expect(
-      checkLocalRequest(request("127.0.0.1", { origin: "http://localhost:5188" }), lan),
+      checkLocalRequest(request("127.0.0.1", { origin: "http://localhost:5188" }), lan, dev),
+    ).toEqual({ local: true });
+    expect(
+      checkLocalRequest(
+        request("10.0.0.8", { host: "10.0.0.8:8787", origin: "http://10.0.0.8:5188" }),
+        lan,
+        dev,
+      ),
     ).toEqual({ local: true });
   });
 
@@ -51,5 +59,11 @@ describe("checkLocalRequest", () => {
       checkLocalRequest(request("127.0.0.1", { origin: "https://evil.example" }), lan).local,
     ).toBe(false);
     expect(checkLocalRequest(request("127.0.0.1", { origin: "null" }), lan).local).toBe(false);
+    // 同一台电脑上别的端口跑着的网页也不行
+    expect(
+      checkLocalRequest(request("127.0.0.1", { origin: "http://localhost:3000" }), lan, {
+        originPorts: ["5188"],
+      }).local,
+    ).toBe(false);
   });
 });

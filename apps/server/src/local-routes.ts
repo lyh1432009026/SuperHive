@@ -14,7 +14,7 @@ import QRCode from "qrcode";
 import { HiveError } from "./database.js";
 import type { HostApproval, HostApprovals } from "./host-approvals.js";
 import type { OwnerDevice } from "./owner-devices.js";
-import { checkLocalRequest } from "./local-access.js";
+import { checkLocalRequest, type LocalCheck } from "./local-access.js";
 import { listDirectories } from "./local-directories.js";
 import type { LocalAgentSupervisor } from "./local-agents.js";
 
@@ -59,6 +59,8 @@ export const MANAGE_GRANT_MS = 12 * 60 * 60_000;
 const APPROVAL_HEADER = "x-hive-approval";
 
 export type LocalRoomActions = {
+  /** 请求是否来自 Server 所在电脑；默认 checkLocalRequest（不放行别的端口上的网页） */
+  isLocal?: (request: FastifyRequest) => LocalCheck;
   clearRoom: (roomId: string, username: string) => { messages: number; invocations: number };
   /** 房主在其他设备上的登录 */
   ownerDevices?: {
@@ -102,6 +104,10 @@ export function registerLocalAgentRoutes(
   const ownerBuffer = Buffer.from(ownerToken);
 
   const hostLabel = hostname().replace(/\.local$/, "");
+  const isLocal = rooms.isLocal ?? ((request: FastifyRequest) => checkLocalRequest(request));
+  /** 带了设备令牌但无效（退出、超期）：直接拒绝，不能退回去按本机身份放行 */
+  const staleDevice = (request: FastifyRequest, device: OwnerDevice | undefined) =>
+    !device && Boolean(request.headers.authorization?.startsWith("Bearer hod_"));
 
   /** 带着有效设备令牌的请求：房主在其他设备上登录 */
   function deviceOf(request: FastifyRequest): OwnerDevice | undefined {
@@ -114,6 +120,9 @@ export function registerLocalAgentRoutes(
     if (!supervisor) return { enabled: false, reason: "本机 Agent 已在服务端关闭" };
     // 带着设备令牌来的按设备对待，即使页面开在这台电脑上：只下发和它身份相符的能力
     const device = deviceOf(request);
+    if (staleDevice(request, device)) {
+      return { enabled: false, reason: "这台设备的登录已失效，请重新扫码或在飞书里发 /web。" };
+    }
     if (device) {
       return {
         enabled: true,
@@ -124,7 +133,7 @@ export function registerLocalAgentRoutes(
         approval: rooms.approvals?.remote() ? "im" : "local",
       };
     }
-    const check = checkLocalRequest(request);
+    const check = isLocal(request);
     if (!check.local) return { enabled: false, reason: check.reason };
     return { enabled: true, mode: "local", ownerToken, hostLabel };
   });
@@ -141,6 +150,13 @@ export function registerLocalAgentRoutes(
     }
     const provided = request.headers[OWNER_HEADER];
     const device = deviceOf(request);
+    if (staleDevice(request, device)) {
+      void reply.code(401).send({
+        error: "这台设备的登录已失效，请重新扫码或在飞书里发 /web。",
+        code: "DEVICE_SESSION_INVALID",
+      });
+      return undefined;
+    }
     // 带了本机凭证就只按本机校验：设备令牌不能和本机凭证混用
     if (provided === undefined) {
       if (device) {
@@ -164,13 +180,9 @@ export function registerLocalAgentRoutes(
         return { kind: "device", id: device.id, name: device.name };
       }
     }
-    const check = checkLocalRequest(request);
+    const check = isLocal(request);
     if (!check.local) {
-      const bearer = !device && request.headers.authorization?.startsWith("Bearer hod_");
-      void reply.code(bearer ? 401 : 403).send({
-        error: bearer ? "这台设备的登录已失效，请重新扫码或在飞书里发 /web。" : check.reason,
-        ...(bearer ? { code: "DEVICE_SESSION_INVALID" } : {}),
-      });
+      void reply.code(403).send({ error: check.reason });
       return undefined;
     }
     const buffer = Buffer.from(typeof provided === "string" ? provided : "");
@@ -458,7 +470,15 @@ export function registerLocalAgentRoutes(
             request,
             reply,
             caller,
-            `${action}:${id}`,
+            // 绑定这次要执行的配置：获批后改了权限、目录、MCP，旧批准单就不算数
+            `${action}:${id}:${JSON.stringify({
+              provider: target.provider,
+              name: target.name,
+              access: target.access,
+              cwd: target.cwd,
+              model: target.model,
+              mcpDisabled: [...target.mcpDisabled].sort(),
+            })}`,
             `${action === "start" ? "启动" : "重启"}完全权限的本机 Agent ${target.name}`,
           )
         ) {

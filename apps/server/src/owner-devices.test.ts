@@ -47,6 +47,10 @@ describe("房主在其他设备上登录", () => {
     expect(devices.redeem(ticket, "飞书", valid)?.device.source).toBe("im");
     // 同一张票不能再换出第二个会话：泄露的链接不能无限派生设备
     expect(devices.redeem(ticket, "飞书 2", valid)).toBeUndefined();
+    // 加尾巴、换一种等价编码也不行
+    expect(devices.redeem(`${ticket}.extra`, "x", valid)).toBeUndefined();
+    const [encoded, signature] = ticket.slice(4).split(".");
+    expect(devices.redeem(`hoi_${encoded}=.${signature}`, "x", valid)).toBeUndefined();
     const forged = ticket.replace(/.$/, (char) => (char === "A" ? "B" : "A"));
     expect(devices.redeem(forged, "x", valid)).toBeUndefined();
     const other = devices.createImTicket("conn-2");

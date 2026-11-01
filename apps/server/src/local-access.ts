@@ -6,7 +6,8 @@ import { networkInterfaces } from "node:os";
  * - 对端地址必须是回环地址或本机网卡地址（允许用局域网 IP 访问自己）
  * - 经过反向代理的请求一律拒绝：同机代理会让所有外部访问者看起来都像本机
  * - Host 必须是 localhost 或本机 IP 字面量：DNS rebinding 时 Host 是攻击者的域名
- * - 带 Origin 时其主机也必须属于本机：拦住恶意网页从浏览器里发起的跨站请求
+ * - 带 Origin 时其主机也必须属于本机，且端口与页面所访问的端口一致（或是登记过的网页端口，例如 dev 时的 Vite）：
+ *   拦住恶意网页从浏览器里发起的跨站请求，包括同一台电脑上别的端口跑着的网页
  */
 
 export type LocalRequestLike = {
@@ -39,8 +40,14 @@ export function localAddresses(): Set<string> {
 }
 
 function hostnameOf(value: string, withScheme: boolean): string | undefined {
+  return parse(value, withScheme)?.hostname;
+}
+
+function parse(value: string, withScheme: boolean): { hostname: string; port: string } | undefined {
   try {
-    return normalizeAddress(new URL(withScheme ? value : `http://${value}`).hostname);
+    const url = new URL(withScheme ? value : `http://${value}`);
+    const port = url.port || (url.protocol === "https:" ? "443" : "80");
+    return { hostname: normalizeAddress(url.hostname), port };
   } catch {
     return undefined;
   }
@@ -49,6 +56,8 @@ function hostnameOf(value: string, withScheme: boolean): string | undefined {
 export function checkLocalRequest(
   request: LocalRequestLike,
   addresses: Set<string> = localAddresses(),
+  /** 除了 Host 的端口，还允许哪些端口上的本机网页（dev 时的 Vite 端口） */
+  options: { originPorts?: readonly string[] } = {},
 ): LocalCheck {
   const isSelf = (address: string) => isLoopback(address) || addresses.has(address);
 
@@ -67,8 +76,15 @@ export function checkLocalRequest(
 
   const originHeader = request.headers.origin;
   if (originHeader !== undefined) {
-    const origin = typeof originHeader === "string" ? hostnameOf(originHeader, true) : undefined;
-    if (!origin || !isSelf(origin)) return { local: false, reason: "跨站请求不能使用本机 Agent" };
+    const origin = typeof originHeader === "string" ? parse(originHeader, true) : undefined;
+    const hostPort = typeof hostHeader === "string" ? parse(hostHeader, false)?.port : undefined;
+    if (
+      !origin ||
+      !isSelf(origin.hostname) ||
+      (origin.port !== hostPort && !options.originPorts?.includes(origin.port))
+    ) {
+      return { local: false, reason: "跨站请求不能使用本机 Agent" };
+    }
   }
   return { local: true };
 }

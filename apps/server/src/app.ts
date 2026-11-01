@@ -220,6 +220,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   });
   const clock = () => options.now?.() ?? Date.now();
   const hostApprovals = new HostApprovals({ now: clock });
+  // 本机网页可能开在别的端口（dev 时的 Vite、单独公布的网页地址）：只放行这些登记过的端口
+  const originPorts = [options.webUrl, options.publicUrl].flatMap((value) => {
+    if (!value) return [];
+    try {
+      const url = new URL(value);
+      return [url.port || (url.protocol === "https:" ? "443" : "80")];
+    } catch {
+      return [];
+    }
+  });
+  const isLocal = (request: Parameters<typeof checkLocalRequest>[0]) =>
+    checkLocalRequest(request, undefined, { originPorts });
   const databasePath = options.databasePath ?? "./data/hive.sqlite";
   const attachments = new AttachmentStore(database.connection(), {
     dir:
@@ -421,16 +433,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   registerLocalAgentRoutes(app, localAgents, {
     clearRoom,
+    isLocal,
     ownerDevices: {
       list: () => ownerDevices.list(),
       revoke: revokeOwnerDevice,
-      revokeAll: (except) => {
-        const ids = ownerDevices
-          .list()
-          .map((device) => device.id)
-          .filter((id) => id !== except);
-        return ids.filter((id) => revokeOwnerDevice(id));
-      },
+      // 包括已超期但可能还连着 WS 的：全部退出不能漏掉
+      revokeAll: (except) =>
+        ownerDevices
+          .unrevokedIds()
+          .filter((id) => id !== except)
+          .filter((id) => revokeOwnerDevice(id)),
       pair: () => ownerDevices.createPairTicket(),
       webBase: () => (options.webUrl ?? options.publicUrl)?.replace(/\/$/, ""),
       joinToken: () => joinToken,
@@ -588,8 +600,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     }
   }
 
-  /** 连接上的访客会话是否仍有效；失效时断开并返回 false */
+  /** 连接上的访客会话、房主设备会话是否仍有效；失效时断开并返回 false */
   function ensureActive(connection: Connection): boolean {
+    const principal = connection.principal;
+    if (principal?.kind === "admin" && principal.deviceId) {
+      // 设备会话超期、闲置太久或已退出：和 HTTP 一样不再放行
+      if (ownerDevices.get(principal.deviceId)) return true;
+      send(connection.socket, {
+        type: "error",
+        code: "SESSION_REVOKED",
+        message: "这台设备的登录已失效，请重新扫码或在飞书里发 /web。",
+      });
+      connection.socket.close(4401, "revoked");
+      disconnect(connection);
+      return false;
+    }
     if (connection.principal?.kind !== "guest") return true;
     const current = access.getSession(connection.principal.resolved.session.id);
     const resolved = current ? access.resolve(current, clock()) : undefined;
@@ -607,8 +632,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   function sweepExpiredAccess(): void {
     const expired = new Set<string>();
     for (const connection of [...connections]) {
-      if (connection.principal?.kind !== "guest") continue;
-      const id = connection.principal.resolved.session.id;
+      const principal = connection.principal;
+      if (principal?.kind === "admin" && principal.deviceId) {
+        ensureActive(connection);
+        continue;
+      }
+      if (principal?.kind !== "guest") continue;
+      const id = principal.resolved.session.id;
       if (!ensureActive(connection)) expired.add(id);
     }
     if (expired.size) refreshAccessPresence([...expired]);
@@ -1754,8 +1784,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       }
       try {
         // 在 Server 所在电脑上发起的扫码：这个 IM 账号可以批准其他设备管理这台电脑
-        const hostApprover =
-          checkLocalRequest(request).local && !isOwnerDeviceToken(bearerToken(request));
+        const hostApprover = isLocal(request).local && !isOwnerDeviceToken(bearerToken(request));
         return reply
           .code(201)
           .send(imHub.startLogin(room.id, body.data.channel, owner.username, { hostApprover }));
@@ -1844,7 +1873,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   ): boolean {
     const token = bearerToken(request);
     return (
-      checkLocalRequest(request).local ||
+      isLocal(request).local ||
       token === joinToken ||
       Boolean(isOwnerDeviceToken(token) && ownerDevices.resolve(token))
     );
@@ -2375,7 +2404,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   app.get<{ Params: { id: string } }>("/api/attachments/:id/local-path", async (request, reply) => {
     const principal = guard(request, reply);
     if (!principal) return;
-    if (principal.kind !== "admin" || !checkLocalRequest(request).local) {
+    if (principal.kind !== "admin" || !isLocal(request).local) {
       return reply.code(403).send({ error: "只提供给本机的房主 Agent。", code: "LOCAL_ONLY" });
     }
     const id = z.string().uuid().safeParse(request.params.id);
