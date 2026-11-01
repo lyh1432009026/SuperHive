@@ -700,10 +700,13 @@ export function HostManageNotice({
     if (compact) return null;
     return (
       <p className="host-manage-notice granted" role="status">
-        {t("这台设备已获准管理 {0}，到 {1} 为止。用完全权限启动 Agent 时还要再确认一次。", {
-          0: host,
-          1: new Date(local.manageUntil ?? "").toLocaleString(),
-        })}
+        {t(
+          "这台设备已获准管理 {0}，到 {1} 为止。启动的 Agent 和 MCP 可能在没有沙箱的情况下执行命令；只有用完全权限启动时会再逐次确认。",
+          {
+            0: host,
+            1: new Date(local.manageUntil ?? "").toLocaleString(),
+          },
+        )}
       </p>
     );
   }
@@ -716,7 +719,7 @@ export function HostManageNotice({
             ? t("已发出申请，请在飞书里点「允许」，或到 {0} 上批准。", { 0: host })
             : t("已发出申请，请到 {0} 上打开 SuperHive 批准。", { 0: host })
           : t(
-              "你在另一台设备上，可以查看 {0} 上的 Agent 和目录。要启动、停止 Agent 或修改设置，先申请管理权（批准后 12 小时内有效）。",
+              "你在另一台设备上，可以查看 {0} 上的 Agent 和目录。要启动、停止 Agent 或修改设置，先申请管理权（批准后 12 小时内有效）。获批后启动的 Agent 和 MCP 可能在没有沙箱的情况下执行命令。",
               { 0: host },
             )}
       </p>

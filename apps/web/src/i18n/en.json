@@ -881,7 +881,6 @@
   "Server 所在电脑（{0}）": "Server computer ({0})",
   "Server 所在电脑（{0}）上的目录。那台电脑上的 Agent 在这个房间改在这里工作（需在它允许的范围内：启动目录及其上一级，或用 --allow-root 追加）；修改后 Agent 等手上的任务做完再切换，并开始新会话。": "A directory on the Server computer ({0}). Agents on that computer work here in this room (within their allowed scope: the launch directory and its parent, or added with --allow-root); after a change, agents switch once their current task finishes and start a new session.",
   "不是你本人在操作就拒绝，并在设置 → 已登录设备里全部退出。": "If this isn't you, deny it and sign out all devices in Settings → Signed-in devices.",
-  "你在另一台设备上，可以查看 {0} 上的 Agent 和目录。要启动、停止 Agent 或修改设置，先申请管理权（批准后 12 小时内有效）。": "You're on another device and can view agents and directories on {0}. To start or stop agents or change settings, request management access first (valid for 12 hours once approved).",
   "允许": "Allow",
   "全部退出": "Sign out all",
   "其他设备申请管理这台电脑（启动 Agent、改设置）时，把批准卡推到这些账号。在这台电脑上扫码连接的会自动勾上。": "When another device requests to manage this computer (start agents, change settings), send the approval card to these accounts. Accounts connected by scanning on this computer are enabled automatically.",
@@ -898,7 +897,6 @@
   "请到 {0} 上打开 SuperHive 批准；5 分钟内有效。": "Open SuperHive on {0} to approve. Valid for 5 minutes.",
   "请在飞书里点「允许」，或到 {0} 上批准；5 分钟内有效。": "Tap \"Allow\" in Feishu, or approve on {0}. Valid for 5 minutes.",
   "运行 Hive Server 的那台电脑的设置，对所有房间生效。": "Settings for the computer running Hive Server. They apply to all rooms.",
-  "这台设备已获准管理 {0}，到 {1} 为止。用完全权限启动 Agent 时还要再确认一次。": "This device may manage {0} until {1}. Starting an agent with full access still needs a separate confirmation.",
   "退出其他所有已登录的设备？手机丢了或怀疑被盗用时用。": "Sign out all other devices? Use this if a phone is lost or you suspect misuse.",
   "退出其他所有设备": "Sign out other devices",
   "需要你批准": "Needs your approval",
@@ -912,5 +910,7 @@
   "这台设备只能查看。要清空，先申请管理权。": "This device can only view. Request management access to clear the room.",
   "由 {0} 上的 Hive Server 启动": "Started by the Hive Server on {0}",
   "主机": "Host",
-  "三步完成：选择 Agent、设置权限，然后一键在 {0} 上启动（也可以复制命令）。": "Three steps: pick an agent, set its permissions, then start it on {0} in one click (or copy the command)."
+  "三步完成：选择 Agent、设置权限，然后一键在 {0} 上启动（也可以复制命令）。": "Three steps: pick an agent, set its permissions, then start it on {0} in one click (or copy the command).",
+  "这台设备已获准管理 {0}，到 {1} 为止。启动的 Agent 和 MCP 可能在没有沙箱的情况下执行命令；只有用完全权限启动时会再逐次确认。": "This device may manage {0} until {1}. Agents and MCP servers it starts may run commands without a sandbox; only full-access starts need a separate confirmation each time.",
+  "你在另一台设备上，可以查看 {0} 上的 Agent 和目录。要启动、停止 Agent 或修改设置，先申请管理权（批准后 12 小时内有效）。获批后启动的 Agent 和 MCP 可能在没有沙箱的情况下执行命令。": "You're on another device and can view agents and directories on {0}. To start or stop agents or change settings, request management access first (valid for 12 hours once approved). Agents and MCP servers started after approval may run commands without a sandbox."
 }

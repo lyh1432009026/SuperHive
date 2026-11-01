@@ -134,6 +134,8 @@ type Runtime = {
   exited?: Promise<void> | undefined;
   /** 当前进程启动时带了设置文件：之后的勾选改动下一轮就生效；否则要重启一次 */
   settingsApplied: boolean;
+  /** 正在重启（等旧进程退出）：这期间不接受设置改动，免得新进程用上没批准过的配置 */
+  transitioning?: boolean;
 };
 
 // eslint-disable-next-line no-control-regex
@@ -435,6 +437,9 @@ export class LocalAgentSupervisor {
   /** 保存网页上的勾选；已带设置文件启动的 Agent 下一轮就按新的勾选加载 */
   updateSettings(id: string, settings: { mcpDisabled: string[] }): LocalAgent {
     const runtime = this.require(id);
+    if (runtime.transitioning) {
+      throw new HiveError("LOCAL_AGENT_BUSY", "这个 Agent 正在重启，等它启动后再改设置。");
+    }
     if (!MCP_SELECTABLE.has(runtime.config.provider)) {
       throw new HiveError(
         "LOCAL_AGENT_MCP_UNSUPPORTED",
@@ -594,13 +599,32 @@ export class LocalAgentSupervisor {
     return this.view(runtime);
   }
 
-  async restart(id: string): Promise<LocalAgent> {
+  /**
+   * 重启。guard 在真正启动前对最终配置再核对一次（例如批准单绑定的配置），不通过就不启动；
+   * 等旧进程退出期间拒绝设置改动，保证核对过的就是要启动的。
+   */
+  async restart(id: string, guard?: (agent: LocalAgent) => boolean): Promise<LocalAgent> {
     const runtime = this.require(id);
-    await this.terminate(runtime);
-    runtime.failures = [];
-    runtime.consecutiveFailures = 0;
-    this.options.database.setLocalAgentAutostart(id, true);
-    this.launch(runtime);
+    if (runtime.transitioning) {
+      throw new HiveError("LOCAL_AGENT_BUSY", "这个 Agent 正在重启。");
+    }
+    runtime.transitioning = true;
+    try {
+      await this.terminate(runtime);
+      if (guard && !guard(this.view(runtime))) {
+        runtime.phase = "stopped";
+        throw new HiveError(
+          "LOCAL_AGENT_CONFIG_CHANGED",
+          "Agent 的配置在批准后变了，已停下没有启动，请重新申请批准。",
+        );
+      }
+      runtime.failures = [];
+      runtime.consecutiveFailures = 0;
+      this.options.database.setLocalAgentAutostart(id, true);
+      this.launch(runtime);
+    } finally {
+      runtime.transitioning = false;
+    }
     return this.view(runtime);
   }
 

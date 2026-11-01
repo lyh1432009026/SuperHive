@@ -961,6 +961,48 @@ describe("LocalAgentSupervisor", () => {
     database.close();
   });
 
+  it("refuses settings changes while restarting, and the guard can stop a changed config from launching", async () => {
+    const database = new HiveDatabase(":memory:");
+    const spawner = fakeSpawner({ exitOnTerm: false });
+    const supervisor = new LocalAgentSupervisor({
+      database,
+      cli,
+      serverUrl: "http://127.0.0.1:8787",
+      joinToken: "join-token",
+      isAgentOnline: () => false,
+      isNameInUse: () => false,
+      spawn: spawner.spawn,
+      probe,
+      setTimer: manualTimers().setTimer,
+      settingsDir: mkdtempSync(path.join(tmpdir(), "hive-settings-")),
+    });
+    const directory = mkdtempSync(path.join(tmpdir(), "hive-restart-"));
+    const agent = supervisor.create({
+      provider: "claude",
+      name: "rd-claude",
+      access: "full",
+      cwd: directory,
+    });
+    // 等旧进程退出期间改 MCP：拒绝，新进程用的仍是批准时的配置
+    const restarting = supervisor.restart(agent.id, (current) => current.mcpDisabled.length === 0);
+    expect(() => supervisor.updateSettings(agent.id, { mcpDisabled: ["x"] })).toThrow(
+      expect.objectContaining({ code: "LOCAL_AGENT_BUSY" }),
+    );
+    spawner.children[0]!.exit(0);
+    expect((await restarting).mcpDisabled).toEqual([]);
+    expect(spawner.children).toHaveLength(2);
+
+    // 配置和批准时不一致：停下，不启动
+    supervisor.updateSettings(agent.id, { mcpDisabled: ["x"] });
+    const guarded = supervisor.restart(agent.id, (current) => current.mcpDisabled.length === 0);
+    spawner.children[1]!.exit(0);
+    await expect(guarded).rejects.toMatchObject({ code: "LOCAL_AGENT_CONFIG_CHANGED" });
+    expect(spawner.children).toHaveLength(2);
+    expect(supervisor.list()[0]!.status).toBe("stopped");
+    await supervisor.shutdown();
+    database.close();
+  });
+
   it("escalates to SIGKILL when an agent ignores SIGTERM", async () => {
     const database = new HiveDatabase(":memory:");
     const spawner = fakeSpawner({ exitOnTerm: false });

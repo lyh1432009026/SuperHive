@@ -8,6 +8,7 @@ import {
   keepAwakeSettingsSchema,
   type KeepAwakeSettings,
   type KeepAwakeState,
+  type LocalAgent,
   type LocalSessionResponse,
 } from "@superhive/protocol";
 import QRCode from "qrcode";
@@ -46,7 +47,21 @@ const ERROR_STATUS: Record<string, number> = {
   NOT_A_MEMBER: 403,
   LOCAL_AGENT_MCP_UNSUPPORTED: 400,
   LOCAL_AGENT_MCP_LIST_FAILED: 502,
+  LOCAL_AGENT_BUSY: 409,
+  LOCAL_AGENT_CONFIG_CHANGED: 409,
 };
+
+/** 批准单绑定的 Agent 配置：获批后权限、目录、模型、MCP 任一变化都不算同一件事 */
+function configFingerprint(agent: LocalAgent): string {
+  return JSON.stringify({
+    provider: agent.provider,
+    name: agent.name,
+    access: agent.access,
+    cwd: agent.cwd,
+    model: agent.model,
+    mcpDisabled: [...agent.mcpDisabled].sort(),
+  });
+}
 
 export type LocalCaller = { kind: "local" } | { kind: "device"; id: string; name: string };
 
@@ -303,7 +318,7 @@ export function registerLocalAgentRoutes(
       kind: "manage",
       deviceId: device.id,
       deviceName: device.name,
-      summary: `设备「${device.name}」申请在 12 小时内管理 ${hostLabel}（启动、停止本机 Agent，修改设置）`,
+      summary: `设备「${device.name}」申请在 12 小时内管理 ${hostLabel}（启动、停止本机 Agent，修改设置）。获批后它能启动的 Agent 和 MCP 可能在没有沙箱的情况下执行命令；只有用完全权限启动时会再逐次确认。`,
     });
     return { approval, delivered: approvals.send(approval) };
   });
@@ -471,26 +486,27 @@ export function registerLocalAgentRoutes(
             reply,
             caller,
             // 绑定这次要执行的配置：获批后改了权限、目录、MCP，旧批准单就不算数
-            `${action}:${id}:${JSON.stringify({
-              provider: target.provider,
-              name: target.name,
-              access: target.access,
-              cwd: target.cwd,
-              model: target.model,
-              mcpDisabled: [...target.mcpDisabled].sort(),
-            })}`,
+            `${action}:${id}:${configFingerprint(target)}`,
             `${action === "start" ? "启动" : "重启"}完全权限的本机 Agent ${target.name}`,
           )
         ) {
           return reply;
         }
+        // 重启要先等旧进程退出：真正启动前再核对一次配置还是批准时那份
+        const approved =
+          caller.kind === "device" && target?.access === "full"
+            ? configFingerprint(target)
+            : undefined;
         try {
           const agent =
             action === "start"
               ? supervisor!.startAgent(id)
               : action === "stop"
                 ? await supervisor!.stop(id)
-                : await supervisor!.restart(id);
+                : await supervisor!.restart(
+                    id,
+                    approved ? (current) => configFingerprint(current) === approved : undefined,
+                  );
           const verb = { start: "启动", stop: "停止", restart: "重启" }[action];
           audit(request, caller, `${verb}了本机 Agent ${agent.name}`, action !== "stop");
           return { agent };
