@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -1954,5 +1954,31 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
     expect(active.onlineInvocationIds).toEqual([active.invocations[0].id]);
     const unauthorized = await app.inject({ method: "GET", url: "/api/search?q=x" });
     expect(unauthorized.statusCode).toBe(401);
+  });
+});
+
+describe("网页安全响应头", () => {
+  it("网页带内容安全策略，不允许内联脚本、不被嵌入、不带 Referer（链接里有登录票）", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "hive-static-"));
+    writeFileSync(path.join(dir, "index.html"), "<!doctype html><div id=root></div>");
+    const app = await buildApp({ databasePath: ":memory:", staticDir: dir });
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/",
+        headers: { host: "10.0.0.8:8787" },
+      });
+      const policy = String(response.headers["content-security-policy"]);
+      expect(policy).toContain("script-src 'self'");
+      expect(policy).toContain("frame-ancestors 'none'");
+      expect(policy).toContain("connect-src 'self' ws://10.0.0.8:8787 wss://10.0.0.8:8787");
+      expect(response.headers["referrer-policy"]).toBe("no-referrer");
+      // 接口不受影响
+      const meta = await app.inject({ method: "GET", url: "/api/meta" });
+      expect(meta.headers["content-security-policy"]).toBeUndefined();
+    } finally {
+      await app.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

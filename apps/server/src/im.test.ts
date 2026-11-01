@@ -694,13 +694,27 @@ describe("IM 推送档位", () => {
     close = undefined;
   });
 
-  async function setup(options: { richCards?: boolean; webUrl?: string } = {}) {
+  async function setup(
+    options: { richCards?: boolean; webUrl?: string; localAgents?: boolean } = {},
+  ) {
     const fake = new FakeChannel();
     fake.richCards = Boolean(options.richCards);
     const clock = { offset: 0 };
     const app = await buildApp({
       databasePath: ":memory:",
       ...(options.webUrl ? { webUrl: options.webUrl } : {}),
+      ...(options.localAgents
+        ? {
+            localAgents: {
+              cli: { command: "/usr/bin/node", args: ["cli.js"] },
+              serverUrl: "http://127.0.0.1:8787",
+              spawn: () => {
+                throw new Error("not in this test");
+              },
+              probe: async () => ({ installed: false, version: null }),
+            },
+          }
+        : {}),
       token: "test-token",
       staticDir: "/definitely-not-present",
       now: () => Date.now() + clock.offset,
@@ -1174,6 +1188,87 @@ describe("IM 推送档位", () => {
       fake.sent.find((item) => item.rich?.title === "在网页上打开 Hive"),
     );
     expect(web.rich!.link!.url).toContain("login=hoi_");
+  });
+
+  it("其他设备申请管理这台电脑：批准卡推到本机扫码连接的账号，房主本人点允许后获批；设备上的操作推提醒", async () => {
+    const { fake, app, id } = await setup({
+      richCards: true,
+      webUrl: "http://10.0.0.8:5188",
+      localAgents: true,
+    });
+    fake.emit({ text: "/web" });
+    const web = await until(() =>
+      fake.sent.find((item) => item.rich?.title === "在网页上打开 Hive"),
+    );
+    const ticket = new URL(web.rich!.link!.url).searchParams.get("login")!;
+    const { token } = (
+      await app.inject({
+        method: "POST",
+        url: "/api/owner-login",
+        payload: { ticket, deviceName: "iPhone · 飞书" },
+        remoteAddress: "10.0.0.30",
+      })
+    ).json() as { token: string };
+    const device = (method: "GET" | "POST", url: string) =>
+      app.inject({
+        method,
+        url,
+        headers: { authorization: `Bearer ${token}` },
+        remoteAddress: "10.0.0.30",
+      });
+    expect((await device("GET", "/api/local/session")).json()).toMatchObject({
+      mode: "device",
+      approval: "im",
+      manageUntil: null,
+    });
+
+    const request = (await device("POST", "/api/local/manage-request")).json();
+    expect(request.delivered).toBe(1);
+    const card = await until(() => fake.sent.find((item) => item.rich?.title === "需要你批准"));
+    expect(card.chatId).toBe("user:owner-open-id");
+    expect(card.rich!.body).toContain("iPhone · 飞书");
+    const externalId = fake.sentIds.get(card)!;
+    expect(
+      fake.events!.onAction!({
+        externalId,
+        chatId: card.chatId,
+        operatorId: "someone-else",
+        value: { hive: "1", do: "host_approval", id: request.approval.id, decision: "allow" },
+      }),
+    ).toMatchObject({ toast: { type: "error" } });
+    expect(
+      fake.events!.onAction!({
+        externalId,
+        chatId: card.chatId,
+        operatorId: "owner-open-id",
+        value: { hive: "1", do: "host_approval", id: request.approval.id, decision: "allow" },
+      }),
+    ).toMatchObject({
+      toast: { text: "已允许" },
+      rich: { resolved: { text: "已允许", ok: true } },
+    });
+    expect((await device("GET", "/api/local/session")).json().manageUntil).toEqual(
+      expect.any(String),
+    );
+
+    // 设备上做了管理操作：推一条提醒到房主私聊
+    expect((await device("POST", "/api/local/owner-devices/revoke-all")).statusCode).toBe(200);
+    const notice = await until(() =>
+      fake.sent.find((item) => item.text.includes("退出了其他 0 台已登录的设备")),
+    );
+    expect(notice.chatId).toBe("user:owner-open-id");
+
+    // 取消登记后，申请只能回本机批准
+    const { ownerToken } = (await app.inject({ method: "GET", url: "/api/local/session" })).json();
+    const unset = await app.inject({
+      method: "PUT",
+      url: `/api/local/host-approvers/${id}`,
+      headers: { "x-hive-owner": ownerToken },
+      payload: { allowed: false },
+    });
+    expect(unset.json().approvers).toMatchObject([{ connectionId: id, allowed: false }]);
+    const second = (await device("POST", "/api/local/manage-request")).json();
+    expect(second.delivered).toBe(0);
   });
 
   it("群里派的活，回到群里的卡片不带房主登录票；群里发 /web 只提示去私聊", async () => {

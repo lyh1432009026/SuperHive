@@ -838,7 +838,7 @@ export const accessResponseSchema = z.discriminatedUnion("role", [
   }),
 ]);
 
-/* ---------- 本机 Agent（仅 Hive Server 所在电脑上的房主可用） ---------- */
+/* ---------- 本机 Agent（Hive Server 所在电脑上的房主，或房主登录的其他设备） ---------- */
 
 /** 可以由本机一键启动的 Provider */
 export const localAgentProviderSchema = z.enum([
@@ -925,8 +925,30 @@ export const localAgentMcpResponseSchema = z.object({
   baselineTokens: z.number().int().nullable(),
 });
 
-export const localSessionResponseSchema = z.discriminatedUnion("enabled", [
-  z.object({ enabled: z.literal(true), ownerToken: z.string() }),
+/**
+ * 能不能在网页上管理 Server 所在电脑：
+ * - local：页面就开在这台电脑上，下发进程房主凭证（X-Hive-Owner），全部功能可用；
+ * - device：房主在其他设备上登录（扫码或飞书），凭自己的设备令牌（Authorization）使用，
+ *   不下发进程凭证。查看直接可用；启动 Agent、改设置要先申请管理权（经本机或 IM 批准），
+ *   用完全权限起进程还要逐次批准；生成登录二维码、显示总令牌只限 local。
+ */
+export const localSessionResponseSchema = z.union([
+  z.object({
+    enabled: z.literal(true),
+    mode: z.literal("local"),
+    ownerToken: z.string(),
+    hostLabel: z.string(),
+  }),
+  z.object({
+    enabled: z.literal(true),
+    mode: z.literal("device"),
+    deviceId: z.string(),
+    hostLabel: z.string(),
+    /** 获准管理这台电脑到什么时候；null：只能查看，要先申请 */
+    manageUntil: z.string().nullable(),
+    /** 申请在哪里批准：im=推到可批准的 IM 账号（也可在本机批准）；local=只能到本机批准 */
+    approval: z.enum(["im", "local"]),
+  }),
   z.object({ enabled: z.literal(false), reason: z.string() }),
 ]);
 

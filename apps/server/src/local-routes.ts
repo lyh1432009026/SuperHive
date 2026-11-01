@@ -1,4 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { hostname } from "node:os";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   createLocalAgentRequestSchema,
@@ -11,16 +12,25 @@ import {
 } from "@superhive/protocol";
 import QRCode from "qrcode";
 import { HiveError } from "./database.js";
+import type { HostApproval, HostApprovals } from "./host-approvals.js";
 import type { OwnerDevice } from "./owner-devices.js";
 import { checkLocalRequest } from "./local-access.js";
 import { listDirectories } from "./local-directories.js";
 import type { LocalAgentSupervisor } from "./local-agents.js";
 
 /**
- * 本机 Agent 的 HTTP 接口。每个请求都要同时满足：
- * 1. 来自 Hive Server 所在电脑（checkLocalRequest）
- * 2. 携带本次进程启动时生成的房主 token（X-Hive-Owner），它只经 /api/local/session 交给本机页面
- * 公开的 join token 不能用来启动进程。
+ * 本机 Agent 的 HTTP 接口（管理 Hive Server 所在电脑）。请求方必须是下面两种之一：
+ * 1. 本机房主：来自 Server 所在电脑（checkLocalRequest），且携带本次进程启动时生成的房主 token
+ *    （X-Hive-Owner），它只经 /api/local/session 交给本机页面；
+ * 2. 房主设备：房主扫码或经飞书登录的其他设备，Authorization 携带有效的设备令牌（hod_）。
+ *    令牌放在请求头里，跨站页面带不上；可以单独退出。
+ * 总令牌（join token）不算：Agent 也持有它，放行就等于远程 Agent 能在这台电脑上起进程。访客更不算。
+ *
+ * 接口分三级：
+ * - read：只读（列目录、Agent 状态、MCP 列表、日志），登录的设备直接可用；
+ * - manage：会在这台电脑上起进程或改设置。设备要先申请、经本机或可批准的 IM 账号批准，获批后 12 小时内可用，
+ *   每次操作记审计日志并推到房主 IM；用完全权限起进程还要逐次批准（stepUp）；
+ * - local：凭据类（生成登录二维码、显示总令牌、登记可批准的 IM 账号），只限本机。
  */
 
 const OWNER_HEADER = "x-hive-owner";
@@ -38,17 +48,45 @@ const ERROR_STATUS: Record<string, number> = {
   LOCAL_AGENT_MCP_LIST_FAILED: 502,
 };
 
+export type LocalCaller = { kind: "local" } | { kind: "device"; id: string; name: string };
+
+/** read：只读；manage：会在这台电脑上起进程或改设置；local：凭据类，只限本机 */
+type Level = "read" | "manage" | "local";
+
+/** 设备获批后能管理这台电脑多久 */
+export const MANAGE_GRANT_MS = 12 * 60 * 60_000;
+
+const APPROVAL_HEADER = "x-hive-approval";
+
 export type LocalRoomActions = {
   clearRoom: (roomId: string, username: string) => { messages: number; invocations: number };
-  /** 房主在其他设备上的登录：只能在 Server 所在电脑上管理 */
+  /** 房主在其他设备上的登录 */
   ownerDevices?: {
     list(): OwnerDevice[];
     revoke(id: string): boolean;
+    revokeAll(except?: string): string[];
     pair(): { ticket: string; expiresAt: string };
     webBase(): string | undefined;
     joinToken(): string;
+    /** 设备令牌对应的设备；无效、已退出、超期或闲置过久时为 undefined */
+    resolve(token: string): OwnerDevice | undefined;
   };
-  /** 熄屏后保持在线：控制的是这台电脑，只给本机房主 */
+  /** 其他设备管理这台电脑要经过的批准 */
+  approvals?: {
+    store: HostApprovals;
+    /** 把批准卡推到可批准的 IM 账号，返回推出去的数量（0 表示只能回本机批准） */
+    send(approval: HostApproval): number;
+    /** 有没有可批准的 IM 账号 */
+    remote(): boolean;
+    /** 批准或拒绝（本机网页和 IM 卡片共用）：manage 获批时给设备授予管理权 */
+    decide(id: string, allow: boolean, by: string): HostApproval | undefined;
+    /** 可以批准的 IM 账号：只能在本机登记 */
+    approvers(): Array<{ connectionId: string; channel: string; label: string; allowed: boolean }>;
+    setApprover(connectionId: string, allowed: boolean): boolean;
+  };
+  /** 房主设备上做了会在这台电脑上起进程、改设置的操作：推到房主 IM，便于发现设备被盗用 */
+  notifyOwner?: (text: string) => void;
+  /** 熄屏后保持在线 */
   keepAwake?: {
     state(): KeepAwakeState | undefined;
     update(patch: Partial<KeepAwakeSettings>): KeepAwakeState | undefined;
@@ -63,31 +101,140 @@ export function registerLocalAgentRoutes(
   const ownerToken = randomBytes(32).toString("hex");
   const ownerBuffer = Buffer.from(ownerToken);
 
+  const hostLabel = hostname().replace(/\.local$/, "");
+
+  /** 带着有效设备令牌的请求：房主在其他设备上登录 */
+  function deviceOf(request: FastifyRequest): OwnerDevice | undefined {
+    const header = request.headers.authorization;
+    if (!header?.startsWith("Bearer ")) return undefined;
+    return rooms.ownerDevices?.resolve(header.slice(7));
+  }
+
   app.get("/api/local/session", async (request): Promise<LocalSessionResponse> => {
     if (!supervisor) return { enabled: false, reason: "本机 Agent 已在服务端关闭" };
+    // 带着设备令牌来的按设备对待，即使页面开在这台电脑上：只下发和它身份相符的能力
+    const device = deviceOf(request);
+    if (device) {
+      return {
+        enabled: true,
+        mode: "device",
+        deviceId: device.id,
+        hostLabel,
+        manageUntil: device.manageUntil,
+        approval: rooms.approvals?.remote() ? "im" : "local",
+      };
+    }
     const check = checkLocalRequest(request);
     if (!check.local) return { enabled: false, reason: check.reason };
-    return { enabled: true, ownerToken };
+    return { enabled: true, mode: "local", ownerToken, hostLabel };
   });
 
-  /** 返回 true 表示已拒绝并发出了响应 */
-  function deny(request: FastifyRequest, reply: FastifyReply): boolean {
+  /** 校验请求方能否调用这一级接口；不能时发出响应并返回 undefined */
+  function authorize(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    level: Level,
+  ): LocalCaller | undefined {
     if (!supervisor) {
       void reply.code(404).send({ error: "本机 Agent 已在服务端关闭。" });
-      return true;
+      return undefined;
+    }
+    const provided = request.headers[OWNER_HEADER];
+    const device = deviceOf(request);
+    // 带了本机凭证就只按本机校验：设备令牌不能和本机凭证混用
+    if (provided === undefined) {
+      if (device) {
+        if (level === "local") {
+          void reply.code(403).send({
+            error: "这项操作只能在 Hive Server 所在的电脑上进行。",
+            code: "LOCAL_ONLY",
+          });
+          return undefined;
+        }
+        if (
+          level === "manage" &&
+          !(device.manageUntil && Date.parse(device.manageUntil) > Date.now())
+        ) {
+          void reply.code(403).send({
+            error: "这台设备还没有获准管理 Hive Server 所在的电脑，请先申请。",
+            code: "MANAGE_REQUIRED",
+          });
+          return undefined;
+        }
+        return { kind: "device", id: device.id, name: device.name };
+      }
     }
     const check = checkLocalRequest(request);
     if (!check.local) {
-      void reply.code(403).send({ error: check.reason });
-      return true;
+      const bearer = !device && request.headers.authorization?.startsWith("Bearer hod_");
+      void reply.code(bearer ? 401 : 403).send({
+        error: bearer ? "这台设备的登录已失效，请重新扫码或在飞书里发 /web。" : check.reason,
+        ...(bearer ? { code: "DEVICE_SESSION_INVALID" } : {}),
+      });
+      return undefined;
     }
-    const provided = request.headers[OWNER_HEADER];
     const buffer = Buffer.from(typeof provided === "string" ? provided : "");
     if (buffer.length !== ownerBuffer.length || !timingSafeEqual(buffer, ownerBuffer)) {
       void reply.code(401).send({ error: "缺少或错误的房主凭证，请刷新页面。" });
+      return undefined;
+    }
+    return { kind: "local" };
+  }
+
+  /**
+   * 单次高危操作（用完全权限起进程）：设备上每次都要批准。
+   * 带着已批准、未用过、同一设备同一参数的批准单才放行；否则发起批准并回 403 APPROVAL_REQUIRED。
+   */
+  function stepUp(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    caller: LocalCaller,
+    fingerprint: string,
+    summary: string,
+  ): boolean {
+    if (caller.kind === "local") return true;
+    const approvals = rooms.approvals;
+    if (!approvals) {
+      void reply.code(403).send({ error: "这项操作只能在 Hive Server 所在的电脑上进行。" });
+      return false;
+    }
+    const presented = request.headers[APPROVAL_HEADER];
+    if (
+      typeof presented === "string" &&
+      approvals.store.consume(presented, caller.id, fingerprint)
+    ) {
       return true;
     }
+    const approval = approvals.store.create({
+      kind: "action",
+      deviceId: caller.id,
+      deviceName: caller.name,
+      summary,
+      fingerprint,
+    });
+    const delivered = approvals.send(approval);
+    void reply.code(403).send({
+      error: delivered
+        ? "这项操作需要你在飞书里确认一次。"
+        : "这项操作需要在 Hive Server 所在的电脑上确认一次。",
+      code: "APPROVAL_REQUIRED",
+      approval,
+      delivered,
+    });
     return false;
+  }
+
+  /** 房主设备上的操作：记审计日志；notify 时再推一条到房主 IM */
+  function audit(request: FastifyRequest, caller: LocalCaller, action: string, notify = false) {
+    if (caller.kind !== "device") return;
+    request.log.info(
+      { ownerDevice: { id: caller.id, name: caller.name }, action },
+      "owner device action",
+    );
+    if (notify)
+      rooms.notifyOwner?.(
+        `已登录的设备「${caller.name}」在 ${hostLabel} 上${action}。如果不是你本人操作，请立即在设置 → 已登录设备里全部退出。`,
+      );
   }
 
   function fail(reply: FastifyReply, error: unknown) {
@@ -98,24 +245,112 @@ export function registerLocalAgentRoutes(
   }
 
   app.get("/api/local/owner-devices", async (request, reply) => {
-    if (deny(request, reply)) return reply;
+    if (!authorize(request, reply, "read")) return reply;
     if (!rooms.ownerDevices) return reply.code(404).send({ error: "未启用。" });
     return { devices: rooms.ownerDevices.list() };
   });
 
+  /** 退出一台设备：退出自己随时可以；退出别的设备要有管理权 */
   app.delete<{ Params: { id: string } }>("/api/local/owner-devices/:id", async (request, reply) => {
-    if (deny(request, reply)) return reply;
+    const self = deviceOf(request)?.id === request.params.id;
+    const caller = authorize(request, reply, self ? "read" : "manage");
+    if (!caller) return reply;
     if (!rooms.ownerDevices?.revoke(request.params.id)) {
       return reply.code(404).send({ error: "没有这台设备，或已经退出。" });
     }
+    rooms.approvals?.store.dropDevice(request.params.id);
+    if (!self) audit(request, caller, "退出了另一台已登录的设备", true);
     return { ok: true };
   });
+
+  /** 全部退出：丢了设备时用。在设备上操作时保留它自己 */
+  app.post("/api/local/owner-devices/revoke-all", async (request, reply) => {
+    const caller = authorize(request, reply, "manage");
+    if (!caller) return reply;
+    const owner = rooms.ownerDevices;
+    if (!owner) return reply.code(404).send({ error: "未启用。" });
+    const revoked = owner.revokeAll(caller.kind === "device" ? caller.id : undefined);
+    for (const id of revoked) rooms.approvals?.store.dropDevice(id);
+    audit(request, caller, `退出了其他 ${revoked.length} 台已登录的设备`, true);
+    return { revoked: revoked.length };
+  });
+
+  /* ---------- 其他设备申请管理这台电脑 ---------- */
+
+  app.post("/api/local/manage-request", async (request, reply) => {
+    const device = deviceOf(request);
+    if (!device) {
+      return reply
+        .code(400)
+        .send({ error: "只有房主登录的其他设备需要申请。", code: "NOT_A_DEVICE" });
+    }
+    if (!authorize(request, reply, "read")) return reply;
+    const approvals = rooms.approvals;
+    if (!approvals) return reply.code(404).send({ error: "未启用。" });
+    const approval = approvals.store.create({
+      kind: "manage",
+      deviceId: device.id,
+      deviceName: device.name,
+      summary: `设备「${device.name}」申请在 12 小时内管理 ${hostLabel}（启动、停止本机 Agent，修改设置）`,
+    });
+    return { approval, delivered: approvals.send(approval) };
+  });
+
+  /** 设备查自己的申请批了没有；本机能查全部 */
+  app.get<{ Params: { id: string } }>("/api/local/approvals/:id", async (request, reply) => {
+    const caller = authorize(request, reply, "read");
+    if (!caller) return reply;
+    const approval = rooms.approvals?.store.get(request.params.id);
+    if (!approval || (caller.kind === "device" && approval.deviceId !== caller.id)) {
+      return reply.code(404).send({ error: "没有这条申请，或已经过期。" });
+    }
+    return { approval };
+  });
+
+  /** 本机网页：待批准的申请 */
+  app.get("/api/local/approvals", async (request, reply) => {
+    if (!authorize(request, reply, "local")) return reply;
+    return { approvals: rooms.approvals?.store.pending() ?? [] };
+  });
+
+  app.post<{ Params: { id: string }; Body: { allow?: unknown } }>(
+    "/api/local/approvals/:id/decision",
+    async (request, reply) => {
+      if (!authorize(request, reply, "local")) return reply;
+      if (typeof request.body?.allow !== "boolean") {
+        return reply.code(400).send({ error: "参数不正确。" });
+      }
+      const approval = rooms.approvals?.decide(request.params.id, request.body.allow, "local");
+      if (!approval) return reply.code(404).send({ error: "这条申请已经处理过或已过期。" });
+      return { approval };
+    },
+  );
+
+  /** 哪些 IM 账号可以在卡片上批准：登记本身只限本机 */
+  app.get("/api/local/host-approvers", async (request, reply) => {
+    if (!authorize(request, reply, "local")) return reply;
+    return { approvers: rooms.approvals?.approvers() ?? [] };
+  });
+
+  app.put<{ Params: { connectionId: string }; Body: { allowed?: unknown } }>(
+    "/api/local/host-approvers/:connectionId",
+    async (request, reply) => {
+      if (!authorize(request, reply, "local")) return reply;
+      if (typeof request.body?.allowed !== "boolean") {
+        return reply.code(400).send({ error: "参数不正确。" });
+      }
+      if (!rooms.approvals?.setApprover(request.params.connectionId, request.body.allowed)) {
+        return reply.code(404).send({ error: "没有这个 IM 连接。" });
+      }
+      return { approvers: rooms.approvals.approvers() };
+    },
+  );
 
   /** 在其他设备上登录：一次性链接和二维码，5 分钟内有效 */
   app.post<{ Body: { origin?: string } }>(
     "/api/local/owner-devices/pair",
     async (request, reply) => {
-      if (deny(request, reply)) return reply;
+      if (!authorize(request, reply, "local")) return reply;
       const owner = rooms.ownerDevices;
       if (!owner) return reply.code(404).send({ error: "未启用。" });
       const { ticket, expiresAt } = owner.pair();
@@ -132,20 +367,21 @@ export function registerLocalAgentRoutes(
 
   /** 显示总令牌：只给本机房主，用于手动在其他设备上填入或接入远程 Agent */
   app.get("/api/local/owner-token", async (request, reply) => {
-    if (deny(request, reply)) return reply;
+    if (!authorize(request, reply, "local")) return reply;
     if (!rooms.ownerDevices) return reply.code(404).send({ error: "未启用。" });
     return { token: rooms.ownerDevices.joinToken() };
   });
 
   app.get("/api/local/keep-awake", async (request, reply) => {
-    if (deny(request, reply)) return reply;
+    if (!authorize(request, reply, "read")) return reply;
     const state = rooms.keepAwake?.state();
     if (!state) return reply.code(404).send({ error: "这个服务没有启用熄屏后保持在线。" });
     return state;
   });
 
   app.put("/api/local/keep-awake", async (request, reply) => {
-    if (deny(request, reply)) return reply;
+    const caller = authorize(request, reply, "manage");
+    if (!caller) return reply;
     const parsed = keepAwakeSettingsSchema.partial().safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "参数不正确。" });
     const patch = Object.fromEntries(
@@ -153,16 +389,17 @@ export function registerLocalAgentRoutes(
     ) as Partial<KeepAwakeSettings>;
     const state = rooms.keepAwake?.update(patch);
     if (!state) return reply.code(404).send({ error: "这个服务没有启用熄屏后保持在线。" });
+    audit(request, caller, "修改了熄屏后保持在线的设置", true);
     return state;
   });
 
   app.get("/api/local/providers", async (request, reply) => {
-    if (deny(request, reply)) return reply;
+    if (!authorize(request, reply, "read")) return reply;
     return { providers: await supervisor!.providers() };
   });
 
   app.get<{ Querystring: { path?: string } }>("/api/local/directories", async (request, reply) => {
-    if (deny(request, reply)) return reply;
+    if (!authorize(request, reply, "read")) return reply;
     try {
       return listDirectories(request.query.path);
     } catch (error) {
@@ -171,16 +408,36 @@ export function registerLocalAgentRoutes(
   });
 
   app.get("/api/local/agents", async (request, reply) => {
-    if (deny(request, reply)) return reply;
+    if (!authorize(request, reply, "read")) return reply;
     return { agents: supervisor!.list() };
   });
 
   app.post("/api/local/agents", async (request, reply) => {
-    if (deny(request, reply)) return reply;
+    const caller = authorize(request, reply, "manage");
+    if (!caller) return reply;
     const parsed = createLocalAgentRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "参数不正确。" });
+    if (
+      parsed.data.access === "full" &&
+      !stepUp(
+        request,
+        reply,
+        caller,
+        `create:${JSON.stringify(parsed.data)}`,
+        `用完全权限启动本机 Agent ${parsed.data.name}（${parsed.data.provider}${parsed.data.cwd ? `，目录 ${parsed.data.cwd}` : ""}）`,
+      )
+    ) {
+      return reply;
+    }
     try {
-      return reply.code(201).send({ agent: supervisor!.create(parsed.data) });
+      const agent = supervisor!.create(parsed.data);
+      audit(
+        request,
+        caller,
+        `启动了本机 Agent ${agent.name}（${agent.provider}，${agent.access}）`,
+        true,
+      );
+      return reply.code(201).send({ agent });
     } catch (error) {
       return fail(reply, error);
     }
@@ -190,15 +447,32 @@ export function registerLocalAgentRoutes(
     app.post<{ Params: { id: string } }>(
       `/api/local/agents/:id/${action}`,
       async (request, reply) => {
-        if (deny(request, reply)) return reply;
+        const caller = authorize(request, reply, "manage");
+        if (!caller) return reply;
+        const id = request.params.id;
+        const target = supervisor!.list().find((agent) => agent.id === id);
+        if (
+          action !== "stop" &&
+          target?.access === "full" &&
+          !stepUp(
+            request,
+            reply,
+            caller,
+            `${action}:${id}`,
+            `${action === "start" ? "启动" : "重启"}完全权限的本机 Agent ${target.name}`,
+          )
+        ) {
+          return reply;
+        }
         try {
-          const id = request.params.id;
           const agent =
             action === "start"
               ? supervisor!.startAgent(id)
               : action === "stop"
                 ? await supervisor!.stop(id)
                 : await supervisor!.restart(id);
+          const verb = { start: "启动", stop: "停止", restart: "重启" }[action];
+          audit(request, caller, `${verb}了本机 Agent ${agent.name}`, action !== "stop");
           return { agent };
         } catch (error) {
           return fail(reply, error);
@@ -207,70 +481,105 @@ export function registerLocalAgentRoutes(
     );
   }
 
-  /** 接入前预览：某个 provider 在该目录下会加载的本机 MCP；?measure=1 时估算开局 token */
-  app.get<{ Querystring: { provider?: string; cwd?: string; measure?: string } }>(
+  /**
+   * 接入前预览：某个 provider 在该目录下会加载的本机 MCP（只读配置）。
+   * 估算开局 token 要真的连上各个 MCP（会起进程），走 POST …/measure，按 manage 校验。
+   */
+  async function mcpCandidates(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    input: { provider?: unknown; cwd?: unknown },
+    measure: boolean,
+  ) {
+    const caller = authorize(request, reply, measure ? "manage" : "read");
+    if (!caller) return reply;
+    const provider = localAgentProviderSchema.safeParse(input.provider);
+    if (!provider.success) return reply.code(400).send({ error: "参数不正确。" });
+    if (measure) audit(request, caller, "测量了本机 MCP");
+    try {
+      return await supervisor!.mcpCandidates(
+        provider.data,
+        (typeof input.cwd === "string" && input.cwd.trim()) || undefined,
+        measure,
+      );
+    } catch (error) {
+      return fail(reply, error);
+    }
+  }
+
+  app.get<{ Querystring: { provider?: string; cwd?: string } }>(
     "/api/local/mcp",
-    async (request, reply) => {
-      if (deny(request, reply)) return reply;
-      const provider = localAgentProviderSchema.safeParse(request.query.provider);
-      if (!provider.success) return reply.code(400).send({ error: "参数不正确。" });
-      try {
-        return await supervisor!.mcpCandidates(
-          provider.data,
-          request.query.cwd?.trim() || undefined,
-          request.query.measure === "1",
-        );
-      } catch (error) {
-        return fail(reply, error);
-      }
-    },
+    (request, reply) => mcpCandidates(request, reply, request.query, false),
+  );
+  app.post<{ Body: { provider?: unknown; cwd?: unknown } }>(
+    "/api/local/mcp/measure",
+    (request, reply) => mcpCandidates(request, reply, request.body ?? {}, true),
   );
 
-  /** 这个 Agent 会加载的本机 MCP；?measure=1 时逐个连上估算开局 token（较慢） */
-  app.get<{ Params: { id: string }; Querystring: { measure?: string } }>(
-    "/api/local/agents/:id/mcp",
-    async (request, reply) => {
-      if (deny(request, reply)) return reply;
-      try {
-        return await supervisor!.mcpServers(request.params.id, request.query.measure === "1");
-      } catch (error) {
-        return fail(reply, error);
-      }
-    },
+  /** 这个 Agent 会加载的本机 MCP；POST …/measure 时逐个连上估算开局 token（较慢，会起进程） */
+  async function mcpServers(
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply,
+    measure: boolean,
+  ) {
+    const caller = authorize(request, reply, measure ? "manage" : "read");
+    if (!caller) return reply;
+    if (measure) audit(request, caller, "测量了本机 MCP");
+    try {
+      return await supervisor!.mcpServers(request.params.id, measure);
+    } catch (error) {
+      return fail(reply, error);
+    }
+  }
+
+  app.get<{ Params: { id: string } }>("/api/local/agents/:id/mcp", (request, reply) =>
+    mcpServers(request, reply, false),
+  );
+  app.post<{ Params: { id: string } }>("/api/local/agents/:id/mcp/measure", (request, reply) =>
+    mcpServers(request, reply, true),
   );
 
   app.put<{ Params: { id: string } }>("/api/local/agents/:id/settings", async (request, reply) => {
-    if (deny(request, reply)) return reply;
+    const caller = authorize(request, reply, "manage");
+    if (!caller) return reply;
     const parsed = updateLocalAgentSettingsRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "参数不正确。" });
     try {
-      return { agent: supervisor!.updateSettings(request.params.id, parsed.data) };
+      const agent = supervisor!.updateSettings(request.params.id, parsed.data);
+      audit(request, caller, `修改了本机 Agent ${agent.name} 加载的 MCP`, true);
+      return { agent };
     } catch (error) {
       return fail(reply, error);
     }
   });
 
   app.delete<{ Params: { id: string } }>("/api/local/agents/:id", async (request, reply) => {
-    if (deny(request, reply)) return reply;
+    const caller = authorize(request, reply, "manage");
+    if (!caller) return reply;
     try {
+      const name = supervisor!.list().find((agent) => agent.id === request.params.id)?.name;
       await supervisor!.remove(request.params.id);
+      audit(request, caller, `删除了本机 Agent ${name ?? request.params.id}`, true);
       return reply.code(204).send();
     } catch (error) {
       return fail(reply, error);
     }
   });
 
-  /** 清空房间：不可恢复，所以和启动进程一样只给本机房主 */
+  /** 清空房间：不可恢复，和启动进程同级；房主设备上清空时推到 IM */
   app.post<{ Params: { roomId: string }; Body: { username?: unknown } }>(
     "/api/local/rooms/:roomId/clear",
     async (request, reply) => {
-      if (deny(request, reply)) return reply;
+      const caller = authorize(request, reply, "manage");
+      if (!caller) return reply;
       const username = request.body?.username;
       if (typeof username !== "string" || !username.trim()) {
         return reply.code(400).send({ error: "缺少操作人。" });
       }
       try {
-        return { removed: rooms.clearRoom(request.params.roomId, username.trim()) };
+        const removed = rooms.clearRoom(request.params.roomId, username.trim());
+        audit(request, caller, `清空了房间 ${request.params.roomId}`, true);
+        return { removed };
       } catch (error) {
         return fail(reply, error);
       }
@@ -278,7 +587,10 @@ export function registerLocalAgentRoutes(
   );
 
   app.get<{ Params: { id: string } }>("/api/local/agents/:id/logs", async (request, reply) => {
-    if (deny(request, reply)) return reply;
+    // 日志里可能有路径或密钥片段：设备上查看也记审计日志
+    const caller = authorize(request, reply, "read");
+    if (!caller) return reply;
+    audit(request, caller, "查看了本机 Agent 日志");
     try {
       return { lines: supervisor!.logs(request.params.id) };
     } catch (error) {

@@ -54,6 +54,7 @@ import {
   useLocalAgents,
   DirectoryPicker,
   type LocalAgentsState,
+  type HostApprover,
   type OwnerDevice,
 } from "./local-agents";
 import { createFrameClock, easeInOutCubic, easeOutQuint } from "./easing";
@@ -681,6 +682,124 @@ const keepAwakeStatusText: Record<KeepAwakeState["status"], string> = localized(
   failed: t("没有生效"),
 }));
 
+/**
+ * 房主在其他设备上：查看直接可用；要启动 Agent、改设置先申请管理权，经飞书或 Server 所在电脑批准。
+ * compact 用在接入面板里，只留一行说明和按钮
+ */
+function HostManageNotice({
+  local,
+  compact = false,
+}: {
+  local: LocalAgentsState;
+  compact?: boolean;
+}) {
+  const [error, setError] = useState<string>();
+  if (!local.enabled || local.mode !== "device") return null;
+  const host = local.hostLabel ?? t("Server 所在电脑");
+  if (local.canManage) {
+    if (compact) return null;
+    return (
+      <p className="host-manage-notice granted" role="status">
+        {t("这台设备已获准管理 {0}，到 {1} 为止。用完全权限启动 Agent 时还要再确认一次。", {
+          0: host,
+          1: new Date(local.manageUntil ?? "").toLocaleString(),
+        })}
+      </p>
+    );
+  }
+  const waiting = local.waitingApproval?.kind === "manage";
+  return (
+    <div className="host-manage-notice" role="status">
+      <p>
+        {waiting
+          ? local.approvalVia === "im"
+            ? t("已发出申请，请在飞书里点「允许」，或到 {0} 上批准。", { 0: host })
+            : t("已发出申请，请到 {0} 上打开 SuperHive 批准。", { 0: host })
+          : t(
+              "你在另一台设备上，可以查看 {0} 上的 Agent 和目录。要启动、停止 Agent 或修改设置，先申请管理权（批准后 12 小时内有效）。",
+              { 0: host },
+            )}
+      </p>
+      {!waiting && (
+        <button
+          type="button"
+          className="settings-action"
+          onClick={() => {
+            setError(undefined);
+            local.requestManage().catch((reason: unknown) => {
+              setError(reason instanceof Error ? reason.message : String(reason));
+            });
+          }}
+        >
+          {t("申请管理这台电脑")}
+        </button>
+      )}
+      {error && <p className="settings-note error">{error}</p>}
+    </div>
+  );
+}
+
+/** 本机页面：其他设备发来的申请，直接在这里批准或拒绝 */
+function HostApprovalsBanner({ local }: { local: LocalAgentsState }) {
+  const [error, setError] = useState<string>();
+  if (local.mode !== "local" || local.approvals.length === 0) return null;
+  return (
+    <div className="host-approvals-banner" role="alertdialog" aria-label={t("待批准的申请")}>
+      {local.approvals.map((approval) => (
+        <div key={approval.id} className="host-approval">
+          <p>
+            <strong>{t("需要你批准")}</strong>
+            {approval.summary}
+          </p>
+          <small>{t("不是你本人在操作就拒绝，并在设置 → 已登录设备里全部退出。")}</small>
+          <div className="host-approval-actions">
+            <button
+              type="button"
+              className="primary"
+              onClick={() => local.decideApproval(approval.id, true).catch(fail)}
+            >
+              {t("允许")}
+            </button>
+            <button
+              type="button"
+              className="danger"
+              onClick={() => local.decideApproval(approval.id, false).catch(fail)}
+            >
+              {t("拒绝")}
+            </button>
+          </div>
+        </div>
+      ))}
+      {error && <p className="settings-note error">{error}</p>}
+    </div>
+  );
+  function fail(reason: unknown) {
+    setError(reason instanceof Error ? reason.message : String(reason));
+  }
+}
+
+/** 设备上的单次操作在等批准：提示去哪里确认 */
+function HostApprovalWaiting({ local }: { local: LocalAgentsState }) {
+  const approval = local.waitingApproval;
+  if (local.mode !== "device" || approval?.kind !== "action") return null;
+  const host = local.hostLabel ?? t("Server 所在电脑");
+  return (
+    <div className="host-approvals-banner" role="status">
+      <div className="host-approval">
+        <p>
+          <strong>{t("等你确认")}</strong>
+          {approval.summary}
+        </p>
+        <small>
+          {local.approvalVia === "im"
+            ? t("请在飞书里点「允许」，或到 {0} 上批准；5 分钟内有效。", { 0: host })
+            : t("请到 {0} 上打开 SuperHive 批准；5 分钟内有效。", { 0: host })}
+        </small>
+      </div>
+    </div>
+  );
+}
+
 function KeepAwakeSettingsGroup({ local }: { local: LocalAgentsState }) {
   const state = local.keepAwake;
   const [error, setError] = useState<string>();
@@ -688,12 +807,14 @@ function KeepAwakeSettingsGroup({ local }: { local: LocalAgentsState }) {
     return (
       <div className="settings-group">
         <p className="settings-note">
-          {t("只有在运行 Hive Server 的这台电脑上打开网页，才能修改这些设置。")}
+          {t(
+            "只有在运行 Hive Server 的这台电脑上打开网页，或用扫码、飞书登录的房主设备，才能查看这些设置。",
+          )}
         </p>
       </div>
     );
   }
-  const disabled = !state.supported;
+  const disabled = !state.supported || !local.canManage;
   const change = (patch: Partial<KeepAwakeSettings>) => {
     setError(undefined);
     local.updateKeepAwake(patch).catch((reason: unknown) => {
@@ -794,7 +915,7 @@ function OwnerDevicesGroup({ local }: { local: LocalAgentsState }) {
           </p>
         </div>
       </div>
-      {pair ? (
+      {local.mode === "device" ? null : pair ? (
         <div className="owner-pair">
           <img src={pair.qrDataUrl} alt={t("登录二维码")} width={160} height={160} />
           <div>
@@ -832,7 +953,10 @@ function OwnerDevicesGroup({ local }: { local: LocalAgentsState }) {
           {devices.map((device) => (
             <li key={device.id}>
               <span>
-                <strong>{device.name}</strong>
+                <strong>
+                  {device.name}
+                  {device.id === local.deviceId ? t("（这台）") : ""}
+                </strong>
                 <small>
                   {t("{0}登录 · 最近活跃 {1}", {
                     0: device.source === "im" ? t("经飞书卡片") : t("扫码"),
@@ -840,33 +964,95 @@ function OwnerDevicesGroup({ local }: { local: LocalAgentsState }) {
                   })}
                 </small>
               </span>
-              <button
-                type="button"
-                onClick={() => local.revokeOwnerDevice(device.id).then(refresh, fail)}
-              >
-                {t("退出登录")}
-              </button>
+              {(device.id === local.deviceId || local.canManage) && (
+                <button
+                  type="button"
+                  onClick={() => local.revokeOwnerDevice(device.id).then(refresh, fail)}
+                >
+                  {t("退出登录")}
+                </button>
+              )}
             </li>
           ))}
         </ul>
       ) : (
         <p className="settings-note">{t("还没有其他设备登录。")}</p>
       )}
-      <details className="owner-token-details">
-        <summary>{t("房主接入令牌（高级）")}</summary>
-        <p className="settings-note">
-          {t("这是房主的总钥匙，有完整权限，只在接入远程 Agent 或扫码不方便时使用，不要发给别人。")}
-        </p>
-        <button
-          type="button"
-          className="settings-action"
-          onClick={() => local.ownerToken().then((token) => copy(token, "token"), fail)}
-        >
-          {copied === "token" ? t("已复制") : t("复制令牌")}
-        </button>
-      </details>
+      {local.canManage &&
+        (devices?.filter((device) => device.id !== local.deviceId).length ?? 0) > 0 && (
+          <button
+            type="button"
+            className="settings-action danger"
+            onClick={() => {
+              if (!window.confirm(t("退出其他所有已登录的设备？手机丢了或怀疑被盗用时用。")))
+                return;
+              local.revokeAllOwnerDevices().then(refresh, fail);
+            }}
+          >
+            {local.mode === "device" ? t("退出其他所有设备") : t("全部退出")}
+          </button>
+        )}
+      {local.mode === "local" && <HostApproversGroup local={local} onError={fail} />}
+      {local.mode === "local" && (
+        <details className="owner-token-details">
+          <summary>{t("房主接入令牌（高级）")}</summary>
+          <p className="settings-note">
+            {t(
+              "这是房主的总钥匙，有完整权限，只在接入远程 Agent 或扫码不方便时使用，不要发给别人。",
+            )}
+          </p>
+          <button
+            type="button"
+            className="settings-action"
+            onClick={() => local.ownerToken().then((token) => copy(token, "token"), fail)}
+          >
+            {copied === "token" ? t("已复制") : t("复制令牌")}
+          </button>
+        </details>
+      )}
       {error && <p className="settings-note error">{error}</p>}
     </div>
+  );
+}
+
+/** 本机：哪些 IM 账号可以在卡片上批准其他设备管理这台电脑 */
+function HostApproversGroup({
+  local,
+  onError,
+}: {
+  local: LocalAgentsState;
+  onError: (reason: unknown) => void;
+}) {
+  const [approvers, setApprovers] = useState<HostApprover[]>();
+  const { hostApprovers } = local;
+  useEffect(() => {
+    hostApprovers().then(setApprovers, () => setApprovers(undefined));
+  }, [hostApprovers]);
+  if (!approvers?.length) return null;
+  return (
+    <>
+      <h4 className="owner-devices-heading">{t("在 IM 里批准")}</h4>
+      <p className="settings-note">
+        {t(
+          "其他设备申请管理这台电脑（启动 Agent、改设置）时，把批准卡推到这些账号。在这台电脑上扫码连接的会自动勾上。",
+        )}
+      </p>
+      {approvers.map((approver) => (
+        <SettingsSwitch
+          key={approver.connectionId}
+          checked={approver.allowed}
+          label={approver.label}
+          description={
+            approver.channel === "feishu"
+              ? t("飞书")
+              : t("微信（不支持卡片，申请只能在这台电脑上批准）")
+          }
+          onChange={(checked) =>
+            local.setHostApprover(approver.connectionId, checked).then(setApprovers, onError)
+          }
+        />
+      ))}
+    </>
   );
 }
 
@@ -1147,7 +1333,7 @@ export function App({
     window.requestAnimationFrame(() => textareaRef.current?.focus());
   }
   // Hive Server 就在这台电脑上时，可以直接在网页上拉起 Agent
-  const local = useLocalAgents(base, agentDialogOpen);
+  const local = useLocalAgents(base, agentDialogOpen, authToken);
   const localAgentNames = useMemo(
     () => new Set(local.agents.map((agent) => agent.name.toLocaleLowerCase())),
     [local.agents],
@@ -2619,6 +2805,8 @@ export function App({
       <a className="skip-link" href="#main-content">
         {t("跳到消息区")}
       </a>
+      <HostApprovalsBanner local={local} />
+      <HostApprovalWaiting local={local} />
 
       {mobilePanel && (
         <button
@@ -4507,15 +4695,18 @@ export function App({
                     </>
                   );
                   return local.enabled ? (
-                    <LocalLaunch
-                      local={local}
-                      provider={agentProvider}
-                      access={agentAccess}
-                      defaultName={agentNameFor(username, agentProvider)}
-                      providerLabel={agentProviderLabel(agentProvider)}
-                    >
-                      {commandSection}
-                    </LocalLaunch>
+                    <>
+                      <HostManageNotice local={local} compact />
+                      <LocalLaunch
+                        local={local}
+                        provider={agentProvider}
+                        access={agentAccess}
+                        defaultName={agentNameFor(username, agentProvider)}
+                        providerLabel={agentProviderLabel(agentProvider)}
+                      >
+                        {commandSection}
+                      </LocalLaunch>
+                    </>
                   ) : (
                     commandSection
                   );
@@ -4848,9 +5039,18 @@ export function App({
                 {settingsTab === "computer" && (
                   <section id="settings-panel-computer" role="tabpanel" aria-label={t("这台电脑")}>
                     <div className="settings-panel-heading">
-                      <h3>{t("这台电脑")}</h3>
-                      <p>{t("运行 Hive Server 的这台电脑的设置，对所有房间生效。")}</p>
+                      <h3>
+                        {local.mode === "device"
+                          ? t("Server 所在电脑（{0}）", { 0: local.hostLabel ?? "" })
+                          : t("这台电脑")}
+                      </h3>
+                      <p>
+                        {local.mode === "device"
+                          ? t("运行 Hive Server 的那台电脑的设置，对所有房间生效。")
+                          : t("运行 Hive Server 的这台电脑的设置，对所有房间生效。")}
+                      </p>
                     </div>
+                    <HostManageNotice local={local} />
                     <KeepAwakeSettingsGroup local={local} />
                     <OwnerDevicesGroup local={local} />
                   </section>
@@ -5097,9 +5297,14 @@ export function App({
                     )}
                   </div>
                   <small>
-                    {t(
-                      "这台电脑上的目录。本机 Agent 在这个房间改在这里工作（需在它允许的范围内：启动目录及其上一级，或用 --allow-root 追加）；修改后 Agent 等手上的任务做完再切换，并开始新会话。",
-                    )}
+                    {local.mode === "device"
+                      ? t(
+                          "Server 所在电脑（{0}）上的目录。那台电脑上的 Agent 在这个房间改在这里工作（需在它允许的范围内：启动目录及其上一级，或用 --allow-root 追加）；修改后 Agent 等手上的任务做完再切换，并开始新会话。",
+                          { 0: local.hostLabel ?? "" },
+                        )
+                      : t(
+                          "这台电脑上的目录。本机 Agent 在这个房间改在这里工作（需在它允许的范围内：启动目录及其上一级，或用 --allow-root 追加）；修改后 Agent 等手上的任务做完再切换，并开始新会话。",
+                        )}
                   </small>
                 </label>
               )}

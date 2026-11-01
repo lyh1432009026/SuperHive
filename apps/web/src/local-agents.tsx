@@ -14,16 +14,41 @@ import { localized, t } from "./i18n";
 import { McpChecklist } from "./agent-settings-dialog";
 
 /**
- * 本机 Agent：页面运行在 Hive Server 所在电脑上时，可以直接在网页上拉起 Agent。
- * 服务端只对本机请求下发房主凭证（X-Hive-Owner），其他访问者看到的仍是"复制命令"。
+ * 管理 Hive Server 所在电脑（本机 Agent、目录、保持在线…）：
+ * - 页面就开在这台电脑上（local）：服务端下发进程房主凭证（X-Hive-Owner），全部可用；
+ * - 房主在其他设备上登录（device）：凭设备令牌（Authorization）使用，查看直接可用；
+ *   启动 Agent、改设置要先申请管理权（经本机或飞书批准），用完全权限起进程还要逐次批准。
+ * 其他访问者看到的仍是"复制命令"。
  */
 
 type AgentAction = "start" | "stop" | "restart";
 
 export type LocalAgentsState = {
-  /** undefined：还在确认；false：不是本机或服务端已关闭 */
+  /** undefined：还在确认；false：不是本机或房主设备，或服务端已关闭 */
   enabled: boolean | undefined;
   reason?: string | undefined;
+  /** local：页面开在 Server 所在电脑上；device：房主登录的其他设备 */
+  mode: "local" | "device" | undefined;
+  /** Server 所在电脑的名字 */
+  hostLabel: string | undefined;
+  /** 房主设备模式下这台设备的 ID */
+  deviceId: string | undefined;
+  /** 能不能启动 Agent、改设置（本机总是可以；设备要获批） */
+  canManage: boolean;
+  manageUntil: string | null | undefined;
+  /** 设备申请在哪里批准：im=飞书卡片（也可在本机）；local=只能到本机 */
+  approvalVia: "im" | "local" | undefined;
+  /** 设备申请管理权；返回申请，批准后 canManage 会变为 true */
+  requestManage(): Promise<HostApproval>;
+  /** 正在等批准的申请（管理权或单次操作） */
+  waitingApproval: HostApproval | undefined;
+  /** 本机：待批准的申请 */
+  approvals: HostApproval[];
+  decideApproval(id: string, allow: boolean): Promise<void>;
+  /** 本机：哪些 IM 账号可以在卡片上批准 */
+  hostApprovers(): Promise<HostApprover[]>;
+  setHostApprover(connectionId: string, allowed: boolean): Promise<HostApprover[]>;
+  revokeAllOwnerDevices(): Promise<number>;
   providers: LocalProviderInfo[] | undefined;
   agents: LocalAgent[];
   create(request: CreateLocalAgentRequest): Promise<LocalAgent>;
@@ -58,61 +83,157 @@ export type OwnerDevice = {
   source: "pair" | "im";
   createdAt: string;
   lastSeenAt: string;
+  manageUntil: string | null;
 };
+
+export type HostApproval = {
+  id: string;
+  kind: "manage" | "action";
+  deviceId: string;
+  deviceName: string;
+  summary: string;
+  status: "pending" | "approved" | "denied" | "expired" | "used";
+  createdAt: string;
+  expiresAt: string;
+};
+
+export type HostApprover = {
+  connectionId: string;
+  channel: string;
+  label: string;
+  allowed: boolean;
+};
+
+/** 接口返回的错误：带上服务端的错误码和正文，便于按码处理（例如需要批准） */
+export class LocalApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string | undefined,
+    readonly body: Record<string, unknown>,
+  ) {
+    super(message);
+  }
+}
 
 /** 保持在线状态的刷新间隔（侧栏小月亮用） */
 const KEEP_AWAKE_POLL_MS = 30_000;
 
 const POLL_MS = 2_000;
 
-async function readError(response: Response): Promise<string> {
+async function readError(response: Response): Promise<LocalApiError> {
+  let body: Record<string, unknown> = {};
   try {
-    const body = (await response.json()) as { error?: string };
-    if (body.error) return body.error;
+    body = (await response.json()) as Record<string, unknown>;
   } catch {
     // 非 JSON 响应
   }
-  return t("请求失败（{0}）", { 0: response.status });
+  const message =
+    typeof body.error === "string" ? body.error : t("请求失败（{0}）", { 0: response.status });
+  return new LocalApiError(
+    message,
+    response.status,
+    typeof body.code === "string" ? body.code : undefined,
+    body,
+  );
 }
 
-/** active 为 true（接入面板打开）时每 2 秒刷新状态；关闭后保留最后一次结果 */
-export function useLocalAgents(base: string, active: boolean): LocalAgentsState {
+const APPROVAL_POLL_MS = 2_000;
+const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+/**
+ * active 为 true（接入面板打开）时每 2 秒刷新状态；关闭后保留最后一次结果。
+ * authToken 是这个页面的登录凭证：房主设备的令牌（hod_）用来在其他设备上管理 Server 所在电脑。
+ */
+export function useLocalAgents(
+  base: string,
+  active: boolean,
+  authToken?: string,
+): LocalAgentsState {
   const [session, setSession] = useState<LocalSessionResponse | undefined>();
   const [providers, setProviders] = useState<LocalProviderInfo[] | undefined>();
   const [agents, setAgents] = useState<LocalAgent[]>([]);
   const tokenRef = useRef<string | undefined>(undefined);
+  const deviceToken = authToken?.startsWith("hod_") ? authToken : undefined;
+  const deviceRef = useRef(deviceToken);
+  deviceRef.current = deviceToken;
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`${base}/api/local/session`)
-      .then((response) => (response.ok ? (response.json() as Promise<LocalSessionResponse>) : null))
-      .then((value) => {
-        if (cancelled) return;
-        const resolved = value ?? { enabled: false as const, reason: t("无法确认是否在本机") };
-        tokenRef.current = resolved.enabled ? resolved.ownerToken : undefined;
-        setSession(resolved);
-      })
-      .catch(() => {
-        if (!cancelled) setSession({ enabled: false, reason: t("无法连接 Hive Server") });
+  const loadSession = useCallback(async () => {
+    try {
+      const response = await fetch(`${base}/api/local/session`, {
+        ...(deviceToken ? { headers: { Authorization: `Bearer ${deviceToken}` } } : {}),
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [base]);
+      const value = response.ok ? ((await response.json()) as LocalSessionResponse) : null;
+      const resolved = value ?? { enabled: false as const, reason: t("无法确认是否在本机") };
+      tokenRef.current =
+        resolved.enabled && resolved.mode !== "device" ? resolved.ownerToken : undefined;
+      setSession(resolved);
+    } catch {
+      setSession({ enabled: false, reason: t("无法连接 Hive Server") });
+    }
+  }, [base, deviceToken]);
+  useEffect(() => {
+    void loadSession();
+  }, [loadSession]);
 
+  // 旧版 Server 不返回 mode：那时只有本机这一种
+  const mode = session?.enabled ? (session.mode ?? "local") : undefined;
   const request = useCallback(
-    async (path: string, init: RequestInit = {}): Promise<Response> => {
+    async (path: string, init: RequestInit = {}, extra: Record<string, string> = {}) => {
       const response = await fetch(`${base}${path}`, {
         ...init,
         headers: {
-          "X-Hive-Owner": tokenRef.current ?? "",
+          ...(mode === "device" && deviceRef.current
+            ? { Authorization: `Bearer ${deviceRef.current}` }
+            : { "X-Hive-Owner": tokenRef.current ?? "" }),
           ...(init.body ? { "Content-Type": "application/json" } : {}),
+          ...extra,
         },
       });
-      if (!response.ok) throw new Error(await readError(response));
+      if (!response.ok) {
+        const error = await readError(response);
+        // 设备被退出或会话过期：本机功能整体收起，停掉轮询
+        if (error.code === "DEVICE_SESSION_INVALID") {
+          setSession({ enabled: false, reason: error.message });
+        }
+        throw error;
+      }
       return response;
     },
-    [base],
+    [base, mode],
+  );
+
+  const [waitingApproval, setWaitingApproval] = useState<HostApproval>();
+  /** 等一张批准单出结果：批准返回 true，拒绝或过期返回 false */
+  const awaitApproval = useCallback(
+    async (approval: HostApproval): Promise<boolean> => {
+      setWaitingApproval(approval);
+      try {
+        for (;;) {
+          await sleep(APPROVAL_POLL_MS);
+          const response = await request(`/api/local/approvals/${approval.id}`);
+          const current = ((await response.json()) as { approval: HostApproval }).approval;
+          if (current.status !== "pending") return current.status === "approved";
+        }
+      } finally {
+        setWaitingApproval(undefined);
+      }
+    },
+    [request],
+  );
+  /** 需要逐次批准的操作：先试一次，要批准就等批准后带着批准单重发 */
+  const requestApproved = useCallback(
+    async (path: string, init: RequestInit): Promise<Response> => {
+      try {
+        return await request(path, init);
+      } catch (error) {
+        if (!(error instanceof LocalApiError) || error.code !== "APPROVAL_REQUIRED") throw error;
+        const approval = error.body.approval as HostApproval;
+        if (!(await awaitApproval(approval))) throw new Error(t("没有获得批准，操作已取消。"));
+        return request(path, init, { "X-Hive-Approval": approval.id });
+      }
+    },
+    [awaitApproval, request],
   );
 
   const refreshAgents = useCallback(async () => {
@@ -135,7 +256,7 @@ export function useLocalAgents(base: string, active: boolean): LocalAgentsState 
 
   const create = useCallback(
     async (input: CreateLocalAgentRequest) => {
-      const response = await request("/api/local/agents", {
+      const response = await requestApproved("/api/local/agents", {
         method: "POST",
         body: JSON.stringify(input),
       });
@@ -143,16 +264,18 @@ export function useLocalAgents(base: string, active: boolean): LocalAgentsState 
       setAgents((current) => [...current.filter((item) => item.id !== agent.id), agent]);
       return agent;
     },
-    [request],
+    [requestApproved],
   );
 
   const act = useCallback(
     async (id: string, action: AgentAction) => {
-      const response = await request(`/api/local/agents/${id}/${action}`, { method: "POST" });
+      const response = await requestApproved(`/api/local/agents/${id}/${action}`, {
+        method: "POST",
+      });
       const { agent } = (await response.json()) as { agent: LocalAgent };
       setAgents((current) => current.map((item) => (item.id === id ? agent : item)));
     },
-    [request],
+    [requestApproved],
   );
 
   const remove = useCallback(
@@ -192,7 +315,10 @@ export function useLocalAgents(base: string, active: boolean): LocalAgentsState 
 
   const mcpServers = useCallback(
     async (id: string, measure = false) => {
-      const response = await request(`/api/local/agents/${id}/mcp${measure ? "?measure=1" : ""}`);
+      // 测量会在 Server 所在电脑上真的连上各个 MCP（起进程），走 POST
+      const response = measure
+        ? await request(`/api/local/agents/${id}/mcp/measure`, { method: "POST" })
+        : await request(`/api/local/agents/${id}/mcp`);
       return (await response.json()) as LocalAgentMcpResponse;
     },
     [request],
@@ -202,8 +328,12 @@ export function useLocalAgents(base: string, active: boolean): LocalAgentsState 
     async (provider: LocalAgentProvider, cwd: string | undefined, measure = false) => {
       const query = new URLSearchParams({ provider });
       if (cwd) query.set("cwd", cwd);
-      if (measure) query.set("measure", "1");
-      const response = await request(`/api/local/mcp?${query.toString()}`);
+      const response = measure
+        ? await request("/api/local/mcp/measure", {
+            method: "POST",
+            body: JSON.stringify({ provider, ...(cwd ? { cwd } : {}) }),
+          })
+        : await request(`/api/local/mcp?${query.toString()}`);
       return (await response.json()) as LocalAgentMcpResponse;
     },
     [request],
@@ -268,10 +398,94 @@ export function useLocalAgents(base: string, active: boolean): LocalAgentsState 
     const response = await request("/api/local/owner-token");
     return ((await response.json()) as { token: string }).token;
   }, [request]);
+  const revokeAllOwnerDevices = useCallback(async () => {
+    const response = await request("/api/local/owner-devices/revoke-all", { method: "POST" });
+    return ((await response.json()) as { revoked: number }).revoked;
+  }, [request]);
+
+  /* ---------- 其他设备管理这台电脑：申请与批准 ---------- */
+
+  const requestManage = useCallback(async () => {
+    const response = await request("/api/local/manage-request", { method: "POST" });
+    const { approval } = (await response.json()) as { approval: HostApproval };
+    void awaitApproval(approval)
+      .then(() => loadSession())
+      .catch(() => undefined);
+    return approval;
+  }, [awaitApproval, loadSession, request]);
+
+  // 本机页面：轮询待批准的申请，页面上直接弹出来
+  const [approvals, setApprovals] = useState<HostApproval[]>([]);
+  const refreshApprovals = useCallback(async () => {
+    const response = await request("/api/local/approvals");
+    setApprovals(((await response.json()) as { approvals: HostApproval[] }).approvals);
+  }, [request]);
+  useEffect(() => {
+    if (mode !== "local") return;
+    void refreshApprovals().catch(() => undefined);
+    const timer = window.setInterval(
+      () => void refreshApprovals().catch(() => undefined),
+      APPROVAL_POLL_MS * 2,
+    );
+    return () => window.clearInterval(timer);
+  }, [mode, refreshApprovals]);
+  const decideApproval = useCallback(
+    async (id: string, allow: boolean) => {
+      await request(`/api/local/approvals/${id}/decision`, {
+        method: "POST",
+        body: JSON.stringify({ allow }),
+      });
+      await refreshApprovals();
+    },
+    [refreshApprovals, request],
+  );
+  const hostApprovers = useCallback(async () => {
+    const response = await request("/api/local/host-approvers");
+    return ((await response.json()) as { approvers: HostApprover[] }).approvers;
+  }, [request]);
+  const setHostApprover = useCallback(
+    async (connectionId: string, allowed: boolean) => {
+      const response = await request(`/api/local/host-approvers/${connectionId}`, {
+        method: "PUT",
+        body: JSON.stringify({ allowed }),
+      });
+      return ((await response.json()) as { approvers: HostApprover[] }).approvers;
+    },
+    [request],
+  );
+
+  // 管理权到期时刷新一次，界面回到「只能查看」
+  const manageUntil =
+    session?.enabled && session.mode === "device" ? session.manageUntil : undefined;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!manageUntil) return;
+    const remaining = Date.parse(manageUntil) - Date.now();
+    if (remaining <= 0) return;
+    const timer = window.setTimeout(
+      () => setNow(Date.now()),
+      Math.min(remaining + 500, 2 ** 31 - 1),
+    );
+    return () => window.clearTimeout(timer);
+  }, [manageUntil]);
+  const canManage = mode === "local" || Boolean(manageUntil && Date.parse(manageUntil) > now);
 
   return {
     enabled,
     reason: session && !session.enabled ? session.reason : undefined,
+    mode,
+    hostLabel: session?.enabled ? session.hostLabel : undefined,
+    deviceId: session?.enabled && session.mode === "device" ? session.deviceId : undefined,
+    canManage,
+    manageUntil,
+    approvalVia: session?.enabled && session.mode === "device" ? session.approval : undefined,
+    requestManage,
+    waitingApproval,
+    approvals,
+    decideApproval,
+    hostApprovers,
+    setHostApprover,
+    revokeAllOwnerDevices,
     keepAwake,
     updateKeepAwake,
     ownerDevices,

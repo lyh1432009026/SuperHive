@@ -52,9 +52,10 @@ import {
   resolveWorkspace,
   type LocalAgentSupervisorOptions,
 } from "./local-agents.js";
-import { registerLocalAgentRoutes } from "./local-routes.js";
+import { MANAGE_GRANT_MS, registerLocalAgentRoutes } from "./local-routes.js";
 import { KeepAwake } from "./keep-awake.js";
 import { OwnerDevices, isOwnerDeviceToken } from "./owner-devices.js";
+import { HostApprovals, type HostApproval } from "./host-approvals.js";
 import { checkLocalRequest } from "./local-access.js";
 import {
   AccessStore,
@@ -218,6 +219,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     ...(options.now ? { now: options.now } : {}),
   });
   const clock = () => options.now?.() ?? Date.now();
+  const hostApprovals = new HostApprovals({ now: clock });
   const databasePath = options.databasePath ?? "./data/hive.sqlite";
   const attachments = new AttachmentStore(database.connection(), {
     dir:
@@ -251,6 +253,37 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   if (hasWebUi) {
     await app.register(fastifyStatic, { root: configuredStaticDir, wildcard: false });
   }
+  // 网页的内容安全策略：只运行自己的脚本，减少注入脚本偷走 localStorage 里登录凭证的可能
+  app.addHook("onSend", async (request, reply, payload) => {
+    const type = reply.getHeader("content-type");
+    if (
+      typeof type === "string" &&
+      type.startsWith("text/html") &&
+      !reply.hasHeader("content-security-policy")
+    ) {
+      const host = (request.headers.host ?? "").replace(/[^\w.:[\]-]/g, "");
+      reply.header(
+        "Content-Security-Policy",
+        [
+          "default-src 'self'",
+          "script-src 'self'",
+          "style-src 'self' 'unsafe-inline'",
+          // 消息里的 Markdown 图片可能来自外部
+          "img-src 'self' data: blob: https:",
+          "media-src 'self' blob:",
+          "font-src 'self' data:",
+          `connect-src 'self' ws://${host} wss://${host}`,
+          "object-src 'none'",
+          "base-uri 'self'",
+          "form-action 'self'",
+          "frame-ancestors 'none'",
+        ].join("; "),
+      );
+      reply.header("X-Content-Type-Options", "nosniff");
+      reply.header("Referrer-Policy", "no-referrer");
+    }
+    return payload;
+  });
 
   function broadcast(roomId: string, event: ServerEvent): void {
     for (const connection of connections) {
@@ -372,15 +405,63 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     supersedeStale(roomId);
     return removed;
   }
+  /** 登记过、且账号没变的可批准 IM 连接 */
+  function isHostApprover(connection: { id: string; ownerActorId: string }): boolean {
+    return ownerDevices.hostApprovers().get(connection.id) === connection.ownerActorId;
+  }
+
+  /** 批准或拒绝其他设备管理这台电脑：申请管理权的获批后授予 12 小时 */
+  function decideHostApproval(id: string, allow: boolean, by: string): HostApproval | undefined {
+    const decided = hostApprovals.decide(id, allow, by);
+    if (decided?.status === "approved" && decided.kind === "manage") {
+      ownerDevices.grantManage(decided.deviceId, MANAGE_GRANT_MS);
+    }
+    return decided;
+  }
+
   registerLocalAgentRoutes(app, localAgents, {
     clearRoom,
     ownerDevices: {
       list: () => ownerDevices.list(),
       revoke: revokeOwnerDevice,
+      revokeAll: (except) => {
+        const ids = ownerDevices
+          .list()
+          .map((device) => device.id)
+          .filter((id) => id !== except);
+        return ids.filter((id) => revokeOwnerDevice(id));
+      },
       pair: () => ownerDevices.createPairTicket(),
       webBase: () => (options.webUrl ?? options.publicUrl)?.replace(/\/$/, ""),
       joinToken: () => joinToken,
+      resolve: (token) => {
+        const id = ownerDevices.resolve(token);
+        return id ? ownerDevices.get(id) : undefined;
+      },
     },
+    approvals: {
+      store: hostApprovals,
+      send: (approval) => imHub.requestHostApproval(approval, isHostApprover),
+      remote: () =>
+        imStore
+          .listConnections()
+          .some((connection) => connection.status !== "paused" && isHostApprover(connection)),
+      decide: decideHostApproval,
+      approvers: () =>
+        imStore.listConnections().map((connection) => ({
+          connectionId: connection.id,
+          channel: connection.channel,
+          label: connection.label,
+          allowed: isHostApprover(connection),
+        })),
+      setApprover: (connectionId, allowed) => {
+        const connection = imStore.getConnection(connectionId);
+        if (!connection) return false;
+        ownerDevices.setHostApprover(connection.id, connection.ownerActorId, allowed);
+        return true;
+      },
+    },
+    notifyOwner: (text) => void imHub.notifyOwner(text),
     keepAwake: {
       state: () => keepAwake?.state(),
       update: (patch) => keepAwake?.update(patch),
@@ -1566,6 +1647,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         : undefined;
     },
     onConnectionsChanged: () => scheduleKeepAwake(),
+    decideHostApproval: (connectionId, actorId, approvalId, allow) => {
+      if (!isHostApprover({ id: connectionId, ownerActorId: actorId })) {
+        return { ok: false, text: "这个账号没有登记为可批准，请到 Hive Server 所在的电脑上处理" };
+      }
+      const decided = decideHostApproval(approvalId, allow, connectionId);
+      if (!decided) return { ok: false, text: "这条申请已经处理过或已过期" };
+      return { ok: true, text: allow ? "已允许" : "已拒绝" };
+    },
+    markHostApprover: (connectionId, actorId) =>
+      ownerDevices.setHostApprover(connectionId, actorId, true),
     log: (message, detail) => app.log.warn({ detail }, message),
     ...(options.now ? { now: options.now } : {}),
   });
@@ -1662,7 +1753,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           .send({ error: "需要以房主本人在这个房间里的身份连接。", code: "NOT_A_MEMBER" });
       }
       try {
-        return reply.code(201).send(imHub.startLogin(room.id, body.data.channel, owner.username));
+        // 在 Server 所在电脑上发起的扫码：这个 IM 账号可以批准其他设备管理这台电脑
+        const hostApprover =
+          checkLocalRequest(request).local && !isOwnerDeviceToken(bearerToken(request));
+        return reply
+          .code(201)
+          .send(imHub.startLogin(room.id, body.data.channel, owner.username, { hostApprover }));
       } catch (error) {
         return imError(reply, error);
       }
@@ -1763,6 +1859,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   /** 退出某台设备：断开它已有的连接 */
   function revokeOwnerDevice(id: string): boolean {
     if (!ownerDevices.revoke(id)) return false;
+    hostApprovals.dropDevice(id);
     for (const connection of [...connections]) {
       if (connection.principal?.kind !== "admin" || connection.principal.deviceId !== id) continue;
       send(connection.socket, {
@@ -1777,7 +1874,22 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   }
 
   /** 用登录票换设备会话（二维码、飞书卡片按钮） */
+  /** 登录票兑换失败次数（按来源地址），超过上限暂时拒绝，防止猜票 */
+  const loginFailures = new Map<string, number[]>();
+  const LOGIN_FAILURE_WINDOW_MS = 10 * 60_000;
+  const LOGIN_FAILURE_LIMIT = 10;
+
   app.post("/api/owner-login", async (request, reply) => {
+    const source = request.socket.remoteAddress ?? "";
+    const recent = (loginFailures.get(source) ?? []).filter(
+      (at) => clock() - at < LOGIN_FAILURE_WINDOW_MS,
+    );
+    if (recent.length >= LOGIN_FAILURE_LIMIT) {
+      return reply.code(429).send({
+        error: "尝试次数太多，请 10 分钟后再试。",
+        code: "OWNER_LOGIN_RATE_LIMITED",
+      });
+    }
     const body = request.body as { ticket?: unknown; deviceName?: unknown } | undefined;
     const ticket = typeof body?.ticket === "string" ? body.ticket : "";
     const deviceName = typeof body?.deviceName === "string" ? body.deviceName : "";
@@ -1786,6 +1898,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       return Boolean(connection && connection.status !== "paused");
     });
     if (!result) {
+      recent.push(clock());
+      loginFailures.set(source, recent);
       return reply.code(401).send({
         error: "登录链接无效、已过期或已经用过。请重新扫码，或在飞书里发 /web 获取新的链接。",
         code: "OWNER_LOGIN_INVALID",

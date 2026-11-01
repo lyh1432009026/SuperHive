@@ -202,6 +202,142 @@ describe("local agent routes", () => {
     ).toBe(403);
   });
 
+  it("lets a logged-in owner device view the host, and manage it only after approval", async () => {
+    const { app, owner, spawner } = await setup();
+    const remote = { remoteAddress: "10.0.0.20" };
+    const pair = (
+      await app.inject({
+        method: "POST",
+        url: "/api/local/owner-devices/pair",
+        headers: owner,
+        payload: { origin: "http://10.0.0.8:8787" },
+      })
+    ).json() as { url: string };
+    const ticket = new URL(pair.url).searchParams.get("login")!;
+    const { token } = (
+      await app.inject({
+        method: "POST",
+        url: "/api/owner-login",
+        payload: { ticket, deviceName: "iPad" },
+        ...remote,
+      })
+    ).json() as { token: string };
+    const device = { authorization: `Bearer ${token}` };
+    const call = (method: "GET" | "POST" | "PUT" | "DELETE", url: string, extra = {}) =>
+      app.inject({ method, url, headers: device, ...remote, ...extra });
+
+    // 设备模式：不下发进程凭证
+    const session = (await call("GET", "/api/local/session")).json();
+    expect(session).toMatchObject({ enabled: true, mode: "device", manageUntil: null });
+    expect(session.ownerToken).toBeUndefined();
+    expect(JSON.stringify(session)).not.toContain(owner["x-hive-owner"]);
+
+    // 只读直接可用
+    expect((await call("GET", "/api/local/agents")).statusCode).toBe(200);
+    expect((await call("GET", "/api/local/directories")).statusCode).toBe(200);
+    expect((await call("GET", "/api/local/owner-devices")).statusCode).toBe(200);
+    // 凭据类只限本机
+    expect((await call("GET", "/api/local/owner-token")).json().code).toBe("LOCAL_ONLY");
+    expect((await call("POST", "/api/local/owner-devices/pair")).json().code).toBe("LOCAL_ONLY");
+    expect((await call("GET", "/api/local/approvals")).json().code).toBe("LOCAL_ONLY");
+    // 管理要先获批；测量会起进程，也算管理
+    const directory = mkdtempSync(path.join(tmpdir(), "hive-device-"));
+    const workspace = { provider: "omp", name: "rd-omp", access: "workspace", cwd: directory };
+    expect((await call("POST", "/api/local/agents", { payload: workspace })).json().code).toBe(
+      "MANAGE_REQUIRED",
+    );
+    expect(
+      (await call("POST", "/api/local/mcp/measure", { payload: { provider: "claude" } })).json()
+        .code,
+    ).toBe("MANAGE_REQUIRED");
+    expect(spawner.spawn).not.toHaveBeenCalled();
+
+    // 申请 → 本机批准 → 12 小时内可管理
+    const request = (await call("POST", "/api/local/manage-request")).json();
+    expect(request).toMatchObject({
+      approval: { kind: "manage", status: "pending" },
+      delivered: 0,
+    });
+    // 设备不能自己批准
+    expect(
+      (
+        await call("POST", `/api/local/approvals/${request.approval.id}/decision`, {
+          payload: { allow: true },
+        })
+      ).json().code,
+    ).toBe("LOCAL_ONLY");
+    const pending = (
+      await app.inject({ method: "GET", url: "/api/local/approvals", headers: owner })
+    ).json();
+    expect(pending.approvals.map((item: { id: string }) => item.id)).toEqual([request.approval.id]);
+    await app.inject({
+      method: "POST",
+      url: `/api/local/approvals/${request.approval.id}/decision`,
+      headers: owner,
+      payload: { allow: true },
+    });
+    expect((await call("GET", `/api/local/approvals/${request.approval.id}`)).json()).toMatchObject(
+      { approval: { status: "approved" } },
+    );
+    expect((await call("GET", "/api/local/session")).json().manageUntil).toEqual(
+      expect.any(String),
+    );
+    expect((await call("POST", "/api/local/agents", { payload: workspace })).statusCode).toBe(201);
+
+    // 完全权限每次都要单独批准，批准单绑定这台设备和这次的参数、只能用一次
+    const full = { provider: "omp", name: "rd-full", access: "full", cwd: directory };
+    const first = (await call("POST", "/api/local/agents", { payload: full })).json();
+    expect(first.code).toBe("APPROVAL_REQUIRED");
+    await app.inject({
+      method: "POST",
+      url: `/api/local/approvals/${first.approval.id}/decision`,
+      headers: owner,
+      payload: { allow: true },
+    });
+    const withApproval = (payload: object) =>
+      app.inject({
+        method: "POST",
+        url: "/api/local/agents",
+        headers: { ...device, "x-hive-approval": first.approval.id },
+        payload,
+        ...remote,
+      });
+    expect((await withApproval({ ...full, name: "rd-other" })).json().code).toBe(
+      "APPROVAL_REQUIRED",
+    );
+    expect((await withApproval(full)).statusCode).toBe(201);
+    expect((await withApproval({ ...full, name: "rd-full2" })).json().code).toBe(
+      "APPROVAL_REQUIRED",
+    );
+
+    // 总令牌、远程地址上的本机凭证都不行
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/local/agents",
+          headers: { authorization: "Bearer join-token" },
+          ...remote,
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/local/agents",
+          headers: { ...device, "x-hive-owner": "guess" },
+          ...remote,
+        })
+      ).statusCode,
+    ).toBe(403);
+
+    // 退出后立即失效
+    await call("DELETE", `/api/local/owner-devices/${session.deviceId}`);
+    expect((await call("GET", "/api/local/agents")).json().code).toBe("DEVICE_SESSION_INVALID");
+    expect((await call("GET", "/api/local/session")).json().enabled).toBe(false);
+  });
+
   it("hands the owner token only to requests from this machine", async () => {
     const { app, session } = await setup();
     expect(session.enabled).toBe(true);
@@ -351,8 +487,8 @@ describe("local agent routes", () => {
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ mcpDisabled: [] });
 
     const measured = await app.inject({
-      method: "GET",
-      url: `/api/local/agents/${id}/mcp?measure=1`,
+      method: "POST",
+      url: `/api/local/agents/${id}/mcp/measure`,
       headers: owner,
     });
     expect(measured.json()).toMatchObject({

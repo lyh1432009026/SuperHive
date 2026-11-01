@@ -6,8 +6,10 @@ import type Database from "better-sqlite3";
  * 可以列出、单独退出，不需要把总令牌（join token）交出去。
  * 登录票两种：
  * - 配对票（本机网页上的二维码 / 链接）：5 分钟有效、只能用一次，存在库里；
- * - 飞书票（卡片上的「在网页查看」）：24 小时有效（过期后在飞书里发 /web 取新的）、可重复使用，用服务端密钥签名，不入库，
- *   绑定发出它的 IM 连接，连接断开后失效。
+ * - 飞书票（卡片上的「在网页查看」）：24 小时有效（过期后在飞书里发 /web 取新的）、只能兑换一次，用服务端密钥签名，
+ *   绑定发出它的 IM 连接，连接断开后失效。只能用一次：否则一张泄露的链接能换出任意多个互不相干的会话。
+ * 设备会话最长 30 天、闲置 7 天失效。
+ * 管理 Server 所在电脑（启动 Agent 等）不随登录自动获得：设备要另外申请，经本机或飞书批准后在一段时间内有效。
  */
 
 export const OWNER_DEVICE_PREFIX = "hod_";
@@ -15,6 +17,8 @@ const PAIR_PREFIX = "hop_";
 const IM_PREFIX = "hoi_";
 export const PAIR_TICKET_TTL_MS = 5 * 60_000;
 export const IM_TICKET_TTL_MS = 24 * 60 * 60_000;
+export const DEVICE_MAX_AGE_MS = 30 * 24 * 60 * 60_000;
+export const DEVICE_IDLE_MS = 7 * 24 * 60 * 60_000;
 /** 最近活跃时间最多每分钟写一次库 */
 const TOUCH_INTERVAL_MS = 60_000;
 
@@ -25,6 +29,8 @@ export type OwnerDevice = {
   source: "pair" | "im";
   createdAt: string;
   lastSeenAt: string;
+  /** 能管理 Server 所在电脑到什么时候；没有或已过期时为 null */
+  manageUntil: string | null;
 };
 
 type DeviceRow = {
@@ -35,6 +41,7 @@ type DeviceRow = {
   created_at: string;
   last_seen_at: string;
   revoked_at: string | null;
+  manage_until: string | null;
 };
 
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -74,10 +81,23 @@ export class OwnerDevices {
         expires_at TEXT NOT NULL,
         used_at TEXT
       );
+      CREATE TABLE IF NOT EXISTS owner_im_tickets_used (
+        token_hash TEXT PRIMARY KEY,
+        expires_at INTEGER NOT NULL
+      );
+      -- 哪些 IM 账号可以批准其他设备管理这台电脑：只在本机房主操作时登记
+      CREATE TABLE IF NOT EXISTS owner_host_approvers (
+        connection_id TEXT PRIMARY KEY,
+        actor_id TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
     `);
     const columns = db.pragma("table_info(owner_devices)") as Array<{ name: string }>;
     if (!columns.some((column) => column.name === "connection_id")) {
       db.exec("ALTER TABLE owner_devices ADD COLUMN connection_id TEXT");
+    }
+    if (!columns.some((column) => column.name === "manage_until")) {
+      db.exec("ALTER TABLE owner_devices ADD COLUMN manage_until TEXT");
     }
   }
 
@@ -101,7 +121,9 @@ export class OwnerDevices {
   /** 飞书卡片按钮上的登录票：签名里带连接 ID 和到期时间 */
   createImTicket(connectionId: string): string {
     const issued = this.now();
-    const payload = `${connectionId}.${issued}.${issued + IM_TICKET_TTL_MS}`;
+    // 末尾的随机数让同一毫秒发出的两张票也不同：票只能用一次
+    const nonce = randomBytes(6).toString("base64url");
+    const payload = `${connectionId}.${issued}.${issued + IM_TICKET_TTL_MS}.${nonce}`;
     return `${IM_PREFIX}${Buffer.from(payload).toString("base64url")}.${this.sign(payload)}`;
   }
 
@@ -142,6 +164,11 @@ export class OwnerDevices {
         .get(connection) as { not_before: number } | undefined;
       if (floor && !(Number(issued) > floor.not_before)) return undefined;
       if (!imConnectionValid(connection)) return undefined;
+      this.db.prepare("DELETE FROM owner_im_tickets_used WHERE expires_at < ?").run(this.now());
+      const used = this.db
+        .prepare("INSERT OR IGNORE INTO owner_im_tickets_used(token_hash, expires_at) VALUES(?, ?)")
+        .run(hash(ticket), Number(expires));
+      if (used.changes !== 1) return undefined;
       source = "im";
       connectionId = connection;
     } else {
@@ -159,13 +186,23 @@ export class OwnerDevices {
     return { token: secret, device: this.get(id)! };
   }
 
+  /** 还在有效期内：没退出、没超过最长期限、没闲置太久 */
+  private alive(row: Pick<DeviceRow, "created_at" | "last_seen_at" | "revoked_at">): boolean {
+    if (row.revoked_at) return false;
+    const now = this.now();
+    return (
+      now - Date.parse(row.created_at) < DEVICE_MAX_AGE_MS &&
+      now - Date.parse(row.last_seen_at) < DEVICE_IDLE_MS
+    );
+  }
+
   /** 校验设备令牌，有效时返回设备 ID（并按需刷新最近活跃时间） */
   resolve(value: string): string | undefined {
     if (!isOwnerDeviceToken(value)) return undefined;
     const row = this.db
-      .prepare("SELECT id FROM owner_devices WHERE token_hash = ? AND revoked_at IS NULL")
-      .get(hash(value)) as { id: string } | undefined;
-    if (!row) return undefined;
+      .prepare("SELECT * FROM owner_devices WHERE token_hash = ? AND revoked_at IS NULL")
+      .get(hash(value)) as DeviceRow | undefined;
+    if (!row || !this.alive(row)) return undefined;
     const last = this.touched.get(row.id) ?? 0;
     if (this.now() - last > TOUCH_INTERVAL_MS) {
       this.touched.set(row.id, this.now());
@@ -176,10 +213,10 @@ export class OwnerDevices {
     return row.id;
   }
 
-  private get(id: string): OwnerDevice | undefined {
+  get(id: string): OwnerDevice | undefined {
     const row = this.db.prepare("SELECT * FROM owner_devices WHERE id = ?").get(id) as
       DeviceRow | undefined;
-    return row ? map(row) : undefined;
+    return row && this.alive(row) ? this.map(row) : undefined;
   }
 
   list(): OwnerDevice[] {
@@ -187,7 +224,55 @@ export class OwnerDevices {
       this.db
         .prepare("SELECT * FROM owner_devices WHERE revoked_at IS NULL ORDER BY last_seen_at DESC")
         .all() as DeviceRow[]
-    ).map(map);
+    )
+      .filter((row) => this.alive(row))
+      .map((row) => this.map(row));
+  }
+
+  /** 这台设备现在能不能管理 Server 所在电脑 */
+  canManage(id: string): boolean {
+    const until = this.get(id)?.manageUntil;
+    return Boolean(until && Date.parse(until) > this.now());
+  }
+
+  /** 批准一台设备在 durationMs 内管理 Server 所在电脑 */
+  grantManage(id: string, durationMs: number): string | undefined {
+    if (!this.get(id)) return undefined;
+    const until = this.iso(durationMs);
+    this.db.prepare("UPDATE owner_devices SET manage_until = ? WHERE id = ?").run(until, id);
+    return until;
+  }
+
+  /** 全部退出（丢了设备时用）；except 是发起操作的这台 */
+  revokeAll(except?: string): string[] {
+    const ids = this.list()
+      .map((device) => device.id)
+      .filter((id) => id !== except);
+    for (const id of ids) this.revoke(id);
+    return ids;
+  }
+
+  /* ---------- 可以批准其他设备管理这台电脑的 IM 账号 ---------- */
+
+  setHostApprover(connectionId: string, actorId: string, allowed: boolean): void {
+    if (allowed) {
+      this.db
+        .prepare(
+          `INSERT INTO owner_host_approvers(connection_id, actor_id, created_at) VALUES(?, ?, ?)
+           ON CONFLICT(connection_id) DO UPDATE SET actor_id = excluded.actor_id`,
+        )
+        .run(connectionId, actorId, this.iso());
+    } else {
+      this.db.prepare("DELETE FROM owner_host_approvers WHERE connection_id = ?").run(connectionId);
+    }
+  }
+
+  /** 连接 ID → 登记时的 IM 账号；用的时候还要核对连接现在的账号没变 */
+  hostApprovers(): Map<string, string> {
+    const rows = this.db
+      .prepare("SELECT connection_id, actor_id FROM owner_host_approvers")
+      .all() as Array<{ connection_id: string; actor_id: string }>;
+    return new Map(rows.map((row) => [row.connection_id, row.actor_id]));
   }
 
   /**
@@ -212,14 +297,16 @@ export class OwnerDevices {
     })();
     return true;
   }
-}
 
-function map(row: DeviceRow): OwnerDevice {
-  return {
-    id: row.id,
-    name: row.name,
-    source: row.source,
-    createdAt: row.created_at,
-    lastSeenAt: row.last_seen_at,
-  };
+  private map(row: DeviceRow): OwnerDevice {
+    return {
+      id: row.id,
+      name: row.name,
+      source: row.source,
+      createdAt: row.created_at,
+      lastSeenAt: row.last_seen_at,
+      manageUntil:
+        row.manage_until && Date.parse(row.manage_until) > this.now() ? row.manage_until : null,
+    };
+  }
 }

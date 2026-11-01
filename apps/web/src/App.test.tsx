@@ -203,7 +203,12 @@ describe("App mention autocomplete", () => {
             ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}),
           });
           if (url.endsWith("/api/local/session")) {
-            return jsonResponse({ enabled: true, ownerToken: "owner-secret" });
+            return jsonResponse({
+              enabled: true,
+              mode: "local",
+              ownerToken: "owner-secret",
+              hostLabel: "alice-mac",
+            });
           }
           if (owner !== "owner-secret") return jsonResponse({ error: "unauthorized" }, 401);
           if (url.includes("/api/local/directories")) {

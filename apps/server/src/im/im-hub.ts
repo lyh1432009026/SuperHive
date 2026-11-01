@@ -80,6 +80,18 @@ export type ImHubDeps = {
   /** 卡片按钮上的网页地址：带房主登录票，在没登录过的设备上点开也能直接进 */
   loginUrl?(connectionId: string, roomId: string): string | undefined;
   onConnectionsChanged(roomId: string): void;
+  /**
+   * 卡片上批准或拒绝其他设备管理 Server 所在电脑；实现方核对这个连接和操作人是否登记为可批准。
+   * 返回给点按钮的人看的结果
+   */
+  decideHostApproval?(
+    connectionId: string,
+    actorId: string,
+    approvalId: string,
+    allow: boolean,
+  ): { ok: boolean; text: string };
+  /** 由本机房主发起的扫码：连接建好后登记为可批准其他设备管理这台电脑 */
+  markHostApprover?(connectionId: string, actorId: string): void;
   log(message: string, detail?: unknown): void;
   now?: () => number;
 };
@@ -89,6 +101,8 @@ type LoginSession = {
   abort: AbortController;
   codeWaiter?: ((code: string) => void) | undefined;
   ownerName: string;
+  /** 本机房主发起的扫码 */
+  hostApprover?: boolean;
 };
 
 const MAX_ATTEMPTS = 8;
@@ -201,7 +215,12 @@ export class ImHub {
 
   /* ---------- 扫码连接 ---------- */
 
-  startLogin(roomId: string, channel: ImChannel, ownerName: string): ImLoginView {
+  startLogin(
+    roomId: string,
+    channel: ImChannel,
+    ownerName: string,
+    options: { hostApprover?: boolean } = {},
+  ): ImLoginView {
     const driver = this.deps.drivers[channel];
     if (!driver) throw new HiveError("IM_DISABLED", "这个渠道没有启用。");
     const owner = this.deps.findParticipant(roomId, ownerName);
@@ -220,6 +239,7 @@ export class ImHub {
       view: { id, channel, roomId, status: "starting" },
       abort: new AbortController(),
       ownerName: owner.username,
+      ...(options.hostApprover ? { hostApprover: true } : {}),
     };
     this.logins.set(id, login);
     void this.runLogin(login, driver);
@@ -328,6 +348,7 @@ export class ImHub {
       }
       this.updateLogin(login, { status: "connecting" });
       const connection = this.saveConnection(login, driver, result);
+      if (login.hostApprover) this.deps.markHostApprover?.(connection.id, connection.ownerActorId);
       this.deps.store.kvMove(namespace, connection.id);
       this.finishLogin(login, { status: "succeeded", connectionId: connection.id });
       this.deps.onConnectionsChanged(connection.roomId);
@@ -1726,6 +1747,24 @@ export class ImHub {
     if (op === "retry" || op === "dismiss" || op === "continue") {
       return this.invocationFromCard(connection, owner, action, op);
     }
+    if (op === "host_approval") {
+      const decided = this.deps.decideHostApproval?.(
+        connection.id,
+        action.operatorId,
+        action.value.id ?? "",
+        action.value.decision === "allow",
+      ) ?? { ok: false, text: "这个服务不支持在这里批准" };
+      const delivery = this.deps.store.deliveryByExternal(connection.id, action.externalId);
+      const base = delivery?.rich;
+      const rich: ImRich | undefined = base
+        ? { ...base, resolved: { text: decided.text, ok: decided.ok } }
+        : undefined;
+      if (delivery && rich) this.deps.store.setRich(delivery.id, rich);
+      return {
+        toast: { type: decided.ok ? "success" : "info", text: decided.text },
+        ...(rich ? { rich } : {}),
+      };
+    }
     if (op === "target") {
       const agent = action.value.agent ?? "";
       if (agent && !this.agentNames(connection.roomId).includes(agent)) {
@@ -1953,6 +1992,79 @@ export class ImHub {
     });
     // 同一条消息已作为合并项排队：现在要求立即发（例如它就是房主任务的最终结果）
     if (!created && !options.batch) this.deps.store.promote(connection.id, eventKey);
+  }
+
+  /* ---------- 其他设备管理 Server 所在电脑：通知与批准 ---------- */
+
+  /** 每个房主 IM 账号一个连接（同一账号接了几个房间只推一次） */
+  private ownerConnections(filter?: (connection: StoredConnection) => boolean) {
+    const seen = new Set<string>();
+    return this.deps.store.listConnections().filter((connection) => {
+      if (connection.status === "paused" || (filter && !filter(connection))) return false;
+      const key = `${connection.channel}:${connection.ownerActorId}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  /** 推一条文字到房主私聊（安全提醒等，不挂在任何房间消息上） */
+  notifyOwner(text: string, filter?: (connection: StoredConnection) => boolean): number {
+    const targets = this.ownerConnections(filter);
+    for (const connection of targets) {
+      this.deps.store.enqueue({
+        connectionId: connection.id,
+        eventKey: `notice:${randomUUID()}`,
+        chatId: `${USER_TARGET}${connection.ownerActorId}`,
+        text: plain(text),
+      });
+    }
+    if (targets.length) this.schedulePump();
+    return targets.length;
+  }
+
+  /**
+   * 把批准卡推到可批准的连接（只推开了卡片回调的；文字渠道点不了按钮，只提醒到本机批准）。
+   * 返回推出批准卡的数量
+   */
+  requestHostApproval(
+    approval: { id: string; summary: string; expiresAt: string },
+    approvers: (connection: StoredConnection) => boolean,
+  ): number {
+    const targets = this.ownerConnections(
+      (connection) => approvers(connection) && this.cardsEnabled(connection),
+    );
+    for (const connection of targets) {
+      const rich: ImRich = {
+        title: "需要你批准",
+        tone: "approval",
+        tag: "待批准",
+        body: plain(approval.summary),
+        note: "5 分钟内有效。不是你本人在操作就点「拒绝」，并在设置 → 已登录设备里全部退出。",
+        actions: [
+          {
+            label: "允许",
+            value: { do: "host_approval", id: approval.id, decision: "allow" },
+            style: "primary",
+          },
+          {
+            label: "拒绝",
+            value: { do: "host_approval", id: approval.id, decision: "deny" },
+            style: "danger",
+          },
+        ],
+        summary: `需要你批准：${plain(approval.summary)}`,
+      };
+      this.deps.store.enqueue({
+        connectionId: connection.id,
+        eventKey: `host-approval:${approval.id}`,
+        chatId: `${USER_TARGET}${connection.ownerActorId}`,
+        text: rich.summary,
+        rich,
+      });
+    }
+    if (targets.length) this.schedulePump();
+    return targets.length;
   }
 
   /** 房间里有新消息：按每个连接的档位决定推不推 */
