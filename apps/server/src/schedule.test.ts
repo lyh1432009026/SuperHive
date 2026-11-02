@@ -244,6 +244,81 @@ describe("hive_schedule", () => {
     ).toHaveLength(0);
   });
 
+  it("follows the run into the continued invocation when the scheduled turn asks a human", async () => {
+    const { alice, helper, trigger, create, advance, client } = await executingRoom();
+    const created = await create({ runAt: utc(1), task: "发布前先问一下", clientMessageId: "q" });
+    const scheduleId = (created.structuredContent!.schedule as { id: string }).id;
+    helper.send({ type: "invocation.report", messageId: trigger.id, status: "completed" });
+    advance(61_000);
+    const mentioned = await helper.next(
+      (event) => event.type === "agent.mentioned" && event.message.kind === "schedule",
+      3_000,
+    );
+    const fired = (mentioned as Extract<ServerEvent, { type: "agent.mentioned" }>).message;
+    helper.send({ type: "invocation.report", messageId: fired.id, status: "running" });
+    await alice.next(
+      (event) =>
+        event.type === "invocation.updated" &&
+        event.invocation.messageId === fired.id &&
+        event.invocation.status === "running",
+    );
+    const asked = await client.callTool({
+      name: "hive_ask_human",
+      arguments: { question: "发正式环境吗？" },
+    });
+    const questionId = (asked.structuredContent as { questionMessageId: string }).questionMessageId;
+    // 提问后这一轮只回 NO_REPLY：不算「没有回复」
+    helper.send({ type: "invocation.report", messageId: fired.id, status: "completed" });
+    alice.send({
+      type: "message.send",
+      clientMessageId: "answer",
+      content: "发",
+      replyToMessageId: questionId,
+    });
+    const answer = await helper.next(
+      (event) => event.type === "agent.mentioned" && event.message.replyToMessageId === questionId,
+      3_000,
+    );
+    const answerMessage = (answer as Extract<ServerEvent, { type: "agent.mentioned" }>).message;
+    const continued = await alice.next(
+      (event) =>
+        event.type === "invocation.updated" && event.invocation.messageId === answerMessage.id,
+    );
+    const continuedId = (continued as Extract<ServerEvent, { type: "invocation.updated" }>)
+      .invocation.id;
+    // 定时任务改指向续上的调用
+    await alice.next(
+      (event) =>
+        event.type === "schedule.updated" &&
+        event.schedule.id === scheduleId &&
+        event.schedule.invocationId === continuedId,
+      3_000,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(
+      alice.events.some(
+        (event) => event.type === "message.created" && event.message.kind === "receipt",
+      ),
+    ).toBe(false);
+
+    // 续上的调用失败了：照样给发起人补一条说明
+    helper.send({ type: "invocation.report", messageId: answerMessage.id, status: "running" });
+    helper.send({
+      type: "invocation.report",
+      messageId: answerMessage.id,
+      status: "failed",
+      detail: "部署命令退出码 1",
+    });
+    const note = messageOf(
+      await alice.next(
+        (event) => event.type === "message.created" && event.message.kind === "receipt",
+        3_000,
+      ),
+    );
+    expect(note.mentions).toEqual(["Alice"]);
+    expect(note.content).toContain("部署命令退出码 1");
+  });
+
   it("refuses ambiguous, past, nested or out-of-turn schedules", async () => {
     const { alice, helper, create, trigger, advance, join, mcp } = await executingRoom();
     // 没在处理消息的 Agent 不能排定时
@@ -398,6 +473,25 @@ describe("schedules across restarts", () => {
         expect.objectContaining({ status: "queued", requesterName: "Alice" }),
       ]);
     }
+  });
+
+  it("marks an interrupted fire as missed when the server comes back after the grace period", async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "hive-schedule-"));
+    cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+    const databasePath = path.join(directory, "hive.sqlite");
+    const { seed, add } = seedRoom(databasePath);
+    const schedule = add("stale", utc(-180));
+    seed.transitionSchedule(schedule.id, ["scheduled"], "firing");
+    seed.close();
+    const room = await startRoom({ databasePath, now: () => BASE });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await room.close();
+    const after = new HiveDatabase(databasePath);
+    cleanup.push(() => after.close());
+    expect(after.getSchedule(schedule.id)).toMatchObject({ status: "missed" });
+    const messages = after.getMessages("general", 0, 100);
+    expect(messages.filter((message) => message.kind === "schedule")).toHaveLength(0);
+    expect(messages.filter((message) => message.kind === "receipt")).toHaveLength(1);
   });
 
   it("re-uses the trigger message when a fire was interrupted after writing it", async () => {

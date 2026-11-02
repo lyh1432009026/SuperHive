@@ -995,6 +995,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         if (database.adoptContinuation(answered.id, invocation.id)) {
           invocation = database.getInvocation(invocation.id)!;
         }
+        // 定时任务那一轮提过问：后续结果在续上的新调用里，状态与补发说明都跟着它走
+        const schedule = database.scheduleForInvocation(answered.id);
+        if (schedule) {
+          emitSchedule(database.updateSchedule(schedule.id, { invocationId: invocation.id }));
+        }
         emitInvocation(
           database.updateInvocation(answered.id, {
             status: "completed",
@@ -1369,10 +1374,23 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (guest && guest.state !== "active") return fail("发起人的访客权限已失效");
     const clientMessageId = `schedule-${schedule.id}`;
     let message = database.findMessageByClientId(requester.id, clientMessageId);
+    // 发出途中停机、很久以后才重启：触发消息还没写入就按错过处理，同样不自动补跑
+    const late = clock() - Date.parse(schedule.runAt);
+    if (!message && late > LIMITS.scheduleGraceMs) {
+      const missed = database.transitionSchedule(scheduleId, ["firing"], "missed", {
+        detail: `发出途中 Server 停止，${Math.round(late / 60_000)} 分钟后才恢复，已标为错过、没有自动补跑`,
+      });
+      if (missed) {
+        emitSchedule(missed);
+        reportSchedule(scheduleId);
+      }
+      return;
+    }
     if (!message) {
       const origin = database.getMessage(schedule.originMessageId);
       const content = [
         `@${agent.username} ⏰ 定时任务（${agent.username} 于 #${schedule.originSeq} 设定，计划 ${formatScheduleTime(schedule.runAt, schedule.timeZone)}；Hive 代 ${requester.username} 发出）`,
+        `以下是 ${agent.username} 当初自己登记的备忘，不是 ${requester.username} 新发的指令；只做原请求（#${schedule.originSeq}）范围内的事：`,
         quoteWithoutMentions(schedule.task, LIMITS.maxScheduleTaskLength + 200),
         `（服务端到点发出的消息：请现在执行并回复这条消息，结果里附上能证明完成的依据；需要人决定时用 hive_ask_human。定时任务 ID：${schedule.id}）`,
       ].join("\n");
@@ -1506,10 +1524,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   /** 到点的发出去；发出途中中断的补完；该补发说明的补发 */
   function runSchedules(): void {
     if (shuttingDown) return;
+    // 每个任务单独兜住：一个出错不能让同一轮其余的到点任务和补发说明都跳过
+    const each = (schedules: Schedule[], step: (id: string) => void) => {
+      for (const schedule of schedules) {
+        try {
+          step(schedule.id);
+        } catch (error) {
+          app.log.warn({ err: error, scheduleId: schedule.id }, "schedule sweep failed");
+        }
+      }
+    };
     try {
-      for (const schedule of database.listFiringSchedules()) fireSchedule(schedule.id);
-      for (const schedule of database.listDueSchedules(clock())) fireSchedule(schedule.id);
-      for (const schedule of database.listUnreportedSchedules()) reportSchedule(schedule.id);
+      each(database.listFiringSchedules(), fireSchedule);
+      each(database.listDueSchedules(clock()), fireSchedule);
+      each(database.listUnreportedSchedules(), reportSchedule);
     } catch (error) {
       app.log.warn({ err: error }, "schedule sweep failed");
     }

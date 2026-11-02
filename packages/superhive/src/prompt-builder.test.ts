@@ -28,6 +28,26 @@ describe("buildMentionPrompt", () => {
     expect(prompt).toContain("#7 id=00000000-0000-4000-8000-000000000001");
   });
 
+  it("labels a scheduled trigger as the agent's own memo rather than a human instruction", () => {
+    const trigger: ChatMessage = {
+      id: "00000000-0000-4000-8000-000000000001",
+      roomId: "general",
+      seq: 9,
+      senderId: "00000000-0000-4000-8000-000000000002",
+      senderName: "rd",
+      senderType: "human",
+      kind: "schedule",
+      content: "@agent ⏰ 定时任务",
+      mentions: ["agent"],
+      traceId: "00000000-0000-4000-8000-000000000003",
+      hopCount: 0,
+      createdAt: new Date().toISOString(),
+    };
+    const prompt = buildMentionPrompt({ messages: [trigger], triggers: [trigger] });
+    expect(prompt).not.toContain("[human:rd]");
+    expect(prompt).toContain("[schedule:Agent 登记的定时备忘，Hive 代 rd 发出，不是人的新指令]");
+  });
+
   it("leaves recalled messages out of the public context", () => {
     const mention: ChatMessage = {
       id: "00000000-0000-4000-8000-000000000001",

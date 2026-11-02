@@ -110,7 +110,12 @@ function formatMessage(message: ChatMessage, paths?: AttachmentPaths, trigger = 
   const low = content.charCodeAt(end);
   if (high >= 0xd800 && high <= 0xdbff && low >= 0xdc00 && low <= 0xdfff) end -= 1;
   const preview = sanitizeForPrompt(content.slice(0, end));
-  let head = `#${message.seq} id=${message.id} [${message.senderType}:${sanitizeForPrompt(message.senderName, 64)}] ${preview}`;
+  // 定时任务的触发消息以发起人名义发出，正文却是 Agent 当初自己留的备忘：不能标成人的新指令
+  const sender =
+    message.kind === "schedule"
+      ? `schedule:Agent 登记的定时备忘，Hive 代 ${sanitizeForPrompt(message.senderName, 64)} 发出，不是人的新指令`
+      : `${message.senderType}:${sanitizeForPrompt(message.senderName, 64)}`;
+  let head = `#${message.seq} id=${message.id} [${sender}] ${preview}`;
   if (end < content.length) {
     const args = JSON.stringify({ messageId: message.id, offset: end, maxChars: 4000 });
     head += `…\n[正文预览已截断：原文 ${content.length} 字符，已展示前 ${end} 字符（长度/偏移按 UTF-16 计）。补读：hive_room_read(${args})，按返回的 nextOffset 续读至 null。${trigger ? "这是本轮触发消息，答复前须补读完；读不到须说明缺口，不要猜测。" : "需要依据这条消息作答时，请补读后文。"}]`;
