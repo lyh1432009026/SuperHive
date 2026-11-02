@@ -151,6 +151,37 @@ type BrowserNotificationPermission = NotificationPermission | "unsupported";
 type MobilePanel = "members" | "rooms";
 type SidePanelTab = "members" | "whiteboard" | "schedules";
 const sidePanelTabs: SidePanelTab[] = ["members", "whiteboard", "schedules"];
+
+/**
+ * 侧栏标签一行放不下时（窄面板、英文等较长的译文），未选中的标签只留图标和计数，文字仍供读屏与悬停提示；
+ * 按实际宽度判断，不按语言写死，任何语言都不会折行。
+ */
+function fitSideTabs(element: HTMLDivElement | null) {
+  if (!element) return;
+  const fit = () => {
+    element.classList.remove("compact");
+    if (element.scrollWidth > element.clientWidth + 1) element.classList.add("compact");
+  };
+  fit();
+  if (typeof ResizeObserver === "undefined" || typeof MutationObserver === "undefined") return;
+  const resize = new ResizeObserver(fit);
+  resize.observe(element);
+  // 切换标签、计数变化都会改变所需宽度
+  const mutation = new MutationObserver((records) => {
+    if (records.some((record) => record.target !== element)) fit();
+  });
+  mutation.observe(element, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ["class"],
+  });
+  return () => {
+    resize.disconnect();
+    mutation.disconnect();
+  };
+}
 type IconName =
   | "arrow-down"
   | "arrow-right"
@@ -4098,6 +4129,7 @@ export function App({
               className="side-tabs"
               role="tablist"
               aria-label={t("侧栏视图")}
+              ref={fitSideTabs}
               onKeyDown={(event) => {
                 if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
                 event.preventDefault();
@@ -4119,6 +4151,7 @@ export function App({
                 type="button"
                 role="tab"
                 id="side-tab-members"
+                title={t("成员")}
                 aria-selected={sidePanelTab === "members"}
                 aria-controls="side-panel-members"
                 tabIndex={sidePanelTab === "members" ? 0 : -1}
@@ -4126,7 +4159,7 @@ export function App({
                 onClick={() => setSidePanelTab("members")}
               >
                 <Icon name="users" size={15} />
-                {t("成员")}
+                <span className="side-tab-label">{t("成员")}</span>
                 <span className="side-tab-count" aria-label={t("{0} 位在线", { 0: online.length })}>
                   {online.length}
                 </span>
@@ -4135,6 +4168,7 @@ export function App({
                 type="button"
                 role="tab"
                 id="side-tab-whiteboard"
+                title={t("白板")}
                 aria-selected={sidePanelTab === "whiteboard"}
                 aria-controls="side-panel-whiteboard"
                 tabIndex={sidePanelTab === "whiteboard" ? 0 : -1}
@@ -4142,7 +4176,7 @@ export function App({
                 onClick={() => setSidePanelTab("whiteboard")}
               >
                 <Icon name="board" size={15} />
-                {t("白板")}
+                <span className="side-tab-label">{t("白板")}</span>
                 {whiteboard.size > 0 && (
                   <span
                     className={`side-tab-count ${whiteboardBlockedCount > 0 ? "warning" : ""}`}
@@ -4163,6 +4197,7 @@ export function App({
                 type="button"
                 role="tab"
                 id="side-tab-schedules"
+                title={t("定时")}
                 aria-selected={sidePanelTab === "schedules"}
                 aria-controls="side-panel-schedules"
                 tabIndex={sidePanelTab === "schedules" ? 0 : -1}
@@ -4170,7 +4205,7 @@ export function App({
                 onClick={() => setSidePanelTab("schedules")}
               >
                 <Icon name="clock" size={15} />
-                {t("定时")}
+                <span className="side-tab-label">{t("定时")}</span>
                 {pendingScheduleCount > 0 && (
                   <span
                     className="side-tab-count"

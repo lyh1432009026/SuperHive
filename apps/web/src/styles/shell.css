@@ -617,6 +617,7 @@
   display: flex;
   flex: 1;
   min-width: 0;
+  overflow: hidden;
   padding: 2px;
   border-radius: var(--radius-pill);
   background: var(--bg-hover);
@@ -625,7 +626,8 @@
 .side-tabs button {
   height: 30px;
   display: inline-flex;
-  flex: 1;
+  flex: 1 1 auto;
+  white-space: nowrap;
   justify-content: center;
   align-items: center;
   gap: 5px;
@@ -640,6 +642,19 @@
   transition:
     background var(--duration-fast),
     color var(--duration-fast);
+}
+
+/* 放不下时（见 fitSideTabs）：未选中的标签只显示图标与计数，选中的照常带文字 */
+.side-tabs.compact button:not(.active) {
+  flex: 0 0 auto;
+}
+
+.side-tabs.compact button:not(.active) .side-tab-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
 }
 
 .side-tabs button:hover {
