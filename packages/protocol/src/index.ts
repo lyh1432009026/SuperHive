@@ -38,6 +38,11 @@ export const LIMITS = {
   /** 上传后一直没随消息发出的附件，过期即清理 */
   pendingAttachmentTtlMs: 24 * 60 * 60_000,
   maxAttachmentNameLength: 200,
+  /** 定时任务：每个房间同时待执行的上限、最远可以排到多久以后、到点后多久内仍照常执行（超过即标为已错过） */
+  maxActiveSchedulesPerRoom: 20,
+  maxScheduleAheadMs: 30 * 24 * 60 * 60_000,
+  scheduleGraceMs: 10 * 60_000,
+  maxScheduleTaskLength: 4000,
 } as const;
 
 export const participantTypeSchema = z.enum(["human", "agent"]);
@@ -149,8 +154,9 @@ export const chatMessageSchema = z.object({
    * delegation：Agent 经 hive_invoke 委派子任务时发出的消息；只是中间动作，不算这一轮的回复。
    * receipt：子任务结束后服务端代被委派方发给委派方的结果回执。
    * question：Agent 经 hive_ask_human 向人提的问题；人回复它即可把答案交回并唤醒提问的 Agent。
+   * schedule：定时任务到点后服务端代发起人发出的触发消息；不算人在场，不重置 Agent 连续轮数。
    */
-  kind: z.enum(["topic", "delegation", "receipt", "question"]).optional(),
+  kind: z.enum(["topic", "delegation", "receipt", "question", "schedule"]).optional(),
   /** kind=question 且带选项时的题目定义；没有它就是自由回答的问题 */
   question: questionSpecSchema.optional(),
   /** 经网页点选提交的答案；手打的回答没有这个字段，正文照样是答案 */
@@ -482,6 +488,44 @@ export const whiteboardEntrySchema = z.object({
   updatedAt: z.string().datetime(),
 });
 
+/**
+ * 定时任务（hive_schedule_create 创建）。到点后服务端代发起人发一条触发消息 @ 执行的 Agent，
+ * 之后的执行状态以 invocationId 对应的调用为准。
+ * scheduled 待执行 / firing 正在发出 / fired 已发出 / missed 已错过 / cancelled 已取消 / failed 无法发出
+ */
+export const scheduleStatusSchema = z.enum([
+  "scheduled",
+  "firing",
+  "fired",
+  "missed",
+  "cancelled",
+  "failed",
+]);
+export const scheduleSchema = z.object({
+  id: z.string().uuid(),
+  roomId: z.string().min(1).max(64),
+  agentId: z.string().uuid(),
+  agentName: z.string(),
+  /** 发起人：创建它的那次调用所在委派链源头的人；到点后以其名义发出触发消息 */
+  requesterId: z.string().uuid(),
+  requesterName: z.string(),
+  /** 创建时 Agent 正在处理的消息 */
+  originMessageId: z.string().uuid(),
+  originSeq: z.number().int().nonnegative(),
+  task: z.string().min(1).max(LIMITS.maxScheduleTaskLength),
+  runAt: z.string().datetime(),
+  /** 显示用的 IANA 时区 */
+  timeZone: z.string().min(1).max(64),
+  status: scheduleStatusSchema,
+  detail: z.string().max(500).optional(),
+  triggerMessageId: z.string().uuid().optional(),
+  invocationId: z.string().uuid().optional(),
+  firedAt: z.string().datetime().optional(),
+  cancelledBy: z.string().optional(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
 /** Agent 回报自己对某条 @ 的处理进展；received 只确认送达，不改变 queued 状态 */
 export const invocationReportEventSchema = z.object({
   type: z.literal("invocation.report"),
@@ -518,6 +562,11 @@ export const whiteboardRemoveEventSchema = z.object({
   type: z.literal("whiteboard.remove"),
   entryId: z.string().uuid(),
 });
+/** 人取消一个还没到点的定时任务 */
+export const scheduleCancelEventSchema = z.object({
+  type: z.literal("schedule.cancel"),
+  scheduleId: z.string().uuid(),
+});
 
 export const clientEventSchema = z.discriminatedUnion("type", [
   participantJoinEventSchema,
@@ -534,6 +583,7 @@ export const clientEventSchema = z.discriminatedUnion("type", [
   invocationCancelEventSchema,
   budgetExtendEventSchema,
   whiteboardRemoveEventSchema,
+  scheduleCancelEventSchema,
 ]);
 
 export const roomSnapshotEventSchema = z.object({
@@ -544,6 +594,7 @@ export const roomSnapshotEventSchema = z.object({
   latestSeq: z.number().int().nonnegative(),
   invocations: z.array(invocationSchema).default([]),
   whiteboard: z.array(whiteboardEntrySchema).default([]),
+  schedules: z.array(scheduleSchema).default([]),
 });
 export const messageCreatedEventSchema = z.object({
   type: z.literal("message.created"),
@@ -587,6 +638,10 @@ export const whiteboardRemovedEventSchema = z.object({
   type: z.literal("whiteboard.removed"),
   roomId: z.string(),
   entryId: z.string().uuid(),
+});
+export const scheduleUpdatedEventSchema = z.object({
+  type: z.literal("schedule.updated"),
+  schedule: scheduleSchema,
 });
 export const presenceChangedEventSchema = z.object({
   type: z.literal("presence.changed"),
@@ -643,6 +698,7 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   invocationUpdatedEventSchema,
   whiteboardUpdatedEventSchema,
   whiteboardRemovedEventSchema,
+  scheduleUpdatedEventSchema,
   presenceChangedEventSchema,
   roomsChangedEventSchema,
   roomActivityEventSchema,
@@ -1007,6 +1063,8 @@ export type AccessResponse = z.infer<typeof accessResponseSchema>;
 export type InvocationStatus = z.infer<typeof invocationStatusSchema>;
 export type InvocationBlockReason = z.infer<typeof invocationBlockReasonSchema>;
 export type Invocation = z.infer<typeof invocationSchema>;
+export type Schedule = z.infer<typeof scheduleSchema>;
+export type ScheduleStatus = z.infer<typeof scheduleStatusSchema>;
 export type WhiteboardSlot = z.infer<typeof whiteboardSlotSchema>;
 export type WhiteboardEntry = z.infer<typeof whiteboardEntrySchema>;
 export type LocalAgentProvider = z.infer<typeof localAgentProviderSchema>;

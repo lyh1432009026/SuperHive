@@ -30,6 +30,8 @@ import {
   type ParticipantStatus,
   type ParticipantType,
   type RoomSummary,
+  type Schedule,
+  type ScheduleStatus,
   type WhiteboardEntry,
   type WhiteboardSlot,
 } from "@superhive/protocol";
@@ -178,6 +180,40 @@ type WhiteboardRow = {
   updated_at: string;
 };
 
+type ScheduleRow = {
+  id: string;
+  room_id: string;
+  agent_id: string;
+  agent_name: string;
+  requester_id: string;
+  requester_name: string;
+  origin_message_id: string;
+  origin_seq: number;
+  client_id: string;
+  task: string;
+  run_at: string;
+  time_zone: string;
+  status: ScheduleStatus;
+  detail: string | null;
+  trigger_message_id: string | null;
+  invocation_id: string | null;
+  fired_at: string | null;
+  reported_at: string | null;
+  cancelled_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SchedulePatch = {
+  status?: ScheduleStatus;
+  detail?: string | null;
+  triggerMessageId?: string | null;
+  invocationId?: string | null;
+  firedAt?: string | null;
+  reportedAt?: string | null;
+  cancelledBy?: string | null;
+};
+
 export type InvocationContinuation = NonNullable<Invocation["continuation"]>;
 
 /** 子任务进入这些状态即可把结果回执给委派方；blocked 还可能被人放行，不算结束 */
@@ -283,7 +319,8 @@ function mapMessage(row: MessageRow): ChatMessage {
     ...(row.kind === "topic" ||
     row.kind === "delegation" ||
     row.kind === "receipt" ||
-    row.kind === "question"
+    row.kind === "question" ||
+    row.kind === "schedule"
       ? { kind: row.kind as NonNullable<ChatMessage["kind"]> }
       : {}),
     ...(row.deleted_at ? {} : parseMessageMeta(row.meta)),
@@ -400,6 +437,30 @@ function mapInvocation(row: InvocationRow): Invocation {
           },
         }
       : {}),
+  };
+}
+
+function mapSchedule(row: ScheduleRow): Schedule {
+  return {
+    id: row.id,
+    roomId: row.room_id,
+    agentId: row.agent_id,
+    agentName: row.agent_name,
+    requesterId: row.requester_id,
+    requesterName: row.requester_name,
+    originMessageId: row.origin_message_id,
+    originSeq: row.origin_seq,
+    task: row.task,
+    runAt: row.run_at,
+    timeZone: row.time_zone,
+    status: row.status,
+    ...(row.detail ? { detail: row.detail } : {}),
+    ...(row.trigger_message_id ? { triggerMessageId: row.trigger_message_id } : {}),
+    ...(row.invocation_id ? { invocationId: row.invocation_id } : {}),
+    ...(row.fired_at ? { firedAt: row.fired_at } : {}),
+    ...(row.cancelled_by ? { cancelledBy: row.cancelled_by } : {}),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -566,6 +627,36 @@ export class HiveDatabase {
         created_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS agent_usage_room ON agent_usage(room_id, created_at);
+
+      -- 定时任务：到点由服务端代发起人发出触发消息（见 Schedule）；执行状态记在 invocation_id 对应的调用上。
+      -- reported_at：没有正常回复、错过或无法发出时，服务端补发说明后记下，补发靠扫描重试且只发一次
+      CREATE TABLE IF NOT EXISTS schedules (
+        id TEXT PRIMARY KEY,
+        room_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        agent_name TEXT NOT NULL,
+        requester_id TEXT NOT NULL,
+        requester_name TEXT NOT NULL,
+        origin_message_id TEXT NOT NULL,
+        origin_seq INTEGER NOT NULL,
+        client_id TEXT NOT NULL,
+        task TEXT NOT NULL,
+        run_at TEXT NOT NULL,
+        time_zone TEXT NOT NULL,
+        status TEXT NOT NULL,
+        detail TEXT,
+        trigger_message_id TEXT,
+        invocation_id TEXT,
+        fired_at TEXT,
+        reported_at TEXT,
+        cancelled_by TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(agent_id, client_id)
+      );
+      CREATE INDEX IF NOT EXISTS schedules_due ON schedules(status, run_at);
+      CREATE INDEX IF NOT EXISTS schedules_room ON schedules(room_id, created_at);
+      CREATE INDEX IF NOT EXISTS schedules_invocation ON schedules(invocation_id);
 
       CREATE TABLE IF NOT EXISTS local_agents (
         id TEXT PRIMARY KEY,
@@ -934,10 +1025,23 @@ export class HiveDatabase {
    * 清空房间的消息和调用记录；白板是跨话题的长期共识，保留。
    * seq 由 AUTOINCREMENT 保证继续递增，Agent 记录的处理进度不会因此错乱。
    */
-  clearRoom(roomId: string): { messages: number; invocations: number } {
+  clearRoom(roomId: string, by?: string): { messages: number; invocations: number } {
     return this.db.transaction(() => {
       const invocations = this.db.prepare("DELETE FROM invocations WHERE room_id = ?").run(roomId);
       const messages = this.db.prepare("DELETE FROM messages WHERE room_id = ?").run(roomId);
+      // 消息和调用都没了：待执行的定时任务一并取消，已发出的不再补发说明（界面上仍留着记录）
+      const now = new Date().toISOString();
+      this.db
+        .prepare(
+          `UPDATE schedules SET status = 'cancelled', detail = '房间已清空', cancelled_by = ?,
+             updated_at = ? WHERE room_id = ? AND status IN ('scheduled', 'firing')`,
+        )
+        .run(by ?? null, now, roomId);
+      this.db
+        .prepare(
+          "UPDATE schedules SET reported_at = ?, updated_at = ? WHERE room_id = ? AND reported_at IS NULL",
+        )
+        .run(now, now, roomId);
       return { messages: messages.changes, invocations: invocations.changes };
     })();
   }
@@ -1078,7 +1182,8 @@ export class HiveDatabase {
   private lastHumanSeq(roomId: string): number {
     const row = this.db
       .prepare(
-        "SELECT COALESCE(MAX(seq), 0) AS seq FROM messages WHERE room_id = ? AND sender_type = 'human'",
+        // 定时任务的触发消息以发起人名义发出，但那时人并不在场：不算人发言，不重置 Agent 连续轮数
+        "SELECT COALESCE(MAX(seq), 0) AS seq FROM messages WHERE room_id = ? AND sender_type = 'human' AND (kind IS NULL OR kind != 'schedule')",
       )
       .get(roomId) as { seq: number };
     return row.seq;
@@ -1570,6 +1675,193 @@ export class HiveDatabase {
       )
       .all(staleRunning, unacknowledged) as InvocationRow[];
     return rows.map(mapInvocation);
+  }
+
+  /** 幂等：同一个 Agent 用同一个 clientId 重试创建，返回已有的那条 */
+  createSchedule(input: {
+    roomId: string;
+    agent: Participant;
+    requester: Participant;
+    origin: ChatMessage;
+    clientId: string;
+    task: string;
+    runAt: string;
+    timeZone: string;
+  }): { schedule: Schedule; created: boolean } {
+    const existing = this.db
+      .prepare("SELECT * FROM schedules WHERE agent_id = ? AND client_id = ?")
+      .get(input.agent.id, input.clientId) as ScheduleRow | undefined;
+    if (existing) return { schedule: mapSchedule(existing), created: false };
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO schedules(
+          id, room_id, agent_id, agent_name, requester_id, requester_name, origin_message_id,
+          origin_seq, client_id, task, run_at, time_zone, status, created_at, updated_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?)`,
+      )
+      .run(
+        id,
+        input.roomId,
+        input.agent.id,
+        input.agent.username,
+        input.requester.id,
+        input.requester.username,
+        input.origin.id,
+        input.origin.seq,
+        input.clientId,
+        input.task,
+        input.runAt,
+        input.timeZone,
+        now,
+        now,
+      );
+    return { schedule: this.getSchedule(id)!, created: true };
+  }
+
+  createScheduleLookup(agentId: string, clientId: string): Schedule | undefined {
+    const row = this.db
+      .prepare("SELECT * FROM schedules WHERE agent_id = ? AND client_id = ?")
+      .get(agentId, clientId) as ScheduleRow | undefined;
+    return row ? mapSchedule(row) : undefined;
+  }
+
+  isScheduleUnreported(id: string): boolean {
+    return Boolean(
+      this.db.prepare("SELECT 1 FROM schedules WHERE id = ? AND reported_at IS NULL").get(id),
+    );
+  }
+
+  getSchedule(id: string): Schedule | undefined {
+    const row = this.db.prepare("SELECT * FROM schedules WHERE id = ?").get(id) as
+      ScheduleRow | undefined;
+    return row ? mapSchedule(row) : undefined;
+  }
+
+  /** 房间的定时任务：待执行的全部在前（按执行时间），之后是最近结束的 */
+  listSchedules(roomId: string, limit = 50): Schedule[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM schedules WHERE room_id = ?
+         ORDER BY CASE WHEN status IN ('scheduled', 'firing') THEN 0 ELSE 1 END,
+           CASE WHEN status IN ('scheduled', 'firing') THEN run_at END ASC,
+           updated_at DESC
+         LIMIT ?`,
+      )
+      .all(roomId, limit) as ScheduleRow[];
+    return rows.map(mapSchedule);
+  }
+
+  countActiveSchedules(roomId: string): number {
+    const row = this.db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM schedules WHERE room_id = ? AND status IN ('scheduled', 'firing')",
+      )
+      .get(roomId) as { count: number };
+    return row.count;
+  }
+
+  /** 到点（run_at 不晚于 now）还没发出的定时任务 */
+  listDueSchedules(now: number): Schedule[] {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM schedules WHERE status = 'scheduled' AND run_at <= ? ORDER BY run_at ASC",
+      )
+      .all(new Date(now).toISOString()) as ScheduleRow[];
+    return rows.map(mapSchedule);
+  }
+
+  /** 最近一个待执行定时任务的时间（毫秒）；没有返回 undefined */
+  nextScheduleRunAt(): number | undefined {
+    const row = this.db
+      .prepare("SELECT MIN(run_at) AS runAt FROM schedules WHERE status = 'scheduled'")
+      .get() as { runAt: string | null };
+    return row.runAt ? Date.parse(row.runAt) : undefined;
+  }
+
+  /** 发出途中被中断（服务崩溃、重启）的定时任务，由扫描按幂等键补完 */
+  listFiringSchedules(): Schedule[] {
+    const rows = this.db
+      .prepare("SELECT * FROM schedules WHERE status = 'firing' ORDER BY run_at ASC")
+      .all() as ScheduleRow[];
+    return rows.map(mapSchedule);
+  }
+
+  /** 已发出、错过或无法发出、还没确认是否需要补发说明的定时任务 */
+  listUnreportedSchedules(): Schedule[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM schedules WHERE reported_at IS NULL
+           AND status IN ('fired', 'missed', 'failed') ORDER BY updated_at ASC`,
+      )
+      .all() as ScheduleRow[];
+    return rows.map(mapSchedule);
+  }
+
+  scheduleForInvocation(invocationId: string): Schedule | undefined {
+    const row = this.db
+      .prepare("SELECT * FROM schedules WHERE invocation_id = ?")
+      .get(invocationId) as ScheduleRow | undefined;
+    return row ? mapSchedule(row) : undefined;
+  }
+
+  /**
+   * 原子地把状态从 from 之一推进到 next，同时写入 patch；返回 undefined 表示已被别处处理
+   * （同一个定时任务只会被认领发出一次，取消与到点同时发生时只有一方生效）。
+   */
+  transitionSchedule(
+    id: string,
+    from: readonly ScheduleStatus[],
+    next: ScheduleStatus,
+    patch: SchedulePatch = {},
+  ): Schedule | undefined {
+    const { sets, values } = this.schedulePatchSql({ ...patch, status: next });
+    const placeholders = from.map(() => "?").join(", ");
+    const changed = this.db
+      .prepare(`UPDATE schedules SET ${sets} WHERE id = ? AND status IN (${placeholders})`)
+      .run(...values, id, ...from).changes;
+    return changed === 1 ? this.getSchedule(id) : undefined;
+  }
+
+  updateSchedule(id: string, patch: SchedulePatch): Schedule {
+    const { sets, values } = this.schedulePatchSql(patch);
+    this.db.prepare(`UPDATE schedules SET ${sets} WHERE id = ?`).run(...values, id);
+    const schedule = this.getSchedule(id);
+    if (!schedule) throw new HiveError("SCHEDULE_NOT_FOUND", "定时任务不存在。");
+    return schedule;
+  }
+
+  /** 原子地标记已补发说明；返回 false 表示已经标记过 */
+  markScheduleReported(id: string): boolean {
+    const now = new Date().toISOString();
+    return (
+      this.db
+        .prepare(
+          "UPDATE schedules SET reported_at = ?, updated_at = ? WHERE id = ? AND reported_at IS NULL",
+        )
+        .run(now, now, id).changes === 1
+    );
+  }
+
+  private schedulePatchSql(patch: SchedulePatch): { sets: string; values: unknown[] } {
+    const columns: Record<keyof SchedulePatch, string> = {
+      status: "status",
+      detail: "detail",
+      triggerMessageId: "trigger_message_id",
+      invocationId: "invocation_id",
+      firedAt: "fired_at",
+      reportedAt: "reported_at",
+      cancelledBy: "cancelled_by",
+    };
+    const sets = ["updated_at = ?"];
+    const values: unknown[] = [new Date().toISOString()];
+    for (const [key, column] of Object.entries(columns) as Array<[keyof SchedulePatch, string]>) {
+      if (patch[key] === undefined) continue;
+      sets.push(`${column} = ?`);
+      values.push(patch[key]);
+    }
+    return { sets: sets.join(", "), values };
   }
 
   listWhiteboard(roomId: string): WhiteboardEntry[] {

@@ -25,6 +25,7 @@ import type {
   RoomsResponse,
   ServerEvent,
   WhiteboardEntry,
+  Schedule,
   UsageSummary,
 } from "@superhive/protocol";
 import {
@@ -46,6 +47,7 @@ import {
   waitingInvocationForQuestion,
 } from "./invocations";
 import { WhiteboardPanel, upsertWhiteboardEntry } from "./whiteboard";
+import { SchedulePanel, isPendingSchedule, upsertSchedule } from "./schedules";
 import { ActivityPanel, isInFlight, needsAttention, type ActivityView } from "./activity";
 import {
   LocalAgentList,
@@ -146,7 +148,8 @@ type InterfaceDensity = "comfortable" | "compact";
 type MessageSize = "small" | "standard" | "large";
 type BrowserNotificationPermission = NotificationPermission | "unsupported";
 type MobilePanel = "members" | "rooms";
-type SidePanelTab = "members" | "whiteboard";
+type SidePanelTab = "members" | "whiteboard" | "schedules";
+const sidePanelTabs: SidePanelTab[] = ["members", "whiteboard", "schedules"];
 type IconName =
   | "arrow-down"
   | "arrow-right"
@@ -156,6 +159,7 @@ type IconName =
   | "bell"
   | "board"
   | "check"
+  | "clock"
   | "close"
   | "copy"
   | "external"
@@ -354,6 +358,12 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
       </>
     ),
     check: <path d="m5 12 4 4L19 6" />,
+    clock: (
+      <>
+        <circle cx="12" cy="12" r="8.5" />
+        <path d="M12 7.5V12l3 2" />
+      </>
+    ),
     close: <path d="m6 6 12 12M18 6 6 18" />,
     copy: (
       <>
@@ -1174,6 +1184,7 @@ export function App({
   const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [invocations, setInvocations] = useState<ReadonlyMap<string, Invocation>>(new Map());
   const [whiteboard, setWhiteboard] = useState<ReadonlyMap<string, WhiteboardEntry>>(new Map());
+  const [schedules, setSchedules] = useState<ReadonlyMap<string, Schedule>>(new Map());
   const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab>("members");
   const [highlightedMessageId, setHighlightedMessageId] = useState<string>();
   const [pendingJumpId, setPendingJumpId] = useState<string>();
@@ -1893,6 +1904,7 @@ export function App({
       setMessagesLoaded(false);
       setInvocations(new Map());
       setWhiteboard(new Map());
+      setSchedules(new Map());
       setHighlightedMessageId(undefined);
       setPendingJumpId(undefined);
       setParticipants([]);
@@ -2015,6 +2027,7 @@ export function App({
             new Map((event.invocations ?? []).map((invocation) => [invocation.id, invocation])),
           );
           setWhiteboard(new Map((event.whiteboard ?? []).map((entry) => [entry.id, entry])));
+          setSchedules(new Map((event.schedules ?? []).map((schedule) => [schedule.id, schedule])));
           latestSeqRef.current = Math.max(latestSeqRef.current, event.latestSeq);
           retryRef.current = 0;
           setConnectionState("online");
@@ -2068,6 +2081,9 @@ export function App({
         } else if (event.type === "whiteboard.updated") {
           if (event.entry.roomId !== currentRoomId) return;
           setWhiteboard((current) => upsertWhiteboardEntry(current, event.entry));
+        } else if (event.type === "schedule.updated") {
+          if (event.schedule.roomId !== currentRoomId) return;
+          setSchedules((current) => upsertSchedule(current, event.schedule));
         } else if (event.type === "whiteboard.removed") {
           if (event.roomId !== currentRoomId) return;
           setWhiteboard((current) => {
@@ -2386,6 +2402,14 @@ export function App({
   }
 
   const online = participants.filter((participant) => participant.status !== "offline");
+  // 这里之前有提前返回（登录页等），不能再用 hook：直接算，数据量很小
+  const onlineAgentNames = new Set(
+    online
+      .filter((participant) => participant.type === "agent")
+      .map((participant) => participant.username.toLocaleLowerCase()),
+  );
+  const pendingScheduleCount = [...schedules.values()].filter(isPendingSchedule).length;
+
   const offline = participants.filter((participant) => participant.status === "offline");
 
   async function ensureNotificationPermission(): Promise<boolean> {
@@ -2594,6 +2618,10 @@ export function App({
       { type: "budget.extend", turns: BUDGET_EXTEND_TURNS },
       t("无法继续 Agent 对话。"),
     );
+  }
+
+  function cancelSchedule(schedule: Schedule) {
+    sendClientEvent({ type: "schedule.cancel", scheduleId: schedule.id }, t("无法取消定时任务。"));
   }
 
   function removeWhiteboardEntry(entry: WhiteboardEntry) {
@@ -4045,14 +4073,16 @@ export function App({
               onKeyDown={(event) => {
                 if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
                 event.preventDefault();
+                const index = sidePanelTabs.indexOf(sidePanelTab);
                 const next: SidePanelTab =
                   event.key === "Home"
-                    ? "members"
+                    ? sidePanelTabs[0]!
                     : event.key === "End"
-                      ? "whiteboard"
-                      : sidePanelTab === "members"
-                        ? "whiteboard"
-                        : "members";
+                      ? sidePanelTabs.at(-1)!
+                      : sidePanelTabs[
+                          (index + (event.key === "ArrowLeft" ? -1 : 1) + sidePanelTabs.length) %
+                            sidePanelTabs.length
+                        ]!;
                 setSidePanelTab(next);
                 event.currentTarget.querySelector<HTMLButtonElement>(`#side-tab-${next}`)?.focus();
               }}
@@ -4101,6 +4131,27 @@ export function App({
                   </span>
                 )}
               </button>
+              <button
+                type="button"
+                role="tab"
+                id="side-tab-schedules"
+                aria-selected={sidePanelTab === "schedules"}
+                aria-controls="side-panel-schedules"
+                tabIndex={sidePanelTab === "schedules" ? 0 : -1}
+                className={sidePanelTab === "schedules" ? "active" : ""}
+                onClick={() => setSidePanelTab("schedules")}
+              >
+                <Icon name="clock" size={15} />
+                {t("定时")}
+                {pendingScheduleCount > 0 && (
+                  <span
+                    className="side-tab-count"
+                    aria-label={t("{0} 个待执行", { 0: pendingScheduleCount })}
+                  >
+                    {pendingScheduleCount}
+                  </span>
+                )}
+              </button>
             </div>
             <button
               ref={membersCloseRef}
@@ -4112,7 +4163,23 @@ export function App({
               <Icon name="close" />
             </button>
           </div>
-          {sidePanelTab === "whiteboard" ? (
+          {sidePanelTab === "schedules" ? (
+            <div
+              className="whiteboard-scroll"
+              role="tabpanel"
+              id="side-panel-schedules"
+              aria-labelledby="side-tab-schedules"
+              tabIndex={0}
+            >
+              <SchedulePanel
+                schedules={schedules}
+                invocations={invocations}
+                onlineAgents={onlineAgentNames}
+                onCancel={cancelSchedule}
+                onJump={jumpToMessage}
+              />
+            </div>
+          ) : sidePanelTab === "whiteboard" ? (
             <div
               className="whiteboard-scroll"
               role="tabpanel"

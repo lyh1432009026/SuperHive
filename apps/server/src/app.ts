@@ -30,6 +30,7 @@ import {
   type Invocation,
   type InvocationBlockReason,
   type Participant,
+  type Schedule,
   type ServerEvent,
   DEFAULT_CACHE_WRITE_ALERT_TOKENS,
   keepAwakeSettingsSchema,
@@ -406,7 +407,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (!actor || actor.type !== "human") {
       throw new HiveError("NOT_A_MEMBER", "只有房间里的人类成员可以清空房间。");
     }
-    const removed = database.clearRoom(roomId);
+    const removed = database.clearRoom(roomId, actor.username);
     const message = database.createMessage(actor, {
       content: `${actor.username} 清空了房间`,
       clientMessageId: `room-clear-${randomUUID()}`,
@@ -415,6 +416,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     broadcast(roomId, { type: "room.cleared", message });
     broadcastRoomActivity(roomId);
     supersedeStale(roomId);
+    for (const schedule of database.listSchedules(roomId)) emitSchedule(schedule);
+    armScheduleTimer();
     return removed;
   }
   /** 登记过、且账号没变的可批准 IM 连接 */
@@ -703,6 +706,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       CONTINUATION_READY_STATUSES.includes(invocation.status)
     ) {
       setImmediate(() => deliverContinuation(invocation.id));
+    }
+    // 定时任务触发的调用结束了：没有正常回复时由服务端补一条说明
+    if (CONTINUATION_READY_STATUSES.includes(invocation.status)) {
+      const schedule = database.scheduleForInvocation(invocation.id);
+      if (schedule) setImmediate(() => reportSchedule(schedule.id));
     }
     return invocation;
   }
@@ -1164,6 +1172,350 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     return { invocation: updated, message };
   }
 
+  /** Server 所在电脑的时区：Agent 没指定时区时，定时任务按它显示 */
+  const serverTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+  function validTimeZone(timeZone: string): boolean {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** 例如「2026-11-04 00:07（Asia/Shanghai）」：绝对时间加时区，人一眼能看出是不是自己要的那天 */
+  function formatScheduleTime(iso: string, timeZone: string): string {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date(iso));
+    const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+    return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}（${timeZone}）`;
+  }
+
+  function emitSchedule(schedule: Schedule): Schedule {
+    broadcast(schedule.roomId, { type: "schedule.updated", schedule });
+    return schedule;
+  }
+
+  /**
+   * hive_schedule_create：在处理某条消息的过程中登记一个一次性定时任务。
+   * 发起人取委派链源头的人，到点后以其名义（标明 Hive 代发）发出触发消息、走普通的调用链路；
+   * 只能唤醒创建者自己，正文里的 @ 一律转义。定时任务触发的执行里不能再创建定时任务，避免自我续命。
+   */
+  function createSchedule(
+    agent: Participant,
+    input: { runAt: string; task: string; timeZone?: string; clientMessageId: string },
+  ) {
+    const parent = inferExecutingParent(agent);
+    const invocation = parent ? database.getInvocationFor(parent.id, agent.id) : undefined;
+    if (!parent || !invocation || invocation.status === "cancelling") {
+      throw new HiveError("NOT_EXECUTING", "只能在处理某条消息的过程中创建定时任务。");
+    }
+    const existing = database.createScheduleLookup(agent.id, input.clientMessageId);
+    if (existing) return { schedule: existing, created: false };
+    const chain = [invocation, ...database.invocationAncestors(invocation.id)];
+    if (chain.some((item) => database.getMessage(item.messageId)?.kind === "schedule")) {
+      throw new HiveError(
+        "SCHEDULE_NESTED",
+        "定时任务执行时不能再创建定时任务；需要周期执行请告诉发起人（周期任务尚未支持）。",
+      );
+    }
+    const root = chain.find((item) => item.requesterType === "human");
+    const requester = root?.requesterId ? database.getParticipant(root.requesterId) : undefined;
+    if (!requester || requester.type !== "human" || requester.roomId !== agent.roomId) {
+      throw new HiveError(
+        "NO_HUMAN_REQUESTER",
+        "只有人发起的任务里才能创建定时任务（Agent 之间的对话不能自行排定时）。",
+      );
+    }
+    const guest = guestSessionOf(requester);
+    if (guest && guest.state !== "active") {
+      throw new HiveError("REQUESTER_EXPIRED", "发起人的访客权限已失效，不能再创建定时任务。");
+    }
+    const task = input.task.trim();
+    if (!task || task.length > LIMITS.maxScheduleTaskLength) {
+      throw new HiveError(
+        "INVALID_TASK",
+        `任务说明需为 1 到 ${LIMITS.maxScheduleTaskLength} 个字符。`,
+      );
+    }
+    // 只收带时区偏移的绝对时间：「今晚 00:07」这类说法换算成哪一天，必须由 Agent 明确写出来
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/i.test(input.runAt)) {
+      throw new HiveError(
+        "INVALID_RUN_AT",
+        "runAt 需为带时区偏移的 ISO 8601 时间，例如 2026-11-04T00:07:00+08:00。",
+      );
+    }
+    const runAtMs = Date.parse(input.runAt);
+    const now = clock();
+    if (!Number.isFinite(runAtMs)) {
+      throw new HiveError("INVALID_RUN_AT", "runAt 不是有效的时间。");
+    }
+    if (runAtMs < now + 30_000) {
+      throw new HiveError(
+        "INVALID_RUN_AT",
+        `runAt 需晚于当前时间至少 30 秒；当前服务端时间 ${formatScheduleTime(new Date(now).toISOString(), serverTimeZone)}。`,
+      );
+    }
+    if (runAtMs > now + LIMITS.maxScheduleAheadMs) {
+      throw new HiveError(
+        "INVALID_RUN_AT",
+        `最多只能排到 ${Math.round(LIMITS.maxScheduleAheadMs / 86_400_000)} 天以内。`,
+      );
+    }
+    const timeZone = input.timeZone?.trim() || serverTimeZone;
+    if (!validTimeZone(timeZone)) {
+      throw new HiveError(
+        "INVALID_TIME_ZONE",
+        `不认识的时区 ${timeZone}，请用 IANA 名称，例如 Asia/Shanghai。`,
+      );
+    }
+    if (database.countActiveSchedules(agent.roomId) >= LIMITS.maxActiveSchedulesPerRoom) {
+      throw new HiveError(
+        "SCHEDULE_LIMIT",
+        `这个房间已有 ${LIMITS.maxActiveSchedulesPerRoom} 个待执行的定时任务，先取消一些再建。`,
+      );
+    }
+    const { schedule, created } = database.createSchedule({
+      roomId: agent.roomId,
+      agent,
+      requester,
+      origin: parent,
+      clientId: input.clientMessageId,
+      task,
+      runAt: new Date(runAtMs).toISOString(),
+      timeZone,
+    });
+    if (created) {
+      emitSchedule(schedule);
+      armScheduleTimer();
+    }
+    return { schedule, created };
+  }
+
+  function cancelSchedule(actor: Participant, scheduleId: string): Schedule {
+    const schedule = database.getSchedule(scheduleId);
+    if (!schedule || schedule.roomId !== actor.roomId) {
+      throw new HiveError("SCHEDULE_NOT_FOUND", "这个房间里没有这个定时任务。");
+    }
+    if (actor.type === "agent" && schedule.agentId !== actor.id) {
+      throw new HiveError("FORBIDDEN", "Agent 只能取消自己的定时任务。");
+    }
+    const cancelled = database.transitionSchedule(scheduleId, ["scheduled"], "cancelled", {
+      cancelledBy: actor.username,
+      detail: `${actor.username} 取消了`,
+    });
+    if (!cancelled) {
+      throw new HiveError(
+        "SCHEDULE_NOT_PENDING",
+        schedule.status === "firing" || schedule.status === "fired"
+          ? "已经到点发出了；要停止这次执行，请在任务面板里停止对应的调用。"
+          : "这个定时任务已经结束，不能再取消。",
+      );
+    }
+    emitSchedule(cancelled);
+    armScheduleTimer();
+    return cancelled;
+  }
+
+  /**
+   * 到点：原子地认领后，以发起人名义发出触发消息并照常派发给执行的 Agent。
+   * 触发消息带固定的幂等键：发出途中崩溃，重启后的扫描按同一个键补完，不会发出两条。
+   * 晚于宽限期才轮到（Server 当时没在运行）就标为已错过，不自动补跑——定时任务大多带副作用。
+   */
+  function fireSchedule(scheduleId: string): void {
+    if (shuttingDown) return;
+    let schedule = database.getSchedule(scheduleId);
+    if (!schedule) return;
+    if (schedule.status === "scheduled") {
+      const late = clock() - Date.parse(schedule.runAt);
+      if (late < 0) return;
+      if (late > LIMITS.scheduleGraceMs) {
+        const missed = database.transitionSchedule(scheduleId, ["scheduled"], "missed", {
+          detail: `到点时 Server 没有运行，晚了 ${Math.round(late / 60_000)} 分钟才轮到，已标为错过、没有自动补跑`,
+        });
+        if (missed) {
+          emitSchedule(missed);
+          reportSchedule(scheduleId);
+        }
+        return;
+      }
+      const claimed = database.transitionSchedule(scheduleId, ["scheduled"], "firing");
+      if (!claimed) return;
+      schedule = emitSchedule(claimed);
+    }
+    if (schedule.status !== "firing") return;
+    const fail = (detail: string) => {
+      const failed = database.transitionSchedule(scheduleId, ["firing"], "failed", { detail });
+      if (failed) {
+        emitSchedule(failed);
+        reportSchedule(scheduleId);
+      }
+    };
+    const requester = database.getParticipant(schedule.requesterId);
+    const agent = database.getParticipant(schedule.agentId);
+    if (!requester || !agent || requester.roomId !== schedule.roomId) {
+      return fail("发起人或执行的 Agent 已不在这个房间");
+    }
+    // 到点重新核对权限：定时触发不能当成人的新授权
+    const guest = guestSessionOf(requester);
+    if (guest && guest.state !== "active") return fail("发起人的访客权限已失效");
+    const clientMessageId = `schedule-${schedule.id}`;
+    let message = database.findMessageByClientId(requester.id, clientMessageId);
+    if (!message) {
+      const origin = database.getMessage(schedule.originMessageId);
+      const content = [
+        `@${agent.username} ⏰ 定时任务（${agent.username} 于 #${schedule.originSeq} 设定，计划 ${formatScheduleTime(schedule.runAt, schedule.timeZone)}；Hive 代 ${requester.username} 发出）`,
+        quoteWithoutMentions(schedule.task, LIMITS.maxScheduleTaskLength + 200),
+        `（服务端到点发出的消息：请现在执行并回复这条消息，结果里附上能证明完成的依据；需要人决定时用 hive_ask_human。定时任务 ID：${schedule.id}）`,
+      ].join("\n");
+      try {
+        message = createAndDispatchMessage(requester, {
+          content,
+          clientMessageId,
+          kind: "schedule",
+          ...(origin && !origin.deletedAt && origin.roomId === schedule.roomId
+            ? { replyToMessageId: origin.id }
+            : {}),
+        }).message;
+      } catch (error) {
+        app.log.warn({ err: error, scheduleId }, "schedule trigger failed");
+        if (error instanceof HiveError) fail(`触发消息发不出去：${error.message}`);
+        return;
+      }
+    }
+    let invocation = database.getInvocationFor(message.id, agent.id);
+    if (!invocation) {
+      // 消息写入后、派发前中断过：补建调用并投递（幂等，同一条消息对同一个 Agent 只有一条调用）
+      invocation = emitInvocation(
+        database.createInvocation({ message, agent, status: "queued" }).invocation,
+      );
+      deliverMention(message, agent);
+    }
+    const fired = database.transitionSchedule(scheduleId, ["firing"], "fired", {
+      triggerMessageId: message.id,
+      invocationId: invocation.id,
+      firedAt: new Date(clock()).toISOString(),
+    });
+    if (fired) emitSchedule(fired);
+    if (CONTINUATION_READY_STATUSES.includes(invocation.status)) reportSchedule(scheduleId);
+  }
+
+  /**
+   * 定时任务没有正常结果时，由服务端代执行的 Agent 补一条说明并 @ 发起人：
+   * 错过、发不出去、执行失败、结果未知、或 Agent 只回了 NO_REPLY。
+   * 正常回复、或被人停止（人自己知道）不补发。说明带固定幂等键，发出后才记已补发，失败由扫描重试。
+   */
+  function reportSchedule(scheduleId: string): void {
+    const schedule = database.getSchedule(scheduleId);
+    if (!schedule || !database.isScheduleUnreported(scheduleId)) return;
+    let status: string;
+    let detail = schedule.detail;
+    let parentMessageId: string | undefined;
+    if (schedule.status === "fired") {
+      const invocation = schedule.invocationId
+        ? database.getInvocation(schedule.invocationId)
+        : undefined;
+      if (!invocation || invocation.status === "cancelled") {
+        database.markScheduleReported(scheduleId);
+        return;
+      }
+      if (!CONTINUATION_READY_STATUSES.includes(invocation.status)) return;
+      if (invocation.status === "completed" && invocation.replyMessageId) {
+        database.markScheduleReported(scheduleId);
+        return;
+      }
+      status =
+        invocation.status === "completed"
+          ? "执行结束但没有回复（Agent 回了 NO_REPLY 或没有输出）"
+          : (continuationOutcome[invocation.status] ?? invocation.status);
+      detail = invocation.detail;
+      parentMessageId = schedule.triggerMessageId;
+    } else if (schedule.status === "missed") {
+      status = "已错过";
+    } else if (schedule.status === "failed") {
+      status = "没能发出";
+    } else {
+      return;
+    }
+    const agent = database.getParticipant(schedule.agentId);
+    if (!agent) {
+      database.markScheduleReported(scheduleId);
+      return;
+    }
+    const lines = [
+      `@${schedule.requesterName} ⏰ 定时任务没有正常完成（Hive 代 ${agent.username} 发出）`,
+      `状态：${status}`,
+      `计划时间：${formatScheduleTime(schedule.runAt, schedule.timeZone)}`,
+      `任务：${quoteWithoutMentions(schedule.task, 300)}`,
+      ...(detail ? [`说明：${quoteWithoutMentions(detail, 500)}`] : []),
+      `定时任务 ID：${schedule.id}`,
+    ];
+    const post = (parent: string | undefined) =>
+      createAndDispatchMessage(
+        agent,
+        {
+          content: lines.join("\n"),
+          clientMessageId: `schedule-report-${schedule.id}`,
+          ...(parent ? { parentMessageId: parent } : {}),
+          kind: "receipt",
+        },
+        { receipt: true },
+      );
+    try {
+      try {
+        post(parentMessageId);
+      } catch (error) {
+        // 挂不到触发消息下（链条到顶、消息已不在）就单独发一条，说明不能因此丢掉
+        if (
+          parentMessageId &&
+          error instanceof HiveError &&
+          ["HOP_LIMIT", "TRACE_LIMIT", "PARENT_NOT_FOUND"].includes(error.code)
+        ) {
+          post(undefined);
+        } else {
+          throw error;
+        }
+      }
+      database.markScheduleReported(scheduleId);
+    } catch (error) {
+      // 限流等暂时性错误：留给扫描重试
+      app.log.warn({ err: error, scheduleId }, "schedule report failed");
+    }
+  }
+
+  let scheduleTimer: NodeJS.Timeout | undefined;
+  /** 按最近一个待执行的时间定一个闹钟；最多一分钟复查一次，系统睡眠、改时间后也能很快对上 */
+  function armScheduleTimer(): void {
+    if (scheduleTimer) clearTimeout(scheduleTimer);
+    scheduleTimer = undefined;
+    if (shuttingDown) return;
+    const next = database.nextScheduleRunAt();
+    if (next === undefined) return;
+    scheduleTimer = setTimeout(runSchedules, Math.min(Math.max(next - clock(), 0), 60_000));
+    scheduleTimer.unref();
+  }
+
+  /** 到点的发出去；发出途中中断的补完；该补发说明的补发 */
+  function runSchedules(): void {
+    if (shuttingDown) return;
+    try {
+      for (const schedule of database.listFiringSchedules()) fireSchedule(schedule.id);
+      for (const schedule of database.listDueSchedules(clock())) fireSchedule(schedule.id);
+      for (const schedule of database.listUnreportedSchedules()) reportSchedule(schedule.id);
+    } catch (error) {
+      app.log.warn({ err: error }, "schedule sweep failed");
+    }
+    armScheduleTimer();
+  }
+
   function invocationInRoom(participant: Participant, invocationId: string): Invocation {
     const invocation = database.getInvocation(invocationId);
     if (!invocation || invocation.roomId !== participant.roomId) {
@@ -1369,6 +1721,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     // 服务重启前没来得及发出、或因限流暂时失败的回执，在这里补发
     for (const invocation of database.listPendingContinuations())
       deliverContinuation(invocation.id);
+    runSchedules();
     // 停止请求长时间没有确认（Agent 已离开、进程丢失）：不再显示「停止中」占着 Agent，改为结果未知。
     // Agent 之后若补报结果，照常按迟到的结果处理
     for (const invocation of database.listStaleCancelling(options.now?.() ?? Date.now())) {
@@ -2494,6 +2847,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         inboxCursors.set(participant.id, Math.max(inboxCursors.get(participant.id) ?? 0, seq)),
       invoke: (input) => delegate(participant, input),
       askHuman: (input) => askHuman(participant, input),
+      now: clock,
+      timeZone: serverTimeZone,
+      createSchedule: (input) => createSchedule(participant, input),
+      listSchedules: () => database.listSchedules(participant.roomId),
+      cancelSchedule: (id) => cancelSchedule(participant, id),
+      formatScheduleTime,
       wait: (input) => waitForInvocation(participant, input),
       readAttachment: (input) => readAttachmentForAgent(participant, input),
     });
@@ -2891,6 +3250,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             latestSeq: database.latestSeq(event.roomId),
             invocations: database.listInvocations(event.roomId),
             whiteboard: database.listWhiteboard(event.roomId),
+            schedules: database.listSchedules(event.roomId),
           });
           if (participant.type === "agent") {
             for (const invocation of database.listCancellingInvocations(participant.id)) {
@@ -2948,6 +3308,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           return;
         }
       }
+      if (guest && event.type === "schedule.cancel") {
+        // 访客只能取消以自己名义排的定时任务
+        if (database.getSchedule(event.scheduleId)?.requesterId !== participant.id) {
+          send(socket, {
+            type: "error",
+            code: "OWNER_ONLY",
+            message: "访客只能取消自己发起的定时任务。",
+          });
+          return;
+        }
+      }
       if (guest && (event.type === "invocation.retry" || event.type === "invocation.cancel")) {
         const invocation = database.getInvocation(event.invocationId);
         // 访客只能管自己发起的调用；房主批准访客的请求不能由访客自己点
@@ -2981,7 +3352,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         event.type === "invocation.cancel" ||
         event.type === "invocation.dismiss" ||
         event.type === "budget.extend" ||
-        event.type === "whiteboard.remove"
+        event.type === "whiteboard.remove" ||
+        event.type === "schedule.cancel"
       ) {
         try {
           if (event.type === "invocation.report") {
@@ -3007,6 +3379,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           else if (event.type === "invocation.cancel") {
             cancelInvocation(participant, event.invocationId);
           } else if (event.type === "budget.extend") extendBudget(participant, event.turns);
+          else if (event.type === "schedule.cancel") cancelSchedule(participant, event.scheduleId);
           else if (database.removeWhiteboardEntry(participant.roomId, event.entryId)) {
             broadcast(participant.roomId, {
               type: "whiteboard.removed",
@@ -3138,6 +3511,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const accessTimer = setInterval(sweepExpiredAccess, options.accessSweepMs ?? 10_000);
   // 测试里直接触发清理
   app.decorate("attachmentStore", attachments);
+  app.decorate("runSchedules", runSchedules);
   /**
    * 关闭前先让本机 Agent 正常下线：要趁 WebSocket 还连着（Windows 上靠它通知 Agent 退出），
    * app.close() 时连接已经被关掉了。换代交接时不下线，由 onClose 交给下一个 Server。
@@ -3164,6 +3538,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     supersedeStale();
     for (const invocation of database.listPendingContinuations())
       deliverContinuation(invocation.id);
+    // 重启前到点没发出的定时任务：宽限期内照常发出，超过的标为错过
+    runSchedules();
   });
 
   app.addHook("onClose", async () => {
@@ -3181,6 +3557,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     clearInterval(invocationTimer);
     clearInterval(accessTimer);
     clearInterval(attachmentTimer);
+    if (scheduleTimer) clearTimeout(scheduleTimer);
     for (const connection of connections) {
       if (connection.participant)
         database.setParticipantStatus(connection.participant.id, "offline");

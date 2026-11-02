@@ -7,6 +7,7 @@ import {
   type ChatMessage,
   type Invocation,
   type Participant,
+  type Schedule,
   type WhiteboardEntry,
 } from "@superhive/protocol";
 import { z } from "zod";
@@ -85,6 +86,19 @@ export type HiveMcpContext = {
     invocation: Invocation;
     message: ChatMessage;
   };
+  /** 服务端当前时间与时区：写进定时工具的说明，Agent 据此把「今晚」换算成具体日期 */
+  now: () => number;
+  timeZone: string;
+  formatScheduleTime: (iso: string, timeZone: string) => string;
+  /** 登记一次性定时任务（只能在处理消息的过程中、只唤醒自己）；同一 clientMessageId 重试返回已有的 */
+  createSchedule: (input: {
+    runAt: string;
+    task: string;
+    timeZone?: string;
+    clientMessageId: string;
+  }) => { schedule: Schedule; created: boolean };
+  listSchedules: () => Schedule[];
+  cancelSchedule: (id: string) => Schedule;
   /** 短时等待一个调用结束；超时只说明还没结束，不改变子任务状态 */
   wait: (input: {
     invocationId: string;
@@ -397,6 +411,124 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
             ...(result.message.question ? { options: result.message.question.options } : {}),
             note: "已提问。简短说明你在等什么后结束本轮；人回复后会带着回答重新唤醒你。",
           },
+          context.takeInbox(),
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  const nowText = context.formatScheduleTime(
+    new Date(context.now()).toISOString(),
+    context.timeZone,
+  );
+  const scheduleView = (schedule: Schedule) => ({
+    id: schedule.id,
+    agent: schedule.agentName,
+    requester: schedule.requesterName,
+    status: schedule.status,
+    runAt: schedule.runAt,
+    runAtLocal: context.formatScheduleTime(schedule.runAt, schedule.timeZone),
+    task: schedule.task,
+    ...(schedule.detail ? { detail: schedule.detail } : {}),
+    ...(schedule.invocationId ? { invocationId: schedule.invocationId } : {}),
+    ...(schedule.triggerMessageId ? { triggerMessageId: schedule.triggerMessageId } : {}),
+  });
+
+  server.registerTool(
+    "hive_schedule_create",
+    {
+      title: "Schedule a one-off task for yourself",
+      description: `登记一个一次性定时任务：到点后服务端以发起人名义在房间里发一条「⏰ 定时任务」消息 @ 你，你照常执行并回复；状态在网页的「定时」面板里可见，Server 重启后仍在。凡是「X 点提醒/推送/检查/执行」这类需求一律用它，不要用运行时自带的定时、sleep 或系统 cron（进程一结束就没了，也没人看得到）。只能在处理消息的过程中调用，只会唤醒你自己；task 要写成到点时单看它就能执行的完整说明（做什么、产出什么、发给谁），因为那时你的会话可能已重置。当前服务端时间：${nowText}。runAt 必须是带时区偏移的绝对时间；「今晚 00:07」指的是哪一天要按当前时间换算清楚。登记后在回复里写明执行时间（绝对时间+时区），让人能核对。到点时 Server 没运行、晚于 ${Math.round(LIMITS.scheduleGraceMs / 60_000)} 分钟才轮到的会标为已错过，不自动补跑。周期任务暂不支持。`,
+      inputSchema: {
+        runAt: z
+          .string()
+          .trim()
+          .min(16)
+          .max(40)
+          .describe("执行时间，带时区偏移的 ISO 8601，例如 2026-11-04T00:07:00+08:00"),
+        task: z
+          .string()
+          .trim()
+          .min(1)
+          .max(LIMITS.maxScheduleTaskLength)
+          .describe("到点要做的事的完整说明；正文里的 @ 会被转义，不能借此唤醒别人"),
+        timeZone: z
+          .string()
+          .trim()
+          .min(1)
+          .max(64)
+          .optional()
+          .describe(`显示用的 IANA 时区，默认 ${context.timeZone}`),
+        clientMessageId: z
+          .string()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe("可选幂等键；重试同一次创建时复用，避免建出两个"),
+      },
+    },
+    async ({ runAt, task, timeZone, clientMessageId }) => {
+      try {
+        const { schedule, created } = context.createSchedule({
+          runAt,
+          task,
+          ...(timeZone ? { timeZone } : {}),
+          clientMessageId: clientMessageId ?? randomUUID(),
+        });
+        return toolResult(
+          {
+            created,
+            schedule: scheduleView(schedule),
+            note: "已登记。在回复里写明执行时间（runAtLocal）方便人核对；到点后服务端会发消息唤醒你，不需要你保持运行或再设别的定时。要取消用 hive_schedule_cancel。",
+          },
+          context.takeInbox(),
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hive_schedule_list",
+    {
+      title: "List scheduled tasks in this room",
+      description: `列出房间 #${context.roomId} 的定时任务：待执行的在前，之后是最近结束的。当前服务端时间：${nowText}。`,
+      annotations: { readOnlyHint: true },
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        return toolResult(
+          { schedules: context.listSchedules().map(scheduleView) },
+          context.takeInbox(),
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hive_schedule_cancel",
+    {
+      title: "Cancel one of your scheduled tasks",
+      description:
+        "取消一个你自己创建、还没到点的定时任务。已经到点发出的不能取消（那时它已是一次普通的执行，要停止就在任务面板里停止那次调用）。",
+      inputSchema: {
+        scheduleId: z
+          .string()
+          .uuid()
+          .describe("hive_schedule_create / hive_schedule_list 返回的 id"),
+      },
+    },
+    async ({ scheduleId }) => {
+      try {
+        const schedule = context.cancelSchedule(scheduleId);
+        return toolResult(
+          { cancelled: true, schedule: scheduleView(schedule) },
           context.takeInbox(),
         );
       } catch (error) {

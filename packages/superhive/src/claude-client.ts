@@ -71,6 +71,9 @@ export class ClaudeCodeResponder implements AgentResponder {
       "hive_board_read",
       "hive_board_update",
       "hive_attachment_read",
+      "hive_schedule_create",
+      "hive_schedule_list",
+      "hive_schedule_cancel",
     ]
       .map((tool) => `mcp__hive__${tool}`)
       .join(",");
@@ -92,6 +95,9 @@ export class ClaudeCodeResponder implements AgentResponder {
       ...(mcp ? ["--strict-mcp-config"] : []),
       "--allowedTools",
       access === "workspace" ? `Read,Glob,Grep,Edit,Write,Bash,${hiveTools}` : hiveTools,
+      // Claude 自带的定时只活在这一轮的进程里，回复完进程一退就没了，服务端也看不到：一律改用 hive_schedule_create
+      "--disallowedTools",
+      "CronCreate,CronDelete,CronList,ScheduleWakeup",
     ];
     if (access === "workspace") {
       args.push(

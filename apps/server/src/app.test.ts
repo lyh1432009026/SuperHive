@@ -199,6 +199,9 @@ describe("Hive WebSocket protocol", () => {
       "hive_members_list",
       "hive_message_send",
       "hive_room_read",
+      "hive_schedule_cancel",
+      "hive_schedule_create",
+      "hive_schedule_list",
       "hive_wait",
     ]);
     const members = await client.callTool({ name: "hive_members_list", arguments: {} });

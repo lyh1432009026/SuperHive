@@ -13,11 +13,11 @@ import type {
 import { App } from "./App";
 
 type RoomSnapshotEvent = Extract<ServerEvent, { type: "room.snapshot" }>;
-// 与 zod 输入类型一致：快照里的 invocations / whiteboard 有默认值，可以省略
+// 与 zod 输入类型一致：快照里的 invocations / whiteboard / schedules 有默认值，可以省略
 type ServerEventInput =
   | Exclude<ServerEvent, RoomSnapshotEvent>
-  | (Omit<RoomSnapshotEvent, "invocations" | "whiteboard"> &
-      Partial<Pick<RoomSnapshotEvent, "invocations" | "whiteboard">>);
+  | (Omit<RoomSnapshotEvent, "invocations" | "whiteboard" | "schedules"> &
+      Partial<Pick<RoomSnapshotEvent, "invocations" | "whiteboard" | "schedules">>);
 
 class FakeWebSocket {
   static readonly OPEN = 1;
@@ -1563,6 +1563,112 @@ describe("App mention autocomplete", () => {
     });
     expect(within(panel).getByText("白板还是空的")).toBeTruthy();
     expect(within(panel).getByText("hive_board_update")).toBeTruthy();
+  });
+
+  it("lists scheduled tasks with their run state and lets a human cancel a pending one", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    const agent = participant("00000000-0000-4000-8000-000000000002", "helper", "agent");
+    const now = new Date().toISOString();
+    const base = {
+      roomId: "general",
+      agentId: agent.id,
+      agentName: "helper",
+      requesterId: self.id,
+      requesterName: "Alice",
+      originMessageId: "00000000-0000-4000-8000-0000000000c0",
+      originSeq: 3,
+      timeZone: "Asia/Shanghai",
+      createdAt: now,
+      updatedAt: now,
+    };
+    const pending = {
+      ...base,
+      id: "00000000-0000-4000-8000-0000000000c1",
+      task: "0 点提醒 Alice 看部署结果",
+      runAt: new Date(Date.now() + 90 * 60_000).toISOString(),
+      status: "scheduled" as const,
+    };
+    const fired = {
+      ...base,
+      id: "00000000-0000-4000-8000-0000000000c2",
+      task: "推送日报",
+      runAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+      status: "fired" as const,
+      triggerMessageId: "00000000-0000-4000-8000-0000000000d1",
+      invocationId: "00000000-0000-4000-8000-0000000000e1",
+    };
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self, agent],
+        messages: [],
+        latestSeq: 0,
+        invocations: [
+          {
+            id: fired.invocationId,
+            roomId: "general",
+            messageId: fired.triggerMessageId,
+            agentId: agent.id,
+            agentName: "helper",
+            requesterId: self.id,
+            requesterName: "Alice",
+            requesterType: "human",
+            status: "completed",
+            attempts: 1,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        schedules: [pending, fired],
+      }),
+    );
+
+    const panel = screen.getByLabelText("成员列表");
+    const tab = within(panel).getByRole("tab", { name: /定时/ });
+    expect(within(tab).getByText("1")).toBeTruthy();
+    await user.click(tab);
+    const list = within(panel).getByRole("tabpanel");
+    expect(
+      within(list)
+        .getAllByRole("heading")
+        .map((heading) => heading.textContent),
+    ).toEqual(["待执行1", "已发出与结束1"]);
+    expect(within(list).getByText("0 点提醒 Alice 看部署结果")).toBeTruthy();
+    expect(within(list).getAllByText(/Asia\/Shanghai/, { selector: "time" })).toHaveLength(2);
+    // 跑完了但没有回复：不当成成功
+    expect(within(list).getByText("没有回复")).toBeTruthy();
+    expect(within(list).getByText(/1 小时 30 分钟后|1 小时 29 分钟后/)).toBeTruthy();
+
+    await user.click(
+      within(list).getByRole("button", { name: "取消定时任务：0 点提醒 Alice 看部署结果" }),
+    );
+    expect(JSON.parse(socket.sent.at(-1)!)).toEqual({
+      type: "schedule.cancel",
+      scheduleId: pending.id,
+    });
+    act(() =>
+      socket.serverEvent({
+        type: "schedule.updated",
+        schedule: {
+          ...pending,
+          status: "cancelled",
+          cancelledBy: "Alice",
+          detail: "Alice 取消了",
+          updatedAt: new Date(Date.now() + 1_000).toISOString(),
+        },
+      }),
+    );
+    expect(within(list).getByText("已取消")).toBeTruthy();
+    expect(within(tab).queryByText("1")).toBeNull();
   });
 
   it("opens search, mentions and agent tasks from the sidebar and jumps across rooms", async () => {

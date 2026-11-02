@@ -30,8 +30,8 @@ export type ChatMessage = {
   createdAt: string;
   /** 已撤回：content 与 mentions 已被服务端清空 */
   deletedAt?: string;
-  /** topic：话题分隔（开启新话题或清空房间），之前的会话上下文应被丢弃；delegation：hive_invoke 发出的委派；receipt：子任务回执；question：hive_ask_human 提的问题 */
-  kind?: "topic" | "delegation" | "receipt" | "question";
+  /** topic：话题分隔（开启新话题或清空房间），之前的会话上下文应被丢弃；delegation：hive_invoke 发出的委派；receipt：子任务回执；question：hive_ask_human 提的问题；schedule：定时任务到点后服务端代发起人发出的触发消息 */
+  kind?: "topic" | "delegation" | "receipt" | "question" | "schedule";
   /** 随消息发出的附件元数据；内容需经 hive_attachment_read 或附件接口读取 */
   attachments?: Attachment[];
 };
