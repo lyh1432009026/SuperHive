@@ -239,11 +239,10 @@ export function useTraceClock(invocation: Invocation): number {
 }
 
 /**
- * 执行中的实时过程（像终端一样滚动刷新）：只有房主的页面会收到数据。
- * 框的高度固定，新步骤自动滚到底；往上翻时停止跟随，回到底部再继续。
- * 结束后收成一行汇总（只在这个页面里保留到刷新为止），结果以 Agent 的回复为准。
+ * 调用详情里的执行过程（像终端一样滚动刷新）：只有房主的页面会收到数据。
+ * 新步骤自动滚到底；往上翻时停止跟随，回到底部再继续。结束后保留到刷新页面为止。
  */
-export function LiveTrace({ invocation, steps }: { invocation: Invocation; steps: TraceStep[] }) {
+export function TraceLog({ invocation, steps }: { invocation: Invocation; steps: TraceStep[] }) {
   const live = isLiveInvocation(invocation);
   const now = useTraceClock(invocation);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -252,50 +251,26 @@ export function LiveTrace({ invocation, steps }: { invocation: Invocation; steps
     const element = scrollRef.current;
     if (element && followRef.current) element.scrollTop = element.scrollHeight;
   }, [steps, live]);
-  if (steps.length === 0) return null;
-  const summary = traceSummary(steps, now);
-  const since = Date.parse(invocation.startedAt ?? invocation.createdAt);
-  const elapsed = formatDuration(now - since);
-  if (!live) {
-    return (
-      <details
-        className="live-trace done"
-        aria-label={t("@{0} 的执行过程", { 0: invocation.agentName })}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <summary>
-          <span className="live-trace-caret" aria-hidden="true" />
-          <span className="live-trace-title">{t("执行过程")}</span>
-          <span className="live-trace-line">{[summary, elapsed].filter(Boolean).join(" · ")}</span>
-        </summary>
-        <div className="live-trace-scroll">
-          <TraceTimeline steps={steps} now={now} live={false} />
-        </div>
-      </details>
-    );
-  }
   return (
-    <section
-      className="live-trace"
-      aria-label={t("@{0} 的执行过程", { 0: invocation.agentName })}
-      aria-live="off"
-      onClick={(event) => event.stopPropagation()}
-    >
+    <section className="trace-log" aria-label={t("执行过程")}>
       <header>
-        <span className="live-trace-dot" aria-hidden="true" />
-        <strong>{t("@{0} 执行中", { 0: invocation.agentName })}</strong>
-        <span className="live-trace-line">{summary}</span>
-        <span className="live-trace-elapsed">{elapsed}</span>
+        {live && <span className="live-trace-dot" aria-hidden="true" />}
+        <strong>{t("执行过程")}</strong>
+        <span className="live-trace-line">{traceSummary(steps, now)}</span>
+        <span className="live-trace-elapsed">
+          {formatDuration(now - Date.parse(invocation.startedAt ?? invocation.createdAt))}
+        </span>
       </header>
       <div
         ref={scrollRef}
-        className="live-trace-scroll"
+        className="trace-log-scroll"
+        aria-live="off"
         onScroll={(event) => {
           const element = event.currentTarget;
           followRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 24;
         }}
       >
-        <TraceTimeline steps={steps} now={now} live />
+        <TraceTimeline steps={steps} now={now} live={live} />
       </div>
     </section>
   );
@@ -303,7 +278,7 @@ export function LiveTrace({ invocation, steps }: { invocation: Invocation; steps
 
 /**
  * 对话区底部、输入框上方的「正在执行」浮条：触发消息被顶上去以后也能一直看到谁在干什么，
- * 点一下跳回那条消息下面的过程框。
+ * 点一下跳回那条消息（状态行的「详情」里看完整过程）。
  */
 export function RunningBar({
   invocations,

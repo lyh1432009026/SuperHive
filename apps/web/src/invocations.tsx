@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { InvocationDetails } from "./invocation-details";
-import type { ChatMessage, Invocation, Participant } from "@superhive/protocol";
+import { currentTraceStep, isLiveInvocation } from "./live-trace";
+import type { ChatMessage, Invocation, Participant, TraceStep } from "@superhive/protocol";
 import { localized, t } from "./i18n";
 
 /** 人点一次「继续」为当前 Agent 对话追加的轮数，同时放宽连续轮数、转交深度和单链条数 */
@@ -310,7 +311,10 @@ export function InvocationChips({
   isOwner = true,
   onLocate,
   onDismiss,
+  traces,
 }: {
+  /** 执行过程（只有房主的页面有）：状态行显示当前这一步，详情弹窗里看完整过程 */
+  traces?: ReadonlyMap<string, TraceStep[]>;
   /** 「忽略」：标为已处理，不再算作需要处理 */
   onDismiss?: (invocation: Invocation) => void;
   /** 底部状态栏里用：跳到触发这条调用的消息 */
@@ -344,6 +348,9 @@ export function InvocationChips({
             .filter(Boolean)
             .join(" · ");
           const hint = !rawHint || rawHint === label ? undefined : rawHint;
+          const steps = traces?.get(invocation.id);
+          const currentStep =
+            steps && isLiveInvocation(invocation) ? currentTraceStep(steps) : undefined;
           const jumpTarget =
             invocation.status === "completed" &&
             invocation.replyMessageId &&
@@ -361,8 +368,10 @@ export function InvocationChips({
               </span>
               <span className="invocation-agent">@{invocation.agentName}</span>
               <span className="invocation-status">{label}</span>
-              {invocation.status === "running" && invocation.progress && (
-                <span className="invocation-progress">{invocation.progress}</span>
+              {invocation.status === "running" && (currentStep ?? invocation.progress) && (
+                <span className={`invocation-progress${currentStep ? " trace-current" : ""}`}>
+                  {currentStep ?? invocation.progress}
+                </span>
               )}
               {(invocation.status === "blocked" ||
                 invocation.status === "failed" ||
@@ -494,6 +503,7 @@ export function InvocationChips({
       {selected && (
         <InvocationDetails
           invocation={selected}
+          steps={traces?.get(selected.id)}
           label={invocationStatusLabel(
             selected,
             participants.some((p) => p.id === selected.agentId && p.status !== "offline"),

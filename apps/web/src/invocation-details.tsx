@@ -1,7 +1,8 @@
 import { InvocationUsage } from "./usage";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { Invocation } from "@superhive/protocol";
+import type { Invocation, TraceStep } from "@superhive/protocol";
+import { TraceLog } from "./live-trace";
 import "./styles/invocation-details.css";
 import { getLocale, t } from "./i18n";
 
@@ -44,6 +45,7 @@ function statusTone(invocation: Invocation): "active" | "done" | "attention" | "
 
 export function InvocationDetails({
   invocation,
+  steps,
   label,
   agentOnline,
   connectionState,
@@ -52,6 +54,8 @@ export function InvocationDetails({
   onJump,
 }: {
   invocation: Invocation;
+  /** 执行过程（只有房主的页面有） */
+  steps?: TraceStep[] | undefined;
   /** 委派关系：上游是谁派来的，下游派出了哪些子任务 */
   delegation?: { upstream?: string; downstream: string[]; continuation?: string } | undefined;
   label: string;
@@ -233,6 +237,7 @@ export function InvocationDetails({
             {t("Agent 当前离线；保留的是最后收到的信息。")}
           </p>
         )}
+        {steps?.length ? <TraceLog invocation={invocation} steps={steps} /> : null}
         {invocation.usage ? (
           <InvocationUsage usage={invocation.usage} />
         ) : (
@@ -295,7 +300,7 @@ export function InvocationDetails({
           </dl>
           <p id={descriptionId}>
             {t(
-              "只展示已上报的执行事实：连接存活不代表模型正在执行，没有新事件也不等于卡死。执行过程在消息下面的过程框里看。",
+              "只展示已上报的执行事实：连接存活不代表模型正在执行，没有新事件也不等于卡死。执行过程只有房主看得到，只在内存里保留到刷新页面为止，已脱敏截断，不含模型内部思考、命令输出和文件正文。",
             )}
           </p>
         </details>

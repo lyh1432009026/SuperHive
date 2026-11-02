@@ -131,6 +131,36 @@ describe("clickable invocation details", () => {
   });
 });
 
+describe("trace in details", () => {
+  it("shows the full trace in the dialog for the owner", async () => {
+    const user = userEvent.setup();
+    const steps = [
+      { id: "s1", kind: "text" as const, text: "先看一下改动", startedAt: at, endedAt: at },
+      {
+        id: "s2",
+        kind: "tool" as const,
+        tool: "command" as const,
+        summary: "git status",
+        status: "ok" as const,
+        startedAt: at,
+        endedAt: at,
+      },
+    ];
+    render(
+      <InvocationChips
+        {...props}
+        invocations={[invocation]}
+        traces={new Map([[invocation.id, steps]])}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /查看调用详情/ }));
+    const dialog = screen.getByRole("dialog", { name: "调用详情" });
+    const trace = within(dialog).getByRole("region", { name: "执行过程" });
+    expect(within(trace).getByText("先看一下改动")).toBeTruthy();
+    expect(within(trace).getByText("git status")).toBeTruthy();
+  });
+});
+
 describe("trace grouping", () => {
   const step = (id: string, tool: "read" | "command" | "search", status: "ok" | "error") => ({
     id,

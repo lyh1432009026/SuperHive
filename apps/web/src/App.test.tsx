@@ -1565,7 +1565,7 @@ describe("App mention autocomplete", () => {
     expect(within(panel).getByText("hive_board_update")).toBeTruthy();
   });
 
-  it("shows a running agent's live steps under the message and removes them when it ends", async () => {
+  it("shows a running agent's current step inline and the full live steps in the details dialog", async () => {
     localStorage.setItem("superhive.username", "Alice");
     localStorage.setItem("superhive.notify-prompt-dismissed", "true");
     render(<App />);
@@ -1633,14 +1633,20 @@ describe("App mention autocomplete", () => {
     );
     const list = () =>
       within(document.querySelector(".message-list")!.shadowRoot as unknown as HTMLElement);
-    const trace = await waitFor(() => list().getByRole("region", { name: "@helper 的执行过程" }));
-    expect(within(trace).getByText("先看一下改动")).toBeTruthy();
-    expect(within(trace).getByText("git status")).toBeTruthy();
-    expect(within(trace).getByText(/运行 1 条命令/)).toBeTruthy();
+    // 消息下面不展开过程框：状态行只显示当前这一步，完整过程在「详情」弹窗里
+    await waitFor(() => expect(list().getByText("运行 git status")).toBeTruthy());
+    expect(list().queryByRole("region", { name: "执行过程" })).toBeNull();
     // 输入框上方的浮条一直显示谁在干什么、当前这一步
     const bar = screen.getByRole("status", { name: "正在执行" });
     expect(within(bar).getByText("@helper")).toBeTruthy();
     expect(within(bar).getByText("运行 git status")).toBeTruthy();
+
+    await userEvent.setup().click(list().getByRole("button", { name: /@helper.*查看调用详情/ }));
+    const dialog = screen.getByRole("dialog", { name: "调用详情" });
+    const trace = within(dialog).getByRole("region", { name: "执行过程" });
+    expect(within(trace).getByText("先看一下改动")).toBeTruthy();
+    expect(within(trace).getByText("git status")).toBeTruthy();
+    expect(within(trace).getByText(/运行 1 条命令/)).toBeTruthy();
 
     act(() =>
       socket.serverEvent({
@@ -1668,10 +1674,8 @@ describe("App mention autocomplete", () => {
         invocation: { ...invocation, status: "completed", finishedAt: now, updatedAt: now },
       }),
     );
-    // 结束后不再是实时框，收成一行汇总，点开还能看；浮条消失
-    expect(list().queryByRole("region", { name: "@helper 的执行过程" })).toBeNull();
-    const done = list().getByRole("group", { name: "@helper 的执行过程" });
-    expect(within(done).getByText(/运行 1 条命令/)).toBeTruthy();
+    // 结束后弹窗里的过程照样能看（只留到刷新为止），浮条消失
+    expect(within(dialog).getByRole("region", { name: "执行过程" })).toBeTruthy();
     expect(screen.queryByRole("status", { name: "正在执行" })).toBeNull();
   });
 

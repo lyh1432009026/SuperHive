@@ -351,32 +351,39 @@ button.invocation-summary:focus-visible {
   margin-right: 5px;
   content: "·";
 }
-/* 执行过程：执行中像终端一样逐步刷新（固定高度、自动跟到最新），结束后收成一行汇总；只有房主能看到 */
-.live-trace {
-  max-width: 640px;
-  margin-top: 8px;
-  border: 1px solid var(--border);
+/* 执行过程（调用详情里）：像终端一样逐步刷新、自动跟到最新；只有房主能看到 */
+.trace-log {
+  margin-top: 16px;
+  border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   background: var(--bg-subtle);
   font-size: var(--text-xs);
-  line-height: 1.5;
+  line-height: 1.55;
   overflow: hidden;
 }
 
-.live-trace header {
+.trace-log header {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 7px 10px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border-light);
   color: var(--text-secondary);
 }
 
-.live-trace header strong {
+.trace-log header strong {
   flex: 0 0 auto;
   color: var(--text);
-  font-weight: var(--weight-medium);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.trace-log-scroll {
+  max-height: min(420px, 50dvh);
+  padding: 8px 12px 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .live-trace-line {
@@ -391,13 +398,6 @@ button.invocation-summary:focus-visible {
   flex: 0 0 auto;
   color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;
-}
-
-.live-trace-scroll {
-  max-height: 200px;
-  padding: 6px 10px 8px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
 
 .live-trace-dot {
@@ -422,57 +422,10 @@ button.invocation-summary:focus-visible {
   }
 }
 
-/* 结束后：一行汇总，点开看完整过程 */
-.live-trace.done {
-  border-color: var(--border-light);
-  background: transparent;
-}
-
-.live-trace.done summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 5px 10px;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  list-style: none;
-}
-
-.live-trace.done summary::-webkit-details-marker {
-  display: none;
-}
-
-.live-trace.done summary:hover {
-  color: var(--text-secondary);
-}
-
-.live-trace-caret {
-  width: 0;
-  height: 0;
-  flex: 0 0 auto;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  border-left: 5px solid currentColor;
-  transition: transform var(--duration);
-}
-
-.live-trace.done[open] .live-trace-caret {
-  transform: rotate(90deg);
-}
-
-.live-trace-title {
-  flex: 0 0 auto;
-  color: var(--text-secondary);
-  font-weight: var(--weight-medium);
-}
-
-.live-trace.done[open] summary {
-  border-bottom: 1px solid var(--border-light);
-}
-
-.live-trace.done .live-trace-scroll {
-  max-height: 320px;
+/* 状态行里的当前这一步 */
+.invocation-progress.trace-current {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
 }
 
 .live-trace-steps {

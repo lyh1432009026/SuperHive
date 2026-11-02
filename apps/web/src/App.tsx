@@ -49,7 +49,7 @@ import {
 } from "./invocations";
 import { WhiteboardPanel, upsertWhiteboardEntry } from "./whiteboard";
 import { SchedulePanel, isPendingSchedule, upsertSchedule } from "./schedules";
-import { LiveTrace, RunningBar, isLiveInvocation, mergeTraceSteps } from "./live-trace";
+import { RunningBar, isLiveInvocation, mergeTraceSteps } from "./live-trace";
 import { ActivityPanel, isInFlight, needsAttention, type ActivityView } from "./activity";
 import {
   LocalAgentList,
@@ -3589,18 +3589,9 @@ export function App({
                                 onDismiss={(invocation) => dismissInvocations([invocation])}
                                 onExtend={extendAgentBudget}
                                 isOwner={isOwner}
+                                traces={traces}
                               />
                             )}
-                            {(invocationsByMessage.get(message.id) ?? []).map((invocation) => {
-                              const steps = traces.get(invocation.id);
-                              return steps ? (
-                                <LiveTrace
-                                  key={invocation.id}
-                                  invocation={invocation}
-                                  steps={steps}
-                                />
-                              ) : null;
-                            })}
                           </div>
                           {message.deletedAt ? null : shareMode ? (
                             <span
