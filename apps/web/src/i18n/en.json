@@ -938,5 +938,7 @@
   "取消定时任务：{0}": "Cancel scheduled task: {0}",
   "无法取消定时任务。": "Cannot cancel the scheduled task.",
   "定时": "Scheduled",
-  "{0} 个待执行": "{0} pending"
+  "{0} 个待执行": "{0} pending",
+  "显示房间列表": "Show room list",
+  "隐藏房间列表": "Hide room list"
 }

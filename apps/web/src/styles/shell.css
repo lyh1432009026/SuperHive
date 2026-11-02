@@ -24,6 +24,19 @@
   display: none;
 }
 
+/* 左侧房间栏也可以收起，与右侧面板各自独立 */
+.workspace.rooms-collapsed {
+  grid-template-columns: minmax(0, 1fr) var(--panel-width);
+}
+
+.workspace.rooms-collapsed.members-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace.rooms-collapsed .rooms-panel {
+  display: none;
+}
+
 .panel {
   min-width: 0;
   min-height: 0;
@@ -821,6 +834,11 @@ div.member[role="button"] {
     grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   }
 
+  .workspace.rooms-collapsed,
+  .workspace.rooms-collapsed.members-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .header-button.desktop-only {
     display: none;
   }
@@ -860,8 +878,14 @@ div.member[role="button"] {
 /* 窄屏：左侧栏同样改为抽屉 */
 @media (max-width: 720px) {
   .workspace,
-  .workspace.members-collapsed {
+  .workspace.members-collapsed,
+  .workspace.rooms-collapsed {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 窄屏房间栏本来就是抽屉，收起按钮让位给打开抽屉的按钮 */
+  .rooms-toggle {
+    display: none !important;
   }
 
   .mobile-only {
@@ -880,7 +904,8 @@ div.member[role="button"] {
     overscroll-behavior: contain;
   }
 
-  .rooms-panel.mobile-open {
+  .rooms-panel.mobile-open,
+  .workspace.rooms-collapsed .rooms-panel.mobile-open {
     display: flex;
     animation: drawer-left 220ms var(--ease-out);
   }

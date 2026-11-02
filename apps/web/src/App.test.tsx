@@ -1565,6 +1565,29 @@ describe("App mention autocomplete", () => {
     expect(within(panel).getByText("hive_board_update")).toBeTruthy();
   });
 
+  it("collapses the room list and remembers the choice after a reload", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    const { container, unmount } = render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
+    const workspace = container.querySelector(".workspace")!;
+    expect(workspace.classList.contains("rooms-collapsed")).toBe(false);
+    await user.click(screen.getByRole("button", { name: "隐藏房间列表" }));
+    expect(workspace.classList.contains("rooms-collapsed")).toBe(true);
+    expect(localStorage.getItem("superhive.rooms-collapsed")).toBe("true");
+    unmount();
+
+    const again = render(<App />);
+    expect(again.container.querySelector(".workspace")!.classList.contains("rooms-collapsed")).toBe(
+      true,
+    );
+    await user.click(screen.getByRole("button", { name: "显示房间列表" }));
+    expect(again.container.querySelector(".workspace")!.classList.contains("rooms-collapsed")).toBe(
+      false,
+    );
+  });
+
   it("lists scheduled tasks with their run state and lets a human cancel a pending one", async () => {
     const user = userEvent.setup();
     localStorage.setItem("superhive.username", "Alice");

@@ -135,6 +135,7 @@ const storedThemeKey = "superhive.theme";
 const storedDensityKey = "superhive.density";
 const storedMessageSizeKey = "superhive.message-size";
 const storedMembersCollapsedKey = "superhive.members-collapsed";
+const storedRoomsCollapsedKey = "superhive.rooms-collapsed";
 const storedReduceMotionKey = "superhive.reduce-motion";
 type SelectableAgentProvider = "codex" | "claude" | "copilot" | "openclaw" | "opencode" | "omp";
 type AgentAccessMode = "read-only" | "workspace" | "full";
@@ -167,6 +168,7 @@ type IconName =
   | "logout"
   | "message"
   | "more"
+  | "panel-left"
   | "panel-right"
   | "plug"
   | "plus"
@@ -379,6 +381,12 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
     hash: <path d="M9 4 7 20M17 4l-2 16M4 9h17M3 15h17" />,
     logout: <path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4m5-4 3-3-3-3m3 3H9" />,
     more: <path d="M6 12h.01M12 12h.01M18 12h.01" strokeWidth="2.6" />,
+    "panel-left": (
+      <>
+        <rect x="3.5" y="4.5" width="17" height="15" rx="3" />
+        <path d="M9.5 4.5v15" />
+      </>
+    ),
     "panel-right": (
       <>
         <rect x="3.5" y="4.5" width="17" height="15" rx="3" />
@@ -1293,6 +1301,9 @@ export function App({
   );
   const [membersCollapsed, setMembersCollapsed] = useState(() =>
     storedBoolean(storedMembersCollapsedKey, false),
+  );
+  const [roomsCollapsed, setRoomsCollapsed] = useState(() =>
+    storedBoolean(storedRoomsCollapsedKey, false),
   );
   const [messageSize, setMessageSize] = useState<MessageSize>(() =>
     storedChoice(storedMessageSizeKey, ["small", "standard", "large"], "standard"),
@@ -2848,7 +2859,9 @@ export function App({
         />
       )}
 
-      <section className={`workspace ${membersCollapsed ? "members-collapsed" : ""}`}>
+      <section
+        className={`workspace ${membersCollapsed ? "members-collapsed" : ""} ${roomsCollapsed ? "rooms-collapsed" : ""}`}
+      >
         <aside
           className={`rooms-panel panel ${mobilePanel === "rooms" ? "mobile-open" : ""}`}
           aria-label={t("房间列表")}
@@ -3123,6 +3136,21 @@ export function App({
 
         <section className="chat-panel panel" id="main-content" tabIndex={-1}>
           <header className="chat-header">
+            <button
+              type="button"
+              className="header-button rooms-toggle"
+              aria-label={roomsCollapsed ? t("显示房间列表") : t("隐藏房间列表")}
+              aria-pressed={!roomsCollapsed}
+              title={roomsCollapsed ? t("显示房间列表") : t("隐藏房间列表")}
+              onClick={() =>
+                setRoomsCollapsed((current) => {
+                  localStorage.setItem(storedRoomsCollapsedKey, String(!current));
+                  return !current;
+                })
+              }
+            >
+              <Icon name="panel-left" size={17} />
+            </button>
             <button
               type="button"
               className="header-button mobile-only"
