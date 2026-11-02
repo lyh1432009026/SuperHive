@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { acpHiveMcpServer, type HiveMcpConnection } from "./hive-mcp-config.js";
+import type { TraceStep } from "./hive-protocol.js";
 import {
   AgentCancelledError,
   type AgentAccessMode,
@@ -172,6 +173,16 @@ function progressForToolCall(toolCall: AcpToolCall): string | undefined {
   }
 }
 
+const acpToolCategories: Record<string, NonNullable<TraceStep["tool"]>> = {
+  execute: "command",
+  edit: "write",
+  delete: "write",
+  move: "write",
+  read: "read",
+  search: "search",
+  fetch: "search",
+};
+
 type PendingRequest = {
   method: string;
   resolve: (value: any) => void;
@@ -197,6 +208,11 @@ type ActiveTurn = {
   sessionId?: string;
   signal?: AbortSignal | undefined;
   onProgress?: ((progress: string) => void) | undefined;
+  onTrace?: ((step: TraceStep) => void) | undefined;
+  /** 已开始的执行过程条目（按 toolCallId），更新与完成时据此补全 */
+  traceSteps: Map<string, TraceStep>;
+  /** 正在进行的思考（收到思考片段时开始，开始说话或调用工具时结束） */
+  thinkingStep?: TraceStep | undefined;
   /** 按工具调用切分的回复片段：最后一个非空片段即最终回答 */
   segments: string[];
   toolTitles: Map<string, string>;
@@ -261,6 +277,8 @@ export class AcpResponder implements AgentResponder {
         sessionId: session.sessionId,
         signal: input.signal,
         onProgress: input.onProgress,
+        onTrace: input.onTrace,
+        traceSteps: new Map(),
         segments: [""],
         toolTitles: new Map(),
         thinkingReported: false,
@@ -593,25 +611,78 @@ export class AcpResponder implements AgentResponder {
     switch (update?.sessionUpdate) {
       case "agent_message_chunk":
         if (update.content?.type === "text" && typeof update.content.text === "string") {
+          this.endThinking(turn);
           turn.segments[turn.segments.length - 1] += update.content.text;
         }
         return;
       case "agent_thought_chunk":
+        if (!turn.thinkingStep) {
+          turn.thinkingStep = {
+            id: `thinking:${turn.traceSteps.size}:${Date.now()}`,
+            kind: "thinking",
+            status: "running",
+            startedAt: new Date().toISOString(),
+          };
+          this.traceStep(turn, turn.thinkingStep);
+        }
         if (!turn.thinkingReported) {
           turn.thinkingReported = true;
           this.reportProgress(turn, "思考中");
         }
         return;
       case "tool_call": {
+        this.endThinking(turn);
+        // 工具调用前说的那段话是中途的话，放进执行过程
+        const said = turn.segments.at(-1)?.trim();
+        if (said) {
+          const at = new Date().toISOString();
+          this.traceStep(turn, {
+            id: `text:${turn.segments.length}`,
+            kind: "text",
+            text: said,
+            startedAt: at,
+            endedAt: at,
+          });
+        }
         if (turn.segments.at(-1)?.trim()) turn.segments.push("");
         const id = typeof update.toolCallId === "string" ? update.toolCallId : "";
         if (typeof update.title === "string") turn.toolTitles.set(id, update.title);
+        if (id && turn.traceSteps.size < 1024) {
+          const step: TraceStep = {
+            id,
+            kind: "tool",
+            tool: acpToolCategories[update.kind] ?? "other",
+            ...(typeof update.kind === "string" ? { name: update.kind } : {}),
+            summary: typeof update.title === "string" ? update.title : "",
+            status: update.status === "failed" ? "error" : "running",
+            startedAt: new Date().toISOString(),
+          };
+          turn.traceSteps.set(id, step);
+          this.traceStep(turn, step);
+        }
         this.reportProgress(turn, progressForToolCall(update));
         return;
       }
       case "tool_call_update": {
         // opencode 先以工具名创建调用，执行时才更新为具体命令/路径；标题变化时再上报一次
         const id = typeof update.toolCallId === "string" ? update.toolCallId : "";
+        const started = turn.traceSteps.get(id);
+        if (started) {
+          const finished = update.status === "completed" || update.status === "failed";
+          const next: TraceStep = {
+            ...started,
+            ...(typeof update.title === "string" && update.title ? { summary: update.title } : {}),
+            ...(finished
+              ? {
+                  status: update.status === "failed" ? "error" : "ok",
+                  endedAt: new Date().toISOString(),
+                }
+              : {}),
+          };
+          if (finished) turn.traceSteps.delete(id);
+          else turn.traceSteps.set(id, next);
+          if (finished || next.summary !== started.summary) this.traceStep(turn, next);
+        }
         if (
           typeof update.title !== "string" ||
           !update.title ||
@@ -626,6 +697,24 @@ export class AcpResponder implements AgentResponder {
       default:
         return;
     }
+  }
+
+  private traceStep(turn: ActiveTurn, step: TraceStep) {
+    try {
+      turn.onTrace?.(step);
+    } catch {
+      // 进度回调异常不影响回合
+    }
+  }
+
+  private endThinking(turn: ActiveTurn) {
+    if (!turn.thinkingStep) return;
+    this.traceStep(turn, {
+      ...turn.thinkingStep,
+      status: "ok",
+      endedAt: new Date().toISOString(),
+    });
+    turn.thinkingStep = undefined;
   }
 
   private reportProgress(turn: ActiveTurn, progress: string | undefined) {

@@ -1,4 +1,4 @@
-import type { AgentUsage, RuntimeEvent } from "./hive-protocol.js";
+import type { AgentUsage, RuntimeEvent, TraceStep } from "./hive-protocol.js";
 
 export type AgentProvider =
   "codex" | "claude" | "copilot" | "openclaw" | "opencode" | "omp" | "echo";
@@ -14,6 +14,11 @@ export type AgentReplyInput = {
   onProgress?: (progress: string) => void;
   /** Sanitized structured events; heartbeat is emitted separately by Bridge. */
   onRuntimeEvent?: (event: RuntimeEvent) => void;
+  /**
+   * 执行过程的一步（中途说的话、思考、工具调用），给房主实时看；同一个 id 再报即更新。
+   * 可以带原始内容，Bridge 统一脱敏、截断、合批后上报。
+   */
+  onTrace?: (step: TraceStep) => void;
   /**
    * 本轮结束时（成功、失败、停止都会）交出已观测到的用量，Bridge 据此在失败路径上也能记账。
    * 不支持用量的 Provider 不调用。

@@ -116,6 +116,19 @@ export type RuntimeEvent = {
   retryInMs?: number;
 };
 
+/** Keep in sync with traceStepSchema in @superhive/protocol：执行过程的一步，同一个 id 再报即更新 */
+export type TraceStep = {
+  id: string;
+  kind: "text" | "thinking" | "tool";
+  tool?: "read" | "write" | "search" | "command" | "collaboration" | "other";
+  name?: string;
+  summary?: string;
+  text?: string;
+  status?: "running" | "ok" | "error";
+  startedAt: string;
+  endedAt?: string;
+};
+
 /** Keep in sync with agentUsageSchema in @superhive/protocol；四个输入桶互斥 */
 export type UsageBuckets = {
   inputTokens: number;
@@ -163,6 +176,8 @@ export type ServerEvent =
       /** 旧版服务端没有这两个字段 */
       invocations?: Invocation[];
       whiteboard?: WhiteboardEntry[];
+      /** 服务端支持的可选能力；旧版服务端没有 */
+      features?: string[];
     }
   | { type: "message.created"; message: ChatMessage }
   | { type: "message.deleted"; message: ChatMessage }

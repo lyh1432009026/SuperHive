@@ -32,6 +32,7 @@ import {
   type Participant,
   type Schedule,
   type ServerEvent,
+  type TraceStep,
   DEFAULT_CACHE_WRITE_ALERT_TOKENS,
   keepAwakeSettingsSchema,
 } from "@superhive/protocol";
@@ -408,6 +409,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       throw new HiveError("NOT_A_MEMBER", "只有房间里的人类成员可以清空房间。");
     }
     const removed = database.clearRoom(roomId, actor.username);
+    for (const [invocationId, trace] of traces)
+      if (trace.roomId === roomId) traces.delete(invocationId);
     const message = database.createMessage(actor, {
       content: `${actor.username} 清空了房间`,
       clientMessageId: `room-clear-${randomUUID()}`,
@@ -693,8 +696,64 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     }
   }
 
+  /**
+   * 执行过程只放内存：调用还在执行时按步合并，结束（或被停止、转为等人回答）就丢掉。
+   * 只发给房间里房主的页面（本机或已登录的房主设备），访客、Agent、IM 都收不到。
+   */
+  const traces = new Map<string, { roomId: string; steps: Map<string, TraceStep> }>();
+  const TRACE_LIVE_STATUSES: readonly Invocation["status"][] = ["running", "cancelling"];
+
+  function sendToOwners(roomId: string, event: ServerEvent): void {
+    for (const connection of connections) {
+      const participant = connection.participant;
+      if (
+        participant?.roomId === roomId &&
+        participant.type === "human" &&
+        connection.principal?.kind === "admin"
+      ) {
+        send(connection.socket, event);
+      }
+    }
+  }
+
+  function recordTrace(agent: Participant, messageId: string, steps: TraceStep[]): void {
+    const invocation = database.getInvocationFor(messageId, agent.id);
+    if (!invocation || !TRACE_LIVE_STATUSES.includes(invocation.status)) return;
+    let trace = traces.get(invocation.id);
+    if (!trace) {
+      trace = { roomId: invocation.roomId, steps: new Map() };
+      traces.set(invocation.id, trace);
+    }
+    for (const step of steps) {
+      trace.steps.delete(step.id);
+      trace.steps.set(step.id, { ...trace.steps.get(step.id), ...step });
+      // 超过上限丢掉最早的几步：只是实时状态，不需要完整
+      while (trace.steps.size > LIMITS.maxTraceSteps) {
+        trace.steps.delete(trace.steps.keys().next().value!);
+      }
+    }
+    sendToOwners(invocation.roomId, {
+      type: "invocation.trace",
+      roomId: invocation.roomId,
+      invocationId: invocation.id,
+      steps,
+    });
+  }
+
+  function endTrace(invocation: Invocation): void {
+    if (TRACE_LIVE_STATUSES.includes(invocation.status) || !traces.delete(invocation.id)) return;
+    sendToOwners(invocation.roomId, {
+      type: "invocation.trace",
+      roomId: invocation.roomId,
+      invocationId: invocation.id,
+      steps: [],
+      ended: true,
+    });
+  }
+
   function emitInvocation(invocation: Invocation): Invocation {
     broadcastAll({ type: "invocation.updated", invocation });
+    endTrace(invocation);
     // 这个 Agent 在房间里正常完成了一次任务：它更早留下的异常多半已经过时，自动收起
     if (invocation.status === "completed") setImmediate(() => supersedeStale(invocation.roomId));
     // 任务结果和需要人处理的状态推到房主的 IM（失败、被拦下这些往往没有对应的聊天消息）
@@ -3279,7 +3338,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             invocations: database.listInvocations(event.roomId),
             whiteboard: database.listWhiteboard(event.roomId),
             schedules: database.listSchedules(event.roomId),
+            features: ["trace"],
           });
+          // 房主刚打开或重连：把正在执行的调用的过程补上
+          if (participant.type === "human" && connection.principal?.kind === "admin") {
+            for (const [invocationId, trace] of traces) {
+              if (trace.roomId !== event.roomId) continue;
+              send(socket, {
+                type: "invocation.trace",
+                roomId: trace.roomId,
+                invocationId,
+                steps: [...trace.steps.values()],
+              });
+            }
+          }
           if (participant.type === "agent") {
             for (const invocation of database.listCancellingInvocations(participant.id)) {
               send(socket, { type: "agent.cancel", messageId: invocation.messageId });
@@ -3374,6 +3446,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         return;
       }
       if (event.type === "message.ack") return;
+      if (event.type === "invocation.trace") {
+        if (participant.type === "agent") recordTrace(participant, event.messageId, event.steps);
+        return;
+      }
       if (
         event.type === "invocation.report" ||
         event.type === "invocation.retry" ||

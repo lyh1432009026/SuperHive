@@ -16,8 +16,8 @@ type RoomSnapshotEvent = Extract<ServerEvent, { type: "room.snapshot" }>;
 // 与 zod 输入类型一致：快照里的 invocations / whiteboard / schedules 有默认值，可以省略
 type ServerEventInput =
   | Exclude<ServerEvent, RoomSnapshotEvent>
-  | (Omit<RoomSnapshotEvent, "invocations" | "whiteboard" | "schedules"> &
-      Partial<Pick<RoomSnapshotEvent, "invocations" | "whiteboard" | "schedules">>);
+  | (Omit<RoomSnapshotEvent, "invocations" | "whiteboard" | "schedules" | "features"> &
+      Partial<Pick<RoomSnapshotEvent, "invocations" | "whiteboard" | "schedules" | "features">>);
 
 class FakeWebSocket {
   static readonly OPEN = 1;
@@ -1563,6 +1563,102 @@ describe("App mention autocomplete", () => {
     });
     expect(within(panel).getByText("白板还是空的")).toBeTruthy();
     expect(within(panel).getByText("hive_board_update")).toBeTruthy();
+  });
+
+  it("shows a running agent's live steps under the message and removes them when it ends", async () => {
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    const agent = participant("00000000-0000-4000-8000-000000000002", "helper", "agent");
+    const now = new Date().toISOString();
+    const message: ChatMessage = {
+      id: "00000000-0000-4000-8000-0000000000a1",
+      roomId: "general",
+      seq: 1,
+      senderId: self.id,
+      senderName: "Alice",
+      senderType: "human",
+      content: "@helper 提交一下",
+      mentions: ["helper"],
+      traceId: "00000000-0000-4000-8000-0000000000a2",
+      hopCount: 0,
+      createdAt: now,
+    };
+    const invocation = {
+      id: "00000000-0000-4000-8000-0000000000a3",
+      roomId: "general",
+      messageId: message.id,
+      agentId: agent.id,
+      agentName: "helper",
+      requesterId: self.id,
+      requesterName: "Alice",
+      requesterType: "human" as const,
+      status: "running" as const,
+      attempts: 1,
+      createdAt: now,
+      updatedAt: now,
+      startedAt: now,
+    };
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self, agent],
+        messages: [message],
+        latestSeq: 1,
+        invocations: [invocation],
+      }),
+    );
+    act(() =>
+      socket.serverEvent({
+        type: "invocation.trace",
+        roomId: "general",
+        invocationId: invocation.id,
+        steps: [
+          { id: "x", kind: "text", text: "先看一下改动", startedAt: now, endedAt: now },
+          {
+            id: "t1",
+            kind: "tool",
+            tool: "command",
+            summary: "git status",
+            status: "running",
+            startedAt: now,
+          },
+        ],
+      }),
+    );
+    const list = () =>
+      within(document.querySelector(".message-list")!.shadowRoot as unknown as HTMLElement);
+    const trace = await waitFor(() => list().getByRole("region", { name: "@helper 的执行过程" }));
+    expect(within(trace).getByText("先看一下改动")).toBeTruthy();
+    expect(within(trace).getByText("git status")).toBeTruthy();
+    expect(within(trace).getByText(/运行 1 条命令/)).toBeTruthy();
+
+    act(() =>
+      socket.serverEvent({
+        type: "invocation.trace",
+        roomId: "general",
+        invocationId: invocation.id,
+        steps: [{ id: "t1", kind: "tool", status: "error", startedAt: now, endedAt: now }],
+      }),
+    );
+    expect(within(trace).getByText("失败")).toBeTruthy();
+    expect(within(trace).getByText("git status")).toBeTruthy();
+
+    act(() =>
+      socket.serverEvent({
+        type: "invocation.trace",
+        roomId: "general",
+        invocationId: invocation.id,
+        steps: [],
+        ended: true,
+      }),
+    );
+    expect(list().queryByRole("region", { name: "@helper 的执行过程" })).toBeNull();
   });
 
   it("collapses the room list and remembers the choice after a reload", async () => {

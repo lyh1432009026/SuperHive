@@ -1,5 +1,5 @@
 import { UsageAccumulator, codexBuckets } from "./usage.js";
-import type { AgentUsage } from "./hive-protocol.js";
+import type { AgentUsage, TraceStep } from "./hive-protocol.js";
 import { codexStartupFailure } from "./codex-errors.js";
 import { isMissingCodexThread } from "./codex-client.js";
 import { createRequire } from "node:module";
@@ -151,6 +151,9 @@ type ActiveTurn = {
   turnId?: string;
   signal?: AbortSignal | undefined;
   onProgress?: ((progress: string) => void) | undefined;
+  onTrace?: ((step: TraceStep) => void) | undefined;
+  /** 已开始的执行过程条目（按 item id），完成时据此补全 */
+  traceSteps: Map<string, TraceStep>;
   messages: AgentMessage[];
   reasoningReported: boolean;
   cancelled: boolean;
@@ -191,6 +194,66 @@ function progressForItem(item: any, turn: ActiveTurn): string | undefined {
     default:
       return undefined;
   }
+}
+
+/** Codex 条目对应的执行过程一步；不展示的条目（用户消息、最终回复等）返回 undefined */
+function traceForItem(item: any, startedAt: string): TraceStep | undefined {
+  if (typeof item?.id !== "string") return undefined;
+  const base = { id: item.id, startedAt };
+  switch (item.type) {
+    case "commandExecution":
+      return {
+        ...base,
+        kind: "tool",
+        tool: "command",
+        name: "command",
+        summary: typeof item.command === "string" ? item.command : "",
+        status: "running",
+      };
+    case "fileChange": {
+      const paths = Array.isArray(item.changes)
+        ? item.changes
+            .map((change: any) => change?.path)
+            .filter((path: unknown) => typeof path === "string")
+        : [];
+      return {
+        ...base,
+        kind: "tool",
+        tool: "write",
+        name: "fileChange",
+        summary: paths.length > 1 ? `${paths[0]} 等 ${paths.length} 个文件` : (paths[0] ?? ""),
+        status: "running",
+      };
+    }
+    case "mcpToolCall":
+      return {
+        ...base,
+        kind: "tool",
+        tool: item.server === "hive" ? "collaboration" : "other",
+        name: `${item.server}.${item.tool}`,
+        summary: `${item.server}.${item.tool}`,
+        status: "running",
+      };
+    case "webSearch":
+      return {
+        ...base,
+        kind: "tool",
+        tool: "search",
+        name: "webSearch",
+        summary: typeof item.query === "string" ? item.query : "",
+        status: "running",
+      };
+    case "reasoning":
+      return { ...base, kind: "thinking", status: "running" };
+    default:
+      return undefined;
+  }
+}
+
+function traceStatus(item: any): NonNullable<TraceStep["status"]> {
+  if (item?.status === "failed" || item?.status === "declined") return "error";
+  if (typeof item?.exitCode === "number" && item.exitCode !== 0) return "error";
+  return "ok";
 }
 
 function agentMessageOf(item: any): AgentMessage | undefined {
@@ -264,6 +327,8 @@ export class CodexAppServerResponder implements AgentResponder {
         threadId,
         signal: input.signal,
         onProgress: input.onProgress,
+        onTrace: input.onTrace,
+        traceSteps: new Map(),
         messages: [],
         reasoningReported: false,
         cancelled: false,
@@ -628,6 +693,17 @@ export class CodexAppServerResponder implements AgentResponder {
       }
       case "item/started": {
         const turn = this.matchesActive(params);
+        const step = turn?.onTrace
+          ? traceForItem(params.item, new Date().toISOString())
+          : undefined;
+        if (turn && step && turn.traceSteps.size < 1024) {
+          turn.traceSteps.set(step.id, step);
+          try {
+            turn.onTrace!(step);
+          } catch {
+            // 进度回调异常不影响回合
+          }
+        }
         if (!turn?.onProgress) return;
         const progress = progressForItem(params.item, turn);
         if (progress) {
@@ -641,7 +717,40 @@ export class CodexAppServerResponder implements AgentResponder {
       }
       case "item/completed": {
         const turn = this.matchesActive(params);
+        const started =
+          turn && typeof params.item?.id === "string"
+            ? turn.traceSteps.get(params.item.id)
+            : undefined;
+        if (turn && started) {
+          turn.traceSteps.delete(started.id);
+          const latest = traceForItem(params.item, started.startedAt);
+          try {
+            turn.onTrace?.({
+              ...started,
+              ...(latest?.summary ? { summary: latest.summary } : {}),
+              status: traceStatus(params.item),
+              endedAt: new Date().toISOString(),
+            });
+          } catch {
+            // 进度回调异常不影响回合
+          }
+        }
         const message = turn ? agentMessageOf(params.item) : undefined;
+        // 中途说的话（不是最终回复）也放进执行过程
+        if (turn?.onTrace && message && message.phase !== "final_answer" && message.text.trim()) {
+          const at = new Date().toISOString();
+          try {
+            turn.onTrace({
+              id: typeof params.item?.id === "string" ? params.item.id : `text:${at}`,
+              kind: "text",
+              text: message.text,
+              startedAt: at,
+              endedAt: at,
+            });
+          } catch {
+            // 进度回调异常不影响回合
+          }
+        }
         if (turn && message) {
           // 回合 ID 未知时也先收下，完成时再按回合 ID 过滤
           turn.messages.push({

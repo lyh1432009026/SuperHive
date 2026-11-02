@@ -351,3 +351,130 @@ button.invocation-summary:focus-visible {
   margin-right: 5px;
   content: "·";
 }
+
+/* 执行中的实时过程：像终端一样逐步刷新，只有房主能看到，结束后消失 */
+.live-trace {
+  max-width: 640px;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 8px 10px;
+  background: var(--bg-subtle);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.live-trace header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+}
+
+.live-trace header strong {
+  color: var(--text);
+  font-weight: var(--weight-medium);
+}
+
+.live-trace-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: live-trace-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes live-trace-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-trace-dot {
+    animation: none;
+  }
+}
+
+.live-trace-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.trace-text {
+  margin: 4px 0;
+  color: var(--text);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.trace-step {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.trace-mark {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  align-self: center;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+.trace-step.running .trace-mark {
+  background: var(--accent);
+  animation: live-trace-pulse 1.4s ease-in-out infinite;
+}
+
+.trace-step.error .trace-mark {
+  background: var(--danger);
+}
+
+.trace-step.error {
+  color: var(--danger);
+}
+
+.trace-label {
+  flex: 0 0 auto;
+}
+
+.trace-summary {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-meta {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.live-trace-more {
+  margin: 2px 0 4px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--text-xs);
+}
+
+.live-trace-more:hover {
+  text-decoration: underline;
+}

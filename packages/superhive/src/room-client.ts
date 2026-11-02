@@ -6,6 +6,7 @@ import type {
   Participant,
   RoomSummary,
   ServerEvent,
+  TraceStep,
   WhiteboardEntry,
 } from "./hive-protocol.js";
 import WebSocket from "ws";
@@ -75,6 +76,8 @@ export class RoomClient {
   private joined = false;
   /** 旧版服务端的快照没有 invocations，也不认识 invocation.report，向它发送会触发错误 */
   private serverTracksInvocations = true;
+  /** 服务端能接收执行过程（旧版服务端不认识这个事件，会回错误） */
+  private serverAcceptsTrace = false;
 
   constructor(
     private readonly options: RoomClientOptions,
@@ -117,6 +120,12 @@ export class RoomClient {
       if (report.status === "received" || report.status === "running") return;
     }
     this.outbox.set(report.messageId, event);
+  }
+
+  /** 上报执行过程：只是实时状态，连接不可用就直接丢掉，不进 outbox */
+  trace(messageId: string, steps: TraceStep[]): void {
+    if (!this.serverAcceptsTrace || steps.length === 0) return;
+    this.sendRaw({ type: "invocation.trace", messageId, steps });
   }
 
   async fetchWhiteboard(): Promise<WhiteboardEntry[]> {
@@ -234,6 +243,7 @@ export class RoomClient {
       this.retry = 0;
       this.joined = true;
       this.serverTracksInvocations = Array.isArray(event.invocations);
+      this.serverAcceptsTrace = event.features?.includes("trace") === true;
       if (this.serverTracksInvocations) {
         for (const report of this.outbox.values()) this.sendRaw(report);
       }

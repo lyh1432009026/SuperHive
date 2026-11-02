@@ -121,7 +121,10 @@ export class ClaudeCodeResponder implements AgentResponder {
     if (this.options.model) args.push("--model", this.options.model);
     if (input.threadId) args.push("--resume", input.threadId);
 
-    const stream = new ClaudeStream((event) => input.onRuntimeEvent?.(event));
+    const stream = new ClaudeStream(
+      (event) => input.onRuntimeEvent?.(event),
+      (step) => input.onTrace?.(step),
+    );
     input.onRuntimeEvent?.({ kind: "capabilities", observability: "partial", usage: true });
     // 失败、中断时也交出已经发生的用量：钱已经花了
     const reportUsage = () => {

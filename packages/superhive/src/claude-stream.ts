@@ -1,4 +1,6 @@
-import type { AgentUsage, RuntimeEvent } from "./hive-protocol.js";
+import { createHash } from "node:crypto";
+import type { AgentUsage, RuntimeEvent, TraceStep } from "./hive-protocol.js";
+import { claudeToolSummary } from "./trace.js";
 import { UsageAccumulator, anthropicBuckets } from "./usage.js";
 
 type ObjectValue = Record<string, unknown>;
@@ -22,7 +24,10 @@ function toolCategory(name: unknown): NonNullable<RuntimeEvent["tool"]> {
   return "other";
 }
 
-/** Only allowlisted facts leave this parser. No model text, arguments, stderr or session IDs. */
+/**
+ * Only allowlisted facts leave this parser through emit (no model text, arguments, stderr or session IDs).
+ * 执行过程另走 trace：只给房主实时看，带命令、路径和中途说的话，由 Bridge 脱敏后上报。
+ */
 export class ClaudeStream {
   private buffer = "";
   private discarding = false;
@@ -32,7 +37,60 @@ export class ClaudeStream {
   private readonly accounting = new UsageAccumulator();
   private currentMessageId: string | undefined;
   private sessionCost: number | undefined;
-  constructor(private readonly emit: (event: RuntimeEvent) => void) {}
+  /** 工具调用开始时的信息：结果回来时据此补全这一步 */
+  private readonly traceTools = new Map<string, TraceStep>();
+  /** 当前消息里正在进行的思考块（按块序号） */
+  private readonly thinking = new Map<number, TraceStep>();
+  private readonly seenTexts = new Set<string>();
+  constructor(
+    private readonly emit: (event: RuntimeEvent) => void,
+    private readonly trace: (step: TraceStep) => void = () => undefined,
+  ) {}
+
+  private traceAssistant(message: ObjectValue | undefined): void {
+    if (!Array.isArray(message?.content)) return;
+    const messageId = typeof message.id === "string" ? message.id : "message";
+    const now = new Date().toISOString();
+    for (const value of message.content) {
+      const block = object(value);
+      if (block?.type === "text" && typeof block.text === "string" && block.text.trim()) {
+        const id = `text:${messageId}:${createHash("sha1").update(block.text).digest("hex").slice(0, 12)}`;
+        if (this.seenTexts.has(id) || this.seenTexts.size > 2048) continue;
+        this.seenTexts.add(id);
+        this.trace({ id, kind: "text", text: block.text, startedAt: now, endedAt: now });
+      } else if (block?.type === "tool_use" && typeof block.id === "string") {
+        if (this.traceTools.has(block.id) || this.traceTools.size >= 1024) continue;
+        const name = typeof block.name === "string" ? block.name : "tool";
+        const step: TraceStep = {
+          id: block.id,
+          kind: "tool",
+          tool: toolCategory(name),
+          name,
+          summary: claudeToolSummary(name, object(block.input) ?? {}),
+          status: "running",
+          startedAt: now,
+        };
+        this.traceTools.set(block.id, step);
+        this.trace(step);
+      }
+    }
+  }
+
+  private traceResults(message: ObjectValue | undefined): void {
+    if (!Array.isArray(message?.content)) return;
+    for (const value of message.content) {
+      const block = object(value);
+      if (block?.type !== "tool_result" || typeof block.tool_use_id !== "string") continue;
+      const step = this.traceTools.get(block.tool_use_id);
+      if (!step) continue;
+      this.traceTools.delete(block.tool_use_id);
+      this.trace({
+        ...step,
+        status: block.is_error === true ? "error" : "ok",
+        endedAt: new Date().toISOString(),
+      });
+    }
+  }
 
   push(chunk: string): void {
     for (const [index, part] of chunk.split("\n").entries()) {
@@ -152,11 +210,13 @@ export class ClaudeStream {
       const message = object(event.message);
       this.account(message, message?.id);
       if (Array.isArray(message?.content)) for (const block of message.content) this.block(block);
+      this.traceAssistant(message);
       return;
     }
     if (event.type === "user") {
       const message = object(event.message);
       if (Array.isArray(message?.content)) for (const block of message.content) this.block(block);
+      this.traceResults(message);
       return;
     }
     if (event.type === "stream_event") {
@@ -164,6 +224,11 @@ export class ClaudeStream {
       if (stream?.type === "message_start") {
         const message = object(stream.message);
         if (typeof message?.id === "string") this.currentMessageId = message.id;
+        // 上一条消息里没等到结束的思考块，到这里一并收尾
+        for (const step of this.thinking.values()) {
+          this.trace({ ...step, status: "ok", endedAt: new Date().toISOString() });
+        }
+        this.thinking.clear();
         this.account(message, message?.id);
         this.recovered();
         this.emit({ kind: "activity", phase: "thinking" });
@@ -173,6 +238,24 @@ export class ClaudeStream {
           this.accounting.request(this.currentMessageId, buckets);
       } else if (stream?.type === "content_block_start") {
         this.block(stream.content_block);
+        const index = integer(stream.index, 0, 10_000);
+        if (object(stream.content_block)?.type === "thinking" && index !== undefined) {
+          const step: TraceStep = {
+            id: `thinking:${this.currentMessageId ?? "message"}:${index}`,
+            kind: "thinking",
+            status: "running",
+            startedAt: new Date().toISOString(),
+          };
+          this.thinking.set(index, step);
+          this.trace(step);
+        }
+      } else if (stream?.type === "content_block_stop") {
+        const index = integer(stream.index, 0, 10_000);
+        const step = index !== undefined ? this.thinking.get(index) : undefined;
+        if (step && index !== undefined) {
+          this.thinking.delete(index);
+          this.trace({ ...step, status: "ok", endedAt: new Date().toISOString() });
+        }
       } else if (stream?.type === "content_block_delta") {
         const delta = object(stream.delta);
         if (delta?.type === "text_delta" || delta?.type === "thinking_delta") {

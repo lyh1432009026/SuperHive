@@ -549,3 +549,51 @@ describe("schedules across restarts", () => {
     seed.close();
   });
 });
+
+describe("live execution trace", () => {
+  it("relays an agent's steps only to the owner's pages while running and drops them when it ends", async () => {
+    const room = await startRoom();
+    const { peer: alice, snapshot } = await room.join("Alice", "human");
+    expect(snapshot.features).toContain("trace");
+    const { peer: helper } = await room.join("helper", "agent");
+    const { peer: other } = await room.join("other", "agent");
+    alice.send({ type: "message.send", clientMessageId: "go", content: "@helper 提交一下" });
+    const mentioned = await helper.next((event) => event.type === "agent.mentioned");
+    const trigger = (mentioned as Extract<ServerEvent, { type: "agent.mentioned" }>).message;
+    const step = {
+      id: "t1",
+      kind: "tool",
+      tool: "command",
+      summary: "git status",
+      status: "running",
+      startedAt: new Date().toISOString(),
+    };
+    // 还没开始执行：不转发
+    helper.send({ type: "invocation.trace", messageId: trigger.id, steps: [step] });
+    helper.send({ type: "invocation.report", messageId: trigger.id, status: "running" });
+    await alice.next(
+      (event) => event.type === "invocation.updated" && event.invocation.status === "running",
+    );
+    helper.send({ type: "invocation.trace", messageId: trigger.id, steps: [step] });
+    const relayed = await alice.next((event) => event.type === "invocation.trace");
+    expect(relayed).toMatchObject({ steps: [{ id: "t1", summary: "git status" }] });
+    expect(alice.events.filter((event) => event.type === "invocation.trace")).toHaveLength(0);
+
+    // 别的 Agent 不能替它上报，也收不到
+    other.send({ type: "invocation.trace", messageId: trigger.id, steps: [step] });
+
+    // 房主刷新页面：补上当前的过程
+    const { peer: reopened } = await room.join("Alice", "human");
+    const replay = await reopened.next((event) => event.type === "invocation.trace");
+    expect(replay).toMatchObject({ steps: [{ id: "t1" }] });
+
+    helper.send({ type: "invocation.report", messageId: trigger.id, status: "completed" });
+    const ended = await alice.next(
+      (event) => event.type === "invocation.trace" && event.ended === true,
+    );
+    expect(ended).toMatchObject({ steps: [] });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(other.events.some((event) => event.type === "invocation.trace")).toBe(false);
+    expect(alice.events.some((event) => event.type === "invocation.trace")).toBe(false);
+  });
+});

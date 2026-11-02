@@ -30,6 +30,8 @@ import {
   type Snapshot,
 } from "./room-client.js";
 import { StateStore, type AgentState } from "./state-store.js";
+import { sanitizeTraceStep } from "./trace.js";
+import type { TraceStep } from "./hive-protocol.js";
 import { AttachmentCache } from "./attachment-cache.js";
 import {
   AttachmentPublisher,
@@ -92,6 +94,8 @@ export type BridgeTuning = {
   heartbeatMs?: number;
   /** 进度回报的最小间隔 */
   progressThrottleMs?: number;
+  /** 执行过程攒批上报的间隔 */
+  traceFlushMs?: number;
   /** 多久未收到 Runtime 新进度时提示待核实；只告警，不自动取消或重试 */
   progressStaleMs?: number;
   /** 隔多少轮或多久重新发送一次完整上下文 */
@@ -192,6 +196,7 @@ export class AgentBridge {
       maxBatchSize: 10,
       heartbeatMs: 60_000,
       progressThrottleMs: 3_000,
+      traceFlushMs: 300,
       progressStaleMs: 120_000,
       fullPromptEveryTurns: 8,
       fullPromptEveryMs: 30 * 60_000,
@@ -609,6 +614,7 @@ export class AgentBridge {
     };
     this.active = active;
     let heartbeat: NodeJS.Timeout | undefined;
+    let traceTimer: NodeJS.Timeout | undefined;
     try {
       const context = await this.room.fetchMessages(this.state.lastProcessedSeq);
       // 先落盘执行意图，再调用 Provider：崩溃后据此判定"结果未知"而不是重跑
@@ -628,6 +634,20 @@ export class AgentBridge {
       let lastProgress: string | undefined;
       let lastActivityKey: string | undefined;
       let lastActivityReportAt: number | undefined;
+      // 执行过程：脱敏后按 id 合并，攒一小会儿再发，避免 Runtime 一条命令连发几十个事件
+      const pendingTrace = new Map<string, TraceStep>();
+      const flushTrace = () => {
+        traceTimer = undefined;
+        if (pendingTrace.size === 0) return;
+        const steps = [...pendingTrace.values()];
+        pendingTrace.clear();
+        for (const message of active.messages) {
+          if (active.cancelled.has(message.id)) continue;
+          for (let index = 0; index < steps.length; index += 50) {
+            this.room.trace(message.id, steps.slice(index, index + 50));
+          }
+        }
+      };
       const reportProgress = (progress: string) => {
         lastProgressReportAt = Date.now();
         this.reportAll(active.messages, { status: "running", progress: progress.slice(0, 200) });
@@ -685,6 +705,12 @@ export class AgentBridge {
             progress: lastProgress,
             runtimeEvent: { kind: "activity", phase: "working" },
           });
+        },
+        onTrace: (step) => {
+          if (this.active !== active || active.controller.signal.aborted) return;
+          const clean = sanitizeTraceStep(step);
+          pendingTrace.set(clean.id, { ...pendingTrace.get(clean.id), ...clean });
+          traceTimer ??= setTimeout(flushTrace, this.tuning.traceFlushMs);
         },
         onRuntimeEvent: (event) => {
           if (this.active !== active || active.controller.signal.aborted) return;
@@ -852,6 +878,8 @@ export class AgentBridge {
     } finally {
       active.accepting = false;
       if (heartbeat) clearInterval(heartbeat);
+      if (traceTimer) clearTimeout(traceTimer);
+      traceTimer = undefined;
       this.room.setTyping(false);
       if (this.active === active) this.active = undefined;
     }

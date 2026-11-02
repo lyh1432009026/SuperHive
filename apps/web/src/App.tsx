@@ -26,6 +26,7 @@ import type {
   ServerEvent,
   WhiteboardEntry,
   Schedule,
+  TraceStep,
   UsageSummary,
 } from "@superhive/protocol";
 import {
@@ -48,6 +49,7 @@ import {
 } from "./invocations";
 import { WhiteboardPanel, upsertWhiteboardEntry } from "./whiteboard";
 import { SchedulePanel, isPendingSchedule, upsertSchedule } from "./schedules";
+import { LiveTrace, mergeTraceSteps } from "./live-trace";
 import { ActivityPanel, isInFlight, needsAttention, type ActivityView } from "./activity";
 import {
   LocalAgentList,
@@ -1224,6 +1226,8 @@ export function App({
   const [invocations, setInvocations] = useState<ReadonlyMap<string, Invocation>>(new Map());
   const [whiteboard, setWhiteboard] = useState<ReadonlyMap<string, WhiteboardEntry>>(new Map());
   const [schedules, setSchedules] = useState<ReadonlyMap<string, Schedule>>(new Map());
+  /** 执行中调用的实时过程（只有房主的页面会收到），调用结束即清掉 */
+  const [traces, setTraces] = useState<ReadonlyMap<string, TraceStep[]>>(new Map());
   const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab>("members");
   const [highlightedMessageId, setHighlightedMessageId] = useState<string>();
   const [pendingJumpId, setPendingJumpId] = useState<string>();
@@ -1947,6 +1951,7 @@ export function App({
       setInvocations(new Map());
       setWhiteboard(new Map());
       setSchedules(new Map());
+      setTraces(new Map());
       setHighlightedMessageId(undefined);
       setPendingJumpId(undefined);
       setParticipants([]);
@@ -2070,6 +2075,8 @@ export function App({
           );
           setWhiteboard(new Map((event.whiteboard ?? []).map((entry) => [entry.id, entry])));
           setSchedules(new Map((event.schedules ?? []).map((schedule) => [schedule.id, schedule])));
+          // 重连后服务端会重新补发执行中调用的过程
+          setTraces(new Map());
           latestSeqRef.current = Math.max(latestSeqRef.current, event.latestSeq);
           retryRef.current = 0;
           setConnectionState("online");
@@ -2123,6 +2130,18 @@ export function App({
         } else if (event.type === "whiteboard.updated") {
           if (event.entry.roomId !== currentRoomId) return;
           setWhiteboard((current) => upsertWhiteboardEntry(current, event.entry));
+        } else if (event.type === "invocation.trace") {
+          if (event.roomId !== currentRoomId) return;
+          setTraces((current) => {
+            const next = new Map(current);
+            if (event.ended) next.delete(event.invocationId);
+            else
+              next.set(
+                event.invocationId,
+                mergeTraceSteps(current.get(event.invocationId) ?? [], event.steps),
+              );
+            return next;
+          });
         } else if (event.type === "schedule.updated") {
           if (event.schedule.roomId !== currentRoomId) return;
           setSchedules((current) => upsertSchedule(current, event.schedule));
@@ -3551,6 +3570,18 @@ export function App({
                                 isOwner={isOwner}
                               />
                             )}
+                            {(invocationsByMessage.get(message.id) ?? []).map((invocation) => {
+                              const steps = traces.get(invocation.id);
+                              return steps &&
+                                (invocation.status === "running" ||
+                                  invocation.status === "cancelling") ? (
+                                <LiveTrace
+                                  key={invocation.id}
+                                  invocation={invocation}
+                                  steps={steps}
+                                />
+                              ) : null;
+                            })}
                           </div>
                           {message.deletedAt ? null : shareMode ? (
                             <span

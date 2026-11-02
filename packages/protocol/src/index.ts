@@ -43,6 +43,11 @@ export const LIMITS = {
   maxScheduleAheadMs: 30 * 24 * 60 * 60_000,
   scheduleGraceMs: 10 * 60_000,
   maxScheduleTaskLength: 4000,
+  /** 执行过程：每步摘要与中途文字的长度上限、每次调用在内存里最多保留的步数 */
+  maxTraceSummaryLength: 300,
+  maxTraceTextLength: 2000,
+  maxTraceSteps: 300,
+  maxTraceStepsPerEvent: 50,
 } as const;
 
 export const participantTypeSchema = z.enum(["human", "agent"]);
@@ -259,6 +264,27 @@ export const runtimeEventSchema = z
     code: z.number().int().min(100).max(599).optional(),
     retryAttempt: z.number().int().min(1).max(1000).optional(),
     retryInMs: z.number().int().min(0).max(86_400_000).optional(),
+  })
+  .strict();
+/**
+ * 执行过程的一步（像 CLI 那样实时显示：中途说的话、思考、跑的命令、改的文件）。
+ * 只在执行中实时推给房主的页面，服务端只放内存、调用结束即丢弃，不落库、不发 IM、不给访客和 Agent。
+ * 同一个 id 再次上报表示更新这一步（例如命令从执行中变为完成）。Bridge 上报前已脱敏、截断。
+ */
+export const traceStepSchema = z
+  .object({
+    id: z.string().min(1).max(120),
+    kind: z.enum(["text", "thinking", "tool"]),
+    tool: z.enum(["read", "write", "search", "command", "collaboration", "other"]).optional(),
+    /** 原工具名，例如 Bash、Edit、commandExecution */
+    name: z.string().max(64).optional(),
+    /** 一行摘要：命令、文件路径、搜索词 */
+    summary: z.string().max(LIMITS.maxTraceSummaryLength).optional(),
+    /** 中途说的话 */
+    text: z.string().max(LIMITS.maxTraceTextLength).optional(),
+    status: z.enum(["running", "ok", "error"]).optional(),
+    startedAt: z.string().datetime(),
+    endedAt: z.string().datetime().optional(),
   })
   .strict();
 export const runtimeTimelineEntrySchema = runtimeEventSchema.extend({ at: z.string().datetime() });
@@ -562,6 +588,12 @@ export const whiteboardRemoveEventSchema = z.object({
   type: z.literal("whiteboard.remove"),
   entryId: z.string().uuid(),
 });
+/** Agent 上报执行过程（只在执行中有意义；服务端转给房主的页面，不落库） */
+export const invocationTraceEventSchema = z.object({
+  type: z.literal("invocation.trace"),
+  messageId: z.string().uuid(),
+  steps: z.array(traceStepSchema).min(1).max(LIMITS.maxTraceStepsPerEvent),
+});
 /** 人取消一个还没到点的定时任务 */
 export const scheduleCancelEventSchema = z.object({
   type: z.literal("schedule.cancel"),
@@ -584,6 +616,7 @@ export const clientEventSchema = z.discriminatedUnion("type", [
   budgetExtendEventSchema,
   whiteboardRemoveEventSchema,
   scheduleCancelEventSchema,
+  invocationTraceEventSchema,
 ]);
 
 export const roomSnapshotEventSchema = z.object({
@@ -595,6 +628,8 @@ export const roomSnapshotEventSchema = z.object({
   invocations: z.array(invocationSchema).default([]),
   whiteboard: z.array(whiteboardEntrySchema).default([]),
   schedules: z.array(scheduleSchema).default([]),
+  /** 服务端支持的可选能力，例如 trace（接收执行过程） */
+  features: z.array(z.string()).default([]),
 });
 export const messageCreatedEventSchema = z.object({
   type: z.literal("message.created"),
@@ -642,6 +677,14 @@ export const whiteboardRemovedEventSchema = z.object({
 export const scheduleUpdatedEventSchema = z.object({
   type: z.literal("schedule.updated"),
   schedule: scheduleSchema,
+});
+/** 执行过程的增量（只发给房主的页面）；steps 按 id 合并，ended=true 表示这次调用已结束、可以清掉 */
+export const invocationTraceUpdatedEventSchema = z.object({
+  type: z.literal("invocation.trace"),
+  roomId: z.string(),
+  invocationId: z.string().uuid(),
+  steps: z.array(traceStepSchema),
+  ended: z.boolean().optional(),
 });
 export const presenceChangedEventSchema = z.object({
   type: z.literal("presence.changed"),
@@ -699,6 +742,7 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   whiteboardUpdatedEventSchema,
   whiteboardRemovedEventSchema,
   scheduleUpdatedEventSchema,
+  invocationTraceUpdatedEventSchema,
   presenceChangedEventSchema,
   roomsChangedEventSchema,
   roomActivityEventSchema,
@@ -1064,6 +1108,7 @@ export type InvocationStatus = z.infer<typeof invocationStatusSchema>;
 export type InvocationBlockReason = z.infer<typeof invocationBlockReasonSchema>;
 export type Invocation = z.infer<typeof invocationSchema>;
 export type Schedule = z.infer<typeof scheduleSchema>;
+export type TraceStep = z.infer<typeof traceStepSchema>;
 export type ScheduleStatus = z.infer<typeof scheduleStatusSchema>;
 export type WhiteboardSlot = z.infer<typeof whiteboardSlotSchema>;
 export type WhiteboardEntry = z.infer<typeof whiteboardEntrySchema>;
