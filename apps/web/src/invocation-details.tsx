@@ -1,47 +1,9 @@
 import { InvocationUsage } from "./usage";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { Invocation, RuntimeEvent, TraceStep } from "@superhive/protocol";
-import { TraceTimeline, isLiveInvocation, traceSummary } from "./live-trace";
+import type { Invocation } from "@superhive/protocol";
 import "./styles/invocation-details.css";
-import { getLocale, localized, t } from "./i18n";
-
-const toolLabels = localized(() => ({
-  read: t("读取文件"),
-  write: t("编辑文件"),
-  search: t("搜索"),
-  command: t("运行命令"),
-  collaboration: t("协作工具"),
-  other: t("其他工具"),
-}));
-export function runtimeEventLabel(event: RuntimeEvent): string {
-  switch (event.kind) {
-    case "capabilities":
-      return event.observability === "heartbeat" ? t("仅心跳观测") : t("已接入结构化事件");
-    case "provider_error":
-      return t("API 异常{0}{1}", {
-        0: event.code ? ` · HTTP ${event.code}` : "",
-        1: event.retryAttempt ? t(" · 第 {0} 次重试", { 0: event.retryAttempt }) : "",
-      });
-    case "recovered":
-      return t("收到模型恢复证据");
-    case "activity": {
-      const tool = event.tool ? ` · ${toolLabels[event.tool]}` : "";
-      switch (event.phase) {
-        case "starting":
-          return t("正在启动 Runtime");
-        case "working":
-          return t("收到 Runtime 执行事件");
-        case "tool_running":
-          return t("工具执行中{0}", { 0: tool });
-        case "tool_completed":
-          return t("工具已返回{0}（不代表任务完成）", { 0: tool });
-        default:
-          return t("收到模型响应事件");
-      }
-    }
-  }
-}
+import { getLocale, t } from "./i18n";
 
 function activeElement(): Element | null {
   let element = document.activeElement;
@@ -82,7 +44,6 @@ function statusTone(invocation: Invocation): "active" | "done" | "attention" | "
 
 export function InvocationDetails({
   invocation,
-  steps,
   label,
   agentOnline,
   connectionState,
@@ -91,8 +52,6 @@ export function InvocationDetails({
   onJump,
 }: {
   invocation: Invocation;
-  /** 执行过程（只有房主的页面有） */
-  steps?: TraceStep[] | undefined;
   /** 委派关系：上游是谁派来的，下游派出了哪些子任务 */
   delegation?: { upstream?: string; downstream: string[]; continuation?: string } | undefined;
   label: string;
@@ -144,9 +103,6 @@ export function InvocationDetails({
     };
   }, []);
 
-  const traceNow = isLiveInvocation(invocation)
-    ? now
-    : Date.parse(invocation.finishedAt ?? invocation.updatedAt);
   const tone = statusTone(invocation);
   const capability =
     runtime?.observability === "full"
@@ -154,33 +110,6 @@ export function InvocationDetails({
       : runtime?.observability === "partial"
         ? t("部分事件可见")
         : t("仅心跳 / 未接入事件");
-  const events = runtime?.history.length ? (
-    <ol className="invocation-details-timeline" aria-live="off">
-      {runtime.history.map((event, index) => (
-        <li key={`${event.at}-${index}`} data-kind={event.kind}>
-          <time dateTime={event.at}>
-            {new Date(event.at).toLocaleTimeString(getLocale(), { hour12: false })}
-          </time>
-          <span>{runtimeEventLabel(event)}</span>
-        </li>
-      ))}
-    </ol>
-  ) : (
-    <p className="invocation-details-empty">{t("尚未收到执行事件。这里不会用心跳伪造进度。")}</p>
-  );
-  const phase = runtime?.phase && (
-    <p className="invocation-details-phase">
-      {t("{0}： {1}", {
-        0: inProgress ? t("最近阶段") : t("结束前阶段"),
-        1: runtimeEventLabel({
-          kind: "activity",
-          phase: runtime.phase,
-          ...(runtime.tool ? { tool: runtime.tool } : {}),
-        }),
-      })}
-    </p>
-  );
-
   return createPortal(
     <dialog
       ref={ref}
@@ -304,25 +233,6 @@ export function InvocationDetails({
             {t("Agent 当前离线；保留的是最后收到的信息。")}
           </p>
         )}
-        {steps?.length ? (
-          <section aria-label={t("执行过程")}>
-            <h3>
-              {t("执行过程")}{" "}
-              <span className="invocation-details-caption">{traceSummary(steps, traceNow)}</span>
-            </h3>
-            <div className="invocation-details-trace">
-              <TraceTimeline steps={steps} now={traceNow} live={isLiveInvocation(invocation)} />
-            </div>
-          </section>
-        ) : (
-          <section aria-label={t("最近事件")}>
-            <h3>
-              {t("最近事件")} <span className="invocation-details-capability">{capability}</span>
-            </h3>
-            {phase}
-            {events}
-          </section>
-        )}
         {invocation.usage ? (
           <InvocationUsage usage={invocation.usage} />
         ) : (
@@ -367,19 +277,9 @@ export function InvocationDetails({
         )}
         <details className="invocation-details-metadata">
           <summary>{t("技术细节")}</summary>
-          {steps?.length ? (
-            <>
-              <p>
-                {t("观测能力")} <span className="invocation-details-capability">{capability}</span>
-              </p>
-              {phase}
-              <p className="invocation-details-subhead">
-                {t("最近事件")}{" "}
-                <span className="invocation-details-caption">{t("最多 12 条 · 不含心跳")}</span>
-              </p>
-              {events}
-            </>
-          ) : null}
+          <p>
+            {t("观测能力")} <span className="invocation-details-capability">{capability}</span>
+          </p>
           {runtime?.observability !== "full" && (
             <p>
               {runtime?.observability === "partial"
@@ -395,7 +295,7 @@ export function InvocationDetails({
           </dl>
           <p id={descriptionId}>
             {t(
-              "只展示已上报的执行事实：连接存活不代表模型正在执行，没有新事件也不等于卡死。执行过程只有房主看得到，只在执行期间保存在内存里，已脱敏截断，不含模型内部思考、命令输出和文件正文。",
+              "只展示已上报的执行事实：连接存活不代表模型正在执行，没有新事件也不等于卡死。执行过程在消息下面的过程框里看。",
             )}
           </p>
         </details>

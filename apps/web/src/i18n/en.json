@@ -970,5 +970,5 @@
   "还有 {0} 个": "+{0} more",
   "技术细节": "Technical details",
   "观测能力": "Observability",
-  "只展示已上报的执行事实：连接存活不代表模型正在执行，没有新事件也不等于卡死。执行过程只有房主看得到，只在执行期间保存在内存里，已脱敏截断，不含模型内部思考、命令输出和文件正文。": "Only reported facts are shown: a live connection does not mean the model is working, and no new events does not mean it is stuck. The activity log is visible only to the owner, kept in memory only while running, redacted and truncated, and never includes the model's internal reasoning, command output or file contents."
+  "只展示已上报的执行事实：连接存活不代表模型正在执行，没有新事件也不等于卡死。执行过程在消息下面的过程框里看。": "Only reported facts are shown: a live connection does not mean the model is working, and no new events does not mean it is stuck. See the activity box under the message for step-by-step progress."
 }

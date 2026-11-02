@@ -4,7 +4,6 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Invocation } from "@superhive/protocol";
 import { InvocationChips, canRetryInvocation } from "./invocations";
-import { runtimeEventLabel } from "./invocation-details";
 import { groupTraceSteps } from "./live-trace";
 
 const at = "2026-10-28T13:00:00.000Z";
@@ -45,7 +44,8 @@ describe("clickable invocation details", () => {
     await user.keyboard("{Enter}");
     const dialog = screen.getByRole("dialog", { name: "调用详情" });
     expect(within(dialog).getByText("仅心跳 / 未接入事件")).toBeTruthy();
-    expect(within(dialog).getByText(/不会用心跳伪造进度/)).toBeTruthy();
+    // 底层事件列表已去掉：执行过程看消息下的过程框
+    expect(within(dialog).queryByText("最近事件")).toBeNull();
     expect(within(dialog).getAllByText("尚未收到")).toHaveLength(3);
     expect(document.activeElement).toBe(
       within(dialog).getByRole("button", { name: "关闭调用详情" }),
@@ -128,39 +128,6 @@ describe("clickable invocation details", () => {
     expect(screen.getByRole("dialog").querySelector("img")).toBeNull();
     rerender(<InvocationChips {...props} invocations={[]} />);
     expect(screen.queryByRole("dialog")).toBeNull();
-  });
-  it("labels tool completion without implying success", () => {
-    expect(
-      runtimeEventLabel({ kind: "activity", phase: "tool_completed", tool: "command" }),
-    ).toContain("不代表任务完成");
-  });
-  it("shows the full trace in the dialog for the owner and keeps raw events under technical details", async () => {
-    const user = userEvent.setup();
-    const steps = [
-      { id: "s1", kind: "text" as const, text: "先看一下改动", startedAt: at, endedAt: at },
-      {
-        id: "s2",
-        kind: "tool" as const,
-        tool: "command" as const,
-        summary: "git status",
-        status: "ok" as const,
-        startedAt: at,
-        endedAt: at,
-      },
-    ];
-    render(
-      <InvocationChips
-        {...props}
-        invocations={[invocation]}
-        traces={new Map([[invocation.id, steps]])}
-      />,
-    );
-    await user.click(screen.getByRole("button", { name: /查看调用详情/ }));
-    const dialog = screen.getByRole("dialog", { name: "调用详情" });
-    const trace = within(dialog).getByRole("region", { name: "执行过程" });
-    expect(within(trace).getByText("先看一下改动")).toBeTruthy();
-    expect(within(trace).getByText("git status")).toBeTruthy();
-    expect(within(dialog).getByText("技术细节")).toBeTruthy();
   });
 });
 

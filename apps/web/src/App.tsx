@@ -3589,7 +3589,6 @@ export function App({
                                 onDismiss={(invocation) => dismissInvocations([invocation])}
                                 onExtend={extendAgentBudget}
                                 isOwner={isOwner}
-                                traces={traces}
                               />
                             )}
                             {(invocationsByMessage.get(message.id) ?? []).map((invocation) => {

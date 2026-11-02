@@ -215,15 +215,6 @@
   font-weight: 400;
 }
 
-/* 执行过程：和消息下的过程框同一套样式，这里不限高度 */
-.invocation-details-trace {
-  padding: 10px 12px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  background: var(--bg-subtle);
-  font-size: var(--text-xs);
-  line-height: 1.55;
-}
 .invocation-details-delegation {
   margin: 0;
 }
@@ -252,46 +243,6 @@
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
-.invocation-details-phase {
-  font-size: var(--text-sm);
-}
-.invocation-details-timeline {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.invocation-details-timeline li {
-  position: relative;
-  display: grid;
-  grid-template-columns: 72px 1fr;
-  gap: 14px;
-  padding: 6px 0 6px 14px;
-  border-left: 1px solid var(--border-heavy);
-  font-size: var(--text-sm);
-}
-.invocation-details-timeline li::before {
-  content: "";
-  position: absolute;
-  left: -3px;
-  top: 15px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--text-secondary);
-}
-.invocation-details-timeline li[data-kind="provider_error"]::before {
-  background: var(--warning);
-}
-.invocation-details-timeline time {
-  color: var(--text-secondary);
-}
-.invocation-details-empty {
-  padding: 14px;
-  border: 1px dashed var(--border-heavy);
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-}
 
 /* 技术细节：默认收起 */
 .invocation-details-metadata {
@@ -307,10 +258,6 @@
 }
 .invocation-details-metadata summary:hover {
   color: var(--text);
-}
-.invocation-details-subhead {
-  color: var(--text);
-  font-weight: var(--weight-medium);
 }
 .invocation-details-metadata dl {
   margin: 8px 0;
@@ -356,9 +303,5 @@
   }
   .invocation-details-footer {
     padding: 10px 18px;
-  }
-  .invocation-details-timeline li {
-    grid-template-columns: 62px 1fr;
-    gap: 8px;
   }
 }
