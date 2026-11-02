@@ -351,36 +351,59 @@ button.invocation-summary:focus-visible {
   margin-right: 5px;
   content: "·";
 }
-
-/* 执行中的实时过程：像终端一样逐步刷新，只有房主能看到，结束后消失 */
+/* 执行过程：执行中像终端一样逐步刷新（固定高度、自动跟到最新），结束后收成一行汇总；只有房主能看到 */
 .live-trace {
   max-width: 640px;
   margin-top: 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 8px 10px;
   background: var(--bg-subtle);
   font-size: var(--text-xs);
   line-height: 1.5;
+  overflow: hidden;
 }
 
 .live-trace header {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 4px 8px;
-  margin-bottom: 6px;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-light);
   color: var(--text-secondary);
 }
 
 .live-trace header strong {
+  flex: 0 0 auto;
   color: var(--text);
   font-weight: var(--weight-medium);
+}
+
+.live-trace-line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-trace-elapsed {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.live-trace-scroll {
+  max-height: 200px;
+  padding: 6px 10px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .live-trace-dot {
   width: 7px;
   height: 7px;
+  flex: 0 0 auto;
   border-radius: 50%;
   background: var(--accent);
   animation: live-trace-pulse 1.4s ease-in-out infinite;
@@ -393,23 +416,103 @@ button.invocation-summary:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .live-trace-dot {
+  .live-trace-dot,
+  .trace-step.running .trace-mark {
     animation: none;
   }
+}
+
+/* 结束后：一行汇总，点开看完整过程 */
+.live-trace.done {
+  border-color: var(--border-light);
+  background: transparent;
+}
+
+.live-trace.done summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 10px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.live-trace.done summary::-webkit-details-marker {
+  display: none;
+}
+
+.live-trace.done summary:hover {
+  color: var(--text-secondary);
+}
+
+.live-trace-caret {
+  width: 0;
+  height: 0;
+  flex: 0 0 auto;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid currentColor;
+  transition: transform var(--duration);
+}
+
+.live-trace.done[open] .live-trace-caret {
+  transform: rotate(90deg);
+}
+
+.live-trace-title {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-weight: var(--weight-medium);
+}
+
+.live-trace.done[open] summary {
+  border-bottom: 1px solid var(--border-light);
+}
+
+.live-trace.done .live-trace-scroll {
+  max-height: 320px;
 }
 
 .live-trace-steps {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 
 .trace-text {
-  margin: 4px 0;
+  margin: 4px 0 4px 12px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
   color: var(--text);
   font-size: var(--text-sm);
+}
+
+.trace-text p {
+  margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.trace-text.clamped p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.trace-text-toggle {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.trace-text-toggle:hover {
+  text-decoration: underline;
 }
 
 .trace-step {
@@ -435,6 +538,11 @@ button.invocation-summary:focus-visible {
   animation: live-trace-pulse 1.4s ease-in-out infinite;
 }
 
+.trace-step.stopped .trace-mark,
+.trace-step.thinking .trace-mark {
+  background: var(--text-tertiary);
+}
+
 .trace-step.error .trace-mark {
   background: var(--danger);
 }
@@ -458,6 +566,10 @@ button.invocation-summary:focus-visible {
   white-space: nowrap;
 }
 
+.trace-step.error .trace-summary {
+  color: var(--danger);
+}
+
 .trace-meta {
   display: inline-flex;
   flex: 0 0 auto;
@@ -466,15 +578,29 @@ button.invocation-summary:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-.live-trace-more {
-  margin: 2px 0 4px;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: var(--accent);
-  font-size: var(--text-xs);
+/* 连续的同类步骤合成一行，点开看明细 */
+.trace-group > summary {
+  cursor: pointer;
+  list-style: none;
 }
 
-.live-trace-more:hover {
-  text-decoration: underline;
+.trace-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.trace-group > summary .trace-summary {
+  color: var(--text-secondary);
+}
+
+.trace-group > summary:hover .trace-label {
+  color: var(--text);
+}
+
+.trace-group-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 4px 3px;
+  padding-left: 9px;
+  border-left: 1px solid var(--border);
 }

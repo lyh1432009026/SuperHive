@@ -958,5 +958,17 @@
   "@{0} 执行中": "@{0} working",
   "已用 {0}": "{0} elapsed",
   "显示前面 {0} 步": "Show {0} earlier steps",
-  "只看最近 {0} 步": "Show only the last {0} steps"
+  "只看最近 {0} 步": "Show only the last {0} steps",
+  "读取 {0} 个文件": "Read {0} files",
+  "调用工具 {0} 次": "{0} tool calls",
+  "协作工具 {0} 次": "{0} collaboration calls",
+  "思考中": "Thinking",
+  "展开全文": "Show all",
+  "执行过程": "Activity",
+  "正在执行": "Running now",
+  "跳到 @{0} 正在处理的消息": "Jump to the message @{0} is working on",
+  "还有 {0} 个": "+{0} more",
+  "技术细节": "Technical details",
+  "观测能力": "Observability",
+  "只展示已上报的执行事实：连接存活不代表模型正在执行，没有新事件也不等于卡死。执行过程只有房主看得到，只在执行期间保存在内存里，已脱敏截断，不含模型内部思考、命令输出和文件正文。": "Only reported facts are shown: a live connection does not mean the model is working, and no new events does not mean it is stuck. The activity log is visible only to the owner, kept in memory only while running, redacted and truncated, and never includes the model's internal reasoning, command output or file contents."
 }

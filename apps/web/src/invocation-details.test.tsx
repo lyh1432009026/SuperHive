@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Invocation } from "@superhive/protocol";
 import { InvocationChips, canRetryInvocation } from "./invocations";
 import { runtimeEventLabel } from "./invocation-details";
+import { groupTraceSteps } from "./live-trace";
 
 const at = "2026-10-28T13:00:00.000Z";
 const invocation: Invocation = {
@@ -132,5 +133,59 @@ describe("clickable invocation details", () => {
     expect(
       runtimeEventLabel({ kind: "activity", phase: "tool_completed", tool: "command" }),
     ).toContain("不代表任务完成");
+  });
+  it("shows the full trace in the dialog for the owner and keeps raw events under technical details", async () => {
+    const user = userEvent.setup();
+    const steps = [
+      { id: "s1", kind: "text" as const, text: "先看一下改动", startedAt: at, endedAt: at },
+      {
+        id: "s2",
+        kind: "tool" as const,
+        tool: "command" as const,
+        summary: "git status",
+        status: "ok" as const,
+        startedAt: at,
+        endedAt: at,
+      },
+    ];
+    render(
+      <InvocationChips
+        {...props}
+        invocations={[invocation]}
+        traces={new Map([[invocation.id, steps]])}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /查看调用详情/ }));
+    const dialog = screen.getByRole("dialog", { name: "调用详情" });
+    const trace = within(dialog).getByRole("region", { name: "执行过程" });
+    expect(within(trace).getByText("先看一下改动")).toBeTruthy();
+    expect(within(trace).getByText("git status")).toBeTruthy();
+    expect(within(dialog).getByText("技术细节")).toBeTruthy();
+  });
+});
+
+describe("trace grouping", () => {
+  const step = (id: string, tool: "read" | "command" | "search", status: "ok" | "error") => ({
+    id,
+    kind: "tool" as const,
+    tool,
+    summary: id,
+    status,
+    startedAt: at,
+    endedAt: at,
+  });
+  it("merges consecutive reads like a CLI but never hides commands or failures", () => {
+    const rows = groupTraceSteps([
+      step("a.ts", "read", "ok"),
+      step("b.ts", "read", "ok"),
+      step("c.ts", "read", "ok"),
+      step("git status", "command", "ok"),
+      step("pnpm test", "command", "ok"),
+      step("d.ts", "read", "error"),
+      step("e.ts", "read", "ok"),
+    ]);
+    expect(
+      rows.map((row) => (row.type === "group" ? `group:${row.steps.length}` : row.step.id)),
+    ).toEqual(["group:3", "git status", "pnpm test", "d.ts", "e.ts"]);
   });
 });

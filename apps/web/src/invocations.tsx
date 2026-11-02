@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { InvocationDetails } from "./invocation-details";
-import type { ChatMessage, Invocation, Participant } from "@superhive/protocol";
+import type { ChatMessage, Invocation, Participant, TraceStep } from "@superhive/protocol";
 import { localized, t } from "./i18n";
 
 /** 人点一次「继续」为当前 Agent 对话追加的轮数，同时放宽连续轮数、转交深度和单链条数 */
@@ -310,7 +310,10 @@ export function InvocationChips({
   isOwner = true,
   onLocate,
   onDismiss,
+  traces,
 }: {
+  /** 执行过程（只有房主的页面有）：调用详情里展示完整的步骤 */
+  traces?: ReadonlyMap<string, TraceStep[]>;
   /** 「忽略」：标为已处理，不再算作需要处理 */
   onDismiss?: (invocation: Invocation) => void;
   /** 底部状态栏里用：跳到触发这条调用的消息 */
@@ -494,6 +497,7 @@ export function InvocationChips({
       {selected && (
         <InvocationDetails
           invocation={selected}
+          steps={traces?.get(selected.id)}
           label={invocationStatusLabel(
             selected,
             participants.some((p) => p.id === selected.agentId && p.status !== "offline"),

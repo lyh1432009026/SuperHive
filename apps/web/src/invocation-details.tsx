@@ -1,7 +1,8 @@
 import { InvocationUsage } from "./usage";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { Invocation, RuntimeEvent } from "@superhive/protocol";
+import type { Invocation, RuntimeEvent, TraceStep } from "@superhive/protocol";
+import { TraceTimeline, isLiveInvocation, traceSummary } from "./live-trace";
 import "./styles/invocation-details.css";
 import { getLocale, localized, t } from "./i18n";
 
@@ -63,8 +64,25 @@ function Clock({ value, now }: { value?: string; now: number }) {
   );
 }
 
+/** 状态的色调：进行中、完成、需要留意、已停止 */
+function statusTone(invocation: Invocation): "active" | "done" | "attention" | "muted" {
+  switch (invocation.status) {
+    case "queued":
+    case "running":
+    case "cancelling":
+      return "active";
+    case "completed":
+      return "done";
+    case "cancelled":
+      return "muted";
+    default:
+      return "attention";
+  }
+}
+
 export function InvocationDetails({
   invocation,
+  steps,
   label,
   agentOnline,
   connectionState,
@@ -73,6 +91,8 @@ export function InvocationDetails({
   onJump,
 }: {
   invocation: Invocation;
+  /** 执行过程（只有房主的页面有） */
+  steps?: TraceStep[] | undefined;
   /** 委派关系：上游是谁派来的，下游派出了哪些子任务 */
   delegation?: { upstream?: string; downstream: string[]; continuation?: string } | undefined;
   label: string;
@@ -124,6 +144,43 @@ export function InvocationDetails({
     };
   }, []);
 
+  const traceNow = isLiveInvocation(invocation)
+    ? now
+    : Date.parse(invocation.finishedAt ?? invocation.updatedAt);
+  const tone = statusTone(invocation);
+  const capability =
+    runtime?.observability === "full"
+      ? t("完整事件能力")
+      : runtime?.observability === "partial"
+        ? t("部分事件可见")
+        : t("仅心跳 / 未接入事件");
+  const events = runtime?.history.length ? (
+    <ol className="invocation-details-timeline" aria-live="off">
+      {runtime.history.map((event, index) => (
+        <li key={`${event.at}-${index}`} data-kind={event.kind}>
+          <time dateTime={event.at}>
+            {new Date(event.at).toLocaleTimeString(getLocale(), { hour12: false })}
+          </time>
+          <span>{runtimeEventLabel(event)}</span>
+        </li>
+      ))}
+    </ol>
+  ) : (
+    <p className="invocation-details-empty">{t("尚未收到执行事件。这里不会用心跳伪造进度。")}</p>
+  );
+  const phase = runtime?.phase && (
+    <p className="invocation-details-phase">
+      {t("{0}： {1}", {
+        0: inProgress ? t("最近阶段") : t("结束前阶段"),
+        1: runtimeEventLabel({
+          kind: "activity",
+          phase: runtime.phase,
+          ...(runtime.tool ? { tool: runtime.tool } : {}),
+        }),
+      })}
+    </p>
+  );
+
   return createPortal(
     <dialog
       ref={ref}
@@ -146,40 +203,65 @@ export function InvocationDetails({
         }
       }}
     >
+      <header className="invocation-details-header">
+        <div>
+          <p className="invocation-details-eyebrow">
+            {t("@{0} · 第 {1} 次执行", { 0: invocation.agentName, 1: invocation.attempts })}
+          </p>
+          <h2 id={titleId}>{t("调用详情")}</h2>
+        </div>
+        <button
+          type="button"
+          className="invocation-details-close"
+          aria-label={t("关闭调用详情")}
+          onClick={onClose}
+        >
+          ×
+        </button>
+      </header>
       <div className="invocation-details-content">
-        <header className="invocation-details-header">
-          <div>
-            <p className="invocation-details-eyebrow">
-              {t("@{0} · 第 {1} 次执行", { 0: invocation.agentName, 1: invocation.attempts })}
-            </p>
-            <h2 id={titleId}>{t("调用详情")}</h2>
-          </div>
-          <button
-            type="button"
-            className="invocation-details-close"
-            aria-label={t("关闭调用详情")}
-            onClick={onClose}
-          >
-            ×
-          </button>
-        </header>
         <div
           className="invocation-details-state"
+          data-tone={tone}
           role="status"
           aria-live="polite"
           aria-atomic="true"
         >
-          <strong>{label}</strong>
-          <span>{liveLabel}</span>
+          <span className="invocation-details-badge">
+            <span className="invocation-details-dot" aria-hidden="true" />
+            <strong>{label}</strong>
+          </span>
+          <span className="invocation-details-live">{liveLabel}</span>
         </div>
-        <p id={descriptionId} className="invocation-details-description">
-          {t("只展示已上报的执行事实。连接存活不代表模型正在执行，没有新事件也不等于卡死。")}
-        </p>
-        {invocation.detail && (
-          <p className="invocation-details-description">
-            {t("调用说明：{0}", { 0: invocation.detail })}
-          </p>
-        )}
+        <dl className="invocation-details-stats" aria-live="off">
+          <div>
+            <dt>{inProgress ? t("已等待") : t("本次耗时")}</dt>
+            <dd>
+              {Number.isFinite(elapsed)
+                ? t("{0} 分 {1} 秒", { 0: Math.floor(elapsed / 60), 1: elapsed % 60 })
+                : t("未知")}
+            </dd>
+          </div>
+          <div>
+            <dt>{t("最近执行进展")}</dt>
+            <dd>
+              <Clock value={runtime?.lastProgressAt} now={now} />
+            </dd>
+          </div>
+          <div>
+            <dt>{t("Bridge 最近回报")}</dt>
+            <dd>
+              <Clock value={runtime?.lastHeartbeatAt} now={now} />
+            </dd>
+          </div>
+          <div>
+            <dt>{t("最近 Runtime 事件")}</dt>
+            <dd>
+              <Clock value={runtime?.lastRuntimeEventAt} now={now} />
+            </dd>
+          </div>
+        </dl>
+        {invocation.detail && <p className="invocation-details-callout">{invocation.detail}</p>}
         {error && (
           <section
             className={`invocation-details-notice ${error.recoveredAt ? "recovered" : "warning"}`}
@@ -217,6 +299,30 @@ export function InvocationDetails({
               {t("超过 2 分钟未收到新的执行进展，状态待核实；不会因此自动停止或重试。")}
             </p>
           )}
+        {!agentOnline && (
+          <p className="invocation-details-description">
+            {t("Agent 当前离线；保留的是最后收到的信息。")}
+          </p>
+        )}
+        {steps?.length ? (
+          <section aria-label={t("执行过程")}>
+            <h3>
+              {t("执行过程")}{" "}
+              <span className="invocation-details-caption">{traceSummary(steps, traceNow)}</span>
+            </h3>
+            <div className="invocation-details-trace">
+              <TraceTimeline steps={steps} now={traceNow} live={isLiveInvocation(invocation)} />
+            </div>
+          </section>
+        ) : (
+          <section aria-label={t("最近事件")}>
+            <h3>
+              {t("最近事件")} <span className="invocation-details-capability">{capability}</span>
+            </h3>
+            {phase}
+            {events}
+          </section>
+        )}
         {invocation.usage ? (
           <InvocationUsage usage={invocation.usage} />
         ) : (
@@ -259,114 +365,48 @@ export function InvocationDetails({
             </dl>
           </section>
         )}
-        <section aria-label={t("执行观测")}>
-          <h3>
-            {t("执行观测")}{" "}
-            <span className="invocation-details-capability">
-              {runtime?.observability === "full"
-                ? t("完整事件能力")
-                : runtime?.observability === "partial"
-                  ? t("部分事件可见")
-                  : t("仅心跳 / 未接入事件")}
-            </span>
-          </h3>
-          <dl className="invocation-details-metrics" aria-live="off">
-            <div>
-              <dt>{t("Bridge 最近回报")}</dt>
-              <dd>
-                <Clock value={runtime?.lastHeartbeatAt} now={now} />
-              </dd>
-            </div>
-            <div>
-              <dt>{t("最近执行进展")}</dt>
-              <dd>
-                <Clock value={runtime?.lastProgressAt} now={now} />
-              </dd>
-            </div>
-            <div>
-              <dt>{t("最近 Runtime 事件")}</dt>
-              <dd>
-                <Clock value={runtime?.lastRuntimeEventAt} now={now} />
-              </dd>
-            </div>
-            <div>
-              <dt>{inProgress ? t("已等待") : t("本次耗时")}</dt>
-              <dd>
-                {Number.isFinite(elapsed)
-                  ? t("{0} 分 {1} 秒", { 0: Math.floor(elapsed / 60), 1: elapsed % 60 })
-                  : t("未知")}
-              </dd>
-            </div>
-          </dl>
-          {runtime?.phase && (
-            <p className="invocation-details-phase">
-              {t("{0}： {1}", {
-                0: inProgress ? t("最近阶段") : t("结束前阶段"),
-                1: runtimeEventLabel({
-                  kind: "activity",
-                  phase: runtime.phase,
-                  ...(runtime.tool ? { tool: runtime.tool } : {}),
-                }),
-              })}
-            </p>
-          )}
-          {!agentOnline && (
-            <p className="invocation-details-description">
-              {t("Agent 当前离线；保留的是最后收到的信息。")}
-            </p>
-          )}
+        <details className="invocation-details-metadata">
+          <summary>{t("技术细节")}</summary>
+          {steps?.length ? (
+            <>
+              <p>
+                {t("观测能力")} <span className="invocation-details-capability">{capability}</span>
+              </p>
+              {phase}
+              <p className="invocation-details-subhead">
+                {t("最近事件")}{" "}
+                <span className="invocation-details-caption">{t("最多 12 条 · 不含心跳")}</span>
+              </p>
+              {events}
+            </>
+          ) : null}
           {runtime?.observability !== "full" && (
-            <p className="invocation-details-description">
+            <p>
               {runtime?.observability === "partial"
                 ? t("部分工具和响应事件可见；CLI 未暴露的内部重试或等待无法展示。")
                 : t("当前适配器尚未上报结构化执行事件，无法判断它在执行、等待还是重试。")}
             </p>
           )}
-        </section>
-        <section aria-label={t("最近事件")}>
-          <h3>
-            {t("最近事件")}{" "}
-            <span className="invocation-details-caption">{t("最多 12 条 · 不含心跳")}</span>
-          </h3>
-          {runtime?.history.length ? (
-            <ol className="invocation-details-timeline" aria-live="off">
-              {runtime.history.map((event, index) => (
-                <li key={`${event.at}-${index}`} data-kind={event.kind}>
-                  <time dateTime={event.at}>
-                    {new Date(event.at).toLocaleTimeString(getLocale(), { hour12: false })}
-                  </time>
-                  <span>{runtimeEventLabel(event)}</span>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="invocation-details-empty">
-              {t("尚未收到执行事件。这里不会用心跳伪造进度。")}
-            </p>
-          )}
-        </section>
-        <details className="invocation-details-metadata">
-          <summary>{t("调用标识与数据边界")}</summary>
           <dl>
             <dt>{t("调用 ID")}</dt>
             <dd>{invocation.id}</dd>
             <dt>{t("最后更新")}</dt>
             <dd>{new Date(invocation.updatedAt).toLocaleString()}</dd>
           </dl>
-          <p>
+          <p id={descriptionId}>
             {t(
-              "内容对房间成员可见；不展示模型内部思考、原始日志、工具参数、文件正文或凭据。事件为有界摘要，不是完整审计日志。",
+              "只展示已上报的执行事实：连接存活不代表模型正在执行，没有新事件也不等于卡死。执行过程只有房主看得到，只在执行期间保存在内存里，已脱敏截断，不含模型内部思考、命令输出和文件正文。",
             )}
           </p>
         </details>
-        {onJump && (
-          <footer>
-            <button type="button" className="invocation-details-reply" onClick={onJump}>
-              {t("查看回复")}
-            </button>
-          </footer>
-        )}
       </div>
+      {onJump && (
+        <footer className="invocation-details-footer">
+          <button type="button" className="invocation-details-reply" onClick={onJump}>
+            {t("查看回复")}
+          </button>
+        </footer>
+      )}
     </dialog>,
     document.body,
   );

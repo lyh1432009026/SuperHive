@@ -1637,6 +1637,10 @@ describe("App mention autocomplete", () => {
     expect(within(trace).getByText("先看一下改动")).toBeTruthy();
     expect(within(trace).getByText("git status")).toBeTruthy();
     expect(within(trace).getByText(/运行 1 条命令/)).toBeTruthy();
+    // 输入框上方的浮条一直显示谁在干什么、当前这一步
+    const bar = screen.getByRole("status", { name: "正在执行" });
+    expect(within(bar).getByText("@helper")).toBeTruthy();
+    expect(within(bar).getByText("运行 git status")).toBeTruthy();
 
     act(() =>
       socket.serverEvent({
@@ -1658,7 +1662,17 @@ describe("App mention autocomplete", () => {
         ended: true,
       }),
     );
+    act(() =>
+      socket.serverEvent({
+        type: "invocation.updated",
+        invocation: { ...invocation, status: "completed", finishedAt: now, updatedAt: now },
+      }),
+    );
+    // 结束后不再是实时框，收成一行汇总，点开还能看；浮条消失
     expect(list().queryByRole("region", { name: "@helper 的执行过程" })).toBeNull();
+    const done = list().getByRole("group", { name: "@helper 的执行过程" });
+    expect(within(done).getByText(/运行 1 条命令/)).toBeTruthy();
+    expect(screen.queryByRole("status", { name: "正在执行" })).toBeNull();
   });
 
   it("collapses the room list and remembers the choice after a reload", async () => {

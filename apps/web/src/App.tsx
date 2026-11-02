@@ -49,7 +49,7 @@ import {
 } from "./invocations";
 import { WhiteboardPanel, upsertWhiteboardEntry } from "./whiteboard";
 import { SchedulePanel, isPendingSchedule, upsertSchedule } from "./schedules";
-import { LiveTrace, mergeTraceSteps } from "./live-trace";
+import { LiveTrace, RunningBar, isLiveInvocation, mergeTraceSteps } from "./live-trace";
 import { ActivityPanel, isInFlight, needsAttention, type ActivityView } from "./activity";
 import {
   LocalAgentList,
@@ -1226,8 +1226,13 @@ export function App({
   const [invocations, setInvocations] = useState<ReadonlyMap<string, Invocation>>(new Map());
   const [whiteboard, setWhiteboard] = useState<ReadonlyMap<string, WhiteboardEntry>>(new Map());
   const [schedules, setSchedules] = useState<ReadonlyMap<string, Schedule>>(new Map());
-  /** 执行中调用的实时过程（只有房主的页面会收到），调用结束即清掉 */
+  /**
+   * 调用的实时过程（只有房主的页面会收到）。结束后在这个页面里留着，收成一行汇总，
+   * 刷新或切换房间就没了；服务端不保存。
+   */
   const [traces, setTraces] = useState<ReadonlyMap<string, TraceStep[]>>(new Map());
+  /** 收到过结束标记的调用：同一个调用重试时重新开始记，不和上一次的步骤混在一起 */
+  const endedTracesRef = useRef(new Set<string>());
   const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab>("members");
   const [highlightedMessageId, setHighlightedMessageId] = useState<string>();
   const [pendingJumpId, setPendingJumpId] = useState<string>();
@@ -2075,8 +2080,18 @@ export function App({
           );
           setWhiteboard(new Map((event.whiteboard ?? []).map((entry) => [entry.id, entry])));
           setSchedules(new Map((event.schedules ?? []).map((schedule) => [schedule.id, schedule])));
-          // 重连后服务端会重新补发执行中调用的过程
-          setTraces(new Map());
+          // 重连后服务端会重新补发执行中调用的过程；已经结束的留着汇总
+          {
+            const live = new Set(
+              (event.invocations ?? [])
+                .filter((invocation) => isLiveInvocation(invocation))
+                .map((invocation) => invocation.id),
+            );
+            setTraces(
+              (current) =>
+                new Map([...current].filter(([invocationId]) => !live.has(invocationId))),
+            );
+          }
           latestSeqRef.current = Math.max(latestSeqRef.current, event.latestSeq);
           retryRef.current = 0;
           setConnectionState("online");
@@ -2132,14 +2147,20 @@ export function App({
           setWhiteboard((current) => upsertWhiteboardEntry(current, event.entry));
         } else if (event.type === "invocation.trace") {
           if (event.roomId !== currentRoomId) return;
+          const ended = endedTracesRef.current;
+          const restarted = !event.ended && ended.delete(event.invocationId);
+          if (event.ended) ended.add(event.invocationId);
           setTraces((current) => {
             const next = new Map(current);
-            if (event.ended) next.delete(event.invocationId);
-            else
-              next.set(
-                event.invocationId,
-                mergeTraceSteps(current.get(event.invocationId) ?? [], event.steps),
-              );
+            const previous = restarted ? [] : (current.get(event.invocationId) ?? []);
+            const steps = mergeTraceSteps(previous, event.steps);
+            if (steps.length) next.set(event.invocationId, steps);
+            else next.delete(event.invocationId);
+            // 结束后的汇总只留最近 50 个，页面开久了也不会越攒越多
+            for (const invocationId of next.keys()) {
+              if (next.size <= 50) break;
+              if (ended.has(invocationId)) next.delete(invocationId);
+            }
             return next;
           });
         } else if (event.type === "schedule.updated") {
@@ -3568,13 +3589,12 @@ export function App({
                                 onDismiss={(invocation) => dismissInvocations([invocation])}
                                 onExtend={extendAgentBudget}
                                 isOwner={isOwner}
+                                traces={traces}
                               />
                             )}
                             {(invocationsByMessage.get(message.id) ?? []).map((invocation) => {
                               const steps = traces.get(invocation.id);
-                              return steps &&
-                                (invocation.status === "running" ||
-                                  invocation.status === "cancelling") ? (
+                              return steps ? (
                                 <LiveTrace
                                   key={invocation.id}
                                   invocation={invocation}
@@ -3817,6 +3837,16 @@ export function App({
             </div>
           )}
           <div className="composer">
+            {!shareMode && (
+              <RunningBar
+                invocations={[...invocations.values()].filter(
+                  (invocation) =>
+                    isLiveInvocation(invocation) && loadedMessageIds.has(invocation.messageId),
+                )}
+                traces={traces}
+                onJump={jumpToMessage}
+              />
+            )}
             {showJumpToBottom && !mentionContext && (
               <button
                 type="button"
