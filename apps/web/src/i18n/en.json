@@ -965,9 +965,6 @@
   "思考中": "Thinking",
   "展开全文": "Show all",
   "执行过程": "Activity",
-  "正在执行": "Running now",
-  "跳到 @{0} 正在处理的消息": "Jump to the message @{0} is working on",
-  "还有 {0} 个": "+{0} more",
   "技术细节": "Technical details",
   "观测能力": "Observability",
   "只展示已上报的执行事实：连接存活不代表模型正在执行，没有新事件也不等于卡死。执行过程在消息下面的过程框里看。": "Only reported facts are shown: a live connection does not mean the model is working, and no new events does not mean it is stuck. See the activity box under the message for step-by-step progress."

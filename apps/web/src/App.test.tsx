@@ -1636,10 +1636,6 @@ describe("App mention autocomplete", () => {
     // 消息下面不展开过程框：状态行只显示当前这一步，完整过程在「详情」弹窗里
     await waitFor(() => expect(list().getByText("运行 git status")).toBeTruthy());
     expect(list().queryByRole("region", { name: "执行过程" })).toBeNull();
-    // 输入框上方的浮条一直显示谁在干什么、当前这一步
-    const bar = screen.getByRole("status", { name: "正在执行" });
-    expect(within(bar).getByText("@helper")).toBeTruthy();
-    expect(within(bar).getByText("运行 git status")).toBeTruthy();
 
     await userEvent.setup().click(list().getByRole("button", { name: /@helper.*查看调用详情/ }));
     const dialog = screen.getByRole("dialog", { name: "调用详情" });
@@ -1674,9 +1670,8 @@ describe("App mention autocomplete", () => {
         invocation: { ...invocation, status: "completed", finishedAt: now, updatedAt: now },
       }),
     );
-    // 结束后弹窗里的过程照样能看（只留到刷新为止），浮条消失
+    // 结束后弹窗里的过程照样能看（只留到刷新为止）
     expect(within(dialog).getByRole("region", { name: "执行过程" })).toBeTruthy();
-    expect(screen.queryByRole("status", { name: "正在执行" })).toBeNull();
   });
 
   it("collapses the room list and remembers the choice after a reload", async () => {

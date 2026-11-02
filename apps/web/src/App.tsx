@@ -49,7 +49,7 @@ import {
 } from "./invocations";
 import { WhiteboardPanel, upsertWhiteboardEntry } from "./whiteboard";
 import { SchedulePanel, isPendingSchedule, upsertSchedule } from "./schedules";
-import { RunningBar, isLiveInvocation, mergeTraceSteps } from "./live-trace";
+import { isLiveInvocation, mergeTraceSteps } from "./live-trace";
 import { ActivityPanel, isInFlight, needsAttention, type ActivityView } from "./activity";
 import {
   LocalAgentList,
@@ -3827,16 +3827,6 @@ export function App({
             </div>
           )}
           <div className="composer">
-            {!shareMode && (
-              <RunningBar
-                invocations={[...invocations.values()].filter(
-                  (invocation) =>
-                    isLiveInvocation(invocation) && loadedMessageIds.has(invocation.messageId),
-                )}
-                traces={traces}
-                onJump={jumpToMessage}
-              />
-            )}
             {showJumpToBottom && !mentionContext && (
               <button
                 type="button"
