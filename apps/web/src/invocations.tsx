@@ -313,7 +313,7 @@ export function InvocationChips({
   onDismiss,
   traces,
 }: {
-  /** 执行过程（只有房主的页面有）：状态行显示当前这一步，详情弹窗里看完整过程 */
+  /** 执行过程（房主和获准看过程的访客的页面有）：状态行显示当前这一步，详情弹窗里看完整过程 */
   traces?: ReadonlyMap<string, TraceStep[]>;
   /** 「忽略」：标为已处理，不再算作需要处理 */
   onDismiss?: (invocation: Invocation) => void;

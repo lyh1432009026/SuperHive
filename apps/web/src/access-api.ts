@@ -97,11 +97,12 @@ export function createInvite(
   roomId: string,
   expiresInMinutes: number | null,
   allowAgents: boolean,
+  showTrace = true,
 ): Promise<{ invite: Invite; token: string }> {
   return call(`${base}/api/rooms/${encodeURIComponent(roomId)}/invites`, {
     method: "POST",
     token: adminToken,
-    body: JSON.stringify({ expiresInMinutes, allowAgents }),
+    body: JSON.stringify({ expiresInMinutes, allowAgents, showTrace }),
   });
 }
 

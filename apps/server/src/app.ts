@@ -670,6 +670,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       username: resolved.session.username,
       expiresAt: resolved.expiresAt,
       allowAgents: resolved.allowAgents,
+      showTrace: resolved.showTrace,
     };
   }
 
@@ -698,21 +699,26 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   /**
    * 执行过程只放内存：调用还在执行时按步合并，结束（或被停止、转为等人回答）就丢掉。
-   * 只发给房间里房主的页面（本机或已登录的房主设备），访客、Agent、IM 都收不到。
+   * 发给房间里房主的页面（本机或已登录的房主设备），以及邀请时允许看执行过程、仍在有效期内的访客；
+   * Agent、IM 都收不到。
    */
   const traces = new Map<string, { roomId: string; steps: Map<string, TraceStep> }>();
   const TRACE_LIVE_STATUSES: readonly Invocation["status"][] = ["running", "cancelling"];
 
-  function sendToOwners(roomId: string, event: ServerEvent): void {
+  /** 这个连接能不能看执行过程：房主可以；访客看邀请时的开关，期限、撤销按当前状态重新核对 */
+  function canSeeTrace(connection: Connection, roomId: string): boolean {
+    const participant = connection.participant;
+    if (participant?.roomId !== roomId || participant.type !== "human") return false;
+    const principal = connection.principal;
+    if (principal?.kind === "admin") return true;
+    if (principal?.kind !== "guest") return false;
+    const resolved = access.resolve(principal.resolved.session, clock());
+    return resolved.state === "active" && resolved.showTrace;
+  }
+
+  function sendToTraceViewers(roomId: string, event: ServerEvent): void {
     for (const connection of connections) {
-      const participant = connection.participant;
-      if (
-        participant?.roomId === roomId &&
-        participant.type === "human" &&
-        connection.principal?.kind === "admin"
-      ) {
-        send(connection.socket, event);
-      }
+      if (canSeeTrace(connection, roomId)) send(connection.socket, event);
     }
   }
 
@@ -732,7 +738,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         trace.steps.delete(trace.steps.keys().next().value!);
       }
     }
-    sendToOwners(invocation.roomId, {
+    sendToTraceViewers(invocation.roomId, {
       type: "invocation.trace",
       roomId: invocation.roomId,
       invocationId: invocation.id,
@@ -742,7 +748,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   function endTrace(invocation: Invocation): void {
     if (TRACE_LIVE_STATUSES.includes(invocation.status) || !traces.delete(invocation.id)) return;
-    sendToOwners(invocation.roomId, {
+    sendToTraceViewers(invocation.roomId, {
       type: "invocation.trace",
       roomId: invocation.roomId,
       invocationId: invocation.id,
@@ -2479,6 +2485,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       roomId: room.id,
       expiresAt: expiresAtFrom(body.data.expiresInMinutes, clock()),
       allowAgents: body.data.allowAgents,
+      showTrace: body.data.showTrace,
     });
     return reply.code(201).send(created);
   });
@@ -3340,8 +3347,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             schedules: database.listSchedules(event.roomId),
             features: ["trace"],
           });
-          // 房主刚打开或重连：把正在执行的调用的过程补上
-          if (participant.type === "human" && connection.principal?.kind === "admin") {
+          // 房主（或允许看过程的访客）刚打开或重连：把正在执行的调用的过程补上
+          if (canSeeTrace(connection, event.roomId)) {
             for (const [invocationId, trace] of traces) {
               if (trace.roomId !== event.roomId) continue;
               send(socket, {

@@ -26,6 +26,8 @@ export type AccessSession = {
   /** 会话自身的截止时间；Agent 会话以带它进来的访客为准，见 ResolvedSession */
   expiresAt: string | null;
   allowAgents: boolean;
+  /** 能看到 Agent 执行过程（命令、文件路径、中途说的话）；关掉时只看精简状态 */
+  showTrace: boolean;
 };
 
 export type ResolvedSession = {
@@ -35,6 +37,7 @@ export type ResolvedSession = {
   /** 实际生效的截止时间 */
   expiresAt: string | null;
   allowAgents: boolean;
+  showTrace: boolean;
   state: "active" | "expired" | "revoked";
 };
 
@@ -45,6 +48,7 @@ type InviteRow = {
   created_at: string;
   expires_at: string | null;
   allow_agents: number;
+  show_trace: number;
   revoked_at: string | null;
   uses?: number;
 };
@@ -60,6 +64,7 @@ type SessionRow = {
   invite_id: string | null;
   expires_at: string | null;
   allow_agents: number;
+  show_trace: number;
   created_at: string;
   revoked_at: string | null;
 };
@@ -86,6 +91,7 @@ function mapInvite(row: InviteRow): Invite {
     createdAt: row.created_at,
     expiresAt: row.expires_at,
     allowAgents: row.allow_agents === 1,
+    showTrace: row.show_trace === 1,
     uses: row.uses ?? 0,
     ...(row.revoked_at ? { revokedAt: row.revoked_at } : {}),
   };
@@ -103,6 +109,7 @@ function mapSession(row: SessionRow): AccessSession {
     ...(row.revoked_at ? { revokedAt: row.revoked_at } : {}),
     expiresAt: row.expires_at,
     allowAgents: row.allow_agents === 1,
+    showTrace: row.show_trace === 1,
   };
 }
 
@@ -117,6 +124,14 @@ export class AccessStore {
       // 房主要能随时再复制已发出的链接，邀请令牌的明文也保存一份（只返回给房主）
       if (!columns.some((column) => column.name === "token")) {
         db.exec("ALTER TABLE invites ADD COLUMN token TEXT");
+      }
+      // 访客能否看到 Agent 的执行过程：房主要求默认可以看，已有的邀请和访客也按可以看
+      if (!columns.some((column) => column.name === "show_trace")) {
+        db.exec("ALTER TABLE invites ADD COLUMN show_trace INTEGER NOT NULL DEFAULT 1");
+      }
+      const sessionColumns = db.pragma("table_info(access_sessions)") as Array<{ name: string }>;
+      if (!sessionColumns.some((column) => column.name === "show_trace")) {
+        db.exec("ALTER TABLE access_sessions ADD COLUMN show_trace INTEGER NOT NULL DEFAULT 1");
       }
     };
     db.exec(`
@@ -156,7 +171,12 @@ export class AccessStore {
 
   private readonly migrate: () => void;
 
-  createInvite(input: { roomId: string; expiresAt: string | null; allowAgents: boolean }): {
+  createInvite(input: {
+    roomId: string;
+    expiresAt: string | null;
+    allowAgents: boolean;
+    showTrace: boolean;
+  }): {
     invite: Invite;
     token: string;
   } {
@@ -164,8 +184,9 @@ export class AccessStore {
     const id = randomUUID();
     this.db
       .prepare(
-        `INSERT INTO invites(id, room_id, token_hash, token, created_at, expires_at, allow_agents)
-         VALUES(?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO invites(
+          id, room_id, token_hash, token, created_at, expires_at, allow_agents, show_trace
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -175,6 +196,7 @@ export class AccessStore {
         new Date().toISOString(),
         input.expiresAt,
         input.allowAgents ? 1 : 0,
+        input.showTrace ? 1 : 0,
       );
     return { invite: this.getInvite(id)!, token };
   }
@@ -284,6 +306,7 @@ export class AccessStore {
         inviteId: row.id,
         expiresAt: row.expires_at,
         allowAgents: row.allow_agents === 1,
+        showTrace: row.show_trace === 1,
       });
       return { ...created, invite: this.getInvite(row.id)! };
     })();
@@ -301,6 +324,7 @@ export class AccessStore {
       sponsorId: sponsor.id,
       expiresAt: null,
       allowAgents: sponsor.allowAgents,
+      showTrace: sponsor.showTrace,
     });
   }
 
@@ -312,6 +336,7 @@ export class AccessStore {
     inviteId?: string;
     expiresAt: string | null;
     allowAgents: boolean;
+    showTrace: boolean;
   }): { session: AccessSession; token: string } {
     const token = newToken(SESSION_PREFIX);
     const id = randomUUID();
@@ -319,8 +344,8 @@ export class AccessStore {
       .prepare(
         `INSERT INTO access_sessions(
           id, room_id, token_hash, kind, username, username_key, sponsor_id, invite_id,
-          expires_at, allow_agents, created_at
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          expires_at, allow_agents, show_trace, created_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -333,6 +358,7 @@ export class AccessStore {
         input.inviteId ?? null,
         input.expiresAt,
         input.allowAgents ? 1 : 0,
+        input.showTrace ? 1 : 0,
         new Date().toISOString(),
       );
     return { session: this.getSession(id)!, token };
@@ -362,6 +388,7 @@ export class AccessStore {
       ...(sponsor ? { sponsor } : {}),
       expiresAt,
       allowAgents: owner.allowAgents,
+      showTrace: owner.showTrace,
       state,
     };
   }

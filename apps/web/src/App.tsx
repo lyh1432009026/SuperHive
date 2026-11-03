@@ -1227,7 +1227,7 @@ export function App({
   const [whiteboard, setWhiteboard] = useState<ReadonlyMap<string, WhiteboardEntry>>(new Map());
   const [schedules, setSchedules] = useState<ReadonlyMap<string, Schedule>>(new Map());
   /**
-   * 调用的实时过程（只有房主的页面会收到）。结束后在这个页面里留着，收成一行汇总，
+   * 调用的实时过程（房主和获准看过程的访客的页面会收到）。结束后在这个页面里留着，
    * 刷新或切换房间就没了；服务端不保存。
    */
   const [traces, setTraces] = useState<ReadonlyMap<string, TraceStep[]>>(new Map());

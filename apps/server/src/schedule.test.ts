@@ -596,4 +596,73 @@ describe("live execution trace", () => {
     expect(other.events.some((event) => event.type === "invocation.trace")).toBe(false);
     expect(alice.events.some((event) => event.type === "invocation.trace")).toBe(false);
   });
+
+  it("relays steps to guests invited with the trace switch on, not to those invited with it off", async () => {
+    const room = await startRoom();
+    const owner = { Authorization: "Bearer test-token", "Content-Type": "application/json" };
+    const base = `http://127.0.0.1:${room.port}`;
+    const guestToken = async (showTrace: boolean | undefined, username: string) => {
+      const invite = (await (
+        await fetch(`${base}/api/rooms/general/invites`, {
+          method: "POST",
+          headers: owner,
+          body: JSON.stringify({
+            expiresInMinutes: 60,
+            allowAgents: true,
+            ...(showTrace === undefined ? {} : { showTrace }),
+          }),
+        })
+      ).json()) as { token: string; invite: { showTrace: boolean } };
+      expect(invite.invite.showTrace).toBe(showTrace ?? true);
+      const redeemed = (await (
+        await fetch(`${base}/api/invites/redeem`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: invite.token, username }),
+        })
+      ).json()) as { token: string; showTrace: boolean };
+      expect(redeemed.showTrace).toBe(showTrace ?? true);
+      return redeemed.token;
+    };
+    const joinGuest = async (username: string, token: string) => {
+      const peer = await Peer.connect(`ws://127.0.0.1:${room.port}/ws`);
+      cleanup.push(() => peer.socket.close());
+      peer.send({
+        type: "participant.join",
+        username,
+        participantType: "human",
+        roomId: "general",
+        token,
+      });
+      await peer.next((event) => event.type === "room.snapshot");
+      return peer;
+    };
+    // 不带开关默认可以看
+    const viewer = await joinGuest("viewer", await guestToken(undefined, "viewer"));
+    const hidden = await joinGuest("hidden", await guestToken(false, "hidden"));
+    const { peer: alice } = await room.join("Alice", "human");
+    const { peer: helper } = await room.join("helper", "agent");
+    alice.send({ type: "message.send", clientMessageId: "go", content: "@helper 提交一下" });
+    const mentioned = await helper.next((event) => event.type === "agent.mentioned");
+    const trigger = (mentioned as Extract<ServerEvent, { type: "agent.mentioned" }>).message;
+    helper.send({ type: "invocation.report", messageId: trigger.id, status: "running" });
+    await alice.next(
+      (event) => event.type === "invocation.updated" && event.invocation.status === "running",
+    );
+    const step = {
+      id: "t1",
+      kind: "tool",
+      tool: "command",
+      summary: "git status",
+      status: "running",
+      startedAt: new Date().toISOString(),
+    };
+    helper.send({ type: "invocation.trace", messageId: trigger.id, steps: [step] });
+    await alice.next((event) => event.type === "invocation.trace");
+    expect(await viewer.next((event) => event.type === "invocation.trace")).toMatchObject({
+      steps: [{ summary: "git status" }],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(hidden.events.some((event) => event.type === "invocation.trace")).toBe(false);
+  });
 });

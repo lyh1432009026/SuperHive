@@ -239,7 +239,7 @@ export function useTraceClock(invocation: Invocation): number {
 }
 
 /**
- * 调用详情里的执行过程（像终端一样滚动刷新）：只有房主的页面会收到数据。
+ * 调用详情里的执行过程（像终端一样滚动刷新）：房主和获准看过程的访客的页面会收到数据。
  * 新步骤自动滚到底；往上翻时停止跟随，回到底部再继续。结束后保留到刷新页面为止。
  */
 export function TraceLog({ invocation, steps }: { invocation: Invocation; steps: TraceStep[] }) {

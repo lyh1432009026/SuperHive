@@ -819,6 +819,8 @@ export const inviteSchema = z.object({
   expiresAt: z.string().datetime().nullable(),
   /** 允许访客直接 @ 房主的 Agent 干活（否则需房主逐次批准） */
   allowAgents: z.boolean(),
+  /** 访客能看到 Agent 的执行过程（命令、文件路径、中途说的话）；关掉时只看精简状态 */
+  showTrace: z.boolean().default(true),
   /** 有效期内不限次数：已凭它加入的人数 */
   uses: z.number().int().nonnegative(),
   revokedAt: z.string().datetime().optional(),
@@ -910,6 +912,7 @@ export const submitImLoginCodeRequestSchema = z.object({
 export const createInviteRequestSchema = z.object({
   expiresInMinutes: inviteDurationSchema,
   allowAgents: z.boolean().default(false),
+  showTrace: z.boolean().default(true),
 });
 export const renewAccessRequestSchema = z.object({ expiresInMinutes: inviteDurationSchema });
 export const redeemInviteRequestSchema = z.object({
@@ -931,6 +934,7 @@ export const accessResponseSchema = z.discriminatedUnion("role", [
     username: z.string(),
     expiresAt: z.string().datetime().nullable(),
     allowAgents: z.boolean(),
+    showTrace: z.boolean().default(true),
   }),
   z.object({
     role: z.literal("none"),

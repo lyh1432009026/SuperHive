@@ -171,6 +171,7 @@ export function InviteDialog({
 }) {
   const [minutes, setMinutes] = useState<number | null | undefined>(24 * 60);
   const [allowAgents, setAllowAgents] = useState(false);
+  const [showTrace, setShowTrace] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [created, setCreated] = useState<{ link: string; invite: Invite; copied: boolean }>();
@@ -221,7 +222,7 @@ export function InviteDialog({
     setBusy(true);
     setError(undefined);
     try {
-      const result = await createInvite(base, adminToken, roomId, minutes, allowAgents);
+      const result = await createInvite(base, adminToken, roomId, minutes, allowAgents, showTrace);
       const link = linkFor(result.token);
       const copied = await copyTextToClipboard(link).then(
         () => true,
@@ -255,6 +256,7 @@ export function InviteDialog({
                 : ""}
               {t(" · 已有 {0} 人加入", { 0: invite.uses })}
               {invite.allowAgents ? t(" · 可直接调度 Agent") : ""}
+              {invite.showTrace === false ? t(" · 只看精简状态") : ""}
             </small>
           </div>
           {state !== "revoked" && renewing !== invite.id && (
@@ -373,6 +375,26 @@ export function InviteDialog({
                 <small>
                   {t(
                     "关闭时，对方 @ 你的 Agent 需要你点「批准」才会执行。你的 Agent 可能有本机完全权限。",
+                  )}
+                </small>
+              </span>
+              <i className="switch-control" aria-hidden="true">
+                <b />
+              </i>
+            </button>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={showTrace}
+              className="invite-switch"
+              onClick={() => setShowTrace((value) => !value)}
+            >
+              <span>
+                <strong>{t("让对方看到 Agent 的执行过程")}</strong>
+                <small>
+                  {t(
+                    "打开时，对方在「详情」里能实时看到 Agent 跑的命令、读写的文件和中途说的话（已遮掉密钥）。关闭时只看到「执行中」这类精简状态。",
                   )}
                 </small>
               </span>
