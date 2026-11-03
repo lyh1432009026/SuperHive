@@ -64,6 +64,14 @@ select {
   outline-offset: 2px;
 }
 
+/*
+ * tabindex="-1" 的区域（对话区、弹窗、侧栏面板）只是「跳到消息区」这类程序聚焦的落点，不是可操作的控件：
+ * 按住 Shift 点击时浏览器会把它算作键盘聚焦，整块区域外面套一圈蓝框，这里不画
+ */
+[tabindex="-1"]:focus-visible {
+  outline: none;
+}
+
 a {
   color: var(--accent);
 }
