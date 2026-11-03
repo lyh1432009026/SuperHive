@@ -8,6 +8,7 @@ import {
   sanitizeTraceStep,
   traceSummary,
 } from "./trace.js";
+import { isUpstreamFailure } from "./responder.js";
 
 describe("execution trace", () => {
   it("masks common secrets and the home directory before anything leaves the bridge", () => {
@@ -119,5 +120,75 @@ describe("isMutatingStep", () => {
       isMutatingStep(step("collaboration", "hive_message_send", "mcp__hive__hive_message_send")),
     ).toBe(true);
     expect(isMutatingStep(step("other", "canva.create"))).toBe(true);
+  });
+  it("catches multi-line scripts, substitutions, dangerous flags and writing redirects", () => {
+    for (const command of [
+      "ls\nrm -rf build",
+      "echo $(rm a)",
+      "echo `rm a`",
+      "diff <(cat a) b",
+      "find . -delete",
+      "find . -exec rm {} +",
+      "env rm a",
+      "sed 'w out' a",
+      "awk 'BEGIN{system(\"rm a\")}'",
+      "sort -o f f",
+      "date -s 2020",
+      "git branch -D x",
+      "git remote add o url",
+      "git diff --output=x",
+      "ls 2>err.txt",
+      "sleep 100 &",
+      "/bin/zsh -lc 'git commit -m x'",
+    ]) {
+      expect(isMutatingStep(step("command", command)), command).toBe(true);
+    }
+    for (const command of [
+      "git branch -a",
+      "git remote -v",
+      "ls 2>/dev/null",
+      "rg TODO src 2>&1 | head",
+      "/bin/zsh -lc 'git status && git log --oneline -3'",
+      "FOO=1 git status",
+    ]) {
+      expect(isMutatingStep(step("command", command)), command).toBe(false);
+    }
+  });
+  it("judges hive tools by name only, not by text in their arguments", () => {
+    expect(
+      isMutatingStep(
+        step(
+          "collaboration",
+          "hive_message_send  提到 hive_board_read",
+          "mcp__hive__hive_message_send",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isMutatingStep(step("collaboration", "hive.hive_board_read", "hive.hive_board_read")),
+    ).toBe(false);
+  });
+});
+
+describe("isUpstreamFailure", () => {
+  it("recognises transient upstream errors but not quota, auth or arbitrary numbers", () => {
+    for (const text of [
+      "API Error: 429 rate limited",
+      "API Error: 529 overloaded",
+      "https response error StatusCode: 503",
+      "rate limit exceeded: token rate limit",
+      "API Error: 400 重试渠道均失败（共 4 次尝试）",
+      "stream disconnected before completion",
+    ]) {
+      expect(isUpstreamFailure(text), text).toBe(true);
+    }
+    for (const text of [
+      "insufficient_quota: 429 You exceeded your current quota",
+      "API Error: 401 invalid api key",
+      "line 512 failed",
+      "command timed out after 30s",
+    ]) {
+      expect(isUpstreamFailure(text), text).toBe(false);
+    }
   });
 });

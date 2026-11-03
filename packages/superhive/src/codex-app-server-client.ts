@@ -248,8 +248,21 @@ function traceForItem(item: any, startedAt: string): TraceStep | undefined {
       };
     case "reasoning":
       return { ...base, kind: "thinking", status: "running" };
-    default:
+    // 用户消息、回复正文另有处理；压缩上下文没有副作用
+    case "userMessage":
+    case "agentMessage":
+    case "contextCompaction":
       return undefined;
+    default:
+      // 认不出的条目（动态工具、协作、图片……）照样列出来，并按「可能有副作用」处理
+      return {
+        ...base,
+        kind: "tool",
+        tool: "other",
+        name: typeof item.type === "string" ? item.type : "item",
+        summary: typeof item.type === "string" ? item.type : "",
+        status: "running",
+      };
   }
 }
 

@@ -66,11 +66,7 @@ export function sanitizeTraceStep(step: TraceStep): TraceStep {
   };
 }
 
-/** 不改东西的 Hive 工具（读消息、成员、白板、附件、定时列表） */
-const readOnlyHiveTools =
-  /hive_(?:room_read|members_list|board_read|attachment_read|schedule_list|wait)\b/;
-
-/** 常见的只读命令（第一个词）；带重定向或不在名单里的都按「可能有副作用」算 */
+/** 常见的只读命令（第一个词）；能执行别的命令或写文件的（find、sed、awk、env、sort、date……）不放进来 */
 const readOnlyCommands = new Set([
   "cat",
   "head",
@@ -80,67 +76,100 @@ const readOnlyCommands = new Set([
   "pwd",
   "echo",
   "wc",
-  "find",
   "grep",
   "rg",
   "ag",
-  "fd",
   "tree",
   "stat",
   "file",
   "which",
   "whoami",
-  "date",
-  "env",
   "printenv",
   "du",
   "df",
   "ps",
-  "sort",
   "uniq",
   "cut",
   "diff",
   "jq",
-  "sed",
-  "awk",
   "nl",
   "true",
 ]);
+/** 带什么参数都只读的 git 子命令；branch、remote 只认列出用法（见 readOnlyGitCommand） */
 const readOnlyGit = new Set([
   "status",
   "log",
-  "diff",
   "show",
-  "branch",
   "rev-parse",
   "ls-files",
   "blame",
-  "remote",
   "describe",
   "shortlog",
   "grep",
 ]);
 
-function readOnlyCommand(command: string): boolean {
-  // 写文件的重定向、后台执行、sed -i 这类原地修改一律不算只读
-  if (/(^|[^<>&|0-9])>{1,2}(?!&)|\bsed\s+-i|\btee\b|&\s*$/.test(command)) return false;
-  return command
-    .split(/&&|\|\||;|\|/)
+function readOnlyGitCommand(args: string[]): boolean {
+  const [sub, ...rest] = args;
+  if (!sub) return true;
+  // diff 只有 --output 会写文件
+  if (sub === "diff") return !rest.some((arg) => arg.startsWith("--output"));
+  if (sub === "branch") {
+    return rest.every((arg) =>
+      /^(?:-a|-r|-v|-vv|--all|--remotes|--list|--show-current|--verbose|--no-color|--contains|--merged|--no-merged)$/.test(
+        arg,
+      ),
+    );
+  }
+  if (sub === "remote") return rest.every((arg) => arg === "-v" || arg === "--verbose");
+  return readOnlyGit.has(sub);
+}
+
+/** Codex 常把命令包一层 `/bin/zsh -lc '…'`：剥掉这层再判断 */
+function unwrapShell(command: string): string {
+  const match = command
+    .trim()
+    .match(/^(?:\/\S*\/)?(?:ba|z)?sh\s+-l?c\s+(?:'([\s\S]*)'|"([\s\S]*)")\s*$/);
+  return match ? (match[1] ?? match[2] ?? command) : command;
+}
+
+/** 只读命令：每一段都在白名单里，且没有命令替换、写文件的重定向、后台执行 */
+export function readOnlyCommand(raw: string): boolean {
+  const command = unwrapShell(raw);
+  // 命令替换、进程替换可以执行任意命令
+  if (/\$\(|`|<\(|>\(/.test(command)) return false;
+  // 重定向只放过丢弃错误输出和合并输出
+  const withoutSafe = command.replace(/\b2>\s*\/dev\/null|\b2>&1|&>\s*\/dev\/null/g, "");
+  if (/>|\btee\b/.test(withoutSafe)) return false;
+  // 末尾 & 是后台执行
+  if (/(^|[^&])&\s*($|\n)/.test(withoutSafe)) return false;
+  return withoutSafe
+    .split(/\n|&&|\|\||;|\|/)
     .map((part) => part.trim())
     .filter(Boolean)
     .every((part) => {
-      const words = part.replace(/^(?:cd\s+\S+|[A-Z_]+=\S+)\s*/, "").split(/\s+/);
-      const [head, sub] = words;
-      if (!head) return true;
-      if (head === "cd") return true;
-      if (head === "git") return readOnlyGit.has(sub ?? "");
+      const words = part.split(/\s+/);
+      // 前缀的环境变量赋值（FOO=1 cmd）不影响判断
+      while (words[0] && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) words.shift();
+      const [head, ...args] = words;
+      if (!head || head === "cd") return true;
+      if (head === "git") return readOnlyGitCommand(args);
       return readOnlyCommands.has(head);
     });
 }
 
+/** 不改东西的 Hive 工具（按工具名判断，不看参数正文） */
+const readOnlyHiveTools = new Set([
+  "hive_room_read",
+  "hive_members_list",
+  "hive_board_read",
+  "hive_attachment_read",
+  "hive_schedule_list",
+  "hive_wait",
+]);
+
 /**
  * 这一步可能有副作用吗（改文件、跑不明命令、发消息、调用外部工具……）？
- * 上游出错中断后，只有一步都没有副作用的回合才自动接着继续；判断宁严勿松。
+ * 上游出错中断后，只有一步都没有副作用的回合才自动接着继续；判断宁严勿松，认不出的一律算有副作用。
  */
 export function isMutatingStep(step: TraceStep): boolean {
   if (step.kind !== "tool") return false;
@@ -150,8 +179,10 @@ export function isMutatingStep(step: TraceStep): boolean {
       return false;
     case "command":
       return !readOnlyCommand(step.summary ?? "");
-    case "collaboration":
-      return !readOnlyHiveTools.test(`${step.name ?? ""} ${step.summary ?? ""}`);
+    case "collaboration": {
+      const tool = (step.name ?? "").replace(/^mcp__hive__/, "").replace(/^hive\./, "");
+      return !readOnlyHiveTools.has(tool);
+    }
     default:
       return true;
   }

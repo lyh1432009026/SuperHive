@@ -164,6 +164,8 @@ export class AgentBridge {
   private readonly attempts = new Map<string, number>();
   /** 上游出错后已自动继续的次数 */
   private readonly upstreamRetries = new Map<string, number>();
+  /** 上游出错后正在等待自动继续的消息（及其计时器） */
+  private readonly waitingResume = new Map<string, NodeJS.Timeout>();
   /** 上游出错中断的原因：下一轮（自动继续或人点「继续」）开头提示 Agent 从断点接着做 */
   private readonly resumeNotes = new Map<string, string>();
   // 同一组触发消息在本地重试时复用 executionId，保证回复的幂等键不变
@@ -318,6 +320,8 @@ export class AgentBridge {
   async stop(): Promise<void> {
     this.stopped = true;
     if (this.batchTimer) clearTimeout(this.batchTimer);
+    for (const timer of new Set(this.waitingResume.values())) clearTimeout(timer);
+    this.waitingResume.clear();
     // 停止进程时中断正在进行的回合；执行意图会在中断回报后清除
     this.active?.controller.abort();
     await this.draining?.catch(() => undefined);
@@ -417,6 +421,7 @@ export class AgentBridge {
 
   private isLocal(messageId: string): boolean {
     return (
+      this.waitingResume.has(messageId) ||
       this.steering.has(messageId) ||
       this.pending.some((message) => message.id === messageId) ||
       Boolean(this.active?.messages.some((message) => message.id === messageId))
@@ -553,6 +558,28 @@ export class AgentBridge {
   }
 
   private cancel(messageId: string): void {
+    // 正在等待自动继续：直接取消，不用等计时器
+    const waiting = this.waitingResume.get(messageId);
+    if (waiting) {
+      this.waitingResume.delete(messageId);
+      if (![...this.waitingResume.values()].includes(waiting)) clearTimeout(waiting);
+      this.resumeNotes.delete(messageId);
+      this.rememberProcessed(messageId);
+      this.log(`[hive] 等待自动继续的 ${messageId} 已被停止`);
+      void this.store
+        .save(this.state)
+        .then(() => {
+          this.room.report({ messageId, status: "cancelled", detail: "等待自动继续时被停止" });
+        })
+        .catch(() =>
+          this.room.report({
+            messageId,
+            status: "uncertain",
+            detail: "无法持久化取消结果，需核对",
+          }),
+        );
+      return;
+    }
     const pendingIndex = this.pending.findIndex((message) => message.id === messageId);
     if (pendingIndex >= 0) {
       this.pending.splice(pendingIndex, 1);
@@ -689,10 +716,15 @@ export class AgentBridge {
         .map((message) => this.resumeNotes.get(message.id))
         .find((note) => note !== undefined);
       for (const message of messages) this.resumeNotes.delete(message.id);
+      // 中途开了新话题、旧会话已丢弃时，就不能说「会话已接上」
       const prompt = interrupted
         ? {
             ...built,
-            text: `（系统提示）你上一轮处理下面这条消息时，因上游模型服务出错在中途中断：${interrupted}\n会话已接上。请先根据你已经做过的操作确认进度，从中断处继续把原任务做完；不要重复已经完成的、有副作用的操作（改文件、提交、发消息等）。\n\n${built.text}`,
+            text: `（系统提示）你上一轮处理下面这条消息时，因上游模型服务出错在中途中断：${interrupted}\n${
+              this.state.threadId
+                ? "会话已接上。请先根据你已经做过的操作确认进度，从中断处继续把原任务做完；"
+                : "原会话已随新话题丢弃，看不到上一轮的步骤。请先检查工作区和房间里的现状，确认哪些已经做过，再把原任务做完；"
+            }不要重复已经完成的、有副作用的操作（改文件、提交、发消息等）。\n\n${built.text}`,
           }
         : built;
       this.log(
@@ -1130,22 +1162,13 @@ export class AgentBridge {
           ...this.usageReport(active),
         });
       }
+      // 等待中的消息算作本地在办：重连补拉、重复的 @ 都不会再另起一份
       const timer = setTimeout(() => {
-        if (this.stopped) return;
         const resume: ChatMessage[] = [];
         for (const message of live) {
-          if (this.isLocal(message.id)) continue;
-          // 等待期间被人停止
-          if (this.cancelledEarly.delete(message.id)) {
-            this.rememberProcessed(message.id);
-            this.resumeNotes.delete(message.id);
-            this.room.report({
-              messageId: message.id,
-              status: "cancelled",
-              detail: "等待自动继续时被停止",
-            });
-            continue;
-          }
+          if (this.waitingResume.get(message.id) !== timer) continue;
+          this.waitingResume.delete(message.id);
+          if (this.stopped || this.state.processedMessageIds.includes(message.id)) continue;
           resume.push(message);
         }
         if (resume.length === 0) return;
@@ -1153,6 +1176,7 @@ export class AgentBridge {
         void this.drain();
       }, delay);
       timer.unref?.();
+      for (const message of live) this.waitingResume.set(message.id, timer);
       return;
     }
     for (const message of active.messages) {

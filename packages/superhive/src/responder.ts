@@ -82,9 +82,19 @@ export class AgentUpstreamError extends Error {
   }
 }
 
-/** 看起来是上游模型服务的问题（而不是工具或任务本身失败） */
+/**
+ * 看起来是上游模型服务暂时不可用（限流、过载、5xx、连接中断），等一会儿再试可能就好；
+ * 额度用完、鉴权失败这类等多久都不会好的不算。只认明确的写法，不按任意数字或「超时」字样匹配。
+ */
 export function isUpstreamFailure(text: string): boolean {
-  return /API Error|\b(?:429|5\d\d)\b|rate.?limit|overload|too many requests|timed? ?out|ECONNRESET|ETIMEDOUT|socket hang up|network error|stream (?:error|disconnected)|限流|重试渠道|服务繁忙/i.test(
+  if (
+    /insufficient_quota|quota exceeded|billing|credit balance|invalid api key|unauthori[sz]ed|\b401\b|\b403\b/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  return /API Error:?\s*(?:429|5\d\d)\b|(?:status|statusCode|status_code|HTTP)[\s:=]*(?:429|5\d\d)\b|rate[ _-]?limit|too many requests|overloaded|service unavailable|bad gateway|gateway time-?out|ECONNRESET|ETIMEDOUT|socket hang up|stream (?:error|disconnected)|限流|重试渠道均失败|服务繁忙/i.test(
     text,
   );
 }

@@ -1,3 +1,5 @@
+import type { TraceStep } from "./hive-protocol.js";
+import { isMutatingStep } from "./trace.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -774,6 +776,34 @@ describe("CodexAppServerResponder", () => {
       "搜索网页",
       "压缩上下文",
     ]);
+  });
+
+  it("lists unknown item types in the trace as tools that may have side effects", async () => {
+    const handlers = defaultHandlers({
+      "turn/start": (message, server) => {
+        const threadId = message.params.threadId;
+        server.emit({ id: message.id, result: { turn: { id: "t" } } });
+        for (const item of [
+          { id: "a", type: "agentMessage", text: "" },
+          { id: "c", type: "contextCompaction" },
+          { id: "d", type: "dynamicToolCall" },
+        ]) {
+          server.emit({ method: "item/started", params: { threadId, turnId: "t", item } });
+        }
+        server.emit({
+          method: "turn/completed",
+          params: { threadId, turn: { id: "t", status: "completed", items: [agentMessage("ok")] } },
+        });
+      },
+    });
+    const { responder } = setup(handlers);
+    const onTrace = vi.fn();
+    await responder.reply({ instructions: "r", prompt: "p", onTrace });
+    const steps = onTrace.mock.calls.map(([step]) => step as TraceStep);
+    expect(steps).toEqual([
+      expect.objectContaining({ id: "d", kind: "tool", tool: "other", name: "dynamicToolCall" }),
+    ]);
+    expect(isMutatingStep(steps[0]!)).toBe(true);
   });
 
   it("latches unknown execution after process death instead of respawning for another turn", async () => {

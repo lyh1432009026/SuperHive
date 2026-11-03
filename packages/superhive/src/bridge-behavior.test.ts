@@ -803,6 +803,46 @@ describe("AgentBridge", () => {
     await waitUntil(() => room.statuses(mention.id).includes("completed"));
   });
 
+  it("runs a task waiting to auto-continue only once even if the mention arrives again", async () => {
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    responder.fail(new AgentUpstreamError("API Error: 429", "s1"));
+    await waitUntil(() => room.reports.some((report) => report.progress?.includes("自动继续")));
+    // 等待期间重连补拉、或同一条 @ 又到了
+    room.handlers.onMention(mention, mention.seq, false);
+    await room.handlers.onSnapshot({
+      self,
+      latestSeq: mention.seq,
+      messages: [mention],
+      participants: [self],
+      invocations: [],
+    });
+    await waitUntil(() => responder.calls.length === 2);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(responder.calls).toHaveLength(2);
+    responder.finish("完成", "s1");
+    await waitUntil(() => room.statuses(mention.id).includes("completed"));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(responder.calls).toHaveLength(2);
+  });
+
+  it("confirms a stop right away while waiting to auto-continue", async () => {
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    responder.fail(new AgentUpstreamError("API Error: 429", "s1"));
+    await waitUntil(() => room.reports.some((report) => report.progress?.includes("自动继续")));
+    room.handlers.onCancel?.(mention.id);
+    await waitUntil(() => room.statuses(mention.id).includes("cancelled"));
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(responder.calls).toHaveLength(1);
+  });
+
   it("gives up auto-continuing after the configured attempts", async () => {
     await startBridge(baseState());
     const mention = chat();
