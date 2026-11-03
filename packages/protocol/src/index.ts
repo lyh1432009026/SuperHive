@@ -191,6 +191,8 @@ export const messageSendEventSchema = z.object({
   attachmentIds: z.array(z.string().uuid()).max(LIMITS.maxAttachmentsPerMessage).optional(),
   replyToMessageId: z.string().uuid().optional(),
   parentMessageId: z.string().uuid().optional(),
+  /** 发送并插话：@ 到的 Agent 正在执行任务时，把这条插进当前任务而不是排队（只对人发的消息有效） */
+  steer: z.boolean().optional(),
 });
 
 export const heartbeatEventSchema = z.object({ type: z.literal("presence.heartbeat") });
@@ -594,6 +596,16 @@ export const invocationTraceEventSchema = z.object({
   messageId: z.string().uuid(),
   steps: z.array(traceStepSchema).min(1).max(LIMITS.maxTraceStepsPerEvent),
 });
+/** 人把一条排队中的消息插进这个 Agent 正在执行的当前任务 */
+export const invocationSteerEventSchema = z.object({
+  type: z.literal("invocation.steer"),
+  invocationId: z.string().uuid(),
+});
+/** 人要求停下这个 Agent 正在执行的任务，停下后先做这一条 */
+export const invocationPreemptEventSchema = z.object({
+  type: z.literal("invocation.preempt"),
+  invocationId: z.string().uuid(),
+});
 /** 人取消一个还没到点的定时任务 */
 export const scheduleCancelEventSchema = z.object({
   type: z.literal("schedule.cancel"),
@@ -617,6 +629,8 @@ export const clientEventSchema = z.discriminatedUnion("type", [
   whiteboardRemoveEventSchema,
   scheduleCancelEventSchema,
   invocationTraceEventSchema,
+  invocationSteerEventSchema,
+  invocationPreemptEventSchema,
 ]);
 
 export const roomSnapshotEventSchema = z.object({
@@ -651,6 +665,8 @@ export const agentMentionedEventSchema = z.object({
   latestSeq: z.number().int().nonnegative(),
   /** 人在 UI 中显式重试：Agent 应忽略本地"已处理"记录重新执行 */
   retry: z.boolean().optional(),
+  /** 人要求把这条插进正在执行的当前任务（不排队） */
+  steer: z.boolean().optional(),
 });
 /** 本机 Hive Server 请它拉起的 Agent 自行退出（Windows 上没有可用的结束信号，信号一律是强制结束） */
 export const agentShutdownEventSchema = z.object({
@@ -995,13 +1011,18 @@ export const localAgentSchema = z.object({
   createdAt: z.string().datetime(),
   /** 在网页上关掉的本机 MCP 名称；空数组表示全部按 Agent CLI 自己的配置加载 */
   mcpDisabled: z.array(z.string()).default([]),
+  /** 人发给它的消息在它忙时自动插进当前任务（默认关，排队） */
+  autoSteer: z.boolean().default(false),
   /** 进程启动时还不支持设置文件（升级前就在运行）：MCP 勾选要重启这个 Agent 一次才生效 */
   settingsPendingRestart: z.boolean().optional(),
 });
 
-export const updateLocalAgentSettingsRequestSchema = z.object({
-  mcpDisabled: z.array(z.string().trim().min(1).max(200)).max(200),
-});
+export const updateLocalAgentSettingsRequestSchema = z
+  .object({
+    mcpDisabled: z.array(z.string().trim().min(1).max(200)).max(200).optional(),
+    autoSteer: z.boolean().optional(),
+  })
+  .refine((value) => value.mcpDisabled !== undefined || value.autoSteer !== undefined);
 
 /** Agent CLI 在本机会加载的一个 MCP（hive 自己不在其中，始终加载） */
 export const localMcpServerSchema = z.object({

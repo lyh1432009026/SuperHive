@@ -983,5 +983,18 @@
   "复位缩放": "Reset zoom",
   "复位（0）": "Reset (0)",
   "继续": "Continue",
-  "接着原会话从中断处继续，不会从头重做": "Pick up the same session where it stopped instead of starting over"
+  "接着原会话从中断处继续，不会从头重做": "Pick up the same session where it stopped instead of starting over",
+  "插入当前任务": "Insert into current task",
+  "不排队，让它在当前这一轮里接着处理这条": "Skip the queue and have it handle this within the turn it is running",
+  "把这条插进 @{0} 正在执行的任务": "Insert this into @{0}'s running task",
+  "停下当前，改做这条": "Stop current, do this",
+  "停下 @{0} 当前的任务，改做这条": "Stop @{0}'s current task and do this instead",
+  "先停下正在执行的任务（它会变成已停止或结果未知），停下后先做这条": "Stops the running task first (it becomes stopped or outcome unknown), then does this one",
+  "无法插入。": "Could not insert.",
+  "无法停下。": "Could not stop.",
+  "停下 @{0} 正在执行的任务，改做这条？\n\n正在执行的那一轮会被中断，结果可能是「已停止」或「结果未知」，做到一半的改动不会自动撤回、也不会自动重跑。": "Stop @{0}'s running task and do this instead?\n\nThe running turn will be interrupted and end as \"stopped\" or \"outcome unknown\". Half-done changes are not rolled back or re-run automatically.",
+  "发送并插话": "Send & insert",
+  "{0} 正在执行任务：发出后直接插进它当前的任务，不排队": "{0} is working: send this straight into its current task instead of queueing",
+  "人发的消息自动插话": "Auto-insert messages from people",
+  "它正在执行任务时，人 @ 它的新消息直接插进当前任务，不排队。默认关：先排队，需要时在那条消息上点「插入当前任务」，或用「发送并插话」。其他 Agent 的消息始终排队。": "While it is working, new messages from people that @ it go straight into the current task instead of the queue. Off by default: messages queue, and you can use \"Insert into current task\" or \"Send & insert\" when needed. Messages from other agents always queue."
 }

@@ -11,6 +11,11 @@ export type CommandRunner = (
     input?: string;
     signal?: AbortSignal;
     onStdout?: (chunk: string) => void;
+    /**
+     * 写完 input 后不关闭标准输入，把它交给调用方：可以中途再写（插话），由调用方决定何时 end()。
+     * 只有流式 runner 支持；不支持的 runner 忽略它，照常写完 input 就关闭。
+     */
+    onStdin?: (stdin: { write: (text: string) => void; end: () => void }) => void;
   },
 ) => Promise<CommandResult>;
 

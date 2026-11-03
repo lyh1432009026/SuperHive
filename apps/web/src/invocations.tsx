@@ -70,6 +70,49 @@ export function canDismissInvocation(invocation: Invocation): boolean {
   );
 }
 
+/** 支持把新消息插进正在执行的这一轮的运行时 */
+const STEERABLE_PROVIDERS = new Set(["claude", "codex", "opencode", "omp"]);
+
+/**
+ * 能「插入当前任务」：人发的、还在排队的消息，而且同一个 Agent 在这个房间正有任务在执行、
+ * 它的运行时支持插话。服务端会再核对一遍（定时触发、Agent 发的消息都会被拒绝）。
+ */
+export function canSteerInvocation(
+  invocation: Invocation,
+  all: Iterable<Invocation>,
+  provider: string | undefined,
+): boolean {
+  if (invocation.status !== "queued" || invocation.resolution) return false;
+  if (invocation.requesterType !== "human") return false;
+  if (!provider || !STEERABLE_PROVIDERS.has(provider)) return false;
+  for (const other of all) {
+    if (
+      other.id !== invocation.id &&
+      other.agentId === invocation.agentId &&
+      other.roomId === invocation.roomId &&
+      other.status === "running"
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** 正在执行的任务（「停下当前，改做这条」需要有它；不要求运行时支持插话） */
+export function hasRunningTask(invocation: Invocation, all: Iterable<Invocation>): boolean {
+  for (const other of all) {
+    if (
+      other.id !== invocation.id &&
+      other.agentId === invocation.agentId &&
+      other.roomId === invocation.roomId &&
+      other.status === "running"
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function canCancelInvocation(invocation: Invocation): boolean {
   if (invocation.resolution) return false;
   return (
@@ -327,7 +370,13 @@ export function InvocationChips({
   onLocate,
   onDismiss,
   traces,
+  onSteer,
+  onPreempt,
 }: {
+  /** 「插入当前任务」：把排队中的这条插进 Agent 正在执行的这一轮 */
+  onSteer?: (invocation: Invocation) => void;
+  /** 「停下当前，改做这条」 */
+  onPreempt?: (invocation: Invocation) => void;
   /** 执行过程（房主和获准看过程的访客的页面有）：状态行显示当前这一步，详情弹窗里看完整过程 */
   traces?: ReadonlyMap<string, TraceStep[]>;
   /** 「忽略」：标为已处理，不再算作需要处理 */
@@ -388,6 +437,12 @@ export function InvocationChips({
                   {currentStep ?? invocation.progress}
                 </span>
               )}
+              {/* 插话的进展（正在插入、已并入 #n、没插进去转回排队……） */}
+              {((invocation.status === "running" && !currentStep && !invocation.progress) ||
+                invocation.status === "queued") &&
+                invocation.detail && (
+                  <span className="invocation-progress">{invocation.detail}</span>
+                )}
               {(invocation.status === "blocked" ||
                 invocation.status === "failed" ||
                 invocation.status === "waiting_human" ||
@@ -504,6 +559,39 @@ export function InvocationChips({
                     onClick={() => onDismiss(invocation)}
                   >
                     {t("忽略")}
+                  </button>
+                )}
+              {onSteer &&
+                canSteerInvocation(
+                  invocation,
+                  allInvocations?.values() ?? invocations,
+                  participants.find((participant) => participant.id === invocation.agentId)
+                    ?.provider,
+                ) && (
+                  <button
+                    type="button"
+                    className="invocation-action primary"
+                    aria-label={t("把这条插进 @{0} 正在执行的任务", { 0: invocation.agentName })}
+                    title={t("不排队，让它在当前这一轮里接着处理这条")}
+                    onClick={() => onSteer(invocation)}
+                  >
+                    {t("插入当前任务")}
+                  </button>
+                )}
+              {onPreempt &&
+                isOwner &&
+                invocation.status === "queued" &&
+                invocation.requesterType === "human" &&
+                !invocation.resolution &&
+                hasRunningTask(invocation, allInvocations?.values() ?? invocations) && (
+                  <button
+                    type="button"
+                    className="invocation-action subtle"
+                    aria-label={t("停下 @{0} 当前的任务，改做这条", { 0: invocation.agentName })}
+                    title={t("先停下正在执行的任务（它会变成已停止或结果未知），停下后先做这条")}
+                    onClick={() => onPreempt(invocation)}
+                  >
+                    {t("停下当前，改做这条")}
                   </button>
                 )}
               {canCancelInvocation(invocation) && (

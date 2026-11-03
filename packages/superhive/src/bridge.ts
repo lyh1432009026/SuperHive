@@ -245,7 +245,8 @@ export class AgentBridge {
       },
       {
         onSnapshot: (snapshot) => this.onSnapshot(snapshot),
-        onMention: (message, _latestSeq, retry) => this.enqueue(message, { retry, invited: true }),
+        onMention: (message, _latestSeq, retry, steer) =>
+          this.enqueue(message, { retry, invited: true, ...(steer ? { steer } : {}) }),
         onCancel: (messageId) => this.cancel(messageId),
         onMessageDeleted: (message) => this.onRecalled(message.id),
         ...(this.options.onRoomsChanged ? { onRoomsChanged: this.options.onRoomsChanged } : {}),
@@ -430,9 +431,22 @@ export class AgentBridge {
 
   private enqueue(
     message: ChatMessage,
-    options: { retry?: boolean; invited?: boolean } = {},
+    options: { retry?: boolean; invited?: boolean; steer?: boolean } = {},
   ): void {
     if (this.stopped) return;
+    // 人要求插话：已经在排队的从队里拿出来插进当前任务；不能插就留在队里并说明原因
+    if (options.steer && this.pending.some((item) => item.id === message.id)) {
+      if (this.canSteer()) {
+        this.pending.splice(
+          this.pending.findIndex((item) => item.id === message.id),
+          1,
+        );
+        void this.steerIntoActive(this.active!, message);
+      } else {
+        this.reportNotSteered(message);
+      }
+      return;
+    }
     if (options.retry) {
       // 人显式重试：忽略本地"已处理/已停止"记录，重新开始计数和幂等键
       this.state.processedMessageIds = this.state.processedMessageIds.filter(
@@ -458,17 +472,39 @@ export class AgentBridge {
       return;
     }
     this.room.report({ messageId: message.id, status: "received" });
-    if (this.active?.accepting && this.responder.steer && !this.active.controller.signal.aborted) {
-      void this.steerIntoActive(this.active, message);
-      return;
+    // 默认排队；只有人明确要求（插入当前任务、发送并插话、Agent 开了自动插话）才插进正在执行的这一轮
+    if (options.steer) {
+      if (this.canSteer()) {
+        void this.steerIntoActive(this.active!, message);
+        return;
+      }
+      this.reportNotSteered(message);
     }
     this.pending.push(message);
     this.scheduleDrain(this.tuning.batchWindowMs);
   }
 
-  /** 正在运行的 Codex 回合可以直接吸收新消息（turn/steer），失败时退回排队 */
+  /** 有正在执行、还能吸收新消息的一轮，而且这个运行时支持插话 */
+  private canSteer(): boolean {
+    return Boolean(
+      this.active?.accepting && this.responder.steer && !this.active.controller.signal.aborted,
+    );
+  }
+
+  private reportNotSteered(message: ChatMessage): void {
+    this.room.report({
+      messageId: message.id,
+      status: "received",
+      detail: this.responder.steer
+        ? "当前没有正在执行、能插进去的任务，已排队"
+        : "这个运行时不支持插话，已排队",
+    });
+  }
+
+  /** 把新消息插进正在运行的这一轮（Codex turn/steer、Claude 流式输入、ACP steering），插不进去就退回排队 */
   private async steerIntoActive(active: ActiveBatch, message: ChatMessage): Promise<void> {
     this.steering.add(message.id);
+    this.room.report({ messageId: message.id, status: "received", detail: "正在插入当前任务" });
     let steered = false;
     try {
       steered = await this.responder.steer!(
@@ -523,10 +559,33 @@ export class AgentBridge {
     }
     if (steered && this.active === active && active.accepting) {
       active.messages.push(message);
-      this.log(`[hive] #${message.seq} 已注入正在进行的回合`);
-      this.room.report({ messageId: message.id, status: "running", detail: "已注入当前回合" });
+      const host = active.messages[0]!;
+      this.log(`[hive] #${message.seq} 已并入正在进行的 #${host.seq}`);
+      this.room.report({
+        messageId: message.id,
+        status: "running",
+        detail: `已并入当前任务（#${host.seq}）`,
+      });
+      // 执行过程里标出插话的位置，看得出 Agent 从哪一步开始调整
+      const at = new Date().toISOString();
+      for (const item of active.messages.filter((entry) => entry.id !== message.id)) {
+        this.room.trace(item.id, [
+          {
+            id: `steer:${message.id}`,
+            kind: "text",
+            text: `↳ ${message.senderName} 插话：${message.content}`.slice(0, 2000),
+            startedAt: at,
+            endedAt: at,
+          },
+        ]);
+      }
       return;
     }
+    this.room.report({
+      messageId: message.id,
+      status: "received",
+      detail: "没能插进当前任务（这一轮已经收尾），已排队",
+    });
     this.pending.push(message);
     this.scheduleDrain(this.tuning.batchWindowMs);
   }

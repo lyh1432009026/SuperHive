@@ -153,6 +153,22 @@ export function AgentSettingsDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [saved, setSaved] = useState<"saved" | "restarted" | undefined>();
+  const [autoSteer, setAutoSteer] = useState(agent.autoSteer);
+  const [savingSteer, setSavingSteer] = useState(false);
+
+  /** 自动插话：服务端在派发时判断，改了立即生效，不用重启 */
+  async function toggleAutoSteer(next: boolean) {
+    setSavingSteer(true);
+    setError(undefined);
+    try {
+      const updated = await local.updateSettings(agent.id, { autoSteer: next });
+      setAutoSteer(updated.autoSteer);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSavingSteer(false);
+    }
+  }
 
   const load = useCallback(
     async (measure: boolean) => {
@@ -245,6 +261,22 @@ export function AgentSettingsDialog({
         </header>
 
         <div className="invite-dialog-body">
+          <label className="agent-auto-steer">
+            <input
+              type="checkbox"
+              checked={autoSteer}
+              disabled={savingSteer || !local.canManage}
+              onChange={(event) => void toggleAutoSteer(event.target.checked)}
+            />
+            <span>
+              <strong>{t("人发的消息自动插话")}</strong>
+              <small>
+                {t(
+                  "它正在执行任务时，人 @ 它的新消息直接插进当前任务，不排队。默认关：先排队，需要时在那条消息上点「插入当前任务」，或用「发送并插话」。其他 Agent 的消息始终排队。",
+                )}
+              </small>
+            </span>
+          </label>
           <McpChecklist
             data={data}
             failed={error !== undefined}

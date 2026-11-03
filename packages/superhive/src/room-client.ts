@@ -49,7 +49,7 @@ export type Snapshot = {
 
 export type RoomClientHandlers = {
   onSnapshot: (snapshot: Snapshot) => void | Promise<void>;
-  onMention: (message: ChatMessage, latestSeq: number, retry: boolean) => void;
+  onMention: (message: ChatMessage, latestSeq: number, retry: boolean, steer?: boolean) => void;
   onCancel?: (messageId: string) => void;
   /** 本机 Hive Server 请本进程退出（Windows 上停止本机 Agent 时用） */
   onShutdown?: () => void;
@@ -258,7 +258,12 @@ export class RoomClient {
       return;
     }
     if (event.type === "agent.mentioned") {
-      this.handlers.onMention(event.message, event.latestSeq, event.retry === true);
+      this.handlers.onMention(
+        event.message,
+        event.latestSeq,
+        event.retry === true,
+        event.steer === true,
+      );
       return;
     }
     if (event.type === "agent.cancel") {

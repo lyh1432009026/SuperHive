@@ -67,7 +67,72 @@ describe("ClaudeCodeResponder", () => {
     expect(args).toContain("sonnet");
     expect(args).toContain("00000000-0000-4000-8000-000000000001");
     expect(args).not.toContain("Shared context");
-    expect(runner.mock.calls[0]?.[2]).toMatchObject({ input: "Shared context" });
+    // 提示走流式输入（一行 JSON 用户消息），不放在命令行参数里
+    expect(args[args.indexOf("--input-format") + 1]).toBe("stream-json");
+    expect(args).toContain("--replay-user-messages");
+    const line = JSON.parse(String(runner.mock.calls[0]?.[2].input).trim());
+    expect(line).toMatchObject({
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text: "Shared context" }] },
+    });
+  });
+
+  it("injects a message into the running turn and keeps input open until Claude has taken it", async () => {
+    const written: string[] = [];
+    let ended = false;
+    let emit: (line: object) => void = () => undefined;
+    let finish: () => void = () => undefined;
+    const runner: CommandRunner = (_command, _args, options) =>
+      new Promise((resolve) => {
+        emit = (line) => options.onStdout?.(`${JSON.stringify(line)}\n`);
+        finish = () => resolve({ stdout: "", stderr: "" });
+        options.onStdin?.({
+          write: (text) => written.push(text),
+          end: () => {
+            ended = true;
+          },
+        });
+      });
+    const responder = new ClaudeCodeResponder({ command: "claude", cwd: "/w", hive, runner });
+    const reply = responder.reply({ instructions: "r", prompt: "做事" });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const steered = responder.steer("补充：加上暗号");
+    const uuid = JSON.parse(written.at(-1)!).uuid as string;
+    // 第一轮先出结果：插话还没被收下，输入不能关
+    emit({ type: "result", is_error: false, result: "第一段", session_id: "s" });
+    expect(ended).toBe(false);
+    // Claude 回放这条插话 = 收下了；接着再跑一轮，出结果后才关输入
+    emit({ type: "user", isReplay: true, uuid, message: { role: "user", content: [] } });
+    await expect(steered).resolves.toBe(true);
+    emit({ type: "result", is_error: false, result: "第二段", session_id: "s" });
+    expect(ended).toBe(true);
+    finish();
+    await expect(reply).resolves.toMatchObject({ text: "第一段\n\n第二段", threadId: "s" });
+
+    // 这一轮结束后再插话：直接拒绝，由 Bridge 退回排队
+    await expect(responder.steer("太晚了")).resolves.toBe(false);
+  });
+
+  it("returns an unacknowledged injection to the queue when the process ends", async () => {
+    let finish: () => void = () => undefined;
+    const runner: CommandRunner = (_command, _args, options) =>
+      new Promise((resolve) => {
+        finish = () => {
+          options.onStdout?.(
+            `${JSON.stringify({ type: "result", is_error: false, result: "ok" })}\n`,
+          );
+          resolve({ stdout: "", stderr: "" });
+        };
+        options.onStdin?.({ write: () => undefined, end: () => undefined });
+      });
+    const responder = new ClaudeCodeResponder({ command: "claude", cwd: "/w", hive, runner });
+    const reply = responder.reply({ instructions: "r", prompt: "做事" });
+    await new Promise((resolve) => setImmediate(resolve));
+    const steered = responder.steer("补充");
+    finish();
+    await reply;
+    await expect(steered).resolves.toBe(false);
   });
 
   it.each(["workspace", "full"] as const)("maps %s access to Claude Code", async (access) => {

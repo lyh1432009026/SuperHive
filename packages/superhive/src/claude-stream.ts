@@ -33,6 +33,11 @@ export class ClaudeStream {
   private discarding = false;
   private failed = false;
   private result?: ClaudeResult;
+  /** 这个进程里的每一轮结果：插话后 Claude 可能再跑一轮，各轮的回复都要交出去 */
+  private readonly results: ClaudeResult[] = [];
+  /** 每出一个结果、每确认收到一条写进去的消息时回调（插话用） */
+  onResult?: (result: ClaudeResult) => void;
+  onUserAck?: (uuid: string) => void;
   private readonly tools = new Map<string, RuntimeEvent["tool"]>();
   private readonly accounting = new UsageAccumulator();
   private currentMessageId: string | undefined;
@@ -113,7 +118,15 @@ export class ClaudeStream {
   finish(): ClaudeResult | undefined {
     if (!this.discarding && this.buffer.trim()) this.line(this.buffer);
     this.buffer = "";
-    return this.result;
+    if (this.results.length <= 1) return this.result;
+    // 插话后多跑了几轮：成功的回复依次拼起来，出错以最后一轮为准
+    const last = this.results.at(-1)!;
+    if (last.is_error) return last;
+    const text = this.results
+      .filter((item) => !item.is_error && item.result?.trim())
+      .map((item) => item.result!.trim())
+      .join("\n\n");
+    return { ...last, result: text };
   }
 
   /** 本轮真实用量（token 数与模型名）；一次请求都没有时为全零 */
@@ -189,7 +202,9 @@ export class ClaudeStream {
         is_error: event.is_error === true,
       };
       this.accountResult(event);
+      this.results.push(this.result);
       if (!this.result.is_error) this.recovered();
+      this.onResult?.(this.result);
       return;
     }
     if (event.type === "system" && event.subtype === "api_retry") {
@@ -214,6 +229,11 @@ export class ClaudeStream {
       return;
     }
     if (event.type === "user") {
+      // --replay-user-messages：Claude 把从标准输入读进去的消息回放出来，说明它已经收进对话
+      if (event.isReplay === true) {
+        if (typeof event.uuid === "string") this.onUserAck?.(event.uuid);
+        return;
+      }
       const message = object(event.message);
       if (Array.isArray(message?.content)) for (const block of message.content) this.block(block);
       this.traceResults(message);

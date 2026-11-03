@@ -39,5 +39,22 @@ export const streamCommandRunner: CommandRunner = (command, args, options) =>
         reject(new Error(`运行进程异常退出（${signal ?? code ?? "unknown"}）。`));
       else resolve({ stdout: "", stderr: "" });
     });
-    child.stdin.end(options.input);
+    if (options.onStdin) {
+      if (options.input) child.stdin.write(options.input);
+      let ended = false;
+      const end = () => {
+        if (ended) return;
+        ended = true;
+        child.stdin.end();
+      };
+      child.once("close", end);
+      options.onStdin({
+        write: (text) => {
+          if (!ended) child.stdin.write(text);
+        },
+        end,
+      });
+    } else {
+      child.stdin.end(options.input);
+    }
   });

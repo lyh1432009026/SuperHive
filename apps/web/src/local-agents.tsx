@@ -66,7 +66,10 @@ export type LocalAgentsState = {
     cwd: string | undefined,
     measure?: boolean,
   ): Promise<LocalAgentMcpResponse>;
-  updateSettings(id: string, settings: { mcpDisabled: string[] }): Promise<LocalAgent>;
+  updateSettings(
+    id: string,
+    settings: { mcpDisabled?: string[]; autoSteer?: boolean },
+  ): Promise<LocalAgent>;
   /** 熄屏后保持在线：这台电脑的设置与实际状态（不是本机房主时为 undefined） */
   keepAwake: KeepAwakeState | undefined;
   updateKeepAwake(patch: Partial<KeepAwakeSettings>): Promise<void>;
@@ -351,7 +354,7 @@ export function useLocalAgents(
   );
 
   const updateSettings = useCallback(
-    async (id: string, settings: { mcpDisabled: string[] }) => {
+    async (id: string, settings: { mcpDisabled?: string[]; autoSteer?: boolean }) => {
       const response = await request(`/api/local/agents/${id}/settings`, {
         method: "PUT",
         body: JSON.stringify(settings),

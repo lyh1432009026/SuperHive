@@ -2528,12 +2528,33 @@ export function App({
 
   // 有附件在上传或上传失败时不能发：失败的要先重试或移除，避免悄悄丢掉
   const attachmentsBlocking = attachmentQueue.uploading || attachmentQueue.failed;
+  // 草稿里 @ 到的、正在这个房间执行任务、支持插话的 Agent：可以「发送并插话」
+  const steerTargets = (() => {
+    const named = new Set(
+      [...draft.matchAll(/@([\p{L}\p{N}_.-]+)/gu)].map((match) => match[1]!.toLocaleLowerCase()),
+    );
+    if (named.size === 0) return [];
+    const running = new Set(
+      [...invocations.values()]
+        .filter((item) => item.status === "running" && item.roomId === currentRoomId)
+        .map((item) => item.agentId),
+    );
+    return participants
+      .filter(
+        (participant) =>
+          participant.type === "agent" &&
+          named.has(participant.username.toLocaleLowerCase()) &&
+          running.has(participant.id) &&
+          ["claude", "codex", "opencode", "omp"].includes(participant.provider ?? ""),
+      )
+      .map((participant) => participant.username);
+  })();
   const canSend =
     (Boolean(draft.trim()) || attachmentQueue.readyIds.length > 0) &&
     !draftTooLong &&
     !attachmentsBlocking;
 
-  function sendMessage() {
+  function sendMessage(steer = false) {
     const content = draft.trim();
     const socket = socketRef.current;
     const attachmentIds = attachmentQueue.readyIds;
@@ -2549,6 +2570,7 @@ export function App({
         content,
         ...(attachmentIds.length ? { attachmentIds } : {}),
         ...(replyTo ? { replyToMessageId: replyTo } : {}),
+        ...(steer ? { steer: true } : {}),
       }),
     );
     attachmentQueue.clear();
@@ -2693,6 +2715,21 @@ export function App({
 
   function cancelInvocation(invocation: Invocation) {
     sendClientEvent({ type: "invocation.cancel", invocationId: invocation.id }, t("无法停止。"));
+  }
+
+  function steerInvocation(invocation: Invocation) {
+    sendClientEvent({ type: "invocation.steer", invocationId: invocation.id }, t("无法插入。"));
+  }
+
+  function preemptInvocation(invocation: Invocation) {
+    const confirmed = window.confirm(
+      t(
+        "停下 @{0} 正在执行的任务，改做这条？\n\n正在执行的那一轮会被中断，结果可能是「已停止」或「结果未知」，做到一半的改动不会自动撤回、也不会自动重跑。",
+        { 0: invocation.agentName },
+      ),
+    );
+    if (!confirmed) return;
+    sendClientEvent({ type: "invocation.preempt", invocationId: invocation.id }, t("无法停下。"));
   }
 
   function extendAgentBudget() {
@@ -3588,6 +3625,8 @@ export function App({
                                 onCancel={cancelInvocation}
                                 onDismiss={(invocation) => dismissInvocations([invocation])}
                                 onExtend={extendAgentBudget}
+                                onSteer={steerInvocation}
+                                onPreempt={preemptInvocation}
                                 isOwner={isOwner}
                                 traces={traces}
                               />
@@ -4145,10 +4184,23 @@ export function App({
                       </span>
                     )
                   )}
+                  {steerTargets.length > 0 && (
+                    <button
+                      type="button"
+                      className="composer-steer"
+                      onClick={() => sendMessage(true)}
+                      disabled={!canSend || connectionState !== "online"}
+                      title={t("{0} 正在执行任务：发出后直接插进它当前的任务，不排队", {
+                        0: steerTargets.map((name) => `@${name}`).join(t("、")),
+                      })}
+                    >
+                      {t("发送并插话")}
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="composer-send"
-                    onClick={sendMessage}
+                    onClick={() => sendMessage()}
                     disabled={!canSend || connectionState !== "online"}
                     title={t("发送")}
                   >

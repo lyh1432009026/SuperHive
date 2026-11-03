@@ -1674,6 +1674,59 @@ describe("App mention autocomplete", () => {
     expect(within(dialog).getByRole("region", { name: "执行过程" })).toBeTruthy();
   });
 
+  it("offers send-and-insert only when the draft mentions an agent that is running", async () => {
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    const helper = {
+      ...participant("00000000-0000-4000-8000-000000000002", "helper", "agent"),
+      provider: "claude",
+    };
+    const idle = {
+      ...participant("00000000-0000-4000-8000-000000000003", "idle", "agent"),
+      provider: "claude",
+    };
+    const now = new Date().toISOString();
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self, helper, idle],
+        messages: [],
+        latestSeq: 0,
+        invocations: [
+          {
+            id: "00000000-0000-4000-8000-0000000000f1",
+            roomId: "general",
+            messageId: "00000000-0000-4000-8000-0000000000f2",
+            agentId: helper.id,
+            agentName: "helper",
+            requesterName: "Alice",
+            requesterType: "human",
+            status: "running",
+            attempts: 1,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      }),
+    );
+    const composer = screen.getByRole("textbox", { name: "消息" });
+    fireEvent.change(composer, { target: { value: "@idle 看一下" } });
+    expect(screen.queryByRole("button", { name: "发送并插话" })).toBeNull();
+    fireEvent.change(composer, { target: { value: "@helper 顺便把 README 也改了" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送并插话" }));
+    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({
+      type: "message.send",
+      content: "@helper 顺便把 README 也改了",
+      steer: true,
+    });
+  });
+
   it("collapses the room list and remembers the choice after a reload", async () => {
     const user = userEvent.setup();
     localStorage.setItem("superhive.username", "Alice");

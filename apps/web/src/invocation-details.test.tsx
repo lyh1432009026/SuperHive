@@ -186,3 +186,82 @@ describe("trace grouping", () => {
     ).toEqual(["group:3", "git status", "pnpm test", "d.ts", "e.ts"]);
   });
 });
+
+describe("inserting a queued message into the running task", () => {
+  const agent = {
+    id: "a",
+    roomId: "general",
+    username: "worker",
+    type: "agent" as const,
+    status: "busy" as const,
+    provider: "claude",
+    joinedAt: at,
+    lastSeenAt: at,
+  };
+  const running: Invocation = { ...invocation, id: "00000000-0000-4000-8000-0000000000a1" };
+  const queued: Invocation = {
+    ...invocation,
+    id: "00000000-0000-4000-8000-0000000000a2",
+    messageId: "m2",
+    status: "queued",
+  };
+  const all = new Map([running, queued].map((item) => [item.id, item]));
+
+  it("offers insert and stop-and-switch on a human message queued behind a running task", () => {
+    const onSteer = vi.fn();
+    const onPreempt = vi.fn();
+    render(
+      <InvocationChips
+        {...props}
+        participants={[agent]}
+        invocations={[queued]}
+        allInvocations={all}
+        onSteer={onSteer}
+        onPreempt={onPreempt}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "把这条插进 @worker 正在执行的任务" }));
+    expect(onSteer).toHaveBeenCalledWith(queued);
+    fireEvent.click(screen.getByRole("button", { name: "停下 @worker 当前的任务，改做这条" }));
+    expect(onPreempt).toHaveBeenCalledWith(queued);
+  });
+
+  it("hides insert for agent-sent messages, runtimes without steering, guests' stop and idle agents", () => {
+    const { rerender } = render(
+      <InvocationChips
+        {...props}
+        participants={[agent]}
+        invocations={[{ ...queued, requesterType: "agent" }]}
+        allInvocations={all}
+        onSteer={vi.fn()}
+        onPreempt={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /插进/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /改做这条/ })).toBeNull();
+    rerender(
+      <InvocationChips
+        {...props}
+        participants={[{ ...agent, provider: "copilot" }]}
+        invocations={[queued]}
+        allInvocations={all}
+        onSteer={vi.fn()}
+        onPreempt={vi.fn()}
+        isOwner={false}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /插进/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /改做这条/ })).toBeNull();
+    rerender(
+      <InvocationChips
+        {...props}
+        participants={[agent]}
+        invocations={[queued]}
+        allInvocations={new Map([[queued.id, queued]])}
+        onSteer={vi.fn()}
+        onPreempt={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /插进/ })).toBeNull();
+  });
+});

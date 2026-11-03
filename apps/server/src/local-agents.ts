@@ -335,6 +335,11 @@ export const defaultProbe: ProviderProbe = (command) =>
     );
   });
 
+/** 「人发的消息在它忙时自动插话」开关：按 Agent 名字存（各房间通用） */
+export function autoSteerKey(name: string): string {
+  return `auto-steer:${name.toLocaleLowerCase()}`;
+}
+
 export class LocalAgentSupervisor {
   private readonly runtimes = new Map<string, Runtime>();
   private readonly spawnAgent: SpawnAgent;
@@ -435,8 +440,19 @@ export class LocalAgentSupervisor {
   }
 
   /** 保存网页上的勾选；已带设置文件启动的 Agent 下一轮就按新的勾选加载 */
-  updateSettings(id: string, settings: { mcpDisabled: string[] }): LocalAgent {
+  updateSettings(
+    id: string,
+    settings: { mcpDisabled?: string[] | undefined; autoSteer?: boolean | undefined },
+  ): LocalAgent {
     const runtime = this.require(id);
+    // 自动插话由服务端在派发时判断，不影响进程，随时可改
+    if (settings.autoSteer !== undefined) {
+      this.options.database.setSetting(
+        autoSteerKey(runtime.config.name),
+        settings.autoSteer ? "1" : "0",
+      );
+    }
+    if (settings.mcpDisabled === undefined) return this.view(runtime);
     if (runtime.transitioning) {
       throw new HiveError("LOCAL_AGENT_BUSY", "这个 Agent 正在重启，等它启动后再改设置。");
     }
@@ -690,6 +706,7 @@ export class LocalAgentSupervisor {
       restarts: runtime.restarts,
       createdAt: config.createdAt,
       mcpDisabled: config.mcpDisabled ?? [],
+      autoSteer: this.options.database.getSetting(autoSteerKey(config.name)) === "1",
       // 正在运行、但启动时没带设置文件（升级前就在跑的进程）：勾选要重启一次才生效
       ...(runtime.child && !runtime.settingsApplied && MCP_SELECTABLE.has(config.provider)
         ? { settingsPendingRestart: true }

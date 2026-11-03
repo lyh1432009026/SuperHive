@@ -587,16 +587,22 @@ describe("AgentBridge", () => {
 
     const late = chat({ content: "@agent-a 顺便看下 README" });
     room.messages.push(late);
-    room.handlers.onMention(late, late.seq, false);
+    room.handlers.onMention(late, late.seq, false, true);
     await waitUntil(() => responder.steered.length === 1);
     await flush();
     expect(responder.steered[0]).toContain("README");
     expect(room.statuses(late.id)).toContain("running");
+    expect(
+      room.reports.find((report) => report.messageId === late.id && report.status === "running")
+        ?.detail,
+    ).toBe(`已并入当前任务（#${first.seq}）`);
+    // 执行过程里标出插话
+    expect(room.traces.some((trace) => trace.messageId === first.id)).toBe(true);
 
     responder.steerResult = false;
     const queued = chat({ content: "@agent-a 第三件事" });
     room.messages.push(queued);
-    room.handlers.onMention(queued, queued.seq, false);
+    room.handlers.onMention(queued, queued.seq, false, true);
     await waitUntil(() => responder.steered.length === 2);
 
     responder.finish();
@@ -607,6 +613,40 @@ describe("AgentBridge", () => {
     expect(responder.calls[1]!.threadId).toBe("thread-1");
     responder.finish();
     await waitUntil(() => room.statuses(queued.id).includes("completed"));
+  });
+
+  it("queues a late mention by default and inserts it only when a human asks", async () => {
+    await startBridge(baseState());
+    const first = chat();
+    room.messages.push(first);
+    room.handlers.onMention(first, first.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    const late = chat({ content: "@agent-a 另一件事" });
+    room.messages.push(late);
+    room.handlers.onMention(late, late.seq, false);
+    await flush();
+    expect(responder.steered).toHaveLength(0);
+    // 人点「插入当前任务」：从队里拿出来插进去
+    room.handlers.onMention(late, late.seq, false, true);
+    await waitUntil(() => responder.steered.length === 1);
+    await waitUntil(() => room.statuses(late.id).includes("running"));
+    responder.finish();
+    await waitUntil(() => room.statuses(late.id).includes("completed"));
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(responder.calls).toHaveLength(1);
+  });
+
+  it("explains why a steer request stayed queued when nothing is running", async () => {
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false, true);
+    await waitUntil(() =>
+      room.reports.some((report) => report.detail?.includes("没有正在执行、能插进去的任务")),
+    );
+    await waitUntil(() => responder.calls.length === 1);
+    responder.finish();
+    await waitUntil(() => room.statuses(mention.id).includes("completed"));
   });
 
   it("aborts the provider when every message of the turn is cancelled", async () => {
@@ -628,7 +668,7 @@ describe("AgentBridge", () => {
     responder.steerResult = false;
     room.handlers.onMention(blocker, blocker.seq, false);
     await waitUntil(() => responder.calls.length === 2);
-    room.handlers.onMention(queued, queued.seq, false);
+    room.handlers.onMention(queued, queued.seq, false, true);
     await waitUntil(() => responder.steered.length >= 1);
     await flush();
     room.handlers.onCancel!(queued.id);
@@ -1250,7 +1290,7 @@ describe("AgentBridge", () => {
     vi.spyOn(responder, "steer").mockRejectedValue(new AgentExecutionUncertainError("ack lost"));
     const extra = chat();
     room.messages.push(extra);
-    room.handlers.onMention(extra, extra.seq, false);
+    room.handlers.onMention(extra, extra.seq, false, true);
     await waitUntil(() => room.statuses(extra.id).includes("uncertain"));
     responder.finish("first complete");
     await waitUntil(() => room.statuses(first.id).includes("completed"));

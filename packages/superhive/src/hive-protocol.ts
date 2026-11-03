@@ -181,7 +181,14 @@ export type ServerEvent =
     }
   | { type: "message.created"; message: ChatMessage }
   | { type: "message.deleted"; message: ChatMessage }
-  | { type: "agent.mentioned"; message: ChatMessage; latestSeq: number; retry?: boolean }
+  | {
+      type: "agent.mentioned";
+      message: ChatMessage;
+      latestSeq: number;
+      retry?: boolean;
+      /** 人要求把这条插进正在执行的当前任务（不排队） */
+      steer?: boolean;
+    }
   | { type: "agent.cancel"; messageId: string }
   | { type: "agent.shutdown" }
   | { type: "invocation.updated"; invocation: Invocation }

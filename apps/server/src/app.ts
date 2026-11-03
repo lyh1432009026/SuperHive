@@ -51,6 +51,7 @@ import { createHiveMcpServer, type AttachmentReadResult, type InboxDigest } from
 import { readMessageContent } from "./message-content.js";
 import {
   LocalAgentSupervisor,
+  autoSteerKey,
   resolveWorkspace,
   type LocalAgentSupervisorOptions,
 } from "./local-agents.js";
@@ -872,7 +873,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     return TERMINAL_INVOCATION_STATUSES.includes(invocation.status);
   }
 
-  function deliverMention(message: ChatMessage, agent: Participant, retry = false): void {
+  function deliverMention(
+    message: ChatMessage,
+    agent: Participant,
+    retry = false,
+    steer = false,
+  ): void {
     const target = onlineAgent(message.roomId, agent.username);
     if (!target) return;
     send(target.socket, {
@@ -880,7 +886,74 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       message,
       latestSeq: database.latestSeq(message.roomId),
       ...(retry ? { retry: true } : {}),
+      ...(steer ? { steer: true } : {}),
     });
+  }
+
+  /** 这个 Agent 在这个房间里正在执行的调用（插话、停下改做都要有它） */
+  function runningInvocations(agent: Participant, except?: string): Invocation[] {
+    return database
+      .listExecutingInvocations(agent.id)
+      .filter(
+        (item) => item.roomId === agent.roomId && item.status === "running" && item.id !== except,
+      );
+  }
+
+  /**
+   * 能不能插进当前任务：只有人发的普通消息（不含定时触发）、还在排队（没被拦下）、
+   * 这个 Agent 在这个房间里正有任务在执行。其他 Agent 的消息、回执、定时触发一律照常排队。
+   */
+  function steerableInvocation(actor: Participant, invocationId: string) {
+    const invocation = invocationInRoom(actor, invocationId);
+    const message = database.getMessage(invocation.messageId);
+    const agent = database.getParticipant(invocation.agentId);
+    if (!message || message.deletedAt || !agent) {
+      throw new HiveError("STEER_UNAVAILABLE", "这条消息已经不在了。");
+    }
+    if (message.senderType !== "human" || message.kind === "schedule") {
+      throw new HiveError("STEER_UNAVAILABLE", "只有人直接发的消息可以插进当前任务。");
+    }
+    if (invocation.status !== "queued") {
+      throw new HiveError("STEER_UNAVAILABLE", "这条已经不在排队了。");
+    }
+    const running = runningInvocations(agent, invocation.id);
+    if (running.length === 0) {
+      throw new HiveError(
+        "STEER_UNAVAILABLE",
+        `${agent.username} 现在没有正在执行的任务，这条会照常开始。`,
+      );
+    }
+    return { invocation, message, agent, running };
+  }
+
+  /** 插入当前任务：让 Agent 把这条并进正在执行的这一轮（插不进去时 Agent 会说明并留在队里） */
+  function steerInvocation(actor: Participant, invocationId: string): void {
+    const { invocation, message, agent } = steerableInvocation(actor, invocationId);
+    emitInvocation(
+      database.updateInvocation(invocation.id, {
+        detail: `${actor.username} 请求插入当前任务`,
+      }),
+    );
+    deliverMention(message, agent, false, true);
+  }
+
+  /**
+   * 停下当前，改做这条：先请求停止正在执行的任务（它会变成已停止或结果未知），
+   * 确认停下后 Agent 从队里接着做这一条；不会两份同时在跑。
+   */
+  function preemptInvocation(actor: Participant, invocationId: string): void {
+    const { invocation, running } = steerableInvocation(actor, invocationId);
+    for (const item of running) cancelInvocation(actor, item.id);
+    emitInvocation(
+      database.updateInvocation(invocation.id, {
+        detail: `${actor.username} 已请求停下当前任务，停下后先做这一条`,
+      }),
+    );
+  }
+
+  /** 这个 Agent 打开了「人发的消息自动插话」 */
+  function autoSteers(agent: Participant): boolean {
+    return database.getSetting(autoSteerKey(agent.username)) === "1";
   }
 
   /**
@@ -996,6 +1069,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       inferredParent?: boolean;
       delegateTo?: string;
       receipt?: boolean;
+      /** 发送并插话：@ 到的 Agent 正在执行时插进当前任务 */
+      steer?: boolean;
       /** Agent 经 hive_message_send 发出（不是 Bridge 代发的最终回复） */
       fromTool?: boolean;
     } = {},
@@ -1075,7 +1150,22 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         );
       }
       emitInvocation(invocation);
-      if (!blocked) deliverMention(message, agent);
+      if (blocked) continue;
+      // 人发的消息、Agent 正在执行：按人的要求（发送并插话）或 Agent 的自动插话设置插进当前任务
+      const steer =
+        participant.type === "human" &&
+        message.kind !== "schedule" &&
+        !answered &&
+        (options.steer === true || autoSteers(agent)) &&
+        runningInvocations(agent, invocation.id).length > 0;
+      if (steer) {
+        emitInvocation(
+          database.updateInvocation(invocation.id, {
+            detail: options.steer ? "发送并插话：请求插入当前任务" : "自动插话：请求插入当前任务",
+          }),
+        );
+      }
+      deliverMention(message, agent, false, steer);
     }
     return result;
   }
@@ -3426,7 +3516,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           return;
         }
       }
-      if (guest && (event.type === "invocation.retry" || event.type === "invocation.cancel")) {
+      if (guest && event.type === "invocation.preempt") {
+        // 停下别人正在执行的任务：只有房主能做
+        send(socket, {
+          type: "error",
+          code: "OWNER_ONLY",
+          message: "访客不能停下 Agent 正在执行的任务。",
+        });
+        return;
+      }
+      if (
+        guest &&
+        (event.type === "invocation.retry" ||
+          event.type === "invocation.cancel" ||
+          event.type === "invocation.steer")
+      ) {
         const invocation = database.getInvocation(event.invocationId);
         // 访客只能管自己发起的调用；房主批准访客的请求不能由访客自己点
         if (
@@ -3464,7 +3568,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         event.type === "invocation.dismiss" ||
         event.type === "budget.extend" ||
         event.type === "whiteboard.remove" ||
-        event.type === "schedule.cancel"
+        event.type === "schedule.cancel" ||
+        event.type === "invocation.steer" ||
+        event.type === "invocation.preempt"
       ) {
         try {
           if (event.type === "invocation.report") {
@@ -3491,7 +3597,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             cancelInvocation(participant, event.invocationId);
           } else if (event.type === "budget.extend") extendBudget(participant, event.turns);
           else if (event.type === "schedule.cancel") cancelSchedule(participant, event.scheduleId);
-          else if (database.removeWhiteboardEntry(participant.roomId, event.entryId)) {
+          else if (event.type === "invocation.steer")
+            steerInvocation(participant, event.invocationId);
+          else if (event.type === "invocation.preempt") {
+            preemptInvocation(participant, event.invocationId);
+          } else if (database.removeWhiteboardEntry(participant.roomId, event.entryId)) {
             broadcast(participant.roomId, {
               type: "whiteboard.removed",
               roomId: participant.roomId,
@@ -3574,18 +3684,22 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
                 uploader: uploaderOf(connection.principal),
               })
             : undefined;
-        const result = createAndDispatchMessage(participant, {
-          content: event.content,
-          clientMessageId: event.clientMessageId,
-          ...(event.replyToMessageId ? { replyToMessageId: event.replyToMessageId } : {}),
-          ...(event.parentMessageId ? { parentMessageId: event.parentMessageId } : {}),
-          ...(claimed
-            ? {
-                attachments: claimed,
-                onInsert: (messageId: string) => attachments.bind(attachmentIds, messageId),
-              }
-            : {}),
-        });
+        const result = createAndDispatchMessage(
+          participant,
+          {
+            content: event.content,
+            clientMessageId: event.clientMessageId,
+            ...(event.replyToMessageId ? { replyToMessageId: event.replyToMessageId } : {}),
+            ...(event.parentMessageId ? { parentMessageId: event.parentMessageId } : {}),
+            ...(claimed
+              ? {
+                  attachments: claimed,
+                  onInsert: (messageId: string) => attachments.bind(attachmentIds, messageId),
+                }
+              : {}),
+          },
+          event.steer ? { steer: true } : {},
+        );
         if (!result.created) {
           send(socket, { type: "message.created", message: result.message });
           return;
@@ -3623,6 +3737,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   // 测试里直接触发清理
   app.decorate("attachmentStore", attachments);
   app.decorate("runSchedules", runSchedules);
+  app.decorate("hiveDatabase", database);
   /**
    * 关闭前先让本机 Agent 正常下线：要趁 WebSocket 还连着（Windows 上靠它通知 Agent 退出），
    * app.close() 时连接已经被关掉了。换代交接时不下线，由 onClose 交给下一个 Server。

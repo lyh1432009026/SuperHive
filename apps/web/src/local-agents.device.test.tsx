@@ -26,6 +26,7 @@ const agent: LocalAgent = {
   restarts: 0,
   createdAt: new Date().toISOString(),
   mcpDisabled: [],
+  autoSteer: false,
 };
 
 type Call = { url: string; method: string; headers: Headers; body?: unknown };

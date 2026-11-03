@@ -582,7 +582,14 @@ export function registerLocalAgentRoutes(
     if (!parsed.success) return reply.code(400).send({ error: "参数不正确。" });
     try {
       const agent = supervisor!.updateSettings(request.params.id, parsed.data);
-      audit(request, caller, `修改了本机 Agent ${agent.name} 加载的 MCP`, true);
+      audit(
+        request,
+        caller,
+        parsed.data.mcpDisabled !== undefined
+          ? `修改了本机 Agent ${agent.name} 加载的 MCP`
+          : `${parsed.data.autoSteer ? "打开" : "关闭"}了本机 Agent ${agent.name} 的自动插话`,
+        true,
+      );
       return { agent };
     } catch (error) {
       return fail(reply, error);
