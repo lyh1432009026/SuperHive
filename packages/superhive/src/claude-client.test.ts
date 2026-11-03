@@ -182,6 +182,23 @@ describe("ClaudeCodeResponder", () => {
     await expect(empty.reply({ instructions: "rules", prompt: "context" })).rejects.toThrow(
       /没有返回/,
     );
+
+    // API 报错（限流等）时把原因带出来，界面上不再只有「结果未知」
+    const throttled = new ClaudeCodeResponder({
+      command: "claude",
+      cwd: "/workspace",
+      hive,
+      runner: async () => ({
+        stdout: JSON.stringify({
+          is_error: true,
+          result: "API Error: 429 rate limited, key sk-ant-abcdefghijklmnopqrstuvwxyz",
+        }),
+        stderr: "",
+      }),
+    });
+    const failure = throttled.reply({ instructions: "rules", prompt: "context" });
+    await expect(failure).rejects.toThrow(/API Error: 429 rate limited/);
+    await expect(failure).rejects.not.toThrow(/abcdefghijklmnopqrstuvwxyz/);
   });
 
   it("loads only the MCP servers left enabled in the agent settings file", async () => {

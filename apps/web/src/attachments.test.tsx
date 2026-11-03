@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ComposerAttachments,
+  MessageAttachments,
   formatBytes,
   nameForPastedFile,
   useAttachmentQueue,
@@ -143,5 +144,58 @@ describe("待发附件", () => {
     );
     expect(formatBytes(1536)).toBe("1.5 KB");
     expect(formatBytes(3 * 1024 * 1024)).toBe("3.0 MB");
+  });
+});
+
+describe("图片查看器", () => {
+  it("同一条消息的多张图可以用方向键切换，并能放大缩小与复位", async () => {
+    let made = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(new Blob(["x"], { type: "image/png" }))),
+    );
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => `blob:${++made}` }));
+    const image = (id: string, name: string) => ({
+      id,
+      name,
+      kind: "image" as const,
+      mime: "image/png",
+      size: 10,
+      sha256: "0".repeat(64),
+    });
+    render(
+      <MessageAttachments
+        attachments={[
+          image("00000000-0000-4000-8000-0000000000f1", "a.png"),
+          image("00000000-0000-4000-8000-0000000000f2", "b.png"),
+          image("00000000-0000-4000-8000-0000000000f3", "c.png"),
+        ]}
+        base="http://hive"
+        token="t"
+      />,
+    );
+    const first = await screen.findByRole("button", { name: "查看图片 a.png" });
+    await vi.waitFor(() => expect(first).toHaveProperty("disabled", false));
+    fireEvent.click(first);
+    const viewer = await screen.findByRole("dialog", { name: "a.png" });
+    expect(viewer.textContent).toContain("1 / 3");
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(await screen.findByRole("dialog", { name: "b.png" })).toBeTruthy();
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    // 第一张往前是最后一张
+    expect(await screen.findByRole("dialog", { name: "c.png" })).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "+" });
+    expect(screen.getByRole("button", { name: "复位缩放" }).textContent).toBe("150%");
+    fireEvent.click(screen.getByRole("button", { name: "放大" }));
+    expect(screen.getByRole("button", { name: "复位缩放" }).textContent).toBe("225%");
+    fireEvent.keyDown(window, { key: "0" });
+    expect(screen.getByRole("button", { name: "复位缩放" }).textContent).toBe("100%");
+    expect(screen.getByRole("button", { name: "缩小" })).toHaveProperty("disabled", true);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

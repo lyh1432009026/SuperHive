@@ -1,6 +1,7 @@
 import type { CommandRunner } from "./command-runner.js";
 import { streamCommandRunner } from "./stream-command-runner.js";
 import { ClaudeStream } from "./claude-stream.js";
+import { redactTrace } from "./trace.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -163,7 +164,14 @@ export class ClaudeCodeResponder implements AgentResponder {
         "Claude Code 返回了无法解析的最终结果，执行结果未知。",
       );
     if (payload.is_error || !payload.result?.trim()) {
-      throw new AgentExecutionUncertainError("Claude Code 没有返回可发送的文本，执行结果未知。");
+      // 带上 Claude Code 给的原因（多半是 API 限流、额度用完），否则只看得到「结果未知」不知道为什么
+      const reason =
+        payload.is_error && payload.result?.trim()
+          ? `：${redactTrace(payload.result.replace(/\s+/g, " ").trim()).slice(0, 240)}`
+          : "";
+      throw new AgentExecutionUncertainError(
+        `Claude Code 没有返回可发送的文本${reason}；执行途中可能已做了部分操作，结果未知。`,
+      );
     }
     const usage = stream.usage();
     const sessionCostUsd = stream.sessionCostUsd();

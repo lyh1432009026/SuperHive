@@ -971,5 +971,15 @@
   "只展示已上报的执行事实：连接存活不代表模型正在执行，没有新事件也不等于卡死。执行过程房主和获准的访客能看到，只在内存里保留到刷新页面为止，已脱敏截断，不含模型内部思考、命令输出和文件正文。": "Only reported facts are shown: a live connection does not mean the model is working, and no new events does not mean it is stuck. The activity log is visible to the owner and permitted guests, kept in memory only until the page reloads, redacted and truncated, and never includes the model's internal reasoning, command output or file contents.",
   " · 只看精简状态": " · status only",
   "让对方看到 Agent 的执行过程": "Let them see agents' activity",
-  "打开时，对方在「详情」里能实时看到 Agent 跑的命令、读写的文件和中途说的话（已遮掉密钥）。关闭时只看到「执行中」这类精简状态。": "When on, they can watch agents' commands, files and interim notes live under Details (secrets are masked). When off, they only see brief statuses like “Running”."
+  "打开时，对方在「详情」里能实时看到 Agent 跑的命令、读写的文件和中途说的话（已遮掉密钥）。关闭时只看到「执行中」这类精简状态。": "When on, they can watch agents' commands, files and interim notes live under Details (secrets are masked). When off, they only see brief statuses like “Running”.",
+  "上一张": "Previous",
+  "上一张（←）": "Previous (←)",
+  "下一张": "Next",
+  "下一张（→）": "Next (→)",
+  "缩小": "Zoom out",
+  "缩小（-）": "Zoom out (-)",
+  "放大": "Zoom in",
+  "放大（+）": "Zoom in (+)",
+  "复位缩放": "Reset zoom",
+  "复位（0）": "Reset (0)"
 }

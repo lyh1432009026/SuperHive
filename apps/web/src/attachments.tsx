@@ -451,17 +451,190 @@ function FileAttachment({
   );
 }
 
-function Lightbox({ url, name, onClose }: { url: string; name: string; onClose: () => void }) {
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 8;
+const clampZoom = (value: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
+
+/**
+ * 图片查看器：同一条消息里的多张图用 ← → 切换；滚轮、+ / -、双击缩放，放大后可拖动，0 复位；Esc 关闭。
+ */
+function Lightbox({
+  images,
+  index,
+  base,
+  token,
+  onIndex,
+  onClose,
+}: {
+  images: Attachment[];
+  index: number;
+  base: string;
+  token: string | undefined;
+  onIndex: (index: number) => void;
+  onClose: () => void;
+}) {
+  const current = images[index]!;
+  const { url, error } = useAttachmentUrl(base, token, current.id, true);
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const drag = useRef<{ x: number; y: number; ox: number; oy: number } | undefined>(undefined);
+  const count = images.length;
+  const go = useCallback(
+    (step: number) => {
+      if (count < 2) return;
+      onIndex((index + step + count) % count);
+    },
+    [count, index, onIndex],
+  );
+  const zoomTo = useCallback((next: number) => {
+    const value = clampZoom(next);
+    setZoom(value);
+    if (value === 1) setOffset({ x: 0, y: 0 });
+  }, []);
+
+  // 换图时复位缩放；相邻的图预先取回，切换不用等
+  useEffect(() => {
+    setZoom(1);
+    setOffset({ x: 0, y: 0 });
+    if (!token || count < 2) return;
+    for (const step of [1, -1]) {
+      void fetchAttachmentUrl(base, token, images[(index + step + count) % count]!.id).catch(
+        () => undefined,
+      );
+    }
+  }, [base, count, images, index, token]);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
+      else if (event.key === "ArrowRight") go(1);
+      else if (event.key === "ArrowLeft") go(-1);
+      else if (event.key === "+" || event.key === "=") zoomTo(zoom * 1.5);
+      else if (event.key === "-" || event.key === "_") zoomTo(zoom / 1.5);
+      else if (event.key === "0") zoomTo(1);
+      else return;
+      event.preventDefault();
+      event.stopPropagation();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [go, onClose, zoom, zoomTo]);
+
   return createPortal(
-    <div className="attachment-lightbox" role="dialog" aria-label={name} onClick={onClose}>
-      <img src={url} alt={name} onClick={(event) => event.stopPropagation()} />
+    <div
+      className="attachment-lightbox"
+      role="dialog"
+      aria-modal="true"
+      aria-label={current.name}
+      onClick={onClose}
+      onWheel={(event) => {
+        if (!url) return;
+        zoomTo(zoom * (event.deltaY < 0 ? 1.15 : 1 / 1.15));
+      }}
+    >
+      <div className="attachment-lightbox-stage">
+        {url ? (
+          <img
+            src={url}
+            alt={current.name}
+            draggable={false}
+            className={zoom > 1 ? "zoomed" : undefined}
+            style={{
+              transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+            }}
+            onClick={(event) => event.stopPropagation()}
+            onDoubleClick={() => zoomTo(zoom > 1 ? 1 : 2.5)}
+            onPointerDown={(event) => {
+              if (zoom <= 1) return;
+              event.currentTarget.setPointerCapture(event.pointerId);
+              drag.current = {
+                x: event.clientX,
+                y: event.clientY,
+                ox: offset.x,
+                oy: offset.y,
+              };
+            }}
+            onPointerMove={(event) => {
+              const start = drag.current;
+              if (!start) return;
+              setOffset({
+                x: start.ox + event.clientX - start.x,
+                y: start.oy + event.clientY - start.y,
+              });
+            }}
+            onPointerUp={() => {
+              drag.current = undefined;
+            }}
+          />
+        ) : (
+          <span className="attachment-lightbox-status">{error ?? t("加载中…")}</span>
+        )}
+      </div>
+      {count > 1 && (
+        <>
+          <button
+            type="button"
+            className="attachment-lightbox-nav prev"
+            aria-label={t("上一张")}
+            title={t("上一张（←）")}
+            onClick={(event) => {
+              event.stopPropagation();
+              go(-1);
+            }}
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            className="attachment-lightbox-nav next"
+            aria-label={t("下一张")}
+            title={t("下一张（→）")}
+            onClick={(event) => {
+              event.stopPropagation();
+              go(1);
+            }}
+          >
+            ›
+          </button>
+        </>
+      )}
+      <div className="attachment-lightbox-toolbar" onClick={(event) => event.stopPropagation()}>
+        {count > 1 && (
+          <span className="attachment-lightbox-count">
+            {index + 1} / {count}
+          </span>
+        )}
+        <span className="attachment-lightbox-name" title={current.name}>
+          {current.name}
+        </span>
+        <button
+          type="button"
+          aria-label={t("缩小")}
+          title={t("缩小（-）")}
+          disabled={zoom <= MIN_ZOOM}
+          onClick={() => zoomTo(zoom / 1.5)}
+        >
+          −
+        </button>
+        <button
+          type="button"
+          className="attachment-lightbox-zoom"
+          aria-label={t("复位缩放")}
+          title={t("复位（0）")}
+          onClick={() => zoomTo(1)}
+        >
+          {Math.round(zoom * 100)}%
+        </button>
+        <button
+          type="button"
+          aria-label={t("放大")}
+          title={t("放大（+）")}
+          disabled={zoom >= MAX_ZOOM}
+          onClick={() => zoomTo(zoom * 1.5)}
+        >
+          +
+        </button>
+      </div>
       <button
         type="button"
         className="attachment-lightbox-close"
@@ -484,7 +657,7 @@ export function MessageAttachments({
   base: string;
   token: string | undefined;
 }): ReactNode {
-  const [open, setOpen] = useState<{ url: string; name: string }>();
+  const [open, setOpen] = useState<number>();
   const images = attachments.filter((item) => item.kind === "image");
   const files = attachments.filter((item) => item.kind !== "image");
   const close = useCallback(() => setOpen(undefined), []);
@@ -492,13 +665,13 @@ export function MessageAttachments({
     <div className="message-attachments">
       {images.length > 0 && (
         <div className={`message-images count-${Math.min(images.length, 3)}`}>
-          {images.map((item) => (
+          {images.map((item, index) => (
             <ImageAttachment
               key={item.id}
               attachment={item}
               base={base}
               token={token}
-              onOpen={(url) => setOpen({ url, name: item.name })}
+              onOpen={() => setOpen(index)}
             />
           ))}
         </div>
@@ -506,7 +679,16 @@ export function MessageAttachments({
       {files.map((item) => (
         <FileAttachment key={item.id} attachment={item} base={base} token={token} />
       ))}
-      {open && <Lightbox url={open.url} name={open.name} onClose={close} />}
+      {open !== undefined && images[open] && (
+        <Lightbox
+          images={images}
+          index={open}
+          base={base}
+          token={token}
+          onIndex={setOpen}
+          onClose={close}
+        />
+      )}
     </div>
   );
 }

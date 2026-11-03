@@ -1005,7 +1005,8 @@ export class AgentBridge {
       await this.store.save(this.state);
       withUsage(active.messages, {
         status: "uncertain",
-        detail: "执行结果未知，已禁止自动重放；请先核对已执行操作与相关进程，再决定是否手动重试。",
+        // 带上 Runtime 给的具体原因（API 限流、流中断、停止未确认……）
+        detail: `${error.message.slice(0, 380)} 已禁止自动重放；请先核对已执行操作再决定是否重试。`,
       });
       return;
     }
