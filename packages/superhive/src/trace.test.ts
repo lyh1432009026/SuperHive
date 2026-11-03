@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { ClaudeStream } from "./claude-stream.js";
 import type { TraceStep } from "./hive-protocol.js";
-import { claudeToolSummary, redactTrace, sanitizeTraceStep, traceSummary } from "./trace.js";
+import {
+  claudeToolSummary,
+  isMutatingStep,
+  redactTrace,
+  sanitizeTraceStep,
+  traceSummary,
+} from "./trace.js";
 
 describe("execution trace", () => {
   it("masks common secrets and the home directory before anything leaves the bridge", () => {
@@ -82,5 +88,36 @@ describe("execution trace", () => {
     ]);
     expect(steps[4]).toMatchObject({ id: "t1", tool: "command", name: "Bash" });
     expect(steps[4]!.endedAt).toBeDefined();
+  });
+});
+
+describe("isMutatingStep", () => {
+  const step = (tool: TraceStep["tool"], summary: string, name?: string): TraceStep => ({
+    id: "x",
+    kind: "tool",
+    tool,
+    summary,
+    ...(name ? { name } : {}),
+    startedAt: new Date().toISOString(),
+  });
+  it("treats reads, searches and plainly read-only commands as safe to re-run", () => {
+    expect(isMutatingStep(step("read", "src/a.ts"))).toBe(false);
+    expect(isMutatingStep(step("search", "TODO"))).toBe(false);
+    expect(isMutatingStep(step("command", "git status && git log --oneline -3"))).toBe(false);
+    expect(isMutatingStep(step("command", "cd apps/web && ls -la | wc -l"))).toBe(false);
+    expect(
+      isMutatingStep(step("collaboration", "hive_room_read", "mcp__hive__hive_room_read")),
+    ).toBe(false);
+  });
+  it("treats edits, unknown or redirecting commands and messages as side effects", () => {
+    expect(isMutatingStep(step("write", "src/a.ts"))).toBe(true);
+    expect(isMutatingStep(step("command", "git commit -m x"))).toBe(true);
+    expect(isMutatingStep(step("command", "pnpm test"))).toBe(true);
+    expect(isMutatingStep(step("command", "echo hi > a.txt"))).toBe(true);
+    expect(isMutatingStep(step("command", "sed -i s/a/b/ f"))).toBe(true);
+    expect(
+      isMutatingStep(step("collaboration", "hive_message_send", "mcp__hive__hive_message_send")),
+    ).toBe(true);
+    expect(isMutatingStep(step("other", "canva.create"))).toBe(true);
   });
 });

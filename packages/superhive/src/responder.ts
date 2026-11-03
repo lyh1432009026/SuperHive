@@ -65,6 +65,30 @@ export class AgentNonRetryableError extends Error {
   }
 }
 
+/** 失败说明的开头：网页据此把「重试」按钮显示为「继续」（与 @superhive/protocol 保持一致） */
+export const UPSTREAM_FAILURE_PREFIX = "上游模型服务出错";
+
+/**
+ * 上游模型服务出错（限流、过载、5xx、连接中断）导致这一轮中途结束：Runtime 进程已正常退出、原因明确，
+ * 不会有残留的执行。threadId 是这一轮所在的会话，接着它继续就能看到已经做过的步骤。
+ */
+export class AgentUpstreamError extends Error {
+  constructor(
+    readonly reason: string,
+    readonly threadId?: string,
+  ) {
+    super(`${UPSTREAM_FAILURE_PREFIX}：${reason}`);
+    this.name = "AgentUpstreamError";
+  }
+}
+
+/** 看起来是上游模型服务的问题（而不是工具或任务本身失败） */
+export function isUpstreamFailure(text: string): boolean {
+  return /API Error|\b(?:429|5\d\d)\b|rate.?limit|overload|too many requests|timed? ?out|ECONNRESET|ETIMEDOUT|socket hang up|network error|stream (?:error|disconnected)|限流|重试渠道|服务繁忙/i.test(
+    text,
+  );
+}
+
 export class AgentExecutionUncertainError extends Error {
   constructor(message: string) {
     super(message);

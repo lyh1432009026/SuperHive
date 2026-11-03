@@ -13,6 +13,8 @@ import { codexMcpDisableOverrides, readAgentSettings } from "./mcp-servers.js";
 import {
   AgentCancelledError,
   AgentExecutionUncertainError,
+  AgentUpstreamError,
+  isUpstreamFailure,
   AgentNonRetryableError,
   type AgentAccessMode,
   type AgentReply,
@@ -801,6 +803,20 @@ export class CodexAppServerResponder implements AgentResponder {
     if (turn.cancelled || (status === "interrupted" && turn.signal?.aborted)) {
       this.finishTurn(turn, new AgentCancelledError());
       return;
+    }
+    if (status === "failed" && result?.error) {
+      const detail = JSON.stringify(result.error);
+      if (isUpstreamFailure(detail)) {
+        const message =
+          typeof result.error.message === "string" && result.error.message.trim()
+            ? result.error.message
+            : detail;
+        this.finishTurn(
+          turn,
+          new AgentUpstreamError(redactTrace(truncate(message, 240)), turn.threadId),
+        );
+        return;
+      }
     }
     if (status === "failed") {
       // 带上 Codex 给的失败原因（限流、额度、上下文超长……），不然只看得到「失败」不知道为什么

@@ -10,6 +10,8 @@ import { enabledClaudeMcpServers, readAgentSettings, type AgentSettings } from "
 import {
   AgentCancelledError,
   AgentExecutionUncertainError,
+  AgentUpstreamError,
+  isUpstreamFailure,
   type AgentAccessMode,
   type AgentReply,
   type AgentReplyInput,
@@ -163,6 +165,13 @@ export class ClaudeCodeResponder implements AgentResponder {
       throw new AgentExecutionUncertainError(
         "Claude Code 返回了无法解析的最终结果，执行结果未知。",
       );
+    // 上游模型服务出错（限流、过载……）：进程已正常结束、原因明确，交给 Bridge 决定是否接着继续
+    if (payload.is_error && payload.result?.trim() && isUpstreamFailure(payload.result)) {
+      throw new AgentUpstreamError(
+        redactTrace(payload.result.replace(/\s+/g, " ").trim()).slice(0, 240),
+        payload.session_id ?? input.threadId,
+      );
+    }
     if (payload.is_error || !payload.result?.trim()) {
       // 带上 Claude Code 给的原因（多半是 API 限流、额度用完），否则只看得到「结果未知」不知道为什么
       const reason =

@@ -981,5 +981,7 @@
   "放大": "Zoom in",
   "放大（+）": "Zoom in (+)",
   "复位缩放": "Reset zoom",
-  "复位（0）": "Reset (0)"
+  "复位（0）": "Reset (0)",
+  "继续": "Continue",
+  "接着原会话从中断处继续，不会从头重做": "Pick up the same session where it stopped instead of starting over"
 }

@@ -6,6 +6,7 @@ import {
   delegationLines,
   delegationSummary,
   invocationStatusLabel,
+  isUpstreamInterrupted,
   waitingInvocationForQuestion,
 } from "./invocations";
 
@@ -135,5 +136,19 @@ describe("waiting for a human answer", () => {
   it("显示为等你回答，并允许人放弃等待", () => {
     expect(invocationStatusLabel(waiting, true)).toBe("等你回答");
     expect(canCancelInvocation(waiting)).toBe(true);
+  });
+});
+
+describe("isUpstreamInterrupted", () => {
+  it("只把上游模型服务出错中断的失败当作可「继续」", () => {
+    const failed = (detail: string) =>
+      ({ id: "i", messageId: "m", status: "failed", detail, attempts: 1 }) as Invocation;
+    expect(isUpstreamInterrupted(failed("上游模型服务出错：API Error: 429。点「继续」…"))).toBe(
+      true,
+    );
+    expect(isUpstreamInterrupted(failed("连续失败 3 次：boom"))).toBe(false);
+    expect(
+      isUpstreamInterrupted({ ...failed("上游模型服务出错：x"), status: "running" } as Invocation),
+    ).toBe(false);
   });
 });

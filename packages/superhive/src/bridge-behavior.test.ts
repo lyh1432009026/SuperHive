@@ -14,6 +14,7 @@ import {
   AgentCancelledError,
   AgentExecutionUncertainError,
   AgentNonRetryableError,
+  AgentUpstreamError,
   type AgentReply,
   type AgentReplyInput,
   type AgentResponder,
@@ -106,6 +107,10 @@ class FakeRoom {
     this.messages.push(reply);
     return reply;
   }
+  traces: Array<{ messageId: string; steps: unknown[] }> = [];
+  trace(messageId: string, steps: unknown[]) {
+    this.traces.push({ messageId, steps });
+  }
   statuses(messageId: string) {
     return this.reports
       .filter((report) => report.messageId === messageId)
@@ -189,7 +194,12 @@ describe("AgentBridge", () => {
         persona: "p",
         provider: "codex",
         token: "t",
-        tuning: { batchWindowMs: 20, offlineRetryIntervalMs: 5 },
+        tuning: {
+          batchWindowMs: 20,
+          offlineRetryIntervalMs: 5,
+          traceFlushMs: 5,
+          upstreamRetryDelaysMs: [30, 60],
+        },
       },
       store,
       responder,
@@ -725,6 +735,88 @@ describe("AgentBridge", () => {
     expect(failed?.detail).toContain("连续失败 3 次");
     expect((await store.load())?.processedMessageIds).toContain(mention.id);
   }, 10_000);
+
+  it("continues automatically on the same session after an upstream failure when nothing was changed", async () => {
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    // 只读了文件、跑了只读命令
+    const now = new Date().toISOString();
+    responder.calls[0]!.onTrace?.({
+      id: "r",
+      kind: "tool",
+      tool: "read",
+      summary: "a.ts",
+      startedAt: now,
+    });
+    responder.calls[0]!.onTrace?.({
+      id: "c",
+      kind: "tool",
+      tool: "command",
+      summary: "git status && ls -la",
+      startedAt: now,
+    });
+    responder.fail(new AgentUpstreamError("API Error: 429 rate limited", "session-upstream"));
+    await waitUntil(() =>
+      room.reports.some(
+        (report) => report.messageId === mention.id && report.progress?.includes("自动继续"),
+      ),
+    );
+    expect(room.statuses(mention.id)).not.toContain("failed");
+    // 等一会儿接着原会话继续，并提醒从断点往下做
+    await waitUntil(() => responder.calls.length === 2);
+    expect(responder.calls[1]!.threadId).toBe("session-upstream");
+    expect(responder.calls[1]!.prompt).toContain("因上游模型服务出错在中途中断：API Error: 429");
+    responder.finish("做完了", "session-upstream");
+    await waitUntil(() => room.statuses(mention.id).includes("completed"));
+  });
+
+  it("stops for a human to continue after an upstream failure once something was changed", async () => {
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    responder.calls[0]!.onTrace?.({
+      id: "w",
+      kind: "tool",
+      tool: "write",
+      summary: "src/a.ts",
+      startedAt: new Date().toISOString(),
+    });
+    responder.fail(new AgentUpstreamError("API Error: 529 overloaded", "session-x"));
+    await waitUntil(() => room.statuses(mention.id).includes("failed"));
+    const failed = room.reports.find((report) => report.status === "failed");
+    expect(failed?.detail).toMatch(/^上游模型服务出错：API Error: 529 overloaded/);
+    expect(failed?.detail).toContain("点「继续」");
+    await flush();
+    expect(responder.calls).toHaveLength(1);
+
+    // 人点「继续」（即重试）：接着原会话、带上断点提示
+    room.handlers.onMention(mention, mention.seq, true);
+    await waitUntil(() => responder.calls.length === 2);
+    expect(responder.calls[1]!.threadId).toBe("session-x");
+    expect(responder.calls[1]!.prompt).toContain("不要重复已经完成的");
+    responder.finish("继续做完", "session-x");
+    await waitUntil(() => room.statuses(mention.id).includes("completed"));
+  });
+
+  it("gives up auto-continuing after the configured attempts", async () => {
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    for (let call = 1; call <= 3; call += 1) {
+      await waitUntil(() => responder.calls.length === call);
+      responder.fail(new AgentUpstreamError("rate limit exceeded"));
+    }
+    await waitUntil(() => room.statuses(mention.id).includes("failed"));
+    expect(room.reports.find((report) => report.status === "failed")?.detail).toContain(
+      "已自动继续 2 次仍未成功",
+    );
+  });
 
   it("sends the full context only for new sessions or periodically", async () => {
     await startBridge(baseState());

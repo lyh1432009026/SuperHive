@@ -13,6 +13,7 @@ import {
   AgentCancelledError,
   AgentExecutionUncertainError,
   AgentNonRetryableError,
+  AgentUpstreamError,
 } from "./responder.js";
 
 const options = {
@@ -505,7 +506,7 @@ describe("CodexAppServerResponder", () => {
             method: "turn/completed",
             params: {
               threadId: message.params.threadId,
-              turn: { id: "t", status: "failed", error: { message: "rate limited" } },
+              turn: { id: "t", status: "failed", error: { message: "sandbox denied the patch" } },
             },
           });
         },
@@ -514,9 +515,37 @@ describe("CodexAppServerResponder", () => {
     const failure = responder.reply({ instructions: "r", prompt: "p" });
     await expect(failure).rejects.toBeInstanceOf(AgentNonRetryableError);
     // 失败原因要带出来（限流、额度……），不能只说「失败」
-    await expect(failure).rejects.toThrow("Codex 回合已报告失败：rate limited");
+    await expect(failure).rejects.toThrow("Codex 回合已报告失败：sandbox denied the patch");
     // 失败后可以继续下一回合
     expect((responder as any).active).toBeUndefined();
+  });
+
+  it("reports an upstream rate limit as an upstream failure on the same thread", async () => {
+    const { responder } = setup(
+      defaultHandlers({
+        "turn/start": (message, server) => {
+          server.emit({ id: message.id, result: { turn: { id: "t" } } });
+          server.emit({
+            method: "turn/completed",
+            params: {
+              threadId: message.params.threadId,
+              turn: {
+                id: "t",
+                status: "failed",
+                error: {
+                  message: "rate limit exceeded: token rate limit",
+                  codexErrorInfo: "rate_limit_exceeded",
+                },
+              },
+            },
+          });
+        },
+      }),
+    );
+    const failure = responder.reply({ instructions: "r", prompt: "p" });
+    await expect(failure).rejects.toBeInstanceOf(AgentUpstreamError);
+    await expect(failure).rejects.toThrow("上游模型服务出错：rate limit exceeded");
+    expect(((await failure.catch((error) => error)) as AgentUpstreamError).threadId).toBeTruthy();
   });
 
   it("rejects an unexpected interruption that was not requested", async () => {

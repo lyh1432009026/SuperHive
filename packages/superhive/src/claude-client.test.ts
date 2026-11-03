@@ -4,7 +4,11 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ClaudeCodeResponder } from "./claude-client.js";
 import type { CommandRunner } from "./command-runner.js";
-import { AgentCancelledError, AgentExecutionUncertainError } from "./responder.js";
+import {
+  AgentCancelledError,
+  AgentExecutionUncertainError,
+  AgentUpstreamError,
+} from "./responder.js";
 
 const hive = {
   serverUrl: "http://localhost:8787",
@@ -192,6 +196,7 @@ describe("ClaudeCodeResponder", () => {
         stdout: JSON.stringify({
           is_error: true,
           result: "API Error: 429 rate limited, key sk-ant-abcdefghijklmnopqrstuvwxyz",
+          session_id: "session-1",
         }),
         stderr: "",
       }),
@@ -199,6 +204,10 @@ describe("ClaudeCodeResponder", () => {
     const failure = throttled.reply({ instructions: "rules", prompt: "context" });
     await expect(failure).rejects.toThrow(/API Error: 429 rate limited/);
     await expect(failure).rejects.not.toThrow(/abcdefghijklmnopqrstuvwxyz/);
+    // 上游出错单独归类，并带上这一轮的会话，Bridge 才能接着它继续
+    const error = (await failure.catch((cause: unknown) => cause)) as AgentUpstreamError;
+    expect(error).toBeInstanceOf(AgentUpstreamError);
+    expect(error.threadId).toBe("session-1");
   });
 
   it("loads only the MCP servers left enabled in the agent settings file", async () => {

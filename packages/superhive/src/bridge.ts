@@ -10,6 +10,8 @@ import {
 import {
   AgentExecutionUncertainError,
   AgentNonRetryableError,
+  AgentUpstreamError,
+  UPSTREAM_FAILURE_PREFIX,
   isCancelled,
   type AgentAccessMode,
   type AgentReply,
@@ -30,7 +32,7 @@ import {
   type Snapshot,
 } from "./room-client.js";
 import { StateStore, type AgentState } from "./state-store.js";
-import { sanitizeTraceStep } from "./trace.js";
+import { isMutatingStep, sanitizeTraceStep } from "./trace.js";
 import type { TraceStep } from "./hive-protocol.js";
 import { AttachmentCache } from "./attachment-cache.js";
 import {
@@ -96,6 +98,8 @@ export type BridgeTuning = {
   progressThrottleMs?: number;
   /** 执行过程攒批上报的间隔 */
   traceFlushMs?: number;
+  /** 上游模型服务出错、这一轮又没改过东西时，自动接着继续前的等待时间（次数即长度） */
+  upstreamRetryDelaysMs?: number[];
   /** 多久未收到 Runtime 新进度时提示待核实；只告警，不自动取消或重试 */
   progressStaleMs?: number;
   /** 隔多少轮或多久重新发送一次完整上下文 */
@@ -126,6 +130,8 @@ type ActiveBatch = {
   cancelled: Set<string>;
   /** Provider 回合仍在进行、可以吸收 steer；回合结束后新消息改为排队 */
   accepting: boolean;
+  /** 这一轮做过可能有副作用的操作（改文件、跑非只读命令、发消息……）：中断后不自动继续 */
+  mutated?: boolean;
   /** 本轮用量：Provider 交出的原始观测、补全后的结果，以及是否已经随某次上报发出 */
   turn?: {
     startedAt: number;
@@ -156,6 +162,10 @@ export class AgentBridge {
   // 人在 UI 点了"停止"但消息尚未到达本地队列（例如断线期间）的提及
   private readonly cancelledEarly = new Set<string>();
   private readonly attempts = new Map<string, number>();
+  /** 上游出错后已自动继续的次数 */
+  private readonly upstreamRetries = new Map<string, number>();
+  /** 上游出错中断的原因：下一轮（自动继续或人点「继续」）开头提示 Agent 从断点接着做 */
+  private readonly resumeNotes = new Map<string, string>();
   // 同一组触发消息在本地重试时复用 executionId，保证回复的幂等键不变
   private readonly executionIds = new Map<string, string>();
   private readonly room: RoomClient;
@@ -197,6 +207,7 @@ export class AgentBridge {
       heartbeatMs: 60_000,
       progressThrottleMs: 3_000,
       traceFlushMs: 300,
+      upstreamRetryDelaysMs: [60_000, 180_000],
       progressStaleMs: 120_000,
       fullPromptEveryTurns: 8,
       fullPromptEveryMs: 30 * 60_000,
@@ -580,6 +591,7 @@ export class AgentBridge {
       messageId,
     ].slice(-1000);
     this.attempts.delete(messageId);
+    this.upstreamRetries.delete(messageId);
     this.executionIds.delete(messageId);
   }
 
@@ -671,7 +683,18 @@ export class AgentBridge {
       }, this.tuning.heartbeatMs);
       heartbeat.unref?.();
 
-      const prompt = await this.buildPrompt(this.applyTopicBoundary(context.messages), messages);
+      const built = await this.buildPrompt(this.applyTopicBoundary(context.messages), messages);
+      // 上一轮因上游出错中断：提醒 Agent 接着原会话从断点继续，别把已经做过的再做一遍
+      const interrupted = messages
+        .map((message) => this.resumeNotes.get(message.id))
+        .find((note) => note !== undefined);
+      for (const message of messages) this.resumeNotes.delete(message.id);
+      const prompt = interrupted
+        ? {
+            ...built,
+            text: `（系统提示）你上一轮处理下面这条消息时，因上游模型服务出错在中途中断：${interrupted}\n会话已接上。请先根据你已经做过的操作确认进度，从中断处继续把原任务做完；不要重复已经完成的、有副作用的操作（改文件、提交、发消息等）。\n\n${built.text}`,
+          }
+        : built;
       this.log(
         `[hive] 正在处理 ${messages.map((message) => `#${message.seq}`).join("、")}（来自 ${[...new Set(messages.map((message) => message.senderName))].join("、")}）`,
       );
@@ -708,6 +731,7 @@ export class AgentBridge {
         },
         onTrace: (step) => {
           if (this.active !== active || active.controller.signal.aborted) return;
+          if (isMutatingStep(step)) active.mutated = true;
           const clean = sanitizeTraceStep(step);
           pendingTrace.set(clean.id, { ...pendingTrace.get(clean.id), ...clean });
           traceTimer ??= setTimeout(flushTrace, this.tuning.traceFlushMs);
@@ -983,6 +1007,10 @@ export class AgentBridge {
 
   private async handleBatchError(active: ActiveBatch, error: unknown): Promise<void> {
     delete this.state.inflight;
+    if (error instanceof AgentUpstreamError && !isCancelled(error, active.controller.signal)) {
+      await this.handleUpstreamError(active, error);
+      return;
+    }
     const outcome: NonNullable<AgentUsage["outcome"]> =
       error instanceof AgentExecutionUncertainError
         ? "uncertain"
@@ -1066,6 +1094,84 @@ export class AgentBridge {
       1_000 * 2 ** (attempt - 1),
     );
     timer.unref?.();
+  }
+
+  /**
+   * 上游模型服务出错（限流、过载、5xx、断流）：进程已正常退出、原因明确，不会有残留执行。
+   * 这一轮没做过有副作用的操作就等一会儿接着原会话自动继续（次数与等待时间见 tuning.upstreamRetryDelaysMs）；
+   * 做过的、或次数用完，就报失败并写明原因，由人点「继续」（即重试），同样接着原会话从断点往下做。
+   */
+  private async handleUpstreamError(active: ActiveBatch, error: AgentUpstreamError): Promise<void> {
+    this.settleUsage(active, "failed");
+    // 接着出错的那个会话继续：它记得这一轮已经做过的步骤
+    if (error.threadId) this.state.threadId = error.threadId;
+    const live = active.messages.filter((message) => !active.cancelled.has(message.id));
+    for (const message of live) this.resumeNotes.set(message.id, error.reason);
+    const used = Math.max(0, ...live.map((message) => this.upstreamRetries.get(message.id) ?? 0));
+    const delay = this.tuning.upstreamRetryDelaysMs[used];
+    if (!active.mutated && delay !== undefined && live.length > 0) {
+      for (const message of live) this.upstreamRetries.set(message.id, used + 1);
+      await this.store.save(this.state);
+      const wait =
+        delay >= 60_000
+          ? `${Math.round(delay / 60_000)} 分钟`
+          : `${Math.max(1, Math.round(delay / 1000))} 秒`;
+      this.log(`[hive] ${error.message}；这一轮没有改动，${wait}后自动继续`);
+      for (const message of live) {
+        this.room.report({
+          messageId: message.id,
+          status: "running",
+          progress:
+            `${UPSTREAM_FAILURE_PREFIX}，${wait}后自动继续（第 ${used + 1}/${this.tuning.upstreamRetryDelaysMs.length} 次）`.slice(
+              0,
+              200,
+            ),
+          detail: error.message.slice(0, 500),
+          ...this.usageReport(active),
+        });
+      }
+      const timer = setTimeout(() => {
+        if (this.stopped) return;
+        const resume: ChatMessage[] = [];
+        for (const message of live) {
+          if (this.isLocal(message.id)) continue;
+          // 等待期间被人停止
+          if (this.cancelledEarly.delete(message.id)) {
+            this.rememberProcessed(message.id);
+            this.resumeNotes.delete(message.id);
+            this.room.report({
+              messageId: message.id,
+              status: "cancelled",
+              detail: "等待自动继续时被停止",
+            });
+            continue;
+          }
+          resume.push(message);
+        }
+        if (resume.length === 0) return;
+        this.pending.unshift(...resume);
+        void this.drain();
+      }, delay);
+      timer.unref?.();
+      return;
+    }
+    for (const message of active.messages) {
+      this.rememberProcessed(message.id);
+      this.upstreamRetries.delete(message.id);
+    }
+    await this.store.save(this.state);
+    const why = active.mutated
+      ? "这一轮已经做过改动，不自动重跑"
+      : `已自动继续 ${this.tuning.upstreamRetryDelaysMs.length} 次仍未成功`;
+    this.log(`[hive] ${error.message}；${why}，等人点「继续」`);
+    for (const message of live) {
+      this.room.report({
+        messageId: message.id,
+        status: "failed",
+        detail: `${error.message.slice(0, 380)}。${why}；点「继续」会接着原会话从中断处往下做。`,
+        ...this.usageReport(active),
+      });
+    }
   }
 
   /**

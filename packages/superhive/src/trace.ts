@@ -66,6 +66,97 @@ export function sanitizeTraceStep(step: TraceStep): TraceStep {
   };
 }
 
+/** 不改东西的 Hive 工具（读消息、成员、白板、附件、定时列表） */
+const readOnlyHiveTools =
+  /hive_(?:room_read|members_list|board_read|attachment_read|schedule_list|wait)\b/;
+
+/** 常见的只读命令（第一个词）；带重定向或不在名单里的都按「可能有副作用」算 */
+const readOnlyCommands = new Set([
+  "cat",
+  "head",
+  "tail",
+  "less",
+  "ls",
+  "pwd",
+  "echo",
+  "wc",
+  "find",
+  "grep",
+  "rg",
+  "ag",
+  "fd",
+  "tree",
+  "stat",
+  "file",
+  "which",
+  "whoami",
+  "date",
+  "env",
+  "printenv",
+  "du",
+  "df",
+  "ps",
+  "sort",
+  "uniq",
+  "cut",
+  "diff",
+  "jq",
+  "sed",
+  "awk",
+  "nl",
+  "true",
+]);
+const readOnlyGit = new Set([
+  "status",
+  "log",
+  "diff",
+  "show",
+  "branch",
+  "rev-parse",
+  "ls-files",
+  "blame",
+  "remote",
+  "describe",
+  "shortlog",
+  "grep",
+]);
+
+function readOnlyCommand(command: string): boolean {
+  // 写文件的重定向、后台执行、sed -i 这类原地修改一律不算只读
+  if (/(^|[^<>&|0-9])>{1,2}(?!&)|\bsed\s+-i|\btee\b|&\s*$/.test(command)) return false;
+  return command
+    .split(/&&|\|\||;|\|/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .every((part) => {
+      const words = part.replace(/^(?:cd\s+\S+|[A-Z_]+=\S+)\s*/, "").split(/\s+/);
+      const [head, sub] = words;
+      if (!head) return true;
+      if (head === "cd") return true;
+      if (head === "git") return readOnlyGit.has(sub ?? "");
+      return readOnlyCommands.has(head);
+    });
+}
+
+/**
+ * 这一步可能有副作用吗（改文件、跑不明命令、发消息、调用外部工具……）？
+ * 上游出错中断后，只有一步都没有副作用的回合才自动接着继续；判断宁严勿松。
+ */
+export function isMutatingStep(step: TraceStep): boolean {
+  if (step.kind !== "tool") return false;
+  switch (step.tool) {
+    case "read":
+    case "search":
+      return false;
+    case "command":
+      return !readOnlyCommand(step.summary ?? "");
+    case "collaboration":
+      return !readOnlyHiveTools.test(`${step.name ?? ""} ${step.summary ?? ""}`);
+    default:
+      return true;
+  }
+}
+
 const str = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim() ? value : undefined;
 

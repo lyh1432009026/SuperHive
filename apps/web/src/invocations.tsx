@@ -37,6 +37,21 @@ export function currentPausedInvocations(
   );
 }
 
+/** 上游模型服务出错中断（Bridge 写的说明以此开头）：重试即接着原会话继续 */
+export const UPSTREAM_FAILURE_PREFIX = "上游模型服务出错";
+
+export function isUpstreamInterrupted(invocation: Invocation): boolean {
+  return (
+    invocation.status === "failed" &&
+    Boolean(invocation.detail?.startsWith(UPSTREAM_FAILURE_PREFIX))
+  );
+}
+
+function retryLabel(invocation: Invocation): string {
+  if (invocation.blockReason === "guest_approval") return t("批准");
+  return isUpstreamInterrupted(invocation) ? t("继续") : t("重试");
+}
+
 export function canRetryInvocation(invocation: Invocation): boolean {
   return (
     invocation.status === "failed" ||
@@ -465,11 +480,16 @@ export function InvocationChips({
                 (invocation.blockReason !== "guest_approval" || isOwner) && (
                   <button
                     type="button"
-                    className={`invocation-action ${invocation.blockReason === "guest_approval" ? "primary" : ""}`}
-                    aria-label={`${invocation.blockReason === "guest_approval" ? t("批准") : t("重试")} @${invocation.agentName}`}
+                    className={`invocation-action ${invocation.blockReason === "guest_approval" || isUpstreamInterrupted(invocation) ? "primary" : ""}`}
+                    aria-label={`${retryLabel(invocation)} @${invocation.agentName}`}
+                    title={
+                      isUpstreamInterrupted(invocation)
+                        ? t("接着原会话从中断处继续，不会从头重做")
+                        : undefined
+                    }
                     onClick={() => onRetry(invocation)}
                   >
-                    {invocation.blockReason === "guest_approval" ? t("批准") : t("重试")}
+                    {retryLabel(invocation)}
                   </button>
                 )
               )}
