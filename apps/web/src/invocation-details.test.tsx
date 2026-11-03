@@ -265,3 +265,16 @@ describe("inserting a queued message into the running task", () => {
     expect(screen.queryByRole("button", { name: /插进/ })).toBeNull();
   });
 });
+
+describe("queued status line", () => {
+  it("does not repeat the server's delivery note next to the same status label", () => {
+    const queued: Invocation = {
+      ...invocation,
+      status: "queued",
+      receivedAt: at,
+      detail: "已送达，排队中",
+    };
+    render(<InvocationChips {...props} invocations={[queued]} />);
+    expect(screen.getAllByText("已送达，排队中")).toHaveLength(1);
+  });
+});

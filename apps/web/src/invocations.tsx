@@ -440,7 +440,9 @@ export function InvocationChips({
               {/* 插话的进展（正在插入、已并入 #n、没插进去转回排队……） */}
               {((invocation.status === "running" && !currentStep && !invocation.progress) ||
                 invocation.status === "queued") &&
-                invocation.detail && (
+                invocation.detail &&
+                // 服务端收到确认时写的「已送达，排队中」和状态文字一样，不重复显示
+                invocation.detail !== label && (
                   <span className="invocation-progress">{invocation.detail}</span>
                 )}
               {(invocation.status === "blocked" ||
