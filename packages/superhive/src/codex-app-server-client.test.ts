@@ -511,9 +511,10 @@ describe("CodexAppServerResponder", () => {
         },
       }),
     );
-    await expect(responder.reply({ instructions: "r", prompt: "p" })).rejects.toBeInstanceOf(
-      AgentNonRetryableError,
-    );
+    const failure = responder.reply({ instructions: "r", prompt: "p" });
+    await expect(failure).rejects.toBeInstanceOf(AgentNonRetryableError);
+    // 失败原因要带出来（限流、额度……），不能只说「失败」
+    await expect(failure).rejects.toThrow("Codex 回合已报告失败：rate limited");
     // 失败后可以继续下一回合
     expect((responder as any).active).toBeUndefined();
   });

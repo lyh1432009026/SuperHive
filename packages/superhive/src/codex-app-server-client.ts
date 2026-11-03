@@ -1,4 +1,5 @@
 import { UsageAccumulator, codexBuckets } from "./usage.js";
+import { redactTrace } from "./trace.js";
 import type { AgentUsage, TraceStep } from "./hive-protocol.js";
 import { codexStartupFailure } from "./codex-errors.js";
 import { isMissingCodexThread } from "./codex-client.js";
@@ -802,9 +803,16 @@ export class CodexAppServerResponder implements AgentResponder {
       return;
     }
     if (status === "failed") {
+      // 带上 Codex 给的失败原因（限流、额度、上下文超长……），不然只看得到「失败」不知道为什么
+      const reason =
+        typeof result?.error?.message === "string" && result.error.message.trim()
+          ? `：${redactTrace(truncate(result.error.message, 240))}`
+          : "";
       this.finishTurn(
         turn,
-        new AgentNonRetryableError("Codex 回合已报告失败；可能已执行部分操作，不会自动重放。"),
+        new AgentNonRetryableError(
+          `Codex 回合已报告失败${reason}；可能已执行部分操作，不会自动重放。`,
+        ),
       );
       return;
     }
