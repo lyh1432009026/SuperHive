@@ -63,6 +63,10 @@
 .invocation-details p {
   margin: 8px 0;
 }
+/* 执行过程里的每一步也是 <p>：不吃上面的段落间距，行与行贴紧，像终端一样 */
+.invocation-details .trace-log p {
+  margin: 0;
+}
 .invocation-details-eyebrow,
 .invocation-details-caption {
   margin: 0;
