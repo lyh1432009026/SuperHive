@@ -992,3 +992,23 @@ label.question-option:hover {
 .typing-agent.waiting {
   border-color: var(--accent);
 }
+
+/* 「其它」收起时整行都能点开，不用对准那两个字 */
+.question-option.other:not(.open) {
+  padding: 0;
+}
+
+.question-option.other:not(.open) label,
+.question-option.other:not(.open) .question-other-toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 10px;
+  border-radius: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.question-option.other:not(.open):hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  background: var(--accent-soft);
+}

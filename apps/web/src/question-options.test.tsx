@@ -24,7 +24,8 @@ describe("QuestionOptions", () => {
     fireEvent.click(screen.getByRole("button", { name: /先跑测试/ }));
     expect(onSubmit).toHaveBeenLastCalledWith(["B"]);
 
-    fireEvent.click(screen.getByRole("button", { name: "其它" }));
+    // 点「其它」那一行的任意位置（包括提示文字）都能展开输入框
+    fireEvent.click(screen.getByText("都不合适？点这里自己写"));
     const submit = screen.getByRole("button", { name: "提交" });
     expect(submit).toHaveProperty("disabled", true);
     fireEvent.change(screen.getByLabelText("其它回答"), { target: { value: "都不要" } });
@@ -39,7 +40,8 @@ describe("QuestionOptions", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /先跑测试/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: /提交改动/ }));
     expect(onSubmit).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("checkbox", { name: "其它" }));
+    fireEvent.click(screen.getByText("都不合适？点这里自己写"));
+    expect(screen.getByRole("checkbox", { name: /^其它/ })).toHaveProperty("checked", true);
     fireEvent.change(screen.getByLabelText("其它回答"), { target: { value: "顺便推送" } });
     fireEvent.click(submit);
     // 按题目顺序提交，与点选顺序无关
@@ -54,7 +56,7 @@ describe("QuestionOptions", () => {
     const picked = screen.getByRole("button", { name: /提交改动/ });
     expect(picked).toHaveProperty("disabled", true);
     expect(picked.getAttribute("aria-pressed")).toBe("true");
-    expect(screen.queryByRole("button", { name: "其它" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^其它/ })).toBeNull();
   });
 
   it("等待中但已提交时禁用，避免连点", () => {

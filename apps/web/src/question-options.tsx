@@ -92,6 +92,9 @@ export function QuestionOptions({
                   onChange={() => setOtherOpen((open) => !open)}
                 />
                 <b>{t("其它")}</b>
+                {!otherOpen && (
+                  <span className="question-other-hint">{t("都不合适？点这里自己写")}</span>
+                )}
               </label>
             ) : (
               <button
@@ -101,9 +104,12 @@ export function QuestionOptions({
                 onClick={() => setOtherOpen((open) => !open)}
               >
                 <b>{t("其它")}</b>
+                {!otherOpen && (
+                  <span className="question-other-hint">{t("都不合适？点这里自己写")}</span>
+                )}
               </button>
             )}
-            {otherOpen ? (
+            {otherOpen && (
               <input
                 type="text"
                 className="question-other-input"
@@ -119,8 +125,6 @@ export function QuestionOptions({
                   else if (otherText) onSubmit([], otherText);
                 }}
               />
-            ) : (
-              <span className="question-other-hint">{t("都不合适？点这里自己写")}</span>
             )}
             {!spec.multiple && otherOpen && (
               <button
