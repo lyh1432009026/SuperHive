@@ -79,7 +79,6 @@ const readOnlyCommands = new Set([
   "grep",
   "rg",
   "ag",
-  "tree",
   "stat",
   "file",
   "which",
@@ -88,7 +87,6 @@ const readOnlyCommands = new Set([
   "du",
   "df",
   "ps",
-  "uniq",
   "cut",
   "diff",
   "jq",
@@ -111,8 +109,15 @@ const readOnlyGit = new Set([
 function readOnlyGitCommand(args: string[]): boolean {
   const [sub, ...rest] = args;
   if (!sub) return true;
-  // diff 只有 --output 会写文件
-  if (sub === "diff") return !rest.some((arg) => arg.startsWith("--output"));
+  // 写文件或调用外部程序的参数：任何子命令带上都算改动
+  if (
+    rest.some((arg) =>
+      /^(?:--output|-O|--open-files-in-pager|--ext-diff|--exec|-c\b|--config)/.test(arg),
+    )
+  ) {
+    return false;
+  }
+  if (sub === "diff") return true;
   if (sub === "branch") {
     return rest.every((arg) =>
       /^(?:-a|-r|-v|-vv|--all|--remotes|--list|--show-current|--verbose|--no-color|--contains|--merged|--no-merged)$/.test(
@@ -140,21 +145,27 @@ export function readOnlyCommand(raw: string): boolean {
   // 重定向只放过丢弃错误输出和合并输出
   const withoutSafe = command.replace(/\b2>\s*\/dev\/null|\b2>&1|&>\s*\/dev\/null/g, "");
   if (/>|\btee\b/.test(withoutSafe)) return false;
-  // 末尾 & 是后台执行
-  if (/(^|[^&])&\s*($|\n)/.test(withoutSafe)) return false;
-  return withoutSafe
-    .split(/\n|&&|\|\||;|\|/)
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .every((part) => {
-      const words = part.split(/\s+/);
-      // 前缀的环境变量赋值（FOO=1 cmd）不影响判断
-      while (words[0] && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) words.shift();
-      const [head, ...args] = words;
-      if (!head || head === "cd") return true;
-      if (head === "git") return readOnlyGitCommand(args);
-      return readOnlyCommands.has(head);
-    });
+  return (
+    withoutSafe
+      // 单独的 & 也是命令分隔（后台执行），各段都要判断
+      .split(/\n|&&|\|\||;|\||&/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .every((part) => {
+        const words = part.split(/\s+/);
+        // 环境变量前缀会改变命令行为（GIT_EXTERNAL_DIFF、PAGER……）：只放过语言、颜色这类无害的
+        while (words[0] && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) {
+          if (!/^(?:LANG|LANGUAGE|LC_[A-Z]+|NO_COLOR|TERM|COLUMNS)=/.test(words[0])) return false;
+          words.shift();
+        }
+        const [head, ...args] = words;
+        if (!head || head === "cd") return true;
+        if (head === "git") return readOnlyGitCommand(args);
+        // rg --pre 会对每个文件执行指定的程序
+        if (head === "rg" && args.some((arg) => arg.startsWith("--pre"))) return false;
+        return readOnlyCommands.has(head);
+      })
+  );
 }
 
 /** 不改东西的 Hive 工具（按工具名判断，不看参数正文） */

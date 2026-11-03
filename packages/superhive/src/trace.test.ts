@@ -140,6 +140,17 @@ describe("isMutatingStep", () => {
       "ls 2>err.txt",
       "sleep 100 &",
       "/bin/zsh -lc 'git commit -m x'",
+      "ls & rm a",
+      "ls &rm a",
+      "rg --pre ./x.sh foo",
+      "rg --pre=rm x",
+      "git grep -O'rm' foo",
+      "git log --output=x",
+      "git show --output=x",
+      "uniq in.txt out.txt",
+      "tree -o out.txt",
+      "GIT_EXTERNAL_DIFF=./x git diff",
+      "PAGER=./x git log",
     ]) {
       expect(isMutatingStep(step("command", command)), command).toBe(true);
     }
@@ -149,7 +160,8 @@ describe("isMutatingStep", () => {
       "ls 2>/dev/null",
       "rg TODO src 2>&1 | head",
       "/bin/zsh -lc 'git status && git log --oneline -3'",
-      "FOO=1 git status",
+      "LANG=C git status",
+      "NO_COLOR=1 git diff",
     ]) {
       expect(isMutatingStep(step("command", command)), command).toBe(false);
     }
