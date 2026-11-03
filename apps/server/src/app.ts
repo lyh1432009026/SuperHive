@@ -878,6 +878,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     agent: Participant,
     retry = false,
     steer = false,
+    first = false,
   ): void {
     const target = onlineAgent(message.roomId, agent.username);
     if (!target) return;
@@ -887,6 +888,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       latestSeq: database.latestSeq(message.roomId),
       ...(retry ? { retry: true } : {}),
       ...(steer ? { steer: true } : {}),
+      ...(first ? { first: true } : {}),
     });
   }
 
@@ -942,7 +944,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
    * 确认停下后 Agent 从队里接着做这一条；不会两份同时在跑。
    */
   function preemptInvocation(actor: Participant, invocationId: string): void {
-    const { invocation, running } = steerableInvocation(actor, invocationId);
+    const { invocation, message, agent, running } = steerableInvocation(actor, invocationId);
+    // 先让 Agent 把这条排到队首、下一轮单独做，再停当前任务
+    deliverMention(message, agent, false, false, true);
     for (const item of running) cancelInvocation(actor, item.id);
     emitInvocation(
       database.updateInvocation(invocation.id, {

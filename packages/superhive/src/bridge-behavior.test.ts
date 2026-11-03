@@ -636,6 +636,33 @@ describe("AgentBridge", () => {
     expect(responder.calls).toHaveLength(1);
   });
 
+  it("runs a stop-and-switch message next, on its own, ahead of the rest of the queue", async () => {
+    await startBridge(baseState());
+    const first = chat();
+    room.messages.push(first);
+    room.handlers.onMention(first, first.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    const earlier = chat({ content: "@agent-a 早来的另一件事" });
+    const urgent = chat({ content: "@agent-a 方向变了，改做这个" });
+    room.messages.push(earlier, urgent);
+    room.handlers.onMention(earlier, earlier.seq, false);
+    room.handlers.onMention(urgent, urgent.seq, false);
+    await flush();
+    // 人点「停下当前，改做这条」：先排到队首，再停当前任务
+    room.handlers.onMention(urgent, urgent.seq, false, false, true);
+    room.handlers.onCancel!(first.id);
+    await waitUntil(() => responder.calls.length === 2);
+    // 只看这一轮要回应的触发消息（其它消息作为上下文出现是正常的）
+    const triggers = (index: number) =>
+      responder.calls[index]!.prompt.split("<trigger_message")[1] ?? "";
+    expect(triggers(1)).toContain("改做这个");
+    expect(triggers(1)).not.toContain("早来的另一件事");
+    responder.finish();
+    await waitUntil(() => responder.calls.length === 3);
+    expect(triggers(2)).toContain("早来的另一件事");
+    responder.finish();
+  });
+
   it("explains why a steer request stayed queued when nothing is running", async () => {
     await startBridge(baseState());
     const mention = chat();

@@ -118,15 +118,15 @@ export class ClaudeStream {
   finish(): ClaudeResult | undefined {
     if (!this.discarding && this.buffer.trim()) this.line(this.buffer);
     this.buffer = "";
+    // 插话后多跑了几轮：以最后一轮为准。它看得到前面的对话，通常会把结论连同插话一起重说一遍，
+    // 直接拼接反而重复；最后一轮没给出文字时才退回到上一轮的回复
     if (this.results.length <= 1) return this.result;
-    // 插话后多跑了几轮：成功的回复依次拼起来，出错以最后一轮为准
     const last = this.results.at(-1)!;
-    if (last.is_error) return last;
-    const text = this.results
-      .filter((item) => !item.is_error && item.result?.trim())
-      .map((item) => item.result!.trim())
-      .join("\n\n");
-    return { ...last, result: text };
+    if (last.is_error || last.result?.trim()) return last;
+    const earlier = [...this.results]
+      .reverse()
+      .find((item) => !item.is_error && item.result?.trim());
+    return earlier?.result ? { ...last, result: earlier.result } : last;
   }
 
   /** 本轮真实用量（token 数与模型名）；一次请求都没有时为全零 */

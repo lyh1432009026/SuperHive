@@ -162,6 +162,8 @@ export class AgentBridge {
   // 人在 UI 点了"停止"但消息尚未到达本地队列（例如断线期间）的提及
   private readonly cancelledEarly = new Set<string>();
   private readonly attempts = new Map<string, number>();
+  /** 人要求「停下当前，改做这条」的消息：排在队首、单独成一轮 */
+  private readonly soloNext = new Set<string>();
   /** 上游出错后已自动继续的次数 */
   private readonly upstreamRetries = new Map<string, number>();
   /** 上游出错后正在等待自动继续的消息（及其计时器） */
@@ -245,8 +247,13 @@ export class AgentBridge {
       },
       {
         onSnapshot: (snapshot) => this.onSnapshot(snapshot),
-        onMention: (message, _latestSeq, retry, steer) =>
-          this.enqueue(message, { retry, invited: true, ...(steer ? { steer } : {}) }),
+        onMention: (message, _latestSeq, retry, steer, first) =>
+          this.enqueue(message, {
+            retry,
+            invited: true,
+            ...(steer ? { steer } : {}),
+            ...(first ? { first } : {}),
+          }),
         onCancel: (messageId) => this.cancel(messageId),
         onMessageDeleted: (message) => this.onRecalled(message.id),
         ...(this.options.onRoomsChanged ? { onRoomsChanged: this.options.onRoomsChanged } : {}),
@@ -431,9 +438,16 @@ export class AgentBridge {
 
   private enqueue(
     message: ChatMessage,
-    options: { retry?: boolean; invited?: boolean; steer?: boolean } = {},
+    options: { retry?: boolean; invited?: boolean; steer?: boolean; first?: boolean } = {},
   ): void {
     if (this.stopped) return;
+    // 停下当前，改做这条：排到队首，下一轮只做它（不和别的排队消息合在一起）
+    if (options.first) {
+      this.soloNext.add(message.id);
+      const index = this.pending.findIndex((item) => item.id === message.id);
+      if (index > 0) this.pending.unshift(...this.pending.splice(index, 1));
+      if (index >= 0) return;
+    }
     // 人要求插话：已经在排队的从队里拿出来插进当前任务；不能插就留在队里并说明原因
     if (options.steer && this.pending.some((item) => item.id === message.id)) {
       if (this.canSteer()) {
@@ -480,7 +494,8 @@ export class AgentBridge {
       }
       this.reportNotSteered(message);
     }
-    this.pending.push(message);
+    if (this.soloNext.has(message.id)) this.pending.unshift(message);
+    else this.pending.push(message);
     this.scheduleDrain(this.tuning.batchWindowMs);
   }
 
@@ -603,7 +618,8 @@ export class AgentBridge {
     if (this.draining) return this.draining;
     this.draining = (async () => {
       while (this.pending.length > 0 && !this.stopped) {
-        const batch = this.pending.splice(0, this.tuning.maxBatchSize);
+        const solo = this.soloNext.delete(this.pending[0]!.id);
+        const batch = this.pending.splice(0, solo ? 1 : this.tuning.maxBatchSize);
         await this.runBatch(batch);
       }
     })().finally(() => {

@@ -108,7 +108,8 @@ describe("ClaudeCodeResponder", () => {
     emit({ type: "result", is_error: false, result: "第二段", session_id: "s" });
     expect(ended).toBe(true);
     finish();
-    await expect(reply).resolves.toMatchObject({ text: "第一段\n\n第二段", threadId: "s" });
+    // 以最后一轮为准：它看得到前面的对话，拼起来反而重复
+    await expect(reply).resolves.toMatchObject({ text: "第二段", threadId: "s" });
 
     // 这一轮结束后再插话：直接拒绝，由 Bridge 退回排队
     await expect(responder.steer("太晚了")).resolves.toBe(false);

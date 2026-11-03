@@ -188,6 +188,8 @@ export type ServerEvent =
       retry?: boolean;
       /** 人要求把这条插进正在执行的当前任务（不排队） */
       steer?: boolean;
+      /** 人要求停下当前任务改做这条：排到队首，下一轮只做它 */
+      first?: boolean;
     }
   | { type: "agent.cancel"; messageId: string }
   | { type: "agent.shutdown" }
