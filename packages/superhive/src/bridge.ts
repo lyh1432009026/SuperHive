@@ -684,6 +684,17 @@ export class AgentBridge {
       }
       return;
     }
+    // 这一轮早已结束（比如结果未知后人又点了停止）：这边没有在跑的执行，直接确认，
+    // 否则服务端会一直显示「停止中」，要等 10 分钟超时才放开
+    if (this.state.processedMessageIds.includes(messageId)) {
+      this.log(`[hive] ${messageId} 这一轮已经结束，确认停止`);
+      this.room.report({
+        messageId,
+        status: "cancelled",
+        detail: "这一轮在 Agent 这边已经结束，没有在跑的执行",
+      });
+      return;
+    }
     this.cancelledEarly.add(messageId);
   }
 

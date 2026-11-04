@@ -910,6 +910,19 @@ describe("AgentBridge", () => {
     expect(responder.calls).toHaveLength(1);
   });
 
+  it("confirms a stop right away for a turn that already ended with an unknown result", async () => {
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    responder.fail(new AgentExecutionUncertainError("结果未知"));
+    await waitUntil(() => room.statuses(mention.id).includes("uncertain"));
+    room.handlers.onCancel?.(mention.id);
+    await waitUntil(() => room.statuses(mention.id).includes("cancelled"));
+    expect(responder.calls).toHaveLength(1);
+  });
+
   it("gives up auto-continuing after the configured attempts", async () => {
     await startBridge(baseState());
     const mention = chat();
