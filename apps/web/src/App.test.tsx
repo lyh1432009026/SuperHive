@@ -791,6 +791,41 @@ describe("App mention autocomplete", () => {
     expect(screen.getByText("进入 SuperHive")).toBeTruthy();
   });
 
+  it("shows the workspace's git branch under the room name and keeps it updated", async () => {
+    localStorage.setItem("superhive.username", "Alice");
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self],
+        messages: [],
+        latestSeq: 0,
+      }),
+    );
+    const roomsPanel = screen.getByLabelText("房间列表");
+    await waitFor(() => expect(within(roomsPanel).getByText("# frontend")).toBeTruthy());
+    act(() =>
+      socket.serverEvent({
+        type: "rooms.changed",
+        room: { ...roomSummary("frontend"), workspace: "/repo/web", branch: "feat/sidebar" },
+      }),
+    );
+    expect(within(roomsPanel).getByText("feat/sidebar")).toBeTruthy();
+    act(() =>
+      socket.serverEvent({
+        type: "rooms.changed",
+        room: { ...roomSummary("frontend"), workspace: "/repo/web", branch: "main" },
+      }),
+    );
+    expect(within(roomsPanel).queryByText("feat/sidebar")).toBeNull();
+    expect(within(roomsPanel).getByText("main")).toBeTruthy();
+  });
+
   it("switches rooms, shows unread dots, and creates rooms from the sidebar", async () => {
     const user = userEvent.setup();
     localStorage.setItem("superhive.username", "Alice");

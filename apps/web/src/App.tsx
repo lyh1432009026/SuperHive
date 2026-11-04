@@ -368,6 +368,24 @@ function platformModifierLabel(): string {
   return /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent) ? "Cmd" : "Ctrl";
 }
 
+/** git 分支的小图标（房间工作区是仓库时显示当前分支） */
+function BranchGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
+      <circle cx="4.5" cy="3.5" r="1.6" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="4.5" cy="12.5" r="1.6" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="11.5" cy="5.5" r="1.6" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <path
+        d="M4.5 5.1v5.8M11.5 7.1c0 2.4-2.6 2.9-5.6 4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
     "arrow-down": <path d="M12 5v14m-5-5 5 5 5-5" />,
@@ -3095,7 +3113,21 @@ export function App({
                   aria-current={room.id === currentRoomId}
                   onClick={() => switchRoom(room.id)}
                 >
-                  <span className="room-item-name"># {room.name}</span>
+                  <span className="room-item-label">
+                    <span className="room-item-name"># {room.name}</span>
+                    {room.branch && (
+                      <span
+                        className="room-item-branch"
+                        title={t("工作区 {0} 当前分支：{1}", {
+                          0: room.workspace ?? "",
+                          1: room.branch,
+                        })}
+                      >
+                        <BranchGlyph />
+                        <span>{room.branch}</span>
+                      </span>
+                    )}
+                  </span>
                   <span className="room-item-meta">
                     {room.archivedAt ? t("已归档") : t("{0} 在线", { 0: room.onlineCount })}
                   </span>
@@ -3279,6 +3311,12 @@ export function App({
                   >
                     {" "}
                     · {currentRoomWorkspace.split("/").filter(Boolean).at(-1)}
+                    {currentRoom?.branch && (
+                      <span className="chat-title-branch" title={t("当前分支")}>
+                        <BranchGlyph />
+                        {currentRoom.branch}
+                      </span>
+                    )}
                   </span>
                 )}
                 {local.keepAwake &&

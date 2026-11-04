@@ -30,6 +30,7 @@ import {
   type Invocation,
   type InvocationBlockReason,
   type Participant,
+  type RoomSummary,
   type Schedule,
   type ServerEvent,
   type TraceStep,
@@ -49,6 +50,7 @@ import {
 } from "./database.js";
 import { createHiveMcpServer, type AttachmentReadResult, type InboxDigest } from "./hive-mcp.js";
 import { readMessageContent } from "./message-content.js";
+import { gitBranch } from "./git-branch.js";
 import {
   LocalAgentSupervisor,
   autoSteerKey,
@@ -3228,6 +3230,25 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     },
   );
 
+  /** 房间工作区当前的 git 分支：侧栏房间名下面显示，切换分支后由定时检查推送 */
+  const roomBranches = new Map<string, string | undefined>();
+  function withBranch(room: RoomSummary): RoomSummary {
+    if (!room.workspace) return room;
+    const branch = gitBranch(room.workspace);
+    roomBranches.set(room.id, branch);
+    return branch ? { ...room, branch } : room;
+  }
+  function checkRoomBranches(): void {
+    for (const room of database.listRooms(false)) {
+      if (!room.workspace) continue;
+      const before = roomBranches.get(room.id);
+      const next = withBranch(room);
+      if (roomBranches.has(room.id) && next.branch !== before) {
+        broadcastAll({ type: "rooms.changed", room: next });
+      }
+    }
+  }
+
   app.get<{ Querystring: { includeArchived?: string } }>("/api/rooms", async (request, reply) => {
     const query = roomsQuerySchema.safeParse(request.query);
     if (!query.success) return reply.code(400).send({ error: "Invalid query parameters." });
@@ -3236,7 +3257,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     return {
       rooms: database
         .listRooms(query.data.includeArchived)
-        .filter((room) => canAccessRoom(principal, room.id)),
+        .filter((room) => canAccessRoom(principal, room.id))
+        .map(withBranch),
     };
   });
 
@@ -3254,8 +3276,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         ...body.data,
         ...(body.data.workspace ? { workspace: roomWorkspace(body.data.workspace) } : {}),
       });
-      broadcastAll({ type: "rooms.changed", room });
-      return reply.code(201).send({ room });
+      broadcastAll({ type: "rooms.changed", room: withBranch(room) });
+      return reply.code(201).send({ room: withBranch(room) });
     } catch (error) {
       if (error instanceof HiveError && error.code === "ROOM_EXISTS") {
         return reply.code(409).send({ error: error.message, code: error.code });
@@ -3281,10 +3303,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       return reply.code(400).send({ error: "Invalid room patch payload." });
     }
     try {
-      const room = database.updateRoom(params.data.roomId, {
-        ...body.data,
-        ...(body.data.workspace ? { workspace: roomWorkspace(body.data.workspace) } : {}),
-      });
+      const room = withBranch(
+        database.updateRoom(params.data.roomId, {
+          ...body.data,
+          ...(body.data.workspace ? { workspace: roomWorkspace(body.data.workspace) } : {}),
+        }),
+      );
       broadcastAll({ type: "rooms.changed", room });
       return { room };
     } catch (error) {
@@ -3736,6 +3760,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   );
   heartbeatTimer.unref();
   const invocationTimer = setInterval(sweepStaleInvocations, options.invocationSweepMs ?? 30_000);
+  // 分支是在工作区里切的（Agent 或人在终端里切），没有事件可听：隔一会儿读一下 HEAD
+  const branchTimer = setInterval(() => {
+    try {
+      checkRoomBranches();
+    } catch (error) {
+      app.log.warn({ err: error }, "room branch check failed");
+    }
+  }, options.branchCheckMs ?? 10_000);
+  branchTimer.unref();
   // 到点就断开访客，不等它下一次操作；每次操作和重连时也会复核
   const accessTimer = setInterval(sweepExpiredAccess, options.accessSweepMs ?? 10_000);
   // 测试里直接触发清理
@@ -3785,6 +3818,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     await imHub.close();
     clearInterval(heartbeatTimer);
     clearInterval(invocationTimer);
+    clearInterval(branchTimer);
     clearInterval(accessTimer);
     clearInterval(attachmentTimer);
     if (scheduleTimer) clearTimeout(scheduleTimer);

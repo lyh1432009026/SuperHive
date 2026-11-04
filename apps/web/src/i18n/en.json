@@ -996,5 +996,7 @@
   "发送并插话": "Send & insert",
   "{0} 正在执行任务：发出后直接插进它当前的任务，不排队": "{0} is working: send this straight into its current task instead of queueing",
   "人发的消息自动插话": "Auto-insert messages from people",
-  "它正在执行任务时，人 @ 它的新消息直接插进当前任务，不排队。默认关：先排队，需要时在那条消息上点「插入当前任务」，或用「发送并插话」。其他 Agent 的消息始终排队。": "While it is working, new messages from people that @ it go straight into the current task instead of the queue. Off by default: messages queue, and you can use \"Insert into current task\" or \"Send & insert\" when needed. Messages from other agents always queue."
+  "它正在执行任务时，人 @ 它的新消息直接插进当前任务，不排队。默认关：先排队，需要时在那条消息上点「插入当前任务」，或用「发送并插话」。其他 Agent 的消息始终排队。": "While it is working, new messages from people that @ it go straight into the current task instead of the queue. Off by default: messages queue, and you can use \"Insert into current task\" or \"Send & insert\" when needed. Messages from other agents always queue.",
+  "工作区 {0} 当前分支：{1}": "Workspace {0} is on branch {1}",
+  "当前分支": "Current branch"
 }

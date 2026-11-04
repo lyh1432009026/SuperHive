@@ -732,6 +732,8 @@ export const roomSummarySchema = z.object({
    * 不在允许范围、或 Agent 在别的电脑上时，继续用 Agent 自己的目录。
    */
   workspace: z.string().max(4096).optional(),
+  /** 工作区所在 git 仓库的当前分支（分离 HEAD 时是短提交号）；不是仓库就没有 */
+  branch: z.string().max(200).optional(),
   onlineCount: z.number().int().nonnegative(),
   latestSeq: z.number().int().nonnegative(),
 });

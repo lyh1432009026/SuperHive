@@ -221,6 +221,52 @@
   text-align: left;
 }
 
+/* 房间名，工作区是 git 仓库时下面再加一行当前分支 */
+.room-item-label {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.room-item-branch {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  margin-top: 1px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.room-item-branch svg {
+  flex: 0 0 auto;
+}
+
+.room-item-branch span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-item-main:has(.room-item-branch) {
+  height: auto;
+  min-height: 36px;
+  padding-block: 5px;
+}
+
+.chat-title-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  font-family: var(--font-mono);
+}
+
 .room-item-name {
   min-width: 0;
   flex: 1;
