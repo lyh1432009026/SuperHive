@@ -1785,6 +1785,83 @@ describe("App mention autocomplete", () => {
     );
   });
 
+  it("reorders rooms by dragging and with Alt+arrow keys, and keeps the order after a reload", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    const { container, unmount } = render(<App />);
+    const names = () =>
+      [...container.querySelectorAll(".room-list .room-item-name")].map((node) => node.textContent);
+    await waitFor(() => expect(names()).toEqual(["# general", "# frontend"]));
+    // jsdom 没有 PointerEvent：用 MouseEvent 补一个带 pointerId / pointerType 的
+    if (typeof window.PointerEvent === "undefined") {
+      class TestPointerEvent extends MouseEvent {
+        pointerId: number;
+        pointerType: string;
+        constructor(type: string, init: PointerEventInit = {}) {
+          super(type, init);
+          this.pointerId = init.pointerId ?? 0;
+          this.pointerType = init.pointerType ?? "mouse";
+        }
+      }
+      vi.stubGlobal("PointerEvent", TestPointerEvent);
+    }
+    // jsdom 不排版：给两项各一个 36px 高的位置，拖拽才算得出落点
+    const items = [...container.querySelectorAll<HTMLElement>(".room-list .room-item")];
+    items.forEach((item, index) => {
+      item.getBoundingClientRect = () =>
+        ({
+          top: index * 36,
+          bottom: index * 36 + 36,
+          height: 36,
+          left: 0,
+          right: 200,
+          width: 200,
+        }) as DOMRect;
+    });
+    container.querySelector<HTMLElement>(".room-list")!.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 400, height: 400, left: 0, right: 200, width: 200 }) as DOMRect;
+    // 拖拽时的自动滚动每帧排一次：这里换成真正异步的帧，免得同步回调无限递归
+    window.requestAnimationFrame = (callback) =>
+      window.setTimeout(() => callback(performance.now()), 16);
+    window.cancelAnimationFrame = (id) => window.clearTimeout(id);
+    const main = items[0]!.querySelector<HTMLElement>(".room-item-main")!;
+    fireEvent.pointerDown(main, {
+      button: 0,
+      pointerId: 1,
+      clientX: 10,
+      clientY: 10,
+      pointerType: "mouse",
+    });
+    fireEvent.pointerMove(window, { pointerId: 1, clientX: 10, clientY: 30 });
+    fireEvent.pointerMove(window, { pointerId: 1, clientX: 10, clientY: 60 });
+    expect(items[0]!.classList.contains("dragging")).toBe(true);
+    fireEvent.pointerUp(window, { pointerId: 1, clientX: 10, clientY: 60 });
+    // 松手后先滑到新位置，再提交顺序
+    await waitFor(() => expect(names()).toEqual(["# frontend", "# general"]));
+    expect(JSON.parse(localStorage.getItem("superhive.room-order")!)).toEqual([
+      "frontend",
+      "general",
+    ]);
+
+    // 键盘：Alt + ↑ 把 general 移回第一位
+    const general = [...container.querySelectorAll<HTMLElement>(".room-list .room-item-main")][1]!;
+    general.focus();
+    await user.keyboard("{Alt>}{ArrowUp}{/Alt}");
+    expect(names()).toEqual(["# general", "# frontend"]);
+    unmount();
+
+    localStorage.setItem("superhive.room-order", JSON.stringify(["frontend", "general"]));
+    const again = render(<App />);
+    await waitFor(() =>
+      expect(
+        [...again.container.querySelectorAll(".room-list .room-item-name")].map(
+          (node) => node.textContent,
+        ),
+      ).toEqual(["# frontend", "# general"]),
+    );
+  });
+
   it("lists scheduled tasks with their run state and lets a human cancel a pending one", async () => {
     const user = userEvent.setup();
     localStorage.setItem("superhive.username", "Alice");

@@ -1047,3 +1047,71 @@ div.member[role="button"] {
     opacity: 1;
   }
 }
+
+/* ---------- 房间拖拽排序：其他房间平滑让位，被拖的那项浮起跟手 ---------- */
+.room-list .room-item {
+  transition:
+    background var(--duration-fast),
+    transform 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.room-item.dragging {
+  z-index: 3;
+  background: var(--bg-elevated);
+  box-shadow:
+    0 8px 24px rgb(0 0 0 / 0.18),
+    0 0 0 1px var(--border);
+  cursor: grabbing;
+}
+
+.room-item.dragging .room-item-main {
+  cursor: grabbing;
+}
+
+.room-list.reordering .room-item:not(.dragging) {
+  pointer-events: none;
+}
+
+.room-drag-handle {
+  position: absolute;
+  left: -2px;
+  top: 50%;
+  width: 14px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: var(--text-tertiary);
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity var(--duration-fast);
+  cursor: grab;
+  touch-action: none;
+}
+
+.room-drag-handle svg {
+  fill: currentColor;
+}
+
+.room-item:hover .room-drag-handle,
+.room-item.dragging .room-drag-handle {
+  opacity: 1;
+}
+
+/* 触屏没有悬停：把手常显，从把手拖 */
+@media (hover: none) {
+  .room-drag-handle {
+    opacity: 0.6;
+  }
+}
+
+body.room-dragging,
+body.room-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .room-list .room-item {
+    transition: background var(--duration-fast);
+  }
+}

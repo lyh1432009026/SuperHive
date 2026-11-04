@@ -49,6 +49,7 @@ import {
 } from "./invocations";
 import { WhiteboardPanel, upsertWhiteboardEntry } from "./whiteboard";
 import { SchedulePanel, isPendingSchedule, upsertSchedule } from "./schedules";
+import { loadRoomOrder, orderRooms, storedRoomOrderKey, useRoomReorder } from "./room-reorder";
 import { isLiveInvocation, mergeTraceSteps } from "./live-trace";
 import { ActivityPanel, isInFlight, needsAttention, type ActivityView } from "./activity";
 import {
@@ -1476,10 +1477,32 @@ export function App({
   );
   const currentRoomName = currentRoom?.name ?? currentRoomId;
   const currentRoomWorkspace = currentRoom?.workspace;
-  const visibleRooms = useMemo(
-    () => rooms.filter((room) => showArchivedRooms || !room.archivedAt),
-    [rooms, showArchivedRooms],
+  // 房间顺序：拖拽排出来的，存在这台浏览器里
+  const [roomOrder, setRoomOrder] = useState<string[]>(() =>
+    loadRoomOrder(typeof localStorage === "undefined" ? undefined : localStorage),
   );
+  const visibleRooms = useMemo(
+    () =>
+      orderRooms(
+        rooms.filter((room) => showArchivedRooms || !room.archivedAt),
+        roomOrder,
+      ),
+    [roomOrder, rooms, showArchivedRooms],
+  );
+  const visibleRoomIds = useMemo(() => visibleRooms.map((room) => room.id), [visibleRooms]);
+  const reorderRooms = useCallback((next: string[]) => {
+    setRoomOrder((current) => {
+      // 没显示出来的（已归档隐藏的）保持原来的相对位置，排在后面
+      const merged = [...next, ...current.filter((id) => !next.includes(id))];
+      try {
+        localStorage.setItem(storedRoomOrderKey, JSON.stringify(merged));
+      } catch {
+        // 存不了也不影响本次排序
+      }
+      return merged;
+    });
+  }, []);
+  const roomReorder = useRoomReorder(visibleRoomIds, reorderRooms);
   const activeRoomCount = useMemo(() => rooms.filter((room) => !room.archivedAt).length, [rooms]);
   // 渲染窗口：只挂载最近的一段消息，重房间切换时的同步提交成本与内存尖峰被限定为常量；
   // 更早的消息按需点击展开（数据仍全量在 messages 中，仅渲染被窗口化）
@@ -3101,96 +3124,116 @@ export function App({
             <span>{t("房间")}</span>
             <span className="panel-meta">{activeRoomCount}</span>
           </div>
-          <div className="room-list">
-            {visibleRooms.map((room) => (
-              <div
-                key={room.id}
-                className={`room-item ${room.id === currentRoomId ? "active" : ""} ${room.archivedAt ? "archived" : ""}`}
-              >
-                <button
-                  type="button"
-                  className="room-item-main"
-                  aria-current={room.id === currentRoomId}
-                  onClick={() => switchRoom(room.id)}
+          <div
+            className={`room-list ${roomReorder.dragging ? "reordering" : ""}`}
+            ref={roomReorder.listRef}
+          >
+            {visibleRooms.map((room, index) => {
+              const placement = roomReorder.itemStyle(room.id, index);
+              return (
+                <div
+                  key={room.id}
+                  {...roomReorder.itemProps(room.id)}
+                  style={placement.style}
+                  className={`room-item ${room.id === currentRoomId ? "active" : ""} ${room.archivedAt ? "archived" : ""} ${placement.dragging ? "dragging" : ""}`}
                 >
-                  <span className="room-item-label">
-                    <span className="room-item-name"># {room.name}</span>
-                    {room.branch && (
-                      <span
-                        className="room-item-branch"
-                        title={t("工作区 {0} 当前分支：{1}", {
-                          0: room.workspace ?? "",
-                          1: room.branch,
-                        })}
-                      >
-                        <BranchGlyph />
-                        <span>{room.branch}</span>
-                      </span>
-                    )}
+                  <span className="room-drag-handle" aria-hidden="true">
+                    <svg viewBox="0 0 8 14" width="8" height="14">
+                      <circle cx="2" cy="2" r="1.1" />
+                      <circle cx="6" cy="2" r="1.1" />
+                      <circle cx="2" cy="7" r="1.1" />
+                      <circle cx="6" cy="7" r="1.1" />
+                      <circle cx="2" cy="12" r="1.1" />
+                      <circle cx="6" cy="12" r="1.1" />
+                    </svg>
                   </span>
-                  <span className="room-item-meta">
-                    {room.archivedAt ? t("已归档") : t("{0} 在线", { 0: room.onlineCount })}
-                  </span>
-                  {(() => {
-                    const tasks = roomTaskCounts.get(room.id);
-                    if (!tasks || room.archivedAt) return null;
-                    if (tasks.attention > 0) {
-                      return (
-                        <span
-                          className="room-task attention"
-                          role="img"
-                          title={t("{0} 个任务需要处理", { 0: tasks.attention })}
-                          aria-label={t("# {0}：{1} 个任务需要处理", {
-                            0: room.name,
-                            1: tasks.attention,
-                          })}
-                        >
-                          {tasks.attention}
-                        </span>
-                      );
-                    }
-                    if (tasks.inFlight > 0) {
-                      return (
-                        <span
-                          className="room-task running"
-                          role="img"
-                          title={t("{0} 个任务进行中", { 0: tasks.inFlight })}
-                          aria-label={t("# {0}：{1} 个任务进行中", {
-                            0: room.name,
-                            1: tasks.inFlight,
-                          })}
-                        >
-                          <span className="room-task-spinner" aria-hidden="true" />
-                          {tasks.inFlight > 1 && tasks.inFlight}
-                        </span>
-                      );
-                    }
-                    return null;
-                  })()}
-                  {room.id !== currentRoomId &&
-                    !room.archivedAt &&
-                    room.latestSeq > (readSeqs[room.id] ?? 0) && (
-                      <span
-                        className="room-unread"
-                        aria-label={t("# {0} 有未读消息", { 0: room.name })}
-                      />
-                    )}
-                </button>
-                {isOwner && (
                   <button
                     type="button"
-                    className="room-item-manage"
-                    aria-label={t("管理房间 {0}", { 0: room.name })}
-                    aria-haspopup="dialog"
-                    onClick={(event) =>
-                      openRoomDialog({ mode: "manage", room }, event.currentTarget)
-                    }
+                    className="room-item-main"
+                    aria-current={room.id === currentRoomId}
+                    aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                    title={t("拖动可调整顺序（Alt + ↑/↓ 也可以）")}
+                    onClick={() => switchRoom(room.id)}
                   >
-                    <Icon name="settings" size={14} />
+                    <span className="room-item-label">
+                      <span className="room-item-name"># {room.name}</span>
+                      {room.branch && (
+                        <span
+                          className="room-item-branch"
+                          title={t("工作区 {0} 当前分支：{1}", {
+                            0: room.workspace ?? "",
+                            1: room.branch,
+                          })}
+                        >
+                          <BranchGlyph />
+                          <span>{room.branch}</span>
+                        </span>
+                      )}
+                    </span>
+                    <span className="room-item-meta">
+                      {room.archivedAt ? t("已归档") : t("{0} 在线", { 0: room.onlineCount })}
+                    </span>
+                    {(() => {
+                      const tasks = roomTaskCounts.get(room.id);
+                      if (!tasks || room.archivedAt) return null;
+                      if (tasks.attention > 0) {
+                        return (
+                          <span
+                            className="room-task attention"
+                            role="img"
+                            title={t("{0} 个任务需要处理", { 0: tasks.attention })}
+                            aria-label={t("# {0}：{1} 个任务需要处理", {
+                              0: room.name,
+                              1: tasks.attention,
+                            })}
+                          >
+                            {tasks.attention}
+                          </span>
+                        );
+                      }
+                      if (tasks.inFlight > 0) {
+                        return (
+                          <span
+                            className="room-task running"
+                            role="img"
+                            title={t("{0} 个任务进行中", { 0: tasks.inFlight })}
+                            aria-label={t("# {0}：{1} 个任务进行中", {
+                              0: room.name,
+                              1: tasks.inFlight,
+                            })}
+                          >
+                            <span className="room-task-spinner" aria-hidden="true" />
+                            {tasks.inFlight > 1 && tasks.inFlight}
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
+                    {room.id !== currentRoomId &&
+                      !room.archivedAt &&
+                      room.latestSeq > (readSeqs[room.id] ?? 0) && (
+                        <span
+                          className="room-unread"
+                          aria-label={t("# {0} 有未读消息", { 0: room.name })}
+                        />
+                      )}
                   </button>
-                )}
-              </div>
-            ))}
+                  {isOwner && (
+                    <button
+                      type="button"
+                      className="room-item-manage"
+                      aria-label={t("管理房间 {0}", { 0: room.name })}
+                      aria-haspopup="dialog"
+                      onClick={(event) =>
+                        openRoomDialog({ mode: "manage", room }, event.currentTarget)
+                      }
+                    >
+                      <Icon name="settings" size={14} />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <button
             type="button"
