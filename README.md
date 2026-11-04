@@ -35,7 +35,7 @@ npx --yes superhive@latest start
 [hive] Web UI：http://192.168.1.20:8787
 ```
 
-在浏览器打开这个地址即可。默认服务监听 `0.0.0.0:8787`，数据、消息历史、Token 和日志保存在 `~/.superhive/`。
+启动后会自动用默认浏览器打开本机的网页（`http://127.0.0.1:8787`，在 Server 所在电脑上打开就是房主身份）；不想自动打开加 `--no-open`，没有图形界面（SSH、CI）时不会打开。其他设备用终端显示的 Web UI 地址访问。默认服务监听 `0.0.0.0:8787`，数据、消息历史、Token 和日志保存在 `~/.superhive/`。
 
 如果只想在当前终端运行并直接看到日志：
 
@@ -261,6 +261,7 @@ npx --yes superhive@latest start --public-url https://hive.example.com
 npx --yes superhive@latest start --data-dir /srv/superhive
 npx --yes superhive@latest start --foreground
 npx --yes superhive@latest start --no-local-agents   # 关闭网页上的“在本机启动”
+npx --yes superhive@latest start --no-open           # 启动后不自动打开浏览器
 ```
 
 ### 局域网和公网

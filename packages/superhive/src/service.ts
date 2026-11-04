@@ -47,6 +47,7 @@ const startUsage = `
   --token TOKEN      固定 Join Token；默认首次启动时自动生成
   --no-local-agents  关闭网页上的"在本机启动 Agent"
   --foreground       在前台运行，不启动后台进程
+  --no-open          启动后不自动用默认浏览器打开网页
 `;
 
 const stopUsage = `
@@ -69,6 +70,7 @@ const restartUsage = `
   --token TOKEN      更新固定 Join Token
   --no-local-agents  关闭网页上的"在本机启动 Agent"
   --local-agents     重新开启网页上的"在本机启动 Agent"
+  --open             重启后用默认浏览器打开网页（默认不打开，已开着的页面刷新即可）
   --foreground       重启后在前台运行
 `;
 
@@ -194,6 +196,42 @@ function printStarted(state: ServiceState, alreadyRunning = false): void {
   console.log(`[hive] 停止：${stopCommand}`);
 }
 
+/**
+ * 用默认浏览器打开网页。打开的是本机地址（127.0.0.1）：在 Server 所在电脑上打开才是房主身份。
+ * 没有图形界面（SSH、CI、Linux 无显示）或设置了 BROWSER=none / HIVE_NO_OPEN 时不打开；打不开也不影响启动。
+ */
+export function openBrowser(url: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.CI || env.HIVE_NO_OPEN || env.BROWSER === "none") return false;
+  let command: string;
+  let args: string[];
+  if (process.platform === "darwin") {
+    command = "open";
+    args = [url];
+  } else if (process.platform === "win32") {
+    command = "cmd";
+    args = ["/c", "start", '""', url];
+  } else {
+    if (!env.DISPLAY && !env.WAYLAND_DISPLAY) return false;
+    command = "xdg-open";
+    args = [url];
+  }
+  try {
+    const child = spawn(command, args, { detached: true, stdio: "ignore", windowsHide: true });
+    child.on("error", () => undefined);
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function openWebUi(state: ServiceState, enabled: boolean): void {
+  if (!enabled) return;
+  const local = new URL(state.healthUrl).origin;
+  if (openBrowser(local))
+    console.log(`[hive] 已在默认浏览器打开 ${local}（不想自动打开可加 --no-open）`);
+}
+
 export async function startService(args = process.argv.slice(3)): Promise<void> {
   const parsed = parseArgs({
     args,
@@ -205,6 +243,7 @@ export async function startService(args = process.argv.slice(3)): Promise<void> 
       token: { type: "string" },
       "no-local-agents": { type: "boolean", default: false },
       foreground: { type: "boolean", default: false },
+      "no-open": { type: "boolean", default: false },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -212,6 +251,7 @@ export async function startService(args = process.argv.slice(3)): Promise<void> 
     console.log(startUsage);
     return;
   }
+  const open = !parsed.values["no-open"];
 
   const port = Number.parseInt(parsed.values.port, 10);
   if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
@@ -228,6 +268,7 @@ export async function startService(args = process.argv.slice(3)): Promise<void> 
     (await healthMatches(existing.healthUrl, existing.instanceId))
   ) {
     printStarted(existing, true);
+    openWebUi(existing, open);
     return;
   }
   rmSync(servicePaths.statePath, { force: true });
@@ -291,6 +332,7 @@ export async function startService(args = process.argv.slice(3)): Promise<void> 
     state.publicUrl = await fetchPublicUrl(healthUrl, fallbackPublicUrl);
     writeState(servicePaths.statePath, state);
     printStarted(state);
+    openWebUi(state, open);
     return;
   }
 
@@ -336,6 +378,7 @@ export async function startService(args = process.argv.slice(3)): Promise<void> 
   state.publicUrl = await fetchPublicUrl(healthUrl, fallbackPublicUrl);
   writeState(servicePaths.statePath, state);
   printStarted(state);
+  openWebUi(state, open);
 }
 
 export async function stopService(args = process.argv.slice(3)): Promise<void> {
@@ -411,6 +454,7 @@ export async function restartService(args = process.argv.slice(3)): Promise<void
       "no-local-agents": { type: "boolean" },
       "local-agents": { type: "boolean" },
       foreground: { type: "boolean", default: false },
+      open: { type: "boolean", default: false },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -433,6 +477,8 @@ export async function restartService(args = process.argv.slice(3)): Promise<void
     : (parsed.values["no-local-agents"] ?? previousOptions?.localAgents === false);
   if (localAgentsOff) startArgs.push("--no-local-agents");
   if (parsed.values.foreground) startArgs.push("--foreground");
+  // 重启时网页多半已经开着（刷新即可），默认不再新开一个标签页
+  if (!parsed.values.open) startArgs.push("--no-open");
 
   await stopService(parsed.values["data-dir"] ? ["--data-dir", parsed.values["data-dir"]] : []);
   console.log("[hive] 正在重新启动 Hive Server…");
