@@ -193,6 +193,10 @@ describe("图片查看器", () => {
     expect(screen.getByRole("button", { name: "复位缩放" }).textContent).toBe("225%");
     fireEvent.keyDown(window, { key: "0" });
     expect(screen.getByRole("button", { name: "复位缩放" }).textContent).toBe("100%");
+    // 100% 是整张放进可视区；还能再缩小到一半
+    fireEvent.keyDown(window, { key: "-" });
+    fireEvent.keyDown(window, { key: "-" });
+    expect(screen.getByRole("button", { name: "复位缩放" }).textContent).toBe("50%");
     expect(screen.getByRole("button", { name: "缩小" })).toHaveProperty("disabled", true);
 
     fireEvent.keyDown(window, { key: "Escape" });

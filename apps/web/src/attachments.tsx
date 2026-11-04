@@ -451,7 +451,8 @@ function FileAttachment({
   );
 }
 
-const MIN_ZOOM = 1;
+/** 100% = 整张放进可视区；还能再缩小一点看全貌 */
+const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 8;
 const clampZoom = (value: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
 
@@ -489,7 +490,7 @@ function Lightbox({
   const zoomTo = useCallback((next: number) => {
     const value = clampZoom(next);
     setZoom(value);
-    if (value === 1) setOffset({ x: 0, y: 0 });
+    if (value <= 1) setOffset({ x: 0, y: 0 });
   }, []);
 
   // 换图时复位缩放；相邻的图预先取回，切换不用等
