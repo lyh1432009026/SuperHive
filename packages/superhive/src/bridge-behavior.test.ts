@@ -910,7 +910,7 @@ describe("AgentBridge", () => {
     expect(responder.calls).toHaveLength(1);
   });
 
-  it("confirms a stop right away for a turn that already ended with an unknown result", async () => {
+  it("answers a stop right away for a turn that already ended with an unknown result", async () => {
     await startBridge(baseState());
     const mention = chat();
     room.messages.push(mention);
@@ -918,8 +918,11 @@ describe("AgentBridge", () => {
     await waitUntil(() => responder.calls.length === 1);
     responder.fail(new AgentExecutionUncertainError("结果未知"));
     await waitUntil(() => room.statuses(mention.id).includes("uncertain"));
+    const before = room.reports.length;
     room.handlers.onCancel?.(mention.id);
-    await waitUntil(() => room.statuses(mention.id).includes("cancelled"));
+    await waitUntil(() => room.reports.length > before);
+    expect(room.reports.at(-1)).toMatchObject({ status: "uncertain" });
+    expect(room.reports.at(-1)?.detail).toContain("没有在跑的回合");
     expect(responder.calls).toHaveLength(1);
   });
 

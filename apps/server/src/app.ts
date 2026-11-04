@@ -1847,10 +1847,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     }
     if (report.status === "uncertain") {
       if (isTerminal(invocation)) return;
+      // 停止中收到结果未知：Agent 这边的回合已经结束（Claude 只能确认主进程停了），不再占着「停止中」
+      // 等 10 分钟超时；改为结果未知，照样不允许直接重试，要人核对后再决定
+      const stopping = invocation.status === "cancelling";
       emitInvocation(
         database.updateInvocation(invocation.id, {
-          status: invocation.status === "cancelling" ? "cancelling" : "timed_out",
-          detail: report.detail ?? "执行结果未知，无法确认工具已停止；禁止自动重放。",
+          status: "timed_out",
+          detail: stopping
+            ? `已停止 Agent 这一轮，但无法确认工具子进程都已停下：${report.detail ?? "结果未知"}`.slice(
+                0,
+                500,
+              )
+            : (report.detail ?? "执行结果未知，无法确认工具已停止；禁止自动重放。"),
           progress: null,
         }),
       );

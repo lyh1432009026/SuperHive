@@ -1013,9 +1013,10 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
       status: "uncertain",
       detail: "old runtime unknown",
     });
+    // 停止后只能确认结果未知：不再挂着「停止中」，改为结果未知，仍不许直接重试
     expect(
       invocationOf(await alice.next((event) => event.type === "invocation.updated")).status,
-    ).toBe("cancelling");
+    ).toBe("timed_out");
     alice.send({ type: "invocation.retry", invocationId: queued.id });
     const error = await alice.next((event) => event.type === "error");
     expect(error.type === "error" && error.code).toBe("INVOCATION_NOT_RETRYABLE");
