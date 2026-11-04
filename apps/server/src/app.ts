@@ -102,6 +102,8 @@ export type BuildAppOptions = {
   heartbeatTimeoutMs?: number;
   /** 扫描超时调用的间隔；测试可调小 */
   invocationSweepMs?: number;
+  /** 检查房间工作区 git 分支变化的间隔；测试可调小 */
+  branchCheckMs?: number;
   /** 超时扫描使用的时钟；测试用来模拟时间流逝 */
   now?: () => number;
   /** 检查访客会话到期的间隔；测试可调小 */
