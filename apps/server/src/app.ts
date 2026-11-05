@@ -1569,10 +1569,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       return undefined;
     }
     const text = message.content.trim().toLocaleLowerCase();
+    // 拒绝看开头就够（宁可拒）；允许必须整条就是一个「允许」，「可以，但先别删」这种带条件的不当成批准
     if (/^(?:b|拒绝|不行|不允许|不可以|不同意|不|no|n|deny)(?:$|[\s，。,.!！])/.test(text))
       return false;
-    if (/^(?:a|允许|同意|批准|可以|行|好|yes|y|ok|approve)(?:$|[\s，。,.!！])/.test(text))
-      return true;
+    if (/^(?:a|允许|同意|批准|可以|行|好|yes|y|ok|approve)[\s，。,.!！]*$/.test(text)) return true;
     return undefined;
   }
 

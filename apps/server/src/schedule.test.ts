@@ -874,12 +874,21 @@ describe("runtime approvals", () => {
       ),
     ).toMatchObject({ allow: false });
 
-    // 这一轮结束后，还没批的申请作废
+    // 这一轮结束后，还没批的申请作废；带条件的「可以，但……」不算批准
     const third = "00000000-0000-4000-8000-00000000a003";
     ask(third, "rm -rf build");
-    await alice.next(
+    const pending = (await alice.next(
       (event) => event.type === "message.created" && event.message.approval?.requestId === third,
-    );
+    )) as Extract<ServerEvent, { type: "message.created" }>;
+    alice.send({
+      type: "message.send",
+      clientMessageId: "conditional-3",
+      content: "可以，但先别删 dist",
+      replyToMessageId: pending.message.id,
+    });
+    await expect(
+      helper.next((event) => event.type === "approval.decision" && event.requestId === third, 200),
+    ).rejects.toThrow();
     helper.send({ type: "invocation.report", messageId: trigger.id, status: "completed" });
     expect(
       await helper.next((event) => event.type === "approval.decision" && event.requestId === third),
