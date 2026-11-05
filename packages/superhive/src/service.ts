@@ -430,6 +430,19 @@ export async function stopService(args = process.argv.slice(3)): Promise<void> {
   console.log(`[hive] 已停止 Hive Server（PID ${state.pid}）。`);
 }
 
+/** 上次 hive start 的启动参数（host、port、public-url、是否关闭本机 Agent），给开机自启沿用 */
+export function savedStartArgs(dataDir?: string): string[] {
+  const servicePaths = pathsFor(dataDir);
+  const options = optionsFromLegacyState(readState(servicePaths.statePath));
+  const args: string[] = [];
+  if (options && options.host !== "0.0.0.0") args.push("--host", options.host);
+  if (options && options.port !== 8787) args.push("--port", String(options.port));
+  if (options?.publicUrl) args.push("--public-url", options.publicUrl);
+  if (options?.localAgents === false) args.push("--no-local-agents");
+  if (dataDir) args.push("--data-dir", servicePaths.dataDir);
+  return args;
+}
+
 function optionsFromLegacyState(state: ServiceState | undefined): ServiceStartOptions | undefined {
   if (!state) return undefined;
   if (state.startOptions) return state.startOptions;

@@ -962,6 +962,37 @@ describe("LocalAgentSupervisor", () => {
     database.close();
   });
 
+  it("staggers restored launches, and stopping or starting cancels the queued one", async () => {
+    const database = new HiveDatabase(":memory:");
+    const first = supervisorWith(database);
+    const ids = ["a", "b", "c", "d"].map(
+      (name) => first.supervisor.create({ provider: "omp", name, access: "read-only" }).id,
+    );
+    await first.supervisor.shutdown();
+
+    const second = supervisorWith(database);
+    second.supervisor.start();
+    const names = () =>
+      second.spawner.children.map((child) => child.args[child.args.indexOf("--name") + 1]);
+    // 第一个立即启动，其余排队，排队中也显示「启动中」
+    expect(names()).toEqual(["a"]);
+    expect(second.timers.timers.map((timer) => timer.ms)).toEqual([2_000, 4_000, 6_000]);
+    expect(second.supervisor.get(ids[1]!).status).toBe("starting");
+    expect(second.supervisor.logs(ids[1]!).join("\n")).toContain("2 秒后启动");
+
+    // 排队中手动停止：不再启动；手动启动：立即启动，不再等
+    await second.supervisor.stop(ids[1]!);
+    second.supervisor.startAgent(ids[3]!);
+    expect(names()).toEqual(["a", "d"]);
+    expect(
+      second.timers.timers.filter((timer) => !timer.cancelled).map((timer) => timer.ms),
+    ).toEqual([4_000]);
+    second.timers.fireNext();
+    expect(names()).toEqual(["a", "d", "c"]);
+    expect(second.supervisor.get(ids[1]!).status).toBe("stopped");
+    database.close();
+  });
+
   it("refuses settings changes while restarting, and the guard can stop a changed config from launching", async () => {
     const database = new HiveDatabase(":memory:");
     const spawner = fakeSpawner({ exitOnTerm: false });

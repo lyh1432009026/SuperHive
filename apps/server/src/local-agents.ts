@@ -92,6 +92,8 @@ const CRASH_LIMIT = 5;
 /** 连续运行超过 1 分钟视为稳定，之后再退出时退避从头计算 */
 const STABLE_RUN_MS = 60_000;
 const STOP_GRACE_MS = 5_000;
+/** 服务启动时要重新拉起多个 Agent：逐个错开，免得一下子起一堆 CLI 抢 CPU、同时去刷登录态 */
+const RESTORE_STAGGER_MS = 2_000;
 const PROBE_CACHE_MS = 60_000;
 /** 单个 Agent 日志超过这个大小时，下次启动先轮转为 .1 */
 const LOG_FILE_MAX_BYTES = 5 * 1024 * 1024;
@@ -381,9 +383,11 @@ export class LocalAgentSupervisor {
 
   /**
    * 服务启动时恢复上次保存的本机 Agent；手动停止过的保持停止。
-   * 上一个 Server 交接时留下的进程还在跑的，直接接管（它手上的任务不中断），不再另起一个。
+   * 上一个 Server 交接时留下的进程还在跑的，直接接管（它手上的任务不中断），不再另起一个；
+   * 需要重新拉起的按顺序错开 RESTORE_STAGGER_MS 逐个启动，排队期间显示「启动中」。
    */
   start(): void {
+    let queued = 0;
     for (const config of this.options.database.listLocalAgents()) {
       const runtime = this.track(config);
       const previous = config.pid
@@ -405,7 +409,19 @@ export class LocalAgentSupervisor {
       // 不该再运行的（已手动停止）结束掉；已经不在的清掉记录
       previous?.kill("SIGTERM");
       if (config.pid) this.options.database.setLocalAgentProcess(config.id, null, null);
-      if (config.autostart) this.launch(runtime);
+      if (!config.autostart) continue;
+      const delay = queued * RESTORE_STAGGER_MS;
+      queued += 1;
+      if (delay === 0) {
+        this.launch(runtime);
+        continue;
+      }
+      this.appendLog(runtime, `[hive] 恢复上次在运行的 Agent，${delay / 1000} 秒后启动\n`);
+      // 停止、启动、重启、删除都会先取消这个定时器
+      runtime.timer = this.setTimer(() => {
+        runtime.timer = undefined;
+        if (runtime.phase === "running") this.launch(runtime);
+      }, delay);
     }
   }
 

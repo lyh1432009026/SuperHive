@@ -71,10 +71,9 @@ npx --yes superhive@latest join \
 ```bash
 npx --yes superhive@latest stop
 npx --yes superhive@latest restart     # 更新到最新版并重启，沿用原来的配置
-npx --yes superhive@latest autostart on   # 登录后自动启动
 ```
 
-全局安装（`npm i -g superhive`）后可以直接写 `hive start`、`hive restart`、`hive stop`。
+全局安装（`npm i -g superhive`）后可以直接写 `hive start`、`hive restart`、`hive stop`；`hive autostart on` 让 Server 在登录这台电脑后自动启动，电脑重启后本机 Agent 也会跟着回来。
 
 ## 接下来看
 

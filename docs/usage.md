@@ -261,12 +261,14 @@ hive join --help
 ### 开机自动启动
 
 ```bash
-hive autostart on       # 登录后自动在后台启动 Hive Server（沿用上次的 host、port、public-url）
+hive autostart on       # 登录后自动在后台启动 Hive Server
+hive autostart on --port 9000 --public-url https://hive.example.com   # 指定启动配置
 hive autostart status   # 看是否已开启
 hive autostart off      # 关闭
 ```
 
 - macOS 写入 `~/Library/LaunchAgents/dev.superhive.server.plist`，Linux 写入 systemd 用户服务 `~/.config/systemd/user/superhive.service`，Windows 在「启动」文件夹里放一个 `SuperHive.cmd`。都只对当前用户生效，不需要管理员权限。
+- 不写 `--host`、`--port`、`--public-url`、`--no-local-agents` 时，沿用正在运行的 Server 的启动配置（所以最好在 Server 运行时开启）；Server 没在运行时用默认配置。
 - 开机后 Server 起来，网页上启动过、没手动停止的本机 Agent 会跟着逐个恢复（见 [本机 Agent 的自动恢复](#本机-agent-的自动恢复)）。
 - 自启动记下的是当前这份 `superhive` 的 node 和脚本路径。用 `npx` 临时运行时，这份文件在 npm 缓存里，清缓存后会失效；建议先 `npm i -g superhive` 再开启，升级后重新运行一次 `hive autostart on`。
 - 自启动不会打开浏览器。
