@@ -66,6 +66,8 @@ export class ClaudeCodeResponder implements AgentResponder {
        * 每一轮重新读取，改动下一轮生效；不给时沿用 Claude Code 自己的全部 MCP 配置。
        */
       settingsFile?: string;
+      /** 停止时请 Claude 自己中断，等多久没确认停下就改为结束进程（默认 5 秒） */
+      interruptTimeoutMs?: number;
       /** 测试注入：按 cwd 和设置列出要加载的 MCP（不含 hive） */
       mcpServers?: (
         cwd: string,
@@ -182,7 +184,6 @@ export class ClaudeCodeResponder implements AgentResponder {
       turn.closed = true;
       turn.stdin?.end();
     };
-    stream.onResult = closeIfIdle;
     stream.onUserAck = (uuid) => {
       const resolve = turn.unacked.get(uuid);
       if (!resolve) return;
@@ -195,6 +196,49 @@ export class ClaudeCodeResponder implements AgentResponder {
       turn.unacked.clear();
       if (this.turn === turn) this.turn = undefined;
     };
+    /**
+     * 停止：先用 stream-json 的 control_request interrupt 请 Claude 停在当前这一步——它会终止正在跑的工具、
+     * 答复 control_response 并以 error_during_execution 结束这一轮，这样能确认确实停下（会话也还在，可以重试）。
+     * 中断请求发不出去、或超时没有确认，才结束进程，那时只能按结果未知处理。
+     */
+    const kill = new AbortController();
+    const interrupt = { requestId: "", acked: false, settled: false };
+    let killTimer: NodeJS.Timeout | undefined;
+    const onAbort = () => {
+      if (!turn.stdin || turn.closed) {
+        kill.abort();
+        return;
+      }
+      interrupt.requestId = `interrupt-${randomUUID()}`;
+      // 停下以后不再接插话；还没收下的插话退回排队
+      for (const resolve of turn.unacked.values()) resolve(false);
+      turn.unacked.clear();
+      turn.stdin.write(
+        `${JSON.stringify({ type: "control_request", request_id: interrupt.requestId, request: { subtype: "interrupt" } })}\n`,
+      );
+      killTimer = setTimeout(() => kill.abort(), this.options.interruptTimeoutMs ?? 5_000);
+      killTimer.unref?.();
+    };
+    stream.onControlResponse = (requestId, ok) => {
+      if (requestId === interrupt.requestId && ok) interrupt.acked = true;
+    };
+    stream.onResult = () => {
+      // 中断确认后出的这个结果就是这一轮的收尾：确认停下，关输入让进程退出
+      if (interrupt.acked) {
+        interrupt.settled = true;
+        if (killTimer) clearTimeout(killTimer);
+        if (!turn.closed) {
+          turn.closed = true;
+          turn.stdin?.end();
+        }
+        return;
+      }
+      closeIfIdle();
+    };
+    if (input.signal?.aborted) onAbort();
+    else input.signal?.addEventListener("abort", onAbort, { once: true });
+    const stoppedCleanly = () =>
+      Boolean(input.signal?.aborted && interrupt.settled && !kill.signal.aborted);
     let result;
     try {
       result = await (this.options.runner ?? streamCommandRunner)(this.options.command, args, {
@@ -204,11 +248,15 @@ export class ClaudeCodeResponder implements AgentResponder {
         onStdin: (stdin) => {
           turn.stdin = stdin;
         },
-        ...(input.signal ? { signal: input.signal } : {}),
+        signal: kill.signal,
       });
     } catch (error) {
       settleTurn();
       reportUsage();
+      if (killTimer) clearTimeout(killTimer);
+      input.signal?.removeEventListener("abort", onAbort);
+      // 中断后 Claude 以非零码退出是正常的：已经确认停下
+      if (stoppedCleanly()) throw new AgentCancelledError();
       if (error instanceof AgentCancelledError) {
         throw new AgentExecutionUncertainError(
           "已请求终止 Claude 主进程，但工具子进程是否停止尚未确认。",
@@ -222,6 +270,12 @@ export class ClaudeCodeResponder implements AgentResponder {
       mcp?.cleanup();
     }
     settleTurn();
+    if (killTimer) clearTimeout(killTimer);
+    input.signal?.removeEventListener("abort", onAbort);
+    if (stoppedCleanly()) {
+      reportUsage();
+      throw new AgentCancelledError();
+    }
     // Injectable legacy runners can return a complete result rather than streaming it.
     if (result.stdout) stream.push(result.stdout);
     const payload = stream.finish();

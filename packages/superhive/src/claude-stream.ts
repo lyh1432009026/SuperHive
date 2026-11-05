@@ -38,6 +38,8 @@ export class ClaudeStream {
   /** 每出一个结果、每确认收到一条写进去的消息时回调（插话用） */
   onResult?: (result: ClaudeResult) => void;
   onUserAck?: (uuid: string) => void;
+  /** 控制请求（例如 interrupt）的答复 */
+  onControlResponse?: (requestId: string, ok: boolean) => void;
   private readonly tools = new Map<string, RuntimeEvent["tool"]>();
   private readonly accounting = new UsageAccumulator();
   private currentMessageId: string | undefined;
@@ -205,6 +207,13 @@ export class ClaudeStream {
       this.results.push(this.result);
       if (!this.result.is_error) this.recovered();
       this.onResult?.(this.result);
+      return;
+    }
+    if (event.type === "control_response") {
+      const response = object(event.response);
+      if (typeof response?.request_id === "string") {
+        this.onControlResponse?.(response.request_id, response.subtype === "success");
+      }
       return;
     }
     if (event.type === "system" && event.subtype === "api_retry") {

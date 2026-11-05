@@ -215,6 +215,59 @@ describe("ClaudeCodeResponder", () => {
     expect(JSON.stringify(onRuntimeEvent.mock.calls)).not.toContain("SECRET");
   });
 
+  it("stops by asking Claude to interrupt and reports a confirmed stop", async () => {
+    const written: string[] = [];
+    let emit: (line: object) => void = () => undefined;
+    let killed = false;
+    const runner: CommandRunner = (_command, _args, options) =>
+      new Promise((resolve, reject) => {
+        emit = (line) => options.onStdout?.(`${JSON.stringify(line)}\n`);
+        options.signal?.addEventListener("abort", () => {
+          killed = true;
+          reject(new AgentCancelledError());
+        });
+        options.onStdin?.({
+          write: (text) => written.push(text),
+          // 中断后 Claude 关输入即以非零码退出
+          end: () => reject(new Error("运行进程异常退出（1）。")),
+        });
+      });
+    const responder = new ClaudeCodeResponder({ command: "claude", cwd: "/w", hive, runner });
+    const stop = new AbortController();
+    const reply = responder.reply({ instructions: "r", prompt: "做事", signal: stop.signal });
+    await new Promise((resolve) => setImmediate(resolve));
+    stop.abort();
+    const request = JSON.parse(written.at(-1)!);
+    expect(request).toMatchObject({ type: "control_request", request: { subtype: "interrupt" } });
+    emit({
+      type: "control_response",
+      response: { subtype: "success", request_id: request.request_id },
+    });
+    emit({ type: "result", subtype: "error_during_execution", is_error: true, session_id: "s" });
+    await expect(reply).rejects.toBeInstanceOf(AgentCancelledError);
+    expect(killed).toBe(false);
+  });
+
+  it("falls back to killing the process, as an unknown result, when the interrupt is not confirmed", async () => {
+    const runner: CommandRunner = (_command, _args, options) =>
+      new Promise((_resolve, reject) => {
+        options.signal?.addEventListener("abort", () => reject(new AgentCancelledError()));
+        options.onStdin?.({ write: () => undefined, end: () => undefined });
+      });
+    const responder = new ClaudeCodeResponder({
+      command: "claude",
+      cwd: "/w",
+      hive,
+      runner,
+      interruptTimeoutMs: 20,
+    });
+    const stop = new AbortController();
+    const reply = responder.reply({ instructions: "r", prompt: "做事", signal: stop.signal });
+    await new Promise((resolve) => setImmediate(resolve));
+    stop.abort();
+    await expect(reply).rejects.toBeInstanceOf(AgentExecutionUncertainError);
+  });
+
   it("does not mistake primary-process cancellation for a verified tool-process stop", async () => {
     const responder = new ClaudeCodeResponder({
       command: "claude",
