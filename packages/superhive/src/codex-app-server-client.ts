@@ -415,6 +415,7 @@ export class CodexAppServerResponder implements AgentResponder {
       session = await this.ensureSession();
       this.throwIfAborted(input.signal);
       threadId = await this.openThread(session, input);
+      input.onSession?.(threadId);
       this.throwIfAborted(input.signal);
     } catch (error) {
       if (this.active === placeholder) this.active = undefined;

@@ -27,6 +27,8 @@ export type AgentReplyInput = {
    * 可以带原始内容，Bridge 统一脱敏、截断、合批后上报。
    */
   onTrace?: (step: TraceStep) => void;
+  /** 一拿到这一轮用的 Provider 会话 ID 就告诉 Bridge（不用等回合结束），人可以在终端里接着它 */
+  onSession?: (sessionId: string) => void;
   /**
    * 本轮结束时（成功、失败、停止都会）交出已观测到的用量，Bridge 据此在失败路径上也能记账。
    * 不支持用量的 Provider 不调用。

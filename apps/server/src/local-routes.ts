@@ -634,7 +634,7 @@ export function registerLocalAgentRoutes(
         const { agent, session, command } = sessionFor(request.params.id, roomId);
         if (!session || !command) {
           return reply.code(409).send({
-            error: `${agent.name} 在这个房间还没有可以接着的会话（还没回复过，或这种 Agent 不支持）。`,
+            error: `${agent.name} 在这个房间还没有可以接着的会话：可能是它在支持这个功能之前启动的（重启一次就好）、在这个房间还没开始过任务，或这种 Agent 不支持。`,
             code: "SESSION_UNAVAILABLE",
           });
         }

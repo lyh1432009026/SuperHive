@@ -92,6 +92,21 @@ describe("execution trace", () => {
   });
 });
 
+describe("ClaudeStream session", () => {
+  it("reports the session id from the init event before the turn ends", () => {
+    const sessions: string[] = [];
+    const stream = new ClaudeStream(
+      () => undefined,
+      () => undefined,
+      (id) => sessions.push(id),
+    );
+    stream.push(
+      JSON.stringify({ type: "system", subtype: "init", session_id: "8e999bcd-f5ec" }) + "\n",
+    );
+    expect(sessions).toEqual(["8e999bcd-f5ec"]);
+  });
+});
+
 describe("isMutatingStep", () => {
   const step = (tool: TraceStep["tool"], summary: string, name?: string): TraceStep => ({
     id: "x",

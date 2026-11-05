@@ -261,6 +261,7 @@ export class AcpResponder implements AgentResponder {
       agent = await this.ensureAgent();
       this.throwIfAborted(input.signal);
       session = await this.openSession(agent, input.threadId);
+      input.onSession?.(session.sessionId);
       this.throwIfAborted(input.signal);
     } catch (error) {
       if (this.active === placeholder) this.active = undefined;

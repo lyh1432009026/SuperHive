@@ -57,6 +57,7 @@ export class ClaudeStream {
   constructor(
     private readonly emit: (event: RuntimeEvent) => void,
     private readonly trace: (step: TraceStep) => void = () => undefined,
+    private readonly session: (sessionId: string) => void = () => undefined,
   ) {}
 
   private traceAssistant(message: ObjectValue | undefined): void {
@@ -230,6 +231,14 @@ export class ClaudeStream {
       if (typeof response?.request_id === "string") {
         this.onControlResponse?.(response.request_id, response.subtype === "success");
       }
+      return;
+    }
+    if (
+      event.type === "system" &&
+      event.subtype === "init" &&
+      typeof event.session_id === "string"
+    ) {
+      this.session(event.session_id);
       return;
     }
     if (event.type === "system" && event.subtype === "api_retry") {

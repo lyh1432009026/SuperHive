@@ -870,6 +870,10 @@ export class AgentBridge {
           });
         },
         requestApproval: (request) => this.askApproval(active, request),
+        // 第一轮还没结束就能在终端里打开：一拿到会话 ID 就报，不等回合结束
+        onSession: (sessionId) => {
+          if (this.options.cwd) this.room.reportSession(sessionId, this.options.cwd);
+        },
         onTrace: (step) => {
           if (this.active !== active || active.controller.signal.aborted) return;
           if (isMutatingStep(step)) active.mutated = true;

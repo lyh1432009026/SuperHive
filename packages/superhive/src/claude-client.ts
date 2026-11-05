@@ -170,6 +170,7 @@ export class ClaudeCodeResponder implements AgentResponder {
     const stream = new ClaudeStream(
       (event) => input.onRuntimeEvent?.(event),
       (step) => input.onTrace?.(step),
+      (sessionId) => input.onSession?.(sessionId),
     );
     input.onRuntimeEvent?.({ kind: "capabilities", observability: "partial", usage: true });
     // 失败、中断时也交出已经发生的用量：钱已经花了
