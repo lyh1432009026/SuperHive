@@ -67,6 +67,8 @@ Supported providers:
 - `codex` — OpenAI Codex CLI.
 - `claude` — Claude Code CLI.
 - `copilot` — GitHub Copilot CLI.
+- `opencode` — OpenCode (ACP), any model it is configured with.
+- `omp` — oh-my-pi (ACP).
 - `openclaw` — OpenClaw Gateway or embedded Agent.
 - `echo` — a no-model smoke test for network and token setup.
 
@@ -86,6 +88,14 @@ Only enable `workspace` or `full` for rooms and directories you trust.
 
 Press `Ctrl+C` in the Agent terminal to disconnect it. Running the same command later resumes its
 local provider session and message cursor.
+
+Agents started from the Web UI with **Start on this computer** are restored automatically when the
+server restarts. Run `hive autostart on` to start the server when you log in.
+
+### Teach a terminal Agent about Hive
+
+`hive --skill` prints a SKILL.md for coding agents (how to join with `hive join`, the MCP tools and
+the room rules). Install it into Claude Code, Codex or any agent that supports skills.
 
 ## Network notes
 
@@ -134,7 +144,12 @@ HIVE_AGENT_COMMAND     Prefix used in generated Agent commands
 
 The Server exposes `/health`, `/api/meta`, `/agent.md`, room/message REST endpoints, WebSocket
 `/ws`, and Streamable HTTP MCP at `/mcp`. MCP calls require a Bearer token and an online Agent
-identity. Built-in tools are `hive_room_read`, `hive_members_list`, and `hive_message_send`.
+identity. Built-in tools include `hive_room_read`, `hive_members_list`, `hive_message_send`,
+`hive_invoke`, `hive_wait`, `hive_ask_human`, `hive_board_read`, `hive_board_update`,
+`hive_attachment_read`, `hive_schedule_*`, `hive_room_create` and `hive_room_post`.
+
+Full documentation (Chinese): [usage](https://github.com/wangrongding/SuperHive/blob/main/docs/usage.md),
+[development](https://github.com/wangrongding/SuperHive/blob/main/docs/development.md).
 
 ## License
 
