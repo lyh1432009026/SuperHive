@@ -6,6 +6,7 @@ import type {
   RoomSummary,
   UsageSummary,
 } from "@superhive/protocol";
+import { attentionKind } from "./attention";
 import { delegationSummary, invocationStatusLabel } from "./invocations";
 import { formatRelativeTime } from "./whiteboard";
 import { localized, t } from "./i18n";
@@ -18,13 +19,7 @@ export type ActivityView = "search" | "mentions" | "tasks";
  * 人点了「忽略」或服务端判定已被后续处理取代（resolution）的不再算。
  */
 export function needsAttention(invocation: Invocation): boolean {
-  if (invocation.status === "waiting_human") return true;
-  return (
-    !invocation.resolution &&
-    (invocation.status === "failed" ||
-      invocation.status === "blocked" ||
-      invocation.status === "timed_out")
-  );
+  return attentionKind(invocation) !== undefined;
 }
 
 export function isInFlight(invocation: Invocation): boolean {

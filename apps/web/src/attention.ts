@@ -1,0 +1,165 @@
+import type { Invocation } from "@superhive/protocol";
+import { localized, t } from "./i18n";
+
+/**
+ * 「需要你处理」的统一判断：侧栏标记、跨房间提醒、「下一个要我处理的」跳转都用这里，口径一致。
+ * - question：Agent 提了问题在等人回答
+ * - approval：被拦下等人放行（访客未获批、防循环预算用完）
+ * - failed：失败
+ * - unknown：结果未知（中断、超时，可能做了一半）
+ * - unseen：做完了，但发起人还没回去看
+ * 人点了「忽略」或服务端判定已被后续处理取代（resolution）的不再算。
+ */
+export type AttentionKind = "question" | "approval" | "failed" | "unknown" | "unseen";
+
+export type AttentionItem = {
+  invocation: Invocation;
+  kind: AttentionKind;
+  roomId: string;
+  /** 触发这次调用的消息：跳转时定位到它 */
+  messageId: string;
+  /** 进入这个状态的时间 */
+  at: string;
+};
+
+/** 越小越该先处理：等人回答最急，完成未看最不急 */
+const priority: Record<AttentionKind, number> = {
+  question: 0,
+  approval: 1,
+  failed: 2,
+  unknown: 3,
+  unseen: 4,
+};
+
+export const attentionLabels = localized((): Record<AttentionKind, string> => ({
+  question: t("等你回答"),
+  approval: t("等你放行"),
+  failed: t("失败"),
+  unknown: t("结果未知"),
+  unseen: t("完成未看"),
+}));
+
+/** 仍在进行或需要处理的调用（不含完成未看）属于哪一类；不需要处理时返回 undefined */
+export function attentionKind(invocation: Invocation): AttentionKind | undefined {
+  if (invocation.status === "waiting_human") return "question";
+  if (invocation.resolution) return undefined;
+  switch (invocation.status) {
+    case "blocked":
+      return "approval";
+    case "failed":
+      return "failed";
+    case "timed_out":
+      return "unknown";
+    default:
+      return undefined;
+  }
+}
+
+/** 做完了：完成未看只算正常完成的 */
+export function isCompleted(invocation: Invocation): boolean {
+  return invocation.status === "completed";
+}
+
+/**
+ * 这条调用的结果是不是该提醒「我」：我发起的（requesterId 优先，旧数据按名字），
+ * 或者我是房主、它被拦下在等房主放行。
+ */
+export function concernsMe(
+  invocation: Invocation,
+  me: { username: string; participantIds?: ReadonlySet<string>; isOwner?: boolean },
+): boolean {
+  if (me.isOwner && invocation.status === "blocked") return true;
+  if (invocation.requesterType !== "human") return false;
+  if (invocation.requesterId && me.participantIds?.size) {
+    return me.participantIds.has(invocation.requesterId);
+  }
+  return invocation.requesterName.toLocaleLowerCase() === me.username.toLocaleLowerCase();
+}
+
+/**
+ * 状态变化后是否新进入了需要提醒的状态：从别的状态变成等人回答、被拦、失败、未知，
+ * 或从进行中变成完成。同一状态的重复推送（进度、心跳）不算，避免反复提醒。
+ */
+export function attentionTransition(
+  previous: Invocation | undefined,
+  next: Invocation,
+): AttentionKind | undefined {
+  const kind = attentionKind(next);
+  if (kind) {
+    return previous && attentionKind(previous) === kind && previous.attempts === next.attempts
+      ? undefined
+      : kind;
+  }
+  if (isCompleted(next) && previous && !isCompleted(previous)) return "unseen";
+  return undefined;
+}
+
+/**
+ * 汇总所有需要处理的事项，按紧急程度排序；同一类里先进入的排前面（等得最久的先处理）。
+ * unseen 传入的是「完成但还没看」的调用，由调用方维护（看过即移除）。
+ */
+export function collectAttention(
+  active: Iterable<Invocation>,
+  unseen: Iterable<Invocation> = [],
+): AttentionItem[] {
+  const items = new Map<string, AttentionItem>();
+  for (const invocation of active) {
+    const kind = attentionKind(invocation);
+    if (kind) items.set(invocation.id, toItem(invocation, kind));
+  }
+  for (const invocation of unseen) {
+    if (!items.has(invocation.id)) items.set(invocation.id, toItem(invocation, "unseen"));
+  }
+  return [...items.values()].sort(
+    (a, b) => priority[a.kind] - priority[b.kind] || a.at.localeCompare(b.at),
+  );
+}
+
+function toItem(invocation: Invocation, kind: AttentionKind): AttentionItem {
+  return {
+    invocation,
+    kind,
+    roomId: invocation.roomId,
+    messageId: invocation.messageId,
+    at: invocation.finishedAt ?? invocation.updatedAt,
+  };
+}
+
+/** 每个房间需要处理的条数和最急的一类：侧栏标记据此显示 */
+export function attentionByRoom(
+  items: readonly AttentionItem[],
+): Map<string, { count: number; top: AttentionKind }> {
+  const rooms = new Map<string, { count: number; top: AttentionKind }>();
+  for (const item of items) {
+    const entry = rooms.get(item.roomId);
+    if (!entry) rooms.set(item.roomId, { count: 1, top: item.kind });
+    else {
+      entry.count += 1;
+      if (priority[item.kind] < priority[entry.top]) entry.top = item.kind;
+    }
+  }
+  return rooms;
+}
+
+/** 「下一个要我处理的」：在排好序的列表里取 current 之后的一条，到尾回到第一条 */
+export function nextAttention(
+  items: readonly AttentionItem[],
+  currentInvocationId?: string,
+): AttentionItem | undefined {
+  if (items.length === 0) return undefined;
+  const index = currentInvocationId
+    ? items.findIndex((item) => item.invocation.id === currentInvocationId)
+    : -1;
+  return items[(index + 1) % items.length];
+}
+
+/** 需要处理的房间排在前面；同一组里保持传入的（手动拖拽的）顺序 */
+export function pinAttentionRooms<T extends { id: string }>(
+  rooms: readonly T[],
+  byRoom: ReadonlyMap<string, unknown>,
+): T[] {
+  return [
+    ...rooms.filter((room) => byRoom.has(room.id)),
+    ...rooms.filter((room) => !byRoom.has(room.id)),
+  ];
+}
