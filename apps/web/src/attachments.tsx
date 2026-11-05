@@ -1,7 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { Attachment, UploadedAttachment } from "@superhive/protocol";
 import { t } from "./i18n";
+
+// 预览 Markdown 时才用到渲染器，和消息里的共用同一个 chunk
+const PreviewMarkdown = lazy(() =>
+  import("./message-markdown").then((module) => ({ default: module.MessageMarkdown })),
+);
 
 /** 与服务端 LIMITS 一致：单个 20 MiB、一条消息 10 个、合计 50 MiB */
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
@@ -398,6 +403,154 @@ function ImageAttachment({
   );
 }
 
+/** 页面内能预览的：文本类（含代码、Markdown）和 PDF；其他照旧下载 */
+export function previewKind(attachment: Attachment): "markdown" | "text" | "pdf" | undefined {
+  if (attachment.mime === "application/pdf") return "pdf";
+  if (attachment.kind !== "text") return undefined;
+  return /\.(md|markdown|mdx)$/i.test(attachment.name) ? "markdown" : "text";
+}
+
+/** 文本预览最多显示这么多字，再长的请下载看全文 */
+const PREVIEW_TEXT_LIMIT = 200_000;
+
+async function downloadAttachment(base: string, token: string, attachment: Attachment) {
+  const url = await fetchAttachmentUrl(base, token, attachment.id);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = attachment.name;
+  link.rel = "noopener";
+  link.click();
+}
+
+/** 代码按扩展名高亮：包成一个足够长的代码围栏交给 Markdown 渲染器 */
+function codeFence(name: string, text: string): string {
+  const language = /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase() ?? "";
+  const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map((match) => match[0].length));
+  const fence = "`".repeat(longest + 1);
+  return `${fence}${language}\n${text}\n${fence}`;
+}
+
+function FilePreview({
+  attachment,
+  base,
+  token,
+  onClose,
+}: {
+  attachment: Attachment;
+  base: string;
+  token: string | undefined;
+  onClose: () => void;
+}) {
+  const kind = previewKind(attachment)!;
+  const { url, error } = useAttachmentUrl(base, token, attachment.id, true);
+  const [text, setText] = useState<{ value: string; clipped: boolean }>();
+  const [downloadError, setDownloadError] = useState<string>();
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!url || kind === "pdf") return;
+    let alive = true;
+    void fetch(url)
+      .then((response) => response.text())
+      .then((value) => {
+        if (!alive) return;
+        setText({
+          value: value.length > PREVIEW_TEXT_LIMIT ? value.slice(0, PREVIEW_TEXT_LIMIT) : value,
+          clipped: value.length > PREVIEW_TEXT_LIMIT,
+        });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [kind, url]);
+
+  useEffect(() => {
+    closeRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+
+  const body = error ? (
+    <p className="file-preview-status danger">{error}</p>
+  ) : kind === "pdf" ? (
+    url ? (
+      <iframe className="file-preview-pdf" src={url} title={attachment.name} />
+    ) : (
+      <p className="file-preview-status">{t("加载中…")}</p>
+    )
+  ) : text === undefined ? (
+    <p className="file-preview-status">{t("加载中…")}</p>
+  ) : (
+    <div className={`file-preview-text${kind === "markdown" ? " markdown" : ""}`}>
+      <Suspense fallback={<pre>{text.value}</pre>}>
+        <PreviewMarkdown
+          content={kind === "markdown" ? text.value : codeFence(attachment.name, text.value)}
+        />
+      </Suspense>
+      {text.clipped && (
+        <p className="file-preview-status">
+          {t("文件较长，只显示前 {0} 字；完整内容请下载查看。", {
+            0: PREVIEW_TEXT_LIMIT.toLocaleString(),
+          })}
+        </p>
+      )}
+    </div>
+  );
+
+  return createPortal(
+    <div
+      className="file-preview-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("预览 {0}", { 0: attachment.name })}
+      onClick={onClose}
+    >
+      <div className="file-preview" onClick={(event) => event.stopPropagation()}>
+        <header className="file-preview-header">
+          <span className="message-file-icon">
+            <FileGlyph kind={attachment.kind} />
+          </span>
+          <span className="file-preview-title">
+            <strong title={attachment.name}>{attachment.name}</strong>
+            <small className={downloadError ? "danger" : undefined}>
+              {downloadError ?? formatBytes(attachment.size)}
+            </small>
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              if (!token) return;
+              setDownloadError(undefined);
+              downloadAttachment(base, token, attachment).catch((cause: unknown) =>
+                setDownloadError(cause instanceof Error ? cause.message : String(cause)),
+              );
+            }}
+          >
+            {t("下载")}
+          </button>
+          <button
+            ref={closeRef}
+            type="button"
+            className="file-preview-close"
+            aria-label={t("关闭")}
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </header>
+        <div className="file-preview-body">{body}</div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function FileAttachment({
   attachment,
   base,
@@ -409,45 +562,56 @@ function FileAttachment({
 }) {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const previewable = previewKind(attachment) !== undefined;
+  const closePreview = useCallback(() => setPreviewing(false), []);
   async function download() {
     if (!token || busy) return;
     setBusy(true);
     setError(undefined);
     try {
-      const url = await fetchAttachmentUrl(base, token, attachment.id);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = attachment.name;
-      link.rel = "noopener";
-      link.click();
+      await downloadAttachment(base, token, attachment);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(false);
     }
   }
+  const label = previewable
+    ? t("预览 {0}", { 0: attachment.name })
+    : t("下载 {0}", { 0: attachment.name });
   return (
-    <button
-      type="button"
-      className="message-file"
-      onClick={(event) => {
-        event.stopPropagation();
-        void download();
-      }}
-      title={error ?? t("下载 {0}", { 0: attachment.name })}
-      aria-label={t("下载 {0}", { 0: attachment.name })}
-    >
-      <span className="message-file-icon">
-        <FileGlyph kind={attachment.kind} />
-      </span>
-      <span className="message-file-copy">
-        <strong>{attachment.name}</strong>
-        <small className={error ? "danger" : undefined}>
-          {error ??
-            (busy ? t("下载中…") : t("{0} · 点击下载", { 0: formatBytes(attachment.size) }))}
-        </small>
-      </span>
-    </button>
+    <>
+      <button
+        type="button"
+        className="message-file"
+        onClick={(event) => {
+          event.stopPropagation();
+          if (previewable) setPreviewing(true);
+          else void download();
+        }}
+        title={error ?? label}
+        aria-label={label}
+      >
+        <span className="message-file-icon">
+          <FileGlyph kind={attachment.kind} />
+        </span>
+        <span className="message-file-copy">
+          <strong>{attachment.name}</strong>
+          <small className={error ? "danger" : undefined}>
+            {error ??
+              (busy
+                ? t("下载中…")
+                : previewable
+                  ? t("{0} · 点击预览", { 0: formatBytes(attachment.size) })
+                  : t("{0} · 点击下载", { 0: formatBytes(attachment.size) }))}
+          </small>
+        </span>
+      </button>
+      {previewing && (
+        <FilePreview attachment={attachment} base={base} token={token} onClose={closePreview} />
+      )}
+    </>
   );
 }
 

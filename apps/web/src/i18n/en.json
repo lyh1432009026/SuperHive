@@ -1008,5 +1008,9 @@
   "进入这个房间后才能从它的 Agent 里选择。": "Open this room to choose from its agents.",
   "主 Agent {0} 已不在这个房间，不带 @ 的消息现在没人接，请重新选择。": "Lead agent {0} is no longer in this room, so messages without an @ go unanswered. Choose another one.",
   "进度": "Progress",
-  "Agent 执行中途发来的进度，最终结论在它之后的回复里": "A progress update sent while the agent is working; its conclusion comes in a later reply"
+  "Agent 执行中途发来的进度，最终结论在它之后的回复里": "A progress update sent while the agent is working; its conclusion comes in a later reply",
+  "预览 {0}": "Preview {0}",
+  "{0} · 点击预览": "{0} · Click to preview",
+  "下载": "Download",
+  "文件较长，只显示前 {0} 字；完整内容请下载查看。": "This file is long; only the first {0} characters are shown. Download it to see everything."
 }

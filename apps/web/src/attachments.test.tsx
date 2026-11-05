@@ -203,3 +203,46 @@ describe("图片查看器", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
+
+describe("文件预览", () => {
+  const file = (id: string, name: string, kind: "text" | "file", mime: string) => ({
+    id,
+    name,
+    kind,
+    mime,
+    size: 20,
+    sha256: "0".repeat(64),
+  });
+
+  it("Markdown、代码和 PDF 在页面内预览，其他文件照旧下载", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("# 对比报告\n\n结论在这里")),
+    );
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:preview" }));
+    render(
+      <MessageAttachments
+        attachments={[
+          file("00000000-0000-4000-8000-0000000000a1", "report.md", "text", "text/markdown"),
+          file("00000000-0000-4000-8000-0000000000a2", "spec.pdf", "file", "application/pdf"),
+          file("00000000-0000-4000-8000-0000000000a3", "data.zip", "file", "application/zip"),
+        ]}
+        base="http://hive"
+        token="t"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "预览 report.md" }));
+    const dialog = await screen.findByRole("dialog", { name: "预览 report.md" });
+    expect(await screen.findByRole("heading", { name: "对比报告" })).toBeTruthy();
+    expect(dialog.textContent).toContain("结论在这里");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "预览 spec.pdf" }));
+    await vi.waitFor(() => expect(document.querySelector("iframe.file-preview-pdf")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+
+    // 不能预览的照旧是下载
+    expect(screen.getByRole("button", { name: "下载 data.zip" })).toBeTruthy();
+  });
+});
