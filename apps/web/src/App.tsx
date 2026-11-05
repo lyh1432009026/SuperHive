@@ -10,6 +10,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import type {
@@ -50,13 +51,20 @@ import {
 } from "./invocations";
 import { WhiteboardPanel, upsertWhiteboardEntry } from "./whiteboard";
 import { SchedulePanel, isPendingSchedule, upsertSchedule } from "./schedules";
-import { loadRoomOrder, orderRooms, storedRoomOrderKey, useRoomReorder } from "./room-reorder";
+import {
+  loadRoomOrder,
+  moveRoom,
+  orderRooms,
+  storedRoomOrderKey,
+  useRoomReorder,
+} from "./room-reorder";
 import { isLiveInvocation, mergeTraceSteps } from "./live-trace";
 import { ActivityPanel, isInFlight, needsAttention, type ActivityView } from "./activity";
 import { buildGoToItems } from "./goto";
 import { GoToPalette } from "./goto-palette";
 import { matchShortcut, type ShortcutId } from "./shortcuts";
 import { ShortcutsHelp } from "./shortcuts-help";
+import { ContextMenu, contextMenuPoint, type ContextMenuState } from "./context-menu";
 import {
   AttentionRoomGroup,
   AttentionToasts,
@@ -1293,6 +1301,9 @@ export function App({
   const [activityView, setActivityView] = useState<ActivityView>();
   const [gotoOpen, setGotoOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // 房间列表、成员列表的右键菜单
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>();
+  const closeContextMenu = useCallback(() => setContextMenu(undefined), []);
   const [mentionMessages, setMentionMessages] = useState<ChatMessage[]>([]);
   // 正在回答的 Agent 提问；发送时作为 replyToMessageId
   const [answering, setAnswering] = useState<ChatMessage>();
@@ -3157,6 +3168,155 @@ export function App({
       .sort((a, b) => a.localeCompare(b));
   }
 
+  async function copyForMenu(text: string) {
+    try {
+      await copyTextToClipboard(text);
+    } catch {
+      setError(t("浏览器未允许自动复制。"));
+    }
+  }
+
+  function markRoomReadNow(room: RoomSummary) {
+    localStorage.setItem(readSeqStorageKey(room.id), String(room.latestSeq));
+    setReadSeqs((current) => ({ ...current, [room.id]: room.latestSeq }));
+  }
+
+  /** 房间右键：打开、复制链接 / ID、标为已读、调整顺序、管理 */
+  function openRoomMenu(event: ReactMouseEvent<HTMLElement>, room: RoomSummary) {
+    event.preventDefault();
+    const row = event.currentTarget;
+    const index = visibleRoomIds.indexOf(room.id);
+    const move = (to: number) => reorderRooms(moveRoom(visibleRoomIds, room.id, to));
+    const origin = resolveShareBase({
+      development: import.meta.env.DEV,
+      location: window.location,
+      advertisedUrl: meta?.httpUrl,
+    });
+    setContextMenu({
+      ...contextMenuPoint(event),
+      title: `# ${room.name}`,
+      items: [
+        {
+          label: t("打开"),
+          disabled: room.id === currentRoomId,
+          onSelect: () => switchRoom(room.id),
+        },
+        {
+          label: t("标为已读"),
+          disabled: room.latestSeq <= (readSeqs[room.id] ?? 0) || room.id === currentRoomId,
+          onSelect: () => markRoomReadNow(room),
+        },
+        "separator",
+        { label: t("复制房间链接"), onSelect: () => void copyForMenu(`${origin}/#${room.id}`) },
+        { label: t("复制房间 ID"), onSelect: () => void copyForMenu(room.id) },
+        "separator",
+        { label: t("移到最前"), disabled: index <= 0, onSelect: () => move(0) },
+        { label: t("上移"), hint: "Alt+↑", disabled: index <= 0, onSelect: () => move(index - 1) },
+        {
+          label: t("下移"),
+          hint: "Alt+↓",
+          disabled: index < 0 || index >= visibleRoomIds.length - 1,
+          onSelect: () => move(index + 1),
+        },
+        ...(isOwner
+          ? [
+              "separator" as const,
+              {
+                label: t("管理房间…"),
+                onSelect: () => {
+                  const trigger = row.querySelector<HTMLButtonElement>(".room-item-main");
+                  if (trigger) openRoomDialog({ mode: "manage", room }, trigger);
+                },
+              },
+            ]
+          : []),
+      ],
+    });
+  }
+
+  async function setLeadAgent(name: string | null) {
+    try {
+      upsertRoom(
+        await roomRequest(`/api/rooms/${encodeURIComponent(currentRoomId)}`, "PATCH", {
+          leadAgent: name,
+        }),
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  }
+
+  /** 成员右键：@ 它、复制名字；Agent 还能设为主 Agent、看任务、打开设置、重启 / 停止 / 启动 */
+  function openMemberMenu(event: ReactMouseEvent<HTMLElement>, participant: Participant) {
+    event.preventDefault();
+    const self = participant.username.toLocaleLowerCase() === username.toLocaleLowerCase();
+    const agent = participant.type === "agent" ? localAgentFor(participant.username) : undefined;
+    const lead = isLeadAgent(participant);
+    const act = (action: "start" | "stop" | "restart") =>
+      void local.act(agent!.id, action).catch((reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      });
+    const live = agent && agent.status !== "stopped" && agent.status !== "crashed";
+    setContextMenu({
+      ...contextMenuPoint(event),
+      title: participant.username,
+      items: [
+        ...(!self
+          ? [
+              {
+                label: t("@ {0}", { 0: participant.username }),
+                onSelect: () => appendMention(participant.username),
+              },
+            ]
+          : []),
+        { label: t("复制名字"), onSelect: () => void copyForMenu(participant.username) },
+        ...(participant.type === "agent"
+          ? [
+              "separator" as const,
+              { label: t("查看 Agent 任务"), onSelect: () => openActivity("tasks") },
+              ...(isOwner
+                ? [
+                    lead
+                      ? { label: t("取消主 Agent"), onSelect: () => void setLeadAgent(null) }
+                      : {
+                          label: t("设为本房间的主 Agent"),
+                          onSelect: () => void setLeadAgent(participant.username),
+                        },
+                  ]
+                : []),
+              ...(agent
+                ? [
+                    "separator" as const,
+                    { label: t("设置…"), onSelect: () => setSettingsAgentId(agent.id) },
+                    ...(live
+                      ? [
+                          {
+                            label: t("重启"),
+                            disabled: !local.canManage,
+                            onSelect: () => act("restart"),
+                          },
+                          {
+                            label: t("停止"),
+                            danger: true,
+                            disabled: !local.canManage,
+                            onSelect: () => act("stop"),
+                          },
+                        ]
+                      : [
+                          {
+                            label: t("启动"),
+                            disabled: !local.canManage,
+                            onSelect: () => act("start"),
+                          },
+                        ]),
+                  ]
+                : []),
+            ]
+          : []),
+      ],
+    });
+  }
+
   async function submitRenameRoom(room: RoomSummary) {
     const name = roomDialogName.trim();
     if (!name) {
@@ -3365,6 +3525,7 @@ export function App({
                 <div
                   key={room.id}
                   {...roomReorder.itemProps(room.id)}
+                  onContextMenu={(event) => openRoomMenu(event, room)}
                   style={placement.style}
                   className={`room-item ${room.id === currentRoomId ? "active" : ""} ${room.archivedAt ? "archived" : ""} ${placement.dragging ? "dragging" : ""}`}
                 >
@@ -4707,7 +4868,11 @@ export function App({
                 aria-labelledby="side-tab-members"
               >
                 {online.map((participant) => (
-                  <div key={participant.id} className="member-row">
+                  <div
+                    key={participant.id}
+                    className="member-row"
+                    onContextMenu={(event) => openMemberMenu(event, participant)}
+                  >
                     {/* 用 div 承载点击：访客行里还要嵌入「⋯」按钮，button 不能嵌套 button */}
                     <div
                       role="button"
@@ -4806,7 +4971,11 @@ export function App({
                   <p className="offline-label">{t("离线 · {0}", { 0: offline.length })}</p>
                 )}
                 {offline.map((participant) => (
-                  <div key={participant.id} className="member-row">
+                  <div
+                    key={participant.id}
+                    className="member-row"
+                    onContextMenu={(event) => openMemberMenu(event, participant)}
+                  >
                     <div className="member muted">
                       <span
                         className={`avatar ${participant.type}`}
@@ -5003,6 +5172,7 @@ export function App({
         />
       )}
       {shortcutsOpen && <ShortcutsHelp onClose={() => setShortcutsOpen(false)} />}
+      {contextMenu && <ContextMenu menu={contextMenu} onClose={closeContextMenu} />}
       {gotoNotice && (
         <div className="goto-toast" role="status">
           {gotoNotice}

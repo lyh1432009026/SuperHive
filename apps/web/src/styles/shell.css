@@ -1129,3 +1129,67 @@ body.room-dragging * {
     transition: background var(--duration-fast);
   }
 }
+
+/* 房间列表、成员列表的右键菜单 */
+.context-menu {
+  position: fixed;
+  z-index: 1100;
+  display: grid;
+  min-width: 180px;
+  max-width: 280px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-dialog);
+  outline: none;
+}
+
+.context-menu-title {
+  overflow: hidden;
+  padding: 6px 10px 4px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.context-menu-item small {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.context-menu-item.active:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.context-menu-item.danger {
+  color: var(--danger);
+}
+
+.context-menu-item:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+.context-menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}

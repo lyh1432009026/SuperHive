@@ -877,6 +877,47 @@ describe("App mention autocomplete", () => {
     expect(screen.getByPlaceholderText("发送消息，不 @ 时交给主 Agent helper…")).toBeTruthy();
   });
 
+  it("opens right-click menus on rooms and members with common actions", async () => {
+    localStorage.setItem("superhive.username", "Alice");
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    const helper = participant("00000000-0000-4000-8000-000000000002", "helper", "agent");
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self, helper],
+        messages: [],
+        latestSeq: 0,
+      }),
+    );
+    const roomsPanel = screen.getByLabelText("房间列表");
+    const frontend = await within(roomsPanel).findByText("# frontend");
+    const names = () =>
+      [...roomsPanel.querySelectorAll(".room-item-name")].map((item) => item.textContent);
+    expect(names()[0]).not.toBe("# frontend");
+
+    fireEvent.contextMenu(frontend, { clientX: 40, clientY: 80 });
+    const roomMenu = screen.getByRole("menu", { name: "# frontend" });
+    expect(within(roomMenu).getByRole("menuitem", { name: "复制房间链接" })).toBeTruthy();
+    fireEvent.click(within(roomMenu).getByRole("menuitem", { name: "移到最前" }));
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(names()[0]).toBe("# frontend");
+
+    const memberRow = screen
+      .getAllByText("helper")
+      .map((node) => node.closest(".member-row"))
+      .find(Boolean)!;
+    fireEvent.contextMenu(memberRow, { clientX: 300, clientY: 200 });
+    const memberMenu = screen.getByRole("menu", { name: "helper" });
+    expect(within(memberMenu).getByRole("menuitem", { name: "查看 Agent 任务" })).toBeTruthy();
+    fireEvent.keyDown(memberMenu, { key: "Enter" });
+    expect((screen.getByLabelText("消息") as HTMLTextAreaElement).value).toContain("@helper");
+  });
+
   it("switches rooms, shows unread dots, and creates rooms from the sidebar", async () => {
     const user = userEvent.setup();
     localStorage.setItem("superhive.username", "Alice");

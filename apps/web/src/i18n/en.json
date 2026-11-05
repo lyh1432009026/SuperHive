@@ -1122,5 +1122,20 @@
   "停止中…": "Stopping…",
   "启动中…": "Starting…",
   "设置（重启、停止、MCP 等）": "Settings (restart, stop, MCP…)",
-  "重启、停止这个 Agent，选择它加载哪些本机 MCP。每个 MCP 的工具说明会在每个会话开局整段发给模型，体积大的会明显增加新会话和缓存过期时的费用。hive 始终加载。": "Restart or stop this agent and choose which local MCP servers it loads. Each MCP's tool descriptions are sent to the model at the start of every session; large ones noticeably raise the cost of new sessions and cache misses. hive is always loaded."
+  "重启、停止这个 Agent，选择它加载哪些本机 MCP。每个 MCP 的工具说明会在每个会话开局整段发给模型，体积大的会明显增加新会话和缓存过期时的费用。hive 始终加载。": "Restart or stop this agent and choose which local MCP servers it loads. Each MCP's tool descriptions are sent to the model at the start of every session; large ones noticeably raise the cost of new sessions and cache misses. hive is always loaded.",
+  "浏览器未允许自动复制。": "The browser blocked copying to the clipboard.",
+  "打开": "Open",
+  "标为已读": "Mark as read",
+  "复制房间链接": "Copy room link",
+  "复制房间 ID": "Copy room ID",
+  "移到最前": "Move to top",
+  "上移": "Move up",
+  "下移": "Move down",
+  "管理房间…": "Manage room…",
+  "@ {0}": "@ {0}",
+  "复制名字": "Copy name",
+  "查看 Agent 任务": "View agent tasks",
+  "取消主 Agent": "Remove as lead agent",
+  "设为本房间的主 Agent": "Make lead agent of this room",
+  "设置…": "Settings…"
 }
