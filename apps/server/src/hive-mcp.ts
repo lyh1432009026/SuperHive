@@ -101,6 +101,12 @@ export type HiveMcpContext = {
   listSchedules: () => Schedule[];
   /** 替房主新建房间（只能在房主本人发起的任务里用）；本机 Agent 会自动加入新房间 */
   createRoom: (input: { id: string; name?: string; workspace?: string }) => RoomSummary;
+  /** 替房主到另一个房间给那里的 Agent 派活（只能在房主本人发起的任务里用） */
+  postToRoom: (input: {
+    roomId: string;
+    content: string;
+    clientMessageId: string;
+  }) => Promise<ChatMessage>;
   cancelSchedule: (id: string) => Schedule;
   /** 短时等待一个调用结束；超时只说明还没结束，不改变子任务状态 */
   wait: (input: {
@@ -580,8 +586,47 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
               ...(room.workspace ? { workspace: room.workspace } : {}),
               ...(room.branch ? { branch: room.branch } : {}),
             },
-            note: "本机 Agent 会在几秒内自动加入新房间。在回复里写明房间 ID，请人切到新房间 @ 需要的 Agent。",
+            note: "本机 Agent 会在几秒内自动加入新房间。要让那边的 Agent 接着干活，用 hive_room_post 把完整任务发过去；在回复里写明房间 ID。",
           },
+          context.takeInbox(),
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hive_room_post",
+    {
+      title: "Hand work to an agent in another room",
+      description:
+        "替房主到另一个房间给那里的 Agent 派活：以你自己的名义在那个房间发一条消息，content 里要 @ 接活的 Agent，并写成单看它就能开工的完整说明（那边看不到这个房间的上下文）。只能在房主本人发起的任务里使用；刚新建的房间会等那边的 Agent 进来再发（最多 20 秒）。那边的结果留在那个房间，不会回执给你；发出后在回复里告诉人去哪个房间看。",
+      inputSchema: {
+        room: z.string().trim().min(1).max(64).describe("目标房间 ID，例如 z-code"),
+        content: z
+          .string()
+          .trim()
+          .min(1)
+          .max(20_000)
+          .describe("要发的消息，需 @ 接活的 Agent，例如「@rd-claude 在本房间工作区里……」"),
+        clientMessageId: z
+          .string()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe("可选幂等键；重试同一次发送时复用"),
+      },
+    },
+    async ({ room, content, clientMessageId }) => {
+      try {
+        const message = await context.postToRoom({
+          roomId: room.replace(/^#/, ""),
+          content,
+          clientMessageId: clientMessageId ?? randomUUID(),
+        });
+        return toolResult(
+          { sent: true, room: message.roomId, seq: message.seq, messageId: message.id },
           context.takeInbox(),
         );
       } catch (error) {

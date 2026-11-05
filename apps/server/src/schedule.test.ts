@@ -697,4 +697,51 @@ describe("hive_room_create", () => {
     const idle = await mcp("helper2");
     expect((await call(idle, { id: "idle-room" })).isError).toBe(true);
   });
+
+  it("hands work to an agent in another room as the caller, waiting for it to come online", async () => {
+    const { client, port } = await executingRoom();
+    const call = async (c: typeof client, name: string, args: Record<string, unknown>) =>
+      (await c.callTool({ name, arguments: args })) as {
+        isError?: boolean;
+        structuredContent?: Record<string, any>;
+        content: Array<{ text: string }>;
+      };
+    expect((await call(client, "hive_room_create", { id: "side" })).isError).toBeFalsy();
+    const enter = async (username: string) => {
+      const peer = await Peer.connect(`ws://127.0.0.1:${port}/ws`);
+      cleanup.push(() => peer.socket.close());
+      peer.send({
+        type: "participant.join",
+        username,
+        participantType: "agent",
+        roomId: "side",
+        token: "test-token",
+      });
+      await peer.next((event) => event.type === "room.snapshot");
+      return peer;
+    };
+    // 那边的 Agent 过一会儿才进房间：工具会等它
+    const posting = call(client, "hive_room_post", {
+      room: "side",
+      content: "@worker 在本房间工作区里跑一遍测试",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await enter("helper");
+    const worker = await enter("worker");
+    const posted = await posting;
+    expect(posted.isError).toBeFalsy();
+    const mentioned = await worker.next((event) => event.type === "agent.mentioned");
+    const message = (mentioned as Extract<ServerEvent, { type: "agent.mentioned" }>).message;
+    expect(message.senderName).toBe("helper");
+    expect(message.roomId).toBe("side");
+    expect(message.hopCount).toBe(0);
+    expect(message.content).toContain("从 #general");
+
+    expect(
+      (await call(client, "hive_room_post", { room: "general", content: "@helper x" })).isError,
+    ).toBe(true);
+    expect(
+      (await call(client, "hive_room_post", { room: "side", content: "没有 @" })).isError,
+    ).toBe(true);
+  });
 });

@@ -1517,17 +1517,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
    * hive_room_create：Agent 替房主新建房间。只认房主本人发起的任务（访客发起的、Agent 之间的对话都不行），
    * Agent 自己也不能是访客带入的；建房间本来就只有房主能做，这里不扩大谁能建。
    */
-  function createRoomForAgent(
-    agent: Participant,
-    input: { id: string; name?: string; workspace?: string },
-  ): RoomSummary {
+  /**
+   * 房主本人发起、Agent 正在执行的任务：返回执行中的触发消息和发起的房主。
+   * 访客带入的 Agent、访客发起的任务、源头不是人的 Agent 对话一律拒绝——跨房间的操作只替房主做。
+   */
+  function ownerTask(agent: Participant, action: string) {
     if (guestSessionOf(agent)) {
-      throw new HiveError("FORBIDDEN", "访客带入的 Agent 不能新建房间。");
+      throw new HiveError("FORBIDDEN", `访客带入的 Agent 不能${action}。`);
     }
     const parent = inferExecutingParent(agent);
     const invocation = parent ? database.getInvocationFor(parent.id, agent.id) : undefined;
     if (!parent || !invocation || invocation.status === "cancelling") {
-      throw new HiveError("NOT_EXECUTING", "只能在处理某条消息的过程中新建房间。");
+      throw new HiveError("NOT_EXECUTING", `只能在处理某条消息的过程中${action}。`);
     }
     const chain = [invocation, ...database.invocationAncestors(invocation.id)];
     const root = chain.find((item) => item.requesterType === "human");
@@ -1535,9 +1536,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (!requester || requester.type !== "human" || guestSessionOf(requester)) {
       throw new HiveError(
         "OWNER_ONLY",
-        "只有房主本人发起的任务里才能新建房间（访客发起的、Agent 之间的对话都不行）。",
+        `只有房主本人发起的任务里才能${action}（访客发起的、Agent 之间的对话都不行）。`,
       );
     }
+    return { parent, requester };
+  }
+
+  function createRoomForAgent(
+    agent: Participant,
+    input: { id: string; name?: string; workspace?: string },
+  ): RoomSummary {
+    const { requester } = ownerTask(agent, "新建房间");
     try {
       const room = withBranch(
         database.createRoom({
@@ -1555,6 +1564,58 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       }
       throw error;
     }
+  }
+
+  /**
+   * hive_room_post：替房主到另一个房间给那里的 Agent 派活。以调用者自己（同名 Agent）在那个房间发言，
+   * 开一条新的传递链；只在房主本人发起的任务里能用。那个房间里的后续对话源头不是人，
+   * 那边的 Agent 就不能再借这个工具往别的房间转，不会跨房间互相派个没完。
+   * 刚建的房间 Agent 要几秒才进来：等到消息里 @ 到的 Agent 都进了房间再发，最多等 20 秒。
+   */
+  async function postToRoomForAgent(
+    agent: Participant,
+    input: { roomId: string; content: string; clientMessageId: string },
+  ): Promise<ChatMessage> {
+    const { parent, requester } = ownerTask(agent, "到别的房间派活");
+    const room = database.getRoom(input.roomId);
+    if (!room || room.archivedAt) {
+      throw new HiveError("ROOM_NOT_FOUND", `没有房间 #${input.roomId}（或已归档）。`);
+    }
+    if (room.id === agent.roomId) {
+      throw new HiveError("SAME_ROOM", "这就是当前房间，直接回复或用 hive_invoke 即可。");
+    }
+    const mentions = parseMentions(input.content);
+    if (mentions.length === 0) {
+      throw new HiveError("NO_MENTION", "消息里要 @ 那个房间里接活的 Agent。");
+    }
+    const deadline = clock() + 20_000;
+    const missing = () =>
+      mentions.filter((name) => {
+        if (name.toLocaleLowerCase() === "all") return false;
+        const target = database.findParticipant(room.id, name);
+        return !target || (target.type === "agent" && !onlineAgent(room.id, target.username));
+      });
+    let sender = database.findParticipant(room.id, agent.username);
+    while ((!sender || missing().length > 0) && clock() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      sender = database.findParticipant(room.id, agent.username);
+    }
+    if (!sender || sender.type !== "agent") {
+      throw new HiveError("NOT_IN_ROOM", `你还没进入 #${room.id}，稍后再试。`);
+    }
+    const absent = missing();
+    if (absent.length > 0) {
+      throw new HiveError(
+        "AGENT_NOT_FOUND",
+        `#${room.id} 里还没有在线的 ${absent.join("、")}，稍后再试或换一个 Agent。`,
+      );
+    }
+    const origin = `（${agent.username} 从 #${agent.roomId} 的 #${parent.seq} 转来，发起人 ${requester.username}）`;
+    const { message } = createAndDispatchMessage(sender, {
+      content: `${input.content.trim()}\n\n${origin}`,
+      clientMessageId: input.clientMessageId,
+    });
+    return message;
   }
 
   function cancelSchedule(actor: Participant, scheduleId: string): Schedule {
@@ -3142,6 +3203,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       listSchedules: () => database.listSchedules(participant.roomId),
       cancelSchedule: (id) => cancelSchedule(participant, id),
       createRoom: (input) => createRoomForAgent(participant, input),
+      postToRoom: (input) => postToRoomForAgent(participant, input),
       formatScheduleTime,
       wait: (input) => waitForInvocation(participant, input),
       readAttachment: (input) => readAttachmentForAgent(participant, input),
