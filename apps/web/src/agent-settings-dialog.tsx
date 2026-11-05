@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { LocalAgent, LocalAgentMcpResponse, LocalMcpServer } from "@superhive/protocol";
 import { localized, t } from "./i18n";
-import type { LocalAgentsState } from "./local-agents";
+import { localAgentStatusLabels, type LocalAgentsState } from "./local-agents";
 
 function CloseGlyph() {
   return (
@@ -155,6 +155,21 @@ export function AgentSettingsDialog({
   const [saved, setSaved] = useState<"saved" | "restarted" | undefined>();
   const [autoSteer, setAutoSteer] = useState(agent.autoSteer);
   const [savingSteer, setSavingSteer] = useState(false);
+  const [acting, setActing] = useState<"start" | "stop" | "restart">();
+  const live = agent.status !== "stopped" && agent.status !== "crashed";
+
+  /** 启动、停止、重启：和「接入 Agent」里本机 Agent 列表的按钮是同一个操作 */
+  async function control(action: "start" | "stop" | "restart") {
+    setActing(action);
+    setError(undefined);
+    try {
+      await local.act(agent.id, action);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setActing(undefined);
+    }
+  }
 
   /** 自动插话：服务端在派发时判断，改了立即生效，不用重启 */
   async function toggleAutoSteer(next: boolean) {
@@ -251,7 +266,7 @@ export function AgentSettingsDialog({
             <h2 id="agent-settings-title">{t("{0} 的设置", { 0: agent.name })}</h2>
             <p>
               {t(
-                "选择这个 Agent 加载哪些本机 MCP。每个 MCP 的工具说明会在每个会话开局整段发给模型，体积大的会明显增加新会话和缓存过期时的费用。hive 始终加载。",
+                "重启、停止这个 Agent，选择它加载哪些本机 MCP。每个 MCP 的工具说明会在每个会话开局整段发给模型，体积大的会明显增加新会话和缓存过期时的费用。hive 始终加载。",
               )}
             </p>
           </div>
@@ -261,6 +276,43 @@ export function AgentSettingsDialog({
         </header>
 
         <div className="invite-dialog-body">
+          <div className={`agent-run-control local-agent ${agent.status}`}>
+            <span className="local-agent-dot" aria-hidden="true" />
+            <span className="agent-run-status">
+              <strong>{localAgentStatusLabels[agent.status]}</strong>
+              <small>
+                {live
+                  ? t("重启会结束它手上正在执行的任务；排队中的任务重启后接着做。")
+                  : t("已停止，房间里不会再有人接它的 @。")}
+              </small>
+            </span>
+            {live ? (
+              <>
+                <button
+                  type="button"
+                  disabled={acting !== undefined || !local.canManage}
+                  onClick={() => void control("restart")}
+                >
+                  {acting === "restart" ? t("重启中…") : t("重启")}
+                </button>
+                <button
+                  type="button"
+                  disabled={acting !== undefined || !local.canManage}
+                  onClick={() => void control("stop")}
+                >
+                  {acting === "stop" ? t("停止中…") : t("停止")}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                disabled={acting !== undefined || !local.canManage}
+                onClick={() => void control("start")}
+              >
+                {acting === "start" ? t("启动中…") : t("启动")}
+              </button>
+            )}
+          </div>
           <label className="agent-auto-steer">
             <input
               type="checkbox"

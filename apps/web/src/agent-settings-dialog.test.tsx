@@ -131,4 +131,33 @@ describe("AgentSettingsDialog", () => {
     expect(formatTokens(12_000)).toBe("1.2 万");
     expect(formatTokens(350_000)).toBe("35 万");
   });
+
+  it("restarts or stops the agent right from its settings, and starts it again once stopped", async () => {
+    const act = vi.fn(async () => undefined);
+    const props = {
+      mcpServers: vi.fn(async () => listed),
+      updateSettings: vi.fn(async () => agent),
+      act,
+      canManage: true,
+    };
+    const { rerender } = render(
+      <AgentSettingsDialog agent={agent} local={props} onClose={() => undefined} />,
+    );
+    expect(screen.getByText("运行中")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "重启" }));
+    await waitFor(() => expect(act).toHaveBeenCalledWith(agent.id, "restart"));
+    fireEvent.click(screen.getByRole("button", { name: "停止" }));
+    await waitFor(() => expect(act).toHaveBeenCalledWith(agent.id, "stop"));
+
+    rerender(
+      <AgentSettingsDialog
+        agent={{ ...agent, status: "stopped" }}
+        local={props}
+        onClose={() => undefined}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "重启" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "启动" }));
+    await waitFor(() => expect(act).toHaveBeenCalledWith(agent.id, "start"));
+  });
 });

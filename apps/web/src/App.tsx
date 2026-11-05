@@ -1499,7 +1499,7 @@ export function App({
           type="button"
           className="guest-actions-trigger agent-settings-trigger"
           aria-label={t("{0} 的设置", { 0: agent.name })}
-          title={t("设置（MCP 等）")}
+          title={t("设置（重启、停止、MCP 等）")}
           onClick={(event) => {
             event.stopPropagation();
             setSettingsAgentId(agent.id);

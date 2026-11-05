@@ -773,7 +773,6 @@
   "插件": "Plugin",
   "万": "10k",
   "{0} 的设置": "{0} settings",
-  "选择这个 Agent 加载哪些本机 MCP。每个 MCP 的工具说明会在每个会话开局整段发给模型，体积大的会明显增加新会话和缓存过期时的费用。hive 始终加载。": "Choose which local MCP servers this agent loads. Every MCP server's tool definitions are sent to the model at the start of each session, so large ones noticeably raise the cost of new sessions and cache expiries. hive is always loaded.",
   "正在读取 MCP 列表…": "Reading MCP servers…",
   "这个 Agent 类型暂不支持在 Hive 里开关 MCP。": "This agent type does not support toggling MCP servers in Hive yet.",
   "这台电脑上没有配置额外的 MCP，只加载 hive。": "No other MCP servers are configured on this computer; only hive is loaded.",
@@ -1116,5 +1115,12 @@
   "，最后一步是「{0}」": ", last step “{0}”",
   "发送消息（不管设置成哪种发送方式都能用）": "Send message (works with either send setting)",
   "按设置里的发送方式：发送，或换行": "Send or insert a new line, depending on your send setting",
-  "要处理的第 {0}/{1} 条 · @{2} · {3}": "Needs attention {0}/{1} · @{2} · {3}"
+  "要处理的第 {0}/{1} 条 · @{2} · {3}": "Needs attention {0}/{1} · @{2} · {3}",
+  "重启会结束它手上正在执行的任务；排队中的任务重启后接着做。": "Restarting ends the task it is running; queued tasks continue after the restart.",
+  "已停止，房间里不会再有人接它的 @。": "Stopped; nobody will pick up @ mentions for it.",
+  "重启中…": "Restarting…",
+  "停止中…": "Stopping…",
+  "启动中…": "Starting…",
+  "设置（重启、停止、MCP 等）": "Settings (restart, stop, MCP…)",
+  "重启、停止这个 Agent，选择它加载哪些本机 MCP。每个 MCP 的工具说明会在每个会话开局整段发给模型，体积大的会明显增加新会话和缓存过期时的费用。hive 始终加载。": "Restart or stop this agent and choose which local MCP servers it loads. Each MCP's tool descriptions are sent to the model at the start of every session; large ones noticeably raise the cost of new sessions and cache misses. hive is always loaded."
 }

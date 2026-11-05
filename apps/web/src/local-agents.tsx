@@ -621,7 +621,7 @@ export function providerInfo(
   return local.providers?.find((item) => item.provider === provider);
 }
 
-const statusLabels: Record<LocalAgent["status"], string> = localized(() => ({
+export const localAgentStatusLabels: Record<LocalAgent["status"], string> = localized(() => ({
   starting: t("启动中"),
   running: t("运行中"),
   restarting: t("重启中"),
@@ -707,7 +707,8 @@ export function LocalAgentList({ local }: { local: LocalAgentsState }) {
                 <span className="local-agent-dot" aria-hidden="true" />
                 <span className="local-agent-name">{agent.name}</span>
                 <span className="local-agent-meta">
-                  {agent.provider} · {accessLabels[agent.access]} · {statusLabels[agent.status]}
+                  {agent.provider} · {accessLabels[agent.access]} ·{" "}
+                  {localAgentStatusLabels[agent.status]}
                   {agent.restarts > 0 ? t(" · 重启 {0} 次", { 0: agent.restarts }) : ""}
                 </span>
                 <span className="local-agent-actions">

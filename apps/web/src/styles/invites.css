@@ -823,3 +823,46 @@
   font-size: var(--text-xs);
   line-height: 1.5;
 }
+
+/* Agent 设置里的运行状态与重启 / 停止 / 启动 */
+.agent-run-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+}
+
+.agent-run-status {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+
+.agent-run-status strong {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.agent-run-status small {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.agent-run-control button {
+  height: 28px;
+  flex: 0 0 auto;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  color: var(--text);
+  font-size: var(--text-xs);
+}
+
+.agent-run-control button:hover:not(:disabled) {
+  background: var(--bg-active);
+}
