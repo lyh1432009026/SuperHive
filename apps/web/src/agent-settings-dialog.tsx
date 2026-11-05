@@ -142,8 +142,11 @@ export function AgentSettingsDialog({
   agent,
   local,
   onClose,
+  onOpenTerminal,
 }: {
   agent: LocalAgent;
+  /** 在终端里接着它在当前房间的会话 */
+  onOpenTerminal?: () => void;
   local: Pick<LocalAgentsState, "mcpServers" | "updateSettings" | "act" | "canManage">;
   onClose: () => void;
 }) {
@@ -288,6 +291,11 @@ export function AgentSettingsDialog({
             </span>
             {live ? (
               <>
+                {onOpenTerminal && (
+                  <button type="button" onClick={onOpenTerminal}>
+                    {t("在终端打开会话")}
+                  </button>
+                )}
                 <button
                   type="button"
                   disabled={acting !== undefined || !local.canManage}

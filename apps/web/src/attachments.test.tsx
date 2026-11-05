@@ -233,7 +233,10 @@ describe("文件预览", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "预览 report.md" }));
     const dialog = await screen.findByRole("dialog", { name: "预览 report.md" });
-    expect(await screen.findByRole("heading", { name: "对比报告" })).toBeTruthy();
+    // Markdown 渲染器按需加载，机器忙时第一次可能要多等一会
+    expect(
+      await screen.findByRole("heading", { name: "对比报告" }, { timeout: 5_000 }),
+    ).toBeTruthy();
     expect(dialog.textContent).toContain("结论在这里");
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();

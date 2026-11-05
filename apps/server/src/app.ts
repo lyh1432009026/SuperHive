@@ -106,6 +106,8 @@ export type BuildAppOptions = {
   invocationSweepMs?: number;
   /** 检查房间工作区 git 分支变化的间隔；测试可调小 */
   branchCheckMs?: number;
+  /** 在本机终端里打开 Agent 会话；测试里替换掉，不真的开窗口 */
+  openTerminal?: (command: string) => Promise<void>;
   /** 超时扫描使用的时钟；测试用来模拟时间流逝 */
   now?: () => number;
   /** 检查访客会话到期的间隔；测试可调小 */
@@ -418,6 +420,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const removed = database.clearRoom(roomId, actor.username);
     for (const [invocationId, trace] of traces)
       if (trace.roomId === roomId) traces.delete(invocationId);
+    // Agent 清空后从新会话开始：旧会话不再能在终端里接着
+    for (const participantId of [...agentSessions.keys()]) {
+      if (database.getParticipant(participantId)?.roomId === roomId) {
+        agentSessions.delete(participantId);
+      }
+    }
     const message = database.createMessage(actor, {
       content: `${actor.username} 清空了房间`,
       clientMessageId: `room-clear-${randomUUID()}`,
@@ -446,6 +454,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   registerLocalAgentRoutes(app, localAgents, {
     clearRoom,
+    ...(options.openTerminal ? { openTerminal: options.openTerminal } : {}),
+    agentSession: (roomId, agentName) => {
+      const agent = database.findParticipant(roomId, agentName);
+      const session = agent ? agentSessions.get(agent.id) : undefined;
+      if (!agent || !session) return undefined;
+      return { ...session, busy: database.listExecutingInvocations(agent.id).length > 0 };
+    },
     isLocal,
     ownerDevices: {
       list: () => ownerDevices.list(),
@@ -763,6 +778,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       ended: true,
     });
   }
+
+  /** Agent 在各房间当前的 Provider 会话（按房间里的成员 ID）：本机房主可以在终端里接着它 */
+  const agentSessions = new Map<string, { sessionId: string; cwd: string }>();
 
   /** 等人批的权限申请（见 requestApproval） */
   const approvals = new Map<string, PendingApproval>();
@@ -3940,7 +3958,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             approvals: [...approvals.values()]
               .filter((item) => item.roomId === event.roomId)
               .map((item) => item.questionId),
-            features: ["trace", "approval"],
+            features: ["trace", "approval", "session"],
           });
           // 房主（或允许看过程的访客）刚打开或重连：把正在执行的调用的过程补上
           if (canSeeTrace(connection, event.roomId)) {
@@ -4068,6 +4086,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       }
       if (event.type === "approval.request") {
         if (participant.type === "agent") requestApproval(participant, event);
+        return;
+      }
+      if (event.type === "agent.session") {
+        if (participant.type === "agent") {
+          agentSessions.set(participant.id, { sessionId: event.sessionId, cwd: event.cwd });
+        }
         return;
       }
       if (

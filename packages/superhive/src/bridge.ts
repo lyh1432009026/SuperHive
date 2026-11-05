@@ -323,10 +323,18 @@ export class AgentBridge {
       this.state.workspace = this.options.cwd;
     }
     await this.recoverInterruptedExecution();
+    this.reportSession();
     this.room.start();
     this.log(
       `[hive] ${this.options.username} 正在连接 ${this.options.serverUrl}/${this.options.roomId}`,
     );
+  }
+
+  /** 告诉服务端这个房间当前的 Provider 会话，人可以在终端里接着它 */
+  private reportSession(): void {
+    if (this.state?.threadId && this.options.cwd) {
+      this.room.reportSession(this.state.threadId, this.options.cwd);
+    }
   }
 
   /** 没有正在执行、排队或待恢复的回合时返回；切换房间工作区前用它等这一轮做完 */
@@ -912,6 +920,7 @@ export class AgentBridge {
       if (reply.usage) turn.observed = reply.usage;
       const usage = this.settleUsage(active, "completed", reply);
       if (reply.threadId) this.state.threadId = reply.threadId;
+      this.reportSession();
       this.notePromptSent(prompt);
 
       const resolved = resolveReplyText(reply.text);
@@ -1278,6 +1287,7 @@ export class AgentBridge {
     this.settleUsage(active, "failed");
     // 接着出错的那个会话继续：它记得这一轮已经做过的步骤
     if (error.threadId) this.state.threadId = error.threadId;
+    this.reportSession();
     const live = active.messages.filter((message) => !active.cancelled.has(message.id));
     for (const message of live) this.resumeNotes.set(message.id, error.reason);
     const used = Math.max(0, ...live.map((message) => this.upstreamRetries.get(message.id) ?? 0));

@@ -43,6 +43,7 @@
   display: flex;
   flex: 0 0 auto;
   justify-content: flex-end;
+  gap: 8px;
   padding: 12px 24px;
   border-top: 1px solid var(--border-light);
 }
@@ -304,8 +305,15 @@
   font-size: var(--text-sm);
   cursor: pointer;
 }
-.invocation-details-reply:hover {
+.invocation-details-reply:hover:not(:disabled) {
   background: var(--bg-hover);
+}
+.invocation-details-reply.secondary {
+  background: transparent;
+}
+.invocation-details-reply:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
 }
 .invocation-details :is(button, summary):focus-visible {
   outline: 2px solid var(--accent);

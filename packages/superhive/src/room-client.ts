@@ -90,6 +90,9 @@ export class RoomClient {
   private serverAcceptsTrace = false;
   /** 服务端能把执行中的权限申请转给人批（旧版服务端没有，这时直接拒绝） */
   private serverAcceptsApproval = false;
+  private serverAcceptsSession = false;
+  /** 这个房间当前的 Provider 会话：重连后再报一次 */
+  private session?: { sessionId: string; cwd: string };
 
   constructor(
     private readonly options: RoomClientOptions,
@@ -146,6 +149,13 @@ export class RoomClient {
     if (!this.serverAcceptsApproval || this.socket?.readyState !== WebSocket.OPEN) return false;
     this.socket.send(JSON.stringify({ type: "approval.request", ...request }));
     return true;
+  }
+
+  /** 报告这个房间当前用的 Provider 会话，人可以在终端里 resume 接着它；服务端不支持就只记下 */
+  reportSession(sessionId: string, cwd: string): void {
+    if (this.session?.sessionId === sessionId && this.session.cwd === cwd) return;
+    this.session = { sessionId, cwd };
+    if (this.serverAcceptsSession) this.sendRaw({ type: "agent.session", sessionId, cwd });
   }
 
   trace(messageId: string, steps: TraceStep[]): void {
@@ -270,6 +280,10 @@ export class RoomClient {
       this.serverTracksInvocations = Array.isArray(event.invocations);
       this.serverAcceptsTrace = event.features?.includes("trace") === true;
       this.serverAcceptsApproval = event.features?.includes("approval") === true;
+      this.serverAcceptsSession = event.features?.includes("session") === true;
+      if (this.serverAcceptsSession && this.session) {
+        this.sendRaw({ type: "agent.session", ...this.session });
+      }
       if (this.serverTracksInvocations) {
         for (const report of this.outbox.values()) this.sendRaw(report);
       }

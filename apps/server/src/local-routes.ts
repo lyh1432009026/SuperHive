@@ -10,6 +10,7 @@ import {
   type KeepAwakeState,
   type LocalAgent,
   type LocalSessionResponse,
+  resumeCommand,
 } from "@superhive/protocol";
 import QRCode from "qrcode";
 import { HiveError } from "./database.js";
@@ -17,6 +18,7 @@ import type { HostApproval, HostApprovals } from "./host-approvals.js";
 import type { OwnerDevice } from "./owner-devices.js";
 import { checkLocalRequest, type LocalCheck } from "./local-access.js";
 import { listDirectories } from "./local-directories.js";
+import { openTerminal } from "./open-terminal.js";
 import type { LocalAgentSupervisor } from "./local-agents.js";
 
 /**
@@ -103,6 +105,13 @@ export type LocalRoomActions = {
   };
   /** 房主设备上做了会在这台电脑上起进程、改设置的操作：推到房主 IM，便于发现设备被盗用 */
   notifyOwner?: (text: string) => void;
+  /** Agent 在某个房间当前的 Provider 会话（Bridge 上报）；busy：这一轮还在执行 */
+  agentSession?: (
+    roomId: string,
+    agentName: string,
+  ) => { sessionId: string; cwd: string; busy: boolean } | undefined;
+  /** 在这台电脑上开终端执行命令；测试里替换掉 */
+  openTerminal?: (command: string) => Promise<void>;
   /** 熄屏后保持在线 */
   keepAwake?: {
     state(): KeepAwakeState | undefined;
@@ -573,6 +582,79 @@ export function registerLocalAgentRoutes(
   );
   app.post<{ Params: { id: string } }>("/api/local/agents/:id/mcp/measure", (request, reply) =>
     mcpServers(request, reply, true),
+  );
+
+  /** 这个 Agent 在房间里的会话：能不能在终端里接着它、用什么命令 */
+  function sessionFor(id: string, roomId: string | undefined) {
+    const agent = supervisor!.get(id);
+    const session = roomId ? rooms.agentSession?.(roomId, agent.name) : undefined;
+    const command = session
+      ? resumeCommand({
+          provider: agent.provider,
+          sessionId: session.sessionId,
+          cwd: session.cwd,
+          platform: process.platform,
+        })
+      : undefined;
+    return { agent, session, command };
+  }
+
+  app.get<{ Params: { id: string }; Querystring: { roomId?: string } }>(
+    "/api/local/agents/:id/session",
+    async (request, reply) => {
+      if (!authorize(request, reply, "read")) return reply;
+      try {
+        const { session, command } = sessionFor(request.params.id, request.query.roomId);
+        return session && command
+          ? {
+              available: true,
+              sessionId: session.sessionId,
+              cwd: session.cwd,
+              command,
+              busy: session.busy,
+            }
+          : { available: false };
+      } catch (error) {
+        return fail(reply, error);
+      }
+    },
+  );
+
+  /**
+   * 在这台电脑上开终端，接着 Agent 在这个房间的同一个会话（只限本机）。
+   * 它正在执行时不开：两边同时写一个会话会把上下文搅乱。
+   */
+  app.post<{ Params: { id: string }; Body: { roomId?: unknown } }>(
+    "/api/local/agents/:id/terminal",
+    async (request, reply) => {
+      const caller = authorize(request, reply, "local");
+      if (!caller) return reply;
+      const roomId = typeof request.body?.roomId === "string" ? request.body.roomId : undefined;
+      try {
+        const { agent, session, command } = sessionFor(request.params.id, roomId);
+        if (!session || !command) {
+          return reply.code(409).send({
+            error: `${agent.name} 在这个房间还没有可以接着的会话（还没回复过，或这种 Agent 不支持）。`,
+            code: "SESSION_UNAVAILABLE",
+          });
+        }
+        if (session.busy) {
+          return reply.code(409).send({
+            error: `${agent.name} 正在执行任务，等它做完再打开，免得两边同时写一个会话。`,
+            code: "AGENT_BUSY",
+            command,
+          });
+        }
+        await (rooms.openTerminal ?? openTerminal)(command);
+        audit(request, caller, `在终端里打开了本机 Agent ${agent.name} 的会话`);
+        return { opened: true, command };
+      } catch (error) {
+        if (error instanceof Error && !(error instanceof HiveError)) {
+          return reply.code(500).send({ error: error.message, code: "TERMINAL_FAILED" });
+        }
+        return fail(reply, error);
+      }
+    },
   );
 
   app.put<{ Params: { id: string } }>("/api/local/agents/:id/settings", async (request, reply) => {

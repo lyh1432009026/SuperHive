@@ -1137,5 +1137,13 @@
   "查看 Agent 任务": "View agent tasks",
   "取消主 Agent": "Remove as lead agent",
   "设为本房间的主 Agent": "Make lead agent of this room",
-  "设置…": "Settings…"
+  "设置…": "Settings…",
+  "等这一轮做完再打开，免得两边同时写一个会话": "Wait until this turn finishes so the terminal and the room don't write to the same session at once",
+  "在终端里接着它在这个房间的会话": "Continue its session for this room in a terminal",
+  "在终端打开会话": "Open session in terminal",
+  "复制会话命令": "Copy session command",
+  "{0} 在这个房间还没有可以接着的会话。": "{0} has no session in this room to continue yet.",
+  "已复制命令，在 Server 所在电脑的终端里运行：{0}": "Command copied. Run it in a terminal on the Server's computer: {0}",
+  "已在终端打开 {0} 的会话；用完退出后再在房间里 @ 它。": "Opened {0}'s session in a terminal. Quit it before you @ the agent in the room again.",
+  "{0}（命令已复制：{1}）": "{0} (command copied: {1})"
 }

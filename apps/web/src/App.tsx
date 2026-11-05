@@ -18,6 +18,7 @@ import type {
   Invocation,
   KeepAwakeSettings,
   KeepAwakeState,
+  LocalAgent,
   MessagesResponse,
   MetaResponse,
   Participant,
@@ -3234,6 +3235,36 @@ export function App({
     });
   }
 
+  /**
+   * 在终端里接着本机 Agent 在当前房间的会话：本机直接弹出终端；在别的设备上把命令复制下来。
+   * 打不开时（正在执行、只限本机）错误里带着命令的，也复制下来方便手动运行。
+   */
+  async function openAgentTerminal(agent: LocalAgent) {
+    try {
+      if (local.mode === "device") {
+        const command = await local.sessionCommand(agent.id, currentRoomId);
+        if (!command) {
+          setError(t("{0} 在这个房间还没有可以接着的会话。", { 0: agent.name }));
+          return;
+        }
+        await copyTextToClipboard(command);
+        setGotoNotice(t("已复制命令，在 Server 所在电脑的终端里运行：{0}", { 0: command }));
+        return;
+      }
+      await local.openTerminal(agent.id, currentRoomId);
+      setGotoNotice(t("已在终端打开 {0} 的会话；用完退出后再在房间里 @ 它。", { 0: agent.name }));
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason);
+      const command = (reason as { body?: { command?: unknown } }).body?.command;
+      if (typeof command === "string") {
+        await copyTextToClipboard(command).catch(() => undefined);
+        setError(t("{0}（命令已复制：{1}）", { 0: message, 1: command }));
+      } else {
+        setError(message);
+      }
+    }
+  }
+
   async function setLeadAgent(name: string | null) {
     try {
       upsertRoom(
@@ -3288,6 +3319,10 @@ export function App({
                 ? [
                     "separator" as const,
                     { label: t("设置…"), onSelect: () => setSettingsAgentId(agent.id) },
+                    {
+                      label: local.mode === "device" ? t("复制会话命令") : t("在终端打开会话"),
+                      onSelect: () => void openAgentTerminal(agent),
+                    },
                     ...(live
                       ? [
                           {
@@ -4137,6 +4172,16 @@ export function App({
                                 onExtend={extendAgentBudget}
                                 onSteer={steerInvocation}
                                 onPreempt={preemptInvocation}
+                                onOpenTerminal={
+                                  isOwner
+                                    ? (invocation) => {
+                                        const agent = localAgentFor(invocation.agentName);
+                                        return agent
+                                          ? () => void openAgentTerminal(agent)
+                                          : undefined;
+                                      }
+                                    : undefined
+                                }
                                 isOwner={isOwner}
                                 traces={traces}
                               />
@@ -5193,6 +5238,7 @@ export function App({
           key={settingsAgent.id}
           agent={settingsAgent}
           local={local}
+          onOpenTerminal={() => void openAgentTerminal(settingsAgent)}
           onClose={() => setSettingsAgentId(undefined)}
         />
       )}

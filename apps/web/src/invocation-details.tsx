@@ -54,7 +54,10 @@ export function InvocationDetails({
   others,
   onClose,
   onJump,
+  onOpenTerminal,
 }: {
+  /** 在终端里接着这个 Agent 的会话（本机 Agent 才有） */
+  onOpenTerminal?: () => void;
   invocation: Invocation;
   /** 同房间的其它调用：解释排队时排在谁后面 */
   others?: readonly Invocation[];
@@ -315,11 +318,28 @@ export function InvocationDetails({
           </p>
         </details>
       </div>
-      {onJump && (
+      {(onJump || onOpenTerminal) && (
         <footer className="invocation-details-footer">
-          <button type="button" className="invocation-details-reply" onClick={onJump}>
-            {t("查看回复")}
-          </button>
+          {onOpenTerminal && (
+            <button
+              type="button"
+              className="invocation-details-reply secondary"
+              disabled={invocation.status === "running" || invocation.status === "cancelling"}
+              title={
+                invocation.status === "running" || invocation.status === "cancelling"
+                  ? t("等这一轮做完再打开，免得两边同时写一个会话")
+                  : t("在终端里接着它在这个房间的会话")
+              }
+              onClick={onOpenTerminal}
+            >
+              {t("在终端打开会话")}
+            </button>
+          )}
+          {onJump && (
+            <button type="button" className="invocation-details-reply" onClick={onJump}>
+              {t("查看回复")}
+            </button>
+          )}
         </footer>
       )}
     </dialog>,

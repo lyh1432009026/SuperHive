@@ -581,6 +581,14 @@ export const approvalRequestEventSchema = z.object({
   detail: z.string().max(4000).optional(),
 });
 
+/** Agent 在这个房间当前用的 Provider 会话：人可以在终端里 resume 接着同一个会话 */
+export const agentSessionEventSchema = z.object({
+  type: z.literal("agent.session"),
+  sessionId: z.string().trim().min(1).max(200),
+  /** Provider 实际的工作目录：Claude 等按目录存会话，resume 要在同一个目录里 */
+  cwd: z.string().min(1).max(4096),
+});
+
 export const invocationReportEventSchema = z.object({
   type: z.literal("invocation.report"),
   messageId: z.string().uuid(),
@@ -648,6 +656,7 @@ export const clientEventSchema = z.discriminatedUnion("type", [
   topicStartEventSchema,
   questionAnswerEventSchema,
   approvalRequestEventSchema,
+  agentSessionEventSchema,
   invocationReportEventSchema,
   invocationRetryEventSchema,
   invocationDismissEventSchema,
@@ -1279,3 +1288,4 @@ export function stripUnsafeCharacters(value: string): string {
 }
 
 export * from "./invocation-state.js";
+export * from "./agent-session.js";

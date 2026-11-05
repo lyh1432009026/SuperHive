@@ -419,7 +419,10 @@ export function InvocationChips({
   traces,
   onSteer,
   onPreempt,
+  onOpenTerminal,
 }: {
+  /** 「在终端打开会话」：本机 Agent 才返回处理函数 */
+  onOpenTerminal?: ((invocation: Invocation) => (() => void) | undefined) | undefined;
   /** 「插入当前任务」：把排队中的这条插进 Agent 正在执行的这一轮 */
   onSteer?: (invocation: Invocation) => void;
   /** 「停下当前，改做这条」 */
@@ -679,6 +682,7 @@ export function InvocationChips({
           delegation={delegationLines(selected, allInvocations?.values() ?? invocations)}
           others={[...(allInvocations?.values() ?? invocations)]}
           onClose={() => setSelectedId(undefined)}
+          {...(onOpenTerminal?.(selected) ? { onOpenTerminal: onOpenTerminal(selected)! } : {})}
           {...(selected.replyMessageId && canJumpTo(selected.replyMessageId)
             ? {
                 onJump: () => {

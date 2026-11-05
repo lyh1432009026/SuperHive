@@ -252,6 +252,50 @@ describe("RoomClient with an older server", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(received.map((event) => event.type)).toEqual(["participant.join"]);
   });
+
+  it("reports the provider session after joining a server that supports it, and again on reconnect", async () => {
+    server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+    await waitFor<void>((resolve) => server!.on("listening", () => resolve()));
+    const port = (server.address() as AddressInfo).port;
+    const received: Array<Record<string, unknown>> = [];
+    server.on("connection", (connection) => {
+      connection.on("message", (raw) => {
+        const event = JSON.parse(raw.toString()) as Record<string, unknown>;
+        received.push(event);
+        if (event.type === "participant.join") {
+          connection.send(
+            JSON.stringify({
+              type: "room.snapshot",
+              self: { id: "self" },
+              participants: [],
+              messages: [],
+              latestSeq: 0,
+              invocations: [],
+              features: ["session"],
+            }),
+          );
+        }
+      });
+    });
+    let resolveSnapshot!: () => void;
+    const snapshot = waitFor<void>((resolve) => (resolveSnapshot = resolve));
+    client = new RoomClient(
+      { serverUrl: `http://127.0.0.1:${port}`, roomId: "general", username: "a", token: "t" },
+      { onSnapshot: () => resolveSnapshot(), onMention: () => undefined, onError: () => undefined },
+    );
+    // 加入前就知道会话（状态文件里有）：等快照确认服务端支持后再报
+    client.reportSession("sess-1", "/repo");
+    client.start();
+    await snapshot;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    client.reportSession("sess-1", "/repo");
+    client.reportSession("sess-2", "/repo");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(received.filter((event) => event.type === "agent.session")).toEqual([
+      { type: "agent.session", sessionId: "sess-1", cwd: "/repo" },
+      { type: "agent.session", sessionId: "sess-2", cwd: "/repo" },
+    ]);
+  });
 });
 
 describe("fetchRooms", () => {

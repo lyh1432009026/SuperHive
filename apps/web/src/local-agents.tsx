@@ -53,6 +53,13 @@ export type LocalAgentsState = {
   agents: LocalAgent[];
   create(request: CreateLocalAgentRequest): Promise<LocalAgent>;
   act(id: string, action: AgentAction): Promise<void>;
+  /**
+   * 在 Server 所在电脑上开终端，接着 Agent 在这个房间的同一个会话（只限本机）；
+   * 返回执行的命令。还没有会话、正在执行或在别的设备上时抛错，错误里带 command 时可以复制手动运行。
+   */
+  openTerminal(id: string, roomId: string): Promise<string>;
+  /** 接着这个会话要运行的命令（在别的设备上复制到 Server 所在电脑运行）；没有会话时为 undefined */
+  sessionCommand(id: string, roomId: string): Promise<string | undefined>;
   remove(id: string): Promise<void>;
   logs(id: string): Promise<string[]>;
   directories(path?: string): Promise<LocalDirectoryListing>;
@@ -292,6 +299,28 @@ export function useLocalAgents(
     [requestApproved],
   );
 
+  const openTerminal = useCallback(
+    async (id: string, roomId: string) => {
+      const response = await request(`/api/local/agents/${id}/terminal`, {
+        method: "POST",
+        body: JSON.stringify({ roomId }),
+      });
+      return ((await response.json()) as { command: string }).command;
+    },
+    [request],
+  );
+
+  const sessionCommand = useCallback(
+    async (id: string, roomId: string) => {
+      const response = await request(
+        `/api/local/agents/${id}/session?roomId=${encodeURIComponent(roomId)}`,
+      );
+      const body = (await response.json()) as { available: boolean; command?: string };
+      return body.available ? body.command : undefined;
+    },
+    [request],
+  );
+
   const remove = useCallback(
     async (id: string) => {
       await request(`/api/local/agents/${id}`, { method: "DELETE" });
@@ -510,6 +539,8 @@ export function useLocalAgents(
     agents,
     create,
     act,
+    openTerminal,
+    sessionCommand,
     remove,
     logs,
     directories,
