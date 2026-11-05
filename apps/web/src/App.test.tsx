@@ -2234,4 +2234,89 @@ describe("App mention autocomplete", () => {
     });
     expect(window.location.hash).toBe("#frontend");
   });
+
+  it("opens Go To with ⌘P, jumps to the next task needing attention with ⌘J, and lists shortcuts", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    const question: ChatMessage = {
+      id: "00000000-0000-4000-8000-000000000201",
+      roomId: "frontend",
+      seq: 7,
+      senderId: "00000000-0000-4000-8000-000000000202",
+      senderName: "Bob",
+      senderType: "human",
+      content: "@frontend-agent 改一下登录页",
+      mentions: ["frontend-agent"],
+      traceId: "00000000-0000-4000-8000-000000000203",
+      hopCount: 0,
+      createdAt: new Date().toISOString(),
+    };
+    crossRoom.invocationMessages = [question];
+    crossRoom.invocations = [
+      {
+        id: "00000000-0000-4000-8000-000000000204",
+        roomId: "frontend",
+        messageId: question.id,
+        agentId: "00000000-0000-4000-8000-000000000205",
+        agentName: "frontend-agent",
+        requesterName: "Bob",
+        requesterType: "human",
+        status: "waiting_human",
+        detail: "用哪套配色？",
+        attempts: 1,
+        createdAt: question.createdAt,
+        updatedAt: question.createdAt,
+      },
+    ];
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    act(() => FakeWebSocket.instances[0]!.open());
+    act(() =>
+      FakeWebSocket.instances[0]!.serverEvent({
+        type: "room.snapshot",
+        self: participant("00000000-0000-4000-8000-000000000001", "Alice", "human"),
+        participants: [],
+        messages: [],
+        latestSeq: 0,
+      }),
+    );
+    await screen.findByRole("button", { name: "Agent 任务，1 个需要处理" });
+
+    // 输入框里打 ? 只是输入文字，不会弹出快捷键帮助；⌘/ 任何时候都能打开
+    const composer = screen.getByRole("textbox", { name: "消息" });
+    await user.click(composer);
+    await user.keyboard("?");
+    expect(screen.queryByRole("dialog", { name: "快捷键" })).toBeNull();
+    await user.keyboard("{Meta>}/{/Meta}");
+    const help = await screen.findByRole("dialog", { name: "快捷键" });
+    expect(within(help).getByText("跳到下一个要你处理的任务")).toBeTruthy();
+    await user.type(within(help).getByRole("searchbox", { name: "筛选快捷键" }), "房间");
+    expect(within(help).queryByText("换行")).toBeNull();
+    expect(within(help).getByText("把选中的房间上移一格")).toBeTruthy();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "快捷键" })).toBeNull();
+
+    // ⌘P 打开跳转器：要处理的任务排最前，可按名字筛
+    await user.keyboard("{Meta>}p{/Meta}");
+    const goto = await screen.findByRole("dialog", { name: "跳转到" });
+    const options = within(goto).getAllByRole("option");
+    expect(options[0]!.textContent).toContain("@frontend-agent · 等你回答");
+    await user.click(within(goto).getByRole("button", { name: /^要处理/ }));
+    for (const option of within(goto).getAllByRole("option")) {
+      expect(option.textContent).toContain("要处理");
+    }
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "跳转到" })).toBeNull();
+
+    // ⌘J 直接跳到那条任务所在的房间
+    await user.keyboard("{Meta>}j{/Meta}");
+    expect(await screen.findByText("要处理的第 1/1 条 · @frontend-agent · 等你回答")).toBeTruthy();
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2));
+    act(() => FakeWebSocket.instances[1]!.open());
+    expect(JSON.parse(FakeWebSocket.instances[1]!.sent[0]!)).toMatchObject({
+      type: "participant.join",
+      roomId: "frontend",
+    });
+  });
 });

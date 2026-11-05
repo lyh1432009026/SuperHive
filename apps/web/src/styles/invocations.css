@@ -557,3 +557,8 @@ button.invocation-summary:focus-visible {
   padding-left: 9px;
   border-left: 1px solid var(--border);
 }
+
+/* 排队太久（过了 5 秒还没开始）：提醒人对方可能离线或卡在前一个任务上 */
+.invocation-progress.queue-hint.stalled {
+  color: var(--warning);
+}

@@ -1436,6 +1436,18 @@ export class HiveDatabase {
     return rows.map(mapInvocation);
   }
 
+  /** Agent 手上没结束的调用（排队、执行中、停止中、提问后本轮未结束）：解释排队位置用 */
+  listOpenInvocationsForAgent(agentId: string): Invocation[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM invocations WHERE agent_id = ?
+           AND (status IN ('queued', 'running', 'cancelling')
+             OR (status = 'waiting_human' AND finished_at IS NULL))`,
+      )
+      .all(agentId) as InvocationRow[];
+    return rows.map(mapInvocation);
+  }
+
   /** Agent 当前正在执行（含停止中、提问后本轮尚未结束）的调用 */
   listExecutingInvocations(agentId: string): Invocation[] {
     const rows = this.db

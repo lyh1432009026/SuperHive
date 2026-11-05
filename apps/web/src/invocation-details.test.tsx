@@ -277,4 +277,61 @@ describe("queued status line", () => {
     render(<InvocationChips {...props} invocations={[queued]} />);
     expect(screen.getAllByText("已送达，排队中")).toHaveLength(1);
   });
+
+  it("explains why a task is still queued and how long a running one has been quiet", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.parse(at) + 200_000));
+    const online = [
+      {
+        id: "a",
+        roomId: "general",
+        username: "worker",
+        type: "agent" as const,
+        status: "busy" as const,
+        joinedAt: at,
+        lastSeenAt: at,
+      },
+    ];
+    const running: Invocation = {
+      ...invocation,
+      requesterName: "Bob",
+      runtime: {
+        observability: "full",
+        lastHeartbeatAt: at,
+        lastProgressAt: at,
+        tool: "command",
+        phase: "tool_running",
+        history: [],
+      },
+    };
+    const queued: Invocation = {
+      ...invocation,
+      id: "00000000-0000-4000-8000-000000000002",
+      messageId: "m2",
+      status: "queued",
+      startedAt: undefined,
+      createdAt: new Date(Date.parse(at) + 100_000).toISOString(),
+    };
+    render(
+      <InvocationChips
+        {...props}
+        participants={online as never}
+        invocations={[running, queued]}
+        connectionState="online"
+      />,
+    );
+    // 排队的那条在消息下就能看到前面还有几个
+    expect(screen.getByText("前面还有 1 个")).toBeTruthy();
+    const [runningChip, queuedChip] = screen.getAllByRole("button", { name: /查看调用详情/ });
+    fireEvent.click(queuedChip!);
+    let why = screen.getByRole("region", { name: "为什么是这个状态" });
+    expect(why.textContent).toContain("@worker 手上还有 1 个任务排在前面，它正在做 Bob 派的任务");
+    fireEvent.click(screen.getByRole("button", { name: "关闭调用详情" }));
+    fireEvent.click(runningChip!);
+    why = screen.getByRole("region", { name: "为什么是这个状态" });
+    expect(why.textContent).toContain(
+      "已经 3 分钟没有新的执行事件，最后一步是「跑命令 · 工具执行中」",
+    );
+    expect(why.className).toContain("warning");
+  });
 });

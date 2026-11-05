@@ -1367,8 +1367,8 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
 
   describe("hive_invoke delegation", () => {
     /** Alice @ planner，planner 开工后用 hive_invoke 把子任务派给 worker */
-    async function delegationRoom(sweepMs?: number) {
-      const room = await startRoom(sweepMs);
+    async function delegationRoom(sweepMs?: number, now?: () => number) {
+      const room = await startRoom(sweepMs, now);
       const { peer: alice } = await room.join("Alice", "human");
       const { peer: planner } = await room.join("planner", "agent");
       const { peer: worker } = await room.join("worker", "agent");
@@ -1610,6 +1610,46 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
 
       await plannerMcp.client.close();
       await workerMcp.client.close();
+    });
+
+    it("tells the delegator right away when the target is offline or has not started", async () => {
+      // 时钟拨快 6 秒：子任务一派出就已超过 5 秒的活动门闩
+      const { worker, plannerMcp, workerMcp, invoke } = await delegationRoom(
+        undefined,
+        () => Date.now() + 6_000,
+      );
+      const { data } = await invoke({ agent: "worker", task: "在线但没开工" });
+      expect(data.targetState).toContain("已派出");
+      const started = Date.now();
+      const undelivered = await plannerMcp.client.callTool({
+        name: "hive_wait",
+        arguments: { invocationId: data.invocationId, timeoutSeconds: 10 },
+      });
+      expect(Date.now() - started).toBeLessThan(3_000);
+      expect(undelivered.structuredContent).toMatchObject({
+        done: false,
+        stalled: true,
+        state: "queued_undelivered",
+      });
+
+      await workerMcp.client.close();
+      worker.close();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const offline = await invoke({ agent: "worker", task: "离线时派活" });
+      expect(offline.data).toMatchObject({ targetOnline: false });
+      expect(offline.data.targetState).toContain("离线");
+      const waited = await plannerMcp.client.callTool({
+        name: "hive_wait",
+        arguments: { invocationId: offline.data.invocationId, timeoutSeconds: 10 },
+      });
+      expect(waited.structuredContent).toMatchObject({
+        done: false,
+        stalled: true,
+        state: "queued_offline",
+      });
+      expect(String((waited.structuredContent as { note: string }).note)).toContain("离线");
+
+      await plannerMcp.client.close();
     });
 
     it("returns immediately when the subtask is blocked by the budget", async () => {

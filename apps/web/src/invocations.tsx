@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { InvocationDetails } from "./invocation-details";
 import { currentTraceStep, isLiveInvocation } from "./live-trace";
-import type { ChatMessage, Invocation, Participant, TraceStep } from "@superhive/protocol";
+import {
+  explainInvocationState,
+  type ChatMessage,
+  type Invocation,
+  type Participant,
+  type TraceStep,
+} from "@superhive/protocol";
 import { localized, t } from "./i18n";
 
 /** 人点一次「继续」为当前 Agent 对话追加的轮数，同时放宽连续轮数、转交深度和单链条数 */
@@ -356,6 +362,47 @@ function ElapsedTime({ since }: { since: string }) {
   );
 }
 
+/**
+ * 排队中的调用为什么还没开始：前面有几个任务、派出多久还没确认收到。离线已由状态文字说明，这里不重复。
+ * 每秒自己刷新，过了 5 秒的活动门闩就换成警示样式。
+ */
+function QueueHint({
+  invocation,
+  agentOnline,
+  others,
+}: {
+  invocation: Invocation;
+  agentOnline: boolean;
+  others: readonly Invocation[];
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const state = explainInvocationState({ invocation, agentOnline, others, now });
+  const seconds = Math.round(state.waitedMs / 1000);
+  const waited =
+    seconds < 60 ? t("{0} 秒", { 0: seconds }) : t("{0} 分钟", { 0: Math.floor(seconds / 60) });
+  const text =
+    state.code === "queued_behind"
+      ? t("前面还有 {0} 个", { 0: state.ahead })
+      : state.code === "queued_undelivered" && state.stalled
+        ? t("派出 {0} 还没确认收到", { 0: waited })
+        : state.code === "queued_received" && state.stalled
+          ? t("已收到 {0}，还没开始", { 0: waited })
+          : undefined;
+  if (!text) return null;
+  return (
+    // 正常排队不算异常；没确认收到、收到了却不开始才用警示色
+    <span
+      className={`invocation-progress queue-hint${state.stalled && state.code !== "queued_behind" ? " stalled" : ""}`}
+    >
+      {text}
+    </span>
+  );
+}
+
 export function InvocationChips({
   invocations,
   participants,
@@ -453,6 +500,13 @@ export function InvocationChips({
                 invocation.detail && (
                   <span className="invocation-progress">{invocation.detail}</span>
                 )}
+              {invocation.status === "queued" && agentOnline && (
+                <QueueHint
+                  invocation={invocation}
+                  agentOnline={agentOnline}
+                  others={[...(allInvocations?.values() ?? invocations)]}
+                />
+              )}
               {invocation.status === "running" && (
                 <ElapsedTime since={invocation.startedAt ?? invocation.updatedAt} />
               )}
@@ -623,6 +677,7 @@ export function InvocationChips({
           )}
           connectionState={connectionState}
           delegation={delegationLines(selected, allInvocations?.values() ?? invocations)}
+          others={[...(allInvocations?.values() ?? invocations)]}
           onClose={() => setSelectedId(undefined)}
           {...(selected.replyMessageId && canJumpTo(selected.replyMessageId)
             ? {

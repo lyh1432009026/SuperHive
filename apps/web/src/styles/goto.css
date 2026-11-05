@@ -1,0 +1,187 @@
+/* ---------- Go To 跳转器与快捷键帮助：复用搜索面板的居中外壳 ---------- */
+.goto-filters {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.goto-filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.goto-filters button:hover {
+  background: var(--bg-hover);
+}
+
+.goto-filters button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.goto-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  text-align: center;
+}
+
+.goto-filters .goto-next {
+  margin-left: auto;
+  color: var(--warning);
+}
+
+.goto-filters .goto-next kbd,
+.goto-footer kbd {
+  border: 0;
+  background: var(--bg-hover);
+  font-family: var(--font-sans);
+  font-size: 10px;
+}
+
+.goto-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.goto-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.goto-item.active {
+  background: var(--bg-hover);
+}
+
+.goto-kind {
+  flex: 0 0 auto;
+  width: 44px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.goto-text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.goto-text strong,
+.goto-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.goto-text strong {
+  font-weight: var(--weight-medium);
+}
+
+.goto-text small {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.goto-tag,
+.goto-attention {
+  flex: 0 0 auto;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  line-height: 20px;
+}
+
+.goto-tag {
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+}
+
+.goto-attention {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.goto-footer {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 14px;
+  padding: 8px 14px 10px;
+  border-top: 1px solid var(--border-light);
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.shortcuts-list {
+  margin: 0;
+  padding: 0 6px 6px;
+}
+
+.shortcuts-list > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 34px;
+  padding: 4px 6px;
+}
+
+.shortcuts-list dt {
+  display: flex;
+  flex: 0 0 120px;
+  gap: 4px;
+}
+
+.shortcuts-list dd {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+/* 跳到下一个要处理的任务时，给目标消息一个提示条 */
+.goto-toast {
+  position: fixed;
+  z-index: 80;
+  bottom: 96px;
+  left: 50%;
+  padding: 8px 14px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-popover);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  transform: translateX(-50%);
+  animation: fade-in var(--duration) var(--ease-out);
+}
+
+@media (max-width: 720px) {
+  .goto-footer {
+    display: none;
+  }
+
+  .shortcuts-list dt {
+    flex-basis: 96px;
+  }
+}

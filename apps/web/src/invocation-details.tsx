@@ -1,7 +1,8 @@
 import { InvocationUsage } from "./usage";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { Invocation, TraceStep } from "@superhive/protocol";
+import { explainInvocationState, type Invocation, type TraceStep } from "@superhive/protocol";
+import { stateExplanation } from "./invocation-state";
 import { TraceLog } from "./live-trace";
 import "./styles/invocation-details.css";
 import { getLocale, t } from "./i18n";
@@ -50,10 +51,13 @@ export function InvocationDetails({
   agentOnline,
   connectionState,
   delegation,
+  others,
   onClose,
   onJump,
 }: {
   invocation: Invocation;
+  /** 同房间的其它调用：解释排队时排在谁后面 */
+  others?: readonly Invocation[];
   /** 执行过程（房主和获准看过程的访客的页面有） */
   steps?: TraceStep[] | undefined;
   /** 委派关系：上游是谁派来的，下游派出了哪些子任务 */
@@ -108,6 +112,11 @@ export function InvocationDetails({
   }, []);
 
   const tone = statusTone(invocation);
+  const explanation = stateExplanation(
+    explainInvocationState({ invocation, agentOnline, others: others ?? [], now }),
+    invocation,
+    steps,
+  );
   const capability =
     runtime?.observability === "full"
       ? t("完整事件能力")
@@ -194,6 +203,15 @@ export function InvocationDetails({
             </dd>
           </div>
         </dl>
+        {explanation && (
+          <section
+            className={`invocation-details-why ${explanation.tone}`}
+            aria-label={t("为什么是这个状态")}
+          >
+            <h3>{t("为什么是这个状态")}</h3>
+            <p>{explanation.text}</p>
+          </section>
+        )}
         {invocation.detail && <p className="invocation-details-callout">{invocation.detail}</p>}
         {error && (
           <section
@@ -224,14 +242,6 @@ export function InvocationDetails({
             {!error.recoveredAt && !inProgress && <p>{t("本次调用已结束，不表示仍在重试。")}</p>}
           </section>
         )}
-        {invocation.status === "running" &&
-          now -
-            Date.parse(runtime?.lastProgressAt ?? invocation.startedAt ?? invocation.createdAt) >=
-            120_000 && (
-            <p className="invocation-details-notice warning">
-              {t("超过 2 分钟未收到新的执行进展，状态待核实；不会因此自动停止或重试。")}
-            </p>
-          )}
         {!agentOnline && (
           <p className="invocation-details-description">
             {t("Agent 当前离线；保留的是最后收到的信息。")}

@@ -36,6 +36,8 @@ import {
   type TraceStep,
   DEFAULT_CACHE_WRITE_ALERT_TOKENS,
   keepAwakeSettingsSchema,
+  explainInvocationState,
+  formatInvocationStateForAgent,
 } from "@superhive/protocol";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import type { WebSocket } from "ws";
@@ -2288,7 +2290,22 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       message,
       targetOnline: Boolean(connection),
       targetBusy: connection?.participant?.status === "busy",
+      targetState: describeForAgent(invocation),
     };
+  }
+
+  /** 子任务现在为什么是这个状态（离线、排在谁后面、多久没进展），给委派方的一句话 */
+  function invocationState(invocation: Invocation) {
+    return explainInvocationState({
+      invocation,
+      agentOnline: Boolean(onlineAgent(invocation.roomId, invocation.agentName)),
+      others: database.listOpenInvocationsForAgent(invocation.agentId),
+      now: clock(),
+    });
+  }
+
+  function describeForAgent(invocation: Invocation): string {
+    return formatInvocationStateForAgent(invocationState(invocation), invocation.agentName);
   }
 
   /**
@@ -2367,10 +2384,24 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             : {}),
         };
       }
+      // 派出后迟迟没开始（离线、排在别的任务后面、没确认收到）：不陪着干等，马上告诉委派方原因
+      if (invocation.status === "queued") {
+        const state = invocationState(invocation);
+        if (state.stalled) {
+          return {
+            ...summary,
+            done: false,
+            stalled: true,
+            state: state.code,
+            note: `${formatInvocationStateForAgent(state, invocation.agentName)}结束后照常回执给你；不需要继续等。`,
+          };
+        }
+      }
       if (Date.now() >= deadline || input.signal.aborted) {
         return {
           ...summary,
           done: false,
+          state: describeForAgent(invocation),
           note: "等待窗口已用完，子任务仍在进行；这不是失败，结束后会自动回执给你。",
         };
       }

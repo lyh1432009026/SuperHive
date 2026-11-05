@@ -77,6 +77,8 @@ export type HiveMcpContext = {
     message: ChatMessage;
     targetOnline: boolean;
     targetBusy: boolean;
+    /** 对方现在为什么是这个状态：离线、排在谁后面等，一句话 */
+    targetState?: string;
   };
   /** 向人提问：发出提问消息，当前调用转为等人回答 */
   askHuman: (input: {
@@ -339,6 +341,7 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
             ...(result.invocation.detail ? { detail: result.invocation.detail } : {}),
             targetOnline: result.targetOnline,
             targetBusy: result.targetBusy,
+            ...(result.targetState ? { targetState: result.targetState } : {}),
             messageId: result.message.id,
             note:
               result.invocation.status === "blocked"
@@ -357,7 +360,7 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
     "hive_wait",
     {
       title: "Wait briefly for a Hive invocation",
-      description: `短时等待一个子任务调用结束，默认 ${WAIT_DEFAULT_SECONDS} 秒、最多 ${WAIT_MAX_SECONDS} 秒。结束则返回结果（此后不再单独回执给你）；等待窗口用完返回 done=false，这只表示还没结束，不是失败，子任务会继续执行，结束后照常回执给你。子任务被预算拦下时立即返回，需要人确认。`,
+      description: `短时等待一个子任务调用结束，默认 ${WAIT_DEFAULT_SECONDS} 秒、最多 ${WAIT_MAX_SECONDS} 秒。结束则返回结果（此后不再单独回执给你）；等待窗口用完返回 done=false，这只表示还没结束，不是失败，子任务会继续执行，结束后照常回执给你。子任务被预算拦下时立即返回，需要人确认。派出 5 秒后还没开始（对方离线、排在别的任务后面、没确认收到）会立即返回 stalled=true 和原因，不用再等，结束后照常回执给你。`,
       inputSchema: {
         invocationId: z.string().uuid().describe("hive_invoke 返回的 invocationId"),
         timeoutSeconds: z

@@ -44,6 +44,7 @@ import {
   groupInvocationsByMessage,
   BUDGET_EXTEND_TURNS,
   currentPausedInvocations,
+  invocationStatusLabel,
   upsertInvocation,
   waitingInvocationForQuestion,
 } from "./invocations";
@@ -52,6 +53,10 @@ import { SchedulePanel, isPendingSchedule, upsertSchedule } from "./schedules";
 import { loadRoomOrder, orderRooms, storedRoomOrderKey, useRoomReorder } from "./room-reorder";
 import { isLiveInvocation, mergeTraceSteps } from "./live-trace";
 import { ActivityPanel, isInFlight, needsAttention, type ActivityView } from "./activity";
+import { buildGoToItems } from "./goto";
+import { GoToPalette } from "./goto-palette";
+import { matchShortcut, type ShortcutId } from "./shortcuts";
+import { ShortcutsHelp } from "./shortcuts-help";
 import {
   AttentionRoomGroup,
   AttentionToasts,
@@ -60,6 +65,7 @@ import {
   useAttention,
   type AttentionDelivery,
 } from "./attention-alerts";
+import { attentionLabels, nextAttention } from "./attention";
 import {
   OnboardingGuide,
   finishOnboarding,
@@ -1283,6 +1289,8 @@ export function App({
   const [pendingJumpId, setPendingJumpId] = useState<string>();
   // 跨房间入口：搜索、提及我、Agent 任务
   const [activityView, setActivityView] = useState<ActivityView>();
+  const [gotoOpen, setGotoOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [mentionMessages, setMentionMessages] = useState<ChatMessage[]>([]);
   // 正在回答的 Agent 提问；发送时作为 replyToMessageId
   const [answering, setAnswering] = useState<ChatMessage>();
@@ -2559,13 +2567,56 @@ export function App({
     }
   }, [crossRoomJumpId, messages]);
 
-  // ⌘K / Ctrl+K 打开搜索
+  // 全局快捷键：⌘K 搜索、⌘P 跳转、⌘J 下一个要处理的、? 或 ⌘/ 快捷键帮助（定义见 shortcuts.ts）
+  const lastAttentionIdRef = useRef<string | undefined>(undefined);
+  const [gotoNotice, setGotoNotice] = useState<string>();
+  function jumpToNextAttention() {
+    const items = attentionRef.current?.items ?? [];
+    const next = nextAttention(items, lastAttentionIdRef.current);
+    if (!next) {
+      setGotoNotice(t("现在没有要你处理的任务。"));
+      return;
+    }
+    lastAttentionIdRef.current = next.invocation.id;
+    setGotoNotice(
+      t("要处理的第 {0}/{1} 条 · @{2} · {3}", {
+        0: items.indexOf(next) + 1,
+        1: items.length,
+        2: next.invocation.agentName,
+        3: attentionLabels[next.kind],
+      }),
+    );
+    attentionRef.current?.open(next.invocation);
+  }
+  useEffect(() => {
+    if (!gotoNotice) return;
+    const timer = window.setTimeout(() => setGotoNotice(undefined), 2_500);
+    return () => window.clearTimeout(timer);
+  }, [gotoNotice]);
+  const shortcutActionsRef = useRef<Record<ShortcutId, () => void> | undefined>(undefined);
+  shortcutActionsRef.current = {
+    search: () => {
+      setGotoOpen(false);
+      setActivityView((current) => (current === "search" ? undefined : "search"));
+    },
+    goto: () => {
+      setActivityView(undefined);
+      setGotoOpen((open) => !open);
+    },
+    "next-attention": () => {
+      setGotoOpen(false);
+      jumpToNextAttention();
+    },
+    help: () => setShortcutsOpen((open) => !open),
+  };
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setActivityView((current) => (current === "search" ? undefined : "search"));
-      }
+      const id = matchShortcut(event);
+      if (!id) return;
+      // 单键 ? 不打断别的弹窗（它们自己处理按键）
+      if (event.key === "?" && document.querySelector("dialog[open], [aria-modal='true']")) return;
+      event.preventDefault();
+      shortcutActionsRef.current?.[id]();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -4897,6 +4948,43 @@ export function App({
           }}
           onClose={closeActivity}
         />
+      )}
+
+      {gotoOpen && (
+        <GoToPalette
+          items={buildGoToItems({
+            rooms,
+            currentRoomId,
+            participants,
+            invocations: activeInvocations.values(),
+            attention: attention.items,
+            messages: invocationMessages,
+            statusLabel: (invocation) =>
+              invocationStatusLabel(
+                invocation,
+                invocation.roomId === currentRoomId
+                  ? participants.some(
+                      (participant) =>
+                        participant.id === invocation.agentId && participant.status !== "offline",
+                    )
+                  : onlineInvocationIds.has(invocation.id),
+              ),
+          })}
+          onSelect={(item) => {
+            if (item.kind === "room") switchRoom(item.room.id);
+            else if (item.kind === "task") attention.open(item.invocation);
+            else if (item.task) attention.open(item.task);
+            else appendMention(item.participant.username);
+          }}
+          onNextAttention={jumpToNextAttention}
+          onClose={() => setGotoOpen(false)}
+        />
+      )}
+      {shortcutsOpen && <ShortcutsHelp onClose={() => setShortcutsOpen(false)} />}
+      {gotoNotice && (
+        <div className="goto-toast" role="status">
+          {gotoNotice}
+        </div>
       )}
 
       {inviteDialogOpen && isOwner && authToken && (
