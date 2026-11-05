@@ -117,6 +117,15 @@ describe("open an agent's session in a terminal", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect((await terminal()).json().code).toBe("AGENT_BUSY");
     expect(opened).toEqual([]);
+    // 确认后执行中也能打开（只想看看它做到哪了）
+    const forced = await app.inject({
+      method: "POST",
+      url: `/api/local/agents/${agentId}/terminal`,
+      headers: owner,
+      payload: { roomId: "general", force: true },
+    });
+    expect(forced.json()).toMatchObject({ opened: true });
+    opened.length = 0;
 
     agent.send({ type: "invocation.report", messageId, status: "completed" });
     await new Promise((resolve) => setTimeout(resolve, 50));

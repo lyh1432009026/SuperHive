@@ -57,7 +57,7 @@ export type LocalAgentsState = {
    * 在 Server 所在电脑上开终端，接着 Agent 在这个房间的同一个会话（只限本机）；
    * 返回执行的命令。还没有会话、正在执行或在别的设备上时抛错，错误里带 command 时可以复制手动运行。
    */
-  openTerminal(id: string, roomId: string): Promise<string>;
+  openTerminal(id: string, roomId: string, force?: boolean): Promise<string>;
   /** 接着这个会话要运行的命令（在别的设备上复制到 Server 所在电脑运行）；没有会话时为 undefined */
   sessionCommand(id: string, roomId: string): Promise<string | undefined>;
   remove(id: string): Promise<void>;
@@ -300,10 +300,10 @@ export function useLocalAgents(
   );
 
   const openTerminal = useCallback(
-    async (id: string, roomId: string) => {
+    async (id: string, roomId: string, force = false) => {
       const response = await request(`/api/local/agents/${id}/terminal`, {
         method: "POST",
-        body: JSON.stringify({ roomId }),
+        body: JSON.stringify({ roomId, ...(force ? { force } : {}) }),
       });
       return ((await response.json()) as { command: string }).command;
     },

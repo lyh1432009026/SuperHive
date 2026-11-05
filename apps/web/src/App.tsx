@@ -3251,7 +3251,14 @@ export function App({
         setGotoNotice(t("已复制命令，在 Server 所在电脑的终端里运行：{0}", { 0: command }));
         return;
       }
-      await local.openTerminal(agent.id, currentRoomId);
+      try {
+        await local.openTerminal(agent.id, currentRoomId);
+      } catch (reason) {
+        // 正在执行：提醒一次，确认了照样打开
+        if ((reason as { code?: string }).code !== "AGENT_BUSY") throw reason;
+        if (!window.confirm(t("{0}\n\n仍要打开吗？", { 0: (reason as Error).message }))) return;
+        await local.openTerminal(agent.id, currentRoomId, true);
+      }
       setGotoNotice(t("已在终端打开 {0} 的会话；用完退出后再在房间里 @ 它。", { 0: agent.name }));
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason);

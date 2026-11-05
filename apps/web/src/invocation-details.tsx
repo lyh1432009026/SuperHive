@@ -324,10 +324,9 @@ export function InvocationDetails({
             <button
               type="button"
               className="invocation-details-reply secondary"
-              disabled={invocation.status === "running" || invocation.status === "cancelling"}
               title={
                 invocation.status === "running" || invocation.status === "cancelling"
-                  ? t("等这一轮做完再打开，免得两边同时写一个会话")
+                  ? t("它正在执行：打开后能看到到目前为止的会话记录，别在终端里发消息")
                   : t("在终端里接着它在这个房间的会话")
               }
               onClick={onOpenTerminal}

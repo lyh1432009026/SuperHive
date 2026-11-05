@@ -624,7 +624,7 @@ export function registerLocalAgentRoutes(
    * 在这台电脑上开终端，接着 Agent 在这个房间的同一个会话（只限本机）。
    * 它正在执行时不开：两边同时写一个会话会把上下文搅乱。
    */
-  app.post<{ Params: { id: string }; Body: { roomId?: unknown } }>(
+  app.post<{ Params: { id: string }; Body: { roomId?: unknown; force?: unknown } }>(
     "/api/local/agents/:id/terminal",
     async (request, reply) => {
       const caller = authorize(request, reply, "local");
@@ -638,9 +638,10 @@ export function registerLocalAgentRoutes(
             code: "SESSION_UNAVAILABLE",
           });
         }
-        if (session.busy) {
+        // 执行中也能打开（人想看它做到哪了），只是先提醒一次，确认后带 force 再来
+        if (session.busy && request.body?.force !== true) {
           return reply.code(409).send({
-            error: `${agent.name} 正在执行任务，等它做完再打开，免得两边同时写一个会话。`,
+            error: `${agent.name} 正在执行任务。终端里显示的是打开那一刻为止的会话记录，不会跟着刷新；在终端里发消息会和它同时写这个会话，把上下文搅乱。`,
             code: "AGENT_BUSY",
             command,
           });
