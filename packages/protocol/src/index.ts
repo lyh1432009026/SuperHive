@@ -734,6 +734,8 @@ export const roomSummarySchema = z.object({
   workspace: z.string().max(4096).optional(),
   /** 工作区所在 git 仓库的当前分支（分离 HEAD 时是短提交号）；不是仓库就没有 */
   branch: z.string().max(200).optional(),
+  /** 主 Agent 的名字：人发的、没有 @ 任何人的消息默认交给它接话和调度；不设就和以前一样没人接 */
+  leadAgent: z.string().max(32).optional(),
   onlineCount: z.number().int().nonnegative(),
   latestSeq: z.number().int().nonnegative(),
 });
@@ -813,6 +815,8 @@ export const updateRoomRequestSchema = z.object({
   name: z.string().trim().min(1).max(64).optional(),
   archived: z.boolean().optional(),
   workspace: roomWorkspaceSchema.nullable().optional(),
+  /** 设为 null 取消主 Agent */
+  leadAgent: z.string().trim().min(1).max(32).nullable().optional(),
 });
 
 export const metaResponseSchema = z.object({

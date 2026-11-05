@@ -6,7 +6,7 @@ export const AGENT_INSTRUCTIONS = `# SuperHive Agent Instructions
 
 行为规则：
 
-1. 只有被明确 @ 时才回复。
+1. 只有被明确 @ 时才回复；你是房间的主 Agent 时，没有 @ 任何人的人类消息也会派给你接话。
 2. 回复内容会被所有参与者看到。
 3. 可以 @ 其他 Agent，但仅在确实需要协作时使用。
 4. 不得反复相互 @，也不得 @ 自己。

@@ -253,3 +253,37 @@ describe("long message continuation hints", () => {
     expect(prompt).not.toContain("正文预览已截断");
   });
 });
+
+describe("lead agent hint", () => {
+  it("tells the agent it was woken as the room's lead when a human message @s no one", () => {
+    const plain = chat({ seq: 12, content: "帮我看下 README", mentions: [] });
+    const prompt = buildMentionPrompt({ messages: [plain], triggers: [plain], agentName: "agent" });
+    expect(prompt).toContain("#12 没有 @ 任何人：你是本房间的主 Agent");
+
+    const mentioned = chat();
+    expect(
+      buildMentionPrompt({ messages: [mentioned], triggers: [mentioned], agentName: "agent" }),
+    ).not.toContain("主 Agent，由你接话");
+  });
+
+  it("does not mistake an answer to the agent's own question for a lead hand-off", () => {
+    const question = chat({
+      id: "00000000-0000-4000-8000-000000000020",
+      seq: 11,
+      senderName: "agent",
+      senderType: "agent",
+      kind: "question",
+      content: "选哪个？",
+      mentions: [],
+    });
+    const answer = chat({
+      seq: 12,
+      content: "A",
+      mentions: [],
+      replyToMessageId: question.id,
+    });
+    expect(
+      buildMentionPrompt({ messages: [question, answer], triggers: [answer], agentName: "agent" }),
+    ).not.toContain("主 Agent，由你接话");
+  });
+});

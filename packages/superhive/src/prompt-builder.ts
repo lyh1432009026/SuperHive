@@ -36,7 +36,7 @@ export function buildDeveloperInstructions(input: {
 ${input.workspace && input.access !== "read-only" ? `你在本房间的工作目录：${input.workspace.cwd}\n` : ""}${input.workspace?.note ? `${input.workspace.note}\n` : ""}
 规则：
 
-1. 只有被明确 @ 时才回复。
+1. 只有被明确 @ 时才回复；你是房间的主 Agent 时，没有 @ 任何人的人类消息也会派给你接话。
 2. 你的回复会被聊天室所有参与者看到。
 3. 根据公共消息历史回答，不要假设你拥有其他 Agent 的私有上下文。
 4. @ 会唤醒对方：只有需要某位成员回应或接手时才 @ 对方；只是提到、引用或致谢时直接写名字，不要加 @。
@@ -262,6 +262,24 @@ export function buildMentionPrompt(input: MentionPromptInput): string {
   sections.push(
     `${input.triggers.length > 1 ? `当前有 ${input.triggers.length} 条消息在你忙时先后唤醒了你` : "当前明确唤醒你的消息是"}：\n<trigger_message>\n${triggers}\n</trigger_message>`,
   );
+  // 服务端只把没有 @ 任何人的人类消息派给房间的主 Agent（回答提问的续接除外），收到这种就是被当作主 Agent 唤醒的
+  const ownQuestion = (id: string | undefined) =>
+    input.messages.some(
+      (message) =>
+        message.id === id && message.kind === "question" && message.senderName === input.agentName,
+    );
+  const ledTriggers = input.triggers.filter(
+    (message) =>
+      message.senderType === "human" &&
+      !message.kind &&
+      message.mentions.length === 0 &&
+      !ownQuestion(message.replyToMessageId),
+  );
+  if (ledTriggers.length > 0) {
+    sections.push(
+      `${ledTriggers.map((message) => `#${message.seq}`).join("、")} 没有 @ 任何人：你是本房间的主 Agent，由你接话。能自己处理的直接处理；需要别的 Agent 做的，按成员的角色和忙闲用 hive_invoke 分派，收到子任务回执后汇总给发起人；只是人与人之间的交流、不需要你回应时只输出 ${SILENT_REPLY_TOKEN}。`,
+    );
+  }
   const closing =
     input.mode === "brief"
       ? "请合并为一条聊天室回复。"

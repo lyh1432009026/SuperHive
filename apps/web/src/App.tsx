@@ -1307,6 +1307,7 @@ export function App({
   const [roomDialogId, setRoomDialogId] = useState("");
   const [roomDialogName, setRoomDialogName] = useState("");
   const [roomDialogWorkspace, setRoomDialogWorkspace] = useState("");
+  const [roomDialogLead, setRoomDialogLead] = useState("");
   const [roomWorkspacePicking, setRoomWorkspacePicking] = useState(false);
   const [roomDialogError, setRoomDialogError] = useState<string>();
   const [roomDialogBusy, setRoomDialogBusy] = useState(false);
@@ -1477,6 +1478,10 @@ export function App({
   );
   const currentRoomName = currentRoom?.name ?? currentRoomId;
   const currentRoomWorkspace = currentRoom?.workspace;
+  const currentLeadAgent = currentRoom?.leadAgent;
+  const isLeadAgent = (participant: Participant) =>
+    participant.type === "agent" &&
+    currentLeadAgent?.toLocaleLowerCase() === participant.username.toLocaleLowerCase();
   // 房间顺序：拖拽排出来的，存在这台浏览器里
   const [roomOrder, setRoomOrder] = useState<string[]>(() =>
     loadRoomOrder(typeof localStorage === "undefined" ? undefined : localStorage),
@@ -1878,6 +1883,7 @@ export function App({
       setRoomDialogId(dialog.mode === "manage" ? dialog.room.id : "");
       setRoomDialogName(dialog.mode === "manage" ? dialog.room.name : "");
       setRoomDialogWorkspace(dialog.mode === "manage" ? (dialog.room.workspace ?? "") : "");
+      setRoomDialogLead(dialog.mode === "manage" ? (dialog.room.leadAgent ?? "") : "");
       setRoomWorkspacePicking(false);
       setRoomDialog(dialog);
     },
@@ -2934,6 +2940,15 @@ export function App({
     }
   }
 
+  /** 能设为主 Agent 的：当前房间里的 Agent（别的房间的成员这里拿不到） */
+  function leadCandidates(room: RoomSummary): string[] {
+    if (room.id !== currentRoomId) return [];
+    return participants
+      .filter((participant) => participant.type === "agent")
+      .map((participant) => participant.username)
+      .sort((a, b) => a.localeCompare(b));
+  }
+
   async function submitRenameRoom(room: RoomSummary) {
     const name = roomDialogName.trim();
     if (!name) {
@@ -2947,6 +2962,7 @@ export function App({
       const updated = await roomRequest(`/api/rooms/${encodeURIComponent(room.id)}`, "PATCH", {
         name,
         ...(workspace !== (room.workspace ?? "") ? { workspace: workspace || null } : {}),
+        ...(roomDialogLead !== (room.leadAgent ?? "") ? { leadAgent: roomDialogLead || null } : {}),
       });
       upsertRoom(updated);
       closeRoomDialog();
@@ -4202,7 +4218,11 @@ export function App({
                       }
                     }
                   }}
-                  placeholder={t("发送消息，输入 @ 选择成员…")}
+                  placeholder={
+                    currentLeadAgent
+                      ? t("发送消息，不 @ 时交给主 Agent {0}…", { 0: currentLeadAgent })
+                      : t("发送消息，输入 @ 选择成员…")
+                  }
                   aria-label={t("消息")}
                   aria-autocomplete="list"
                   aria-controls={mentionContext ? "mention-suggestions" : undefined}
@@ -4471,6 +4491,14 @@ export function App({
                       <span className="member-copy">
                         <strong>
                           {participant.username}
+                          {isLeadAgent(participant) && (
+                            <span
+                              className="member-lead-badge"
+                              title={t("主 Agent：没有 @ 任何人的消息由它接话、调度其他 Agent")}
+                            >
+                              {t("主")}
+                            </span>
+                          )}
                           {participant.type === "agent" &&
                             localAgentNames.has(participant.username.toLocaleLowerCase()) && (
                               <>
@@ -4546,6 +4574,14 @@ export function App({
                       <span className="member-copy">
                         <strong>
                           {participant.username}
+                          {isLeadAgent(participant) && (
+                            <span
+                              className="member-lead-badge"
+                              title={t("主 Agent：没有 @ 任何人的消息由它接话、调度其他 Agent")}
+                            >
+                              {t("主")}
+                            </span>
+                          )}
                           {participant.type === "agent" &&
                             agentSettingsButton(participant.username)}
                           {isOwner && authToken && participant.access && (
@@ -5629,6 +5665,33 @@ export function App({
                       : t(
                           "这台电脑上的目录。本机 Agent 在这个房间改在这里工作（需在它允许的范围内：启动目录及其上一级，或用 --allow-root 追加）；修改后 Agent 等手上的任务做完再切换，并开始新会话。",
                         )}
+                  </small>
+                </label>
+              )}
+              {isOwner && roomDialog.mode === "manage" && (
+                <label className="room-field">
+                  <span>{t("主 Agent（可选）")}</span>
+                  <select
+                    value={roomDialogLead}
+                    onChange={(event) => setRoomDialogLead(event.target.value)}
+                  >
+                    <option value="">{t("不设置")}</option>
+                    {roomDialogLead &&
+                      !leadCandidates(roomDialog.room).includes(roomDialogLead) && (
+                        <option value={roomDialogLead}>{roomDialogLead}</option>
+                      )}
+                    {leadCandidates(roomDialog.room).map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                  <small>
+                    {roomDialog.room.id === currentRoomId
+                      ? t(
+                          "人发的、没有 @ 任何人的消息交给它接话，由它决定自己做还是用 hive_invoke 分派给其他 Agent；带 @ 的消息照常只发给被 @ 的成员。",
+                        )
+                      : t("进入这个房间后才能从它的 Agent 里选择。")}
                   </small>
                 </label>
               )}

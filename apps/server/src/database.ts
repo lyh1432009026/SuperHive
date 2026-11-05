@@ -130,6 +130,7 @@ type RoomRow = {
   created_by: string | null;
   archived_at: string | null;
   workspace: string | null;
+  lead_agent: string | null;
   online_count: number;
   latest_seq: number;
 };
@@ -490,13 +491,14 @@ function mapRoom(row: RoomRow): RoomSummary {
     ...(row.created_by ? { createdBy: row.created_by } : {}),
     ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
     ...(row.workspace ? { workspace: row.workspace } : {}),
+    ...(row.lead_agent ? { leadAgent: row.lead_agent } : {}),
     onlineCount: row.online_count,
     latestSeq: row.latest_seq,
   };
 }
 
 const roomSummarySelect = `
-  SELECT r.id, r.name, r.created_at, r.created_by, r.archived_at, r.workspace,
+  SELECT r.id, r.name, r.created_at, r.created_by, r.archived_at, r.workspace, r.lead_agent,
          COALESCE(p.online_count, 0) AS online_count,
          COALESCE(m.latest_seq, 0) AS latest_seq
   FROM rooms r
@@ -742,6 +744,9 @@ export class HiveDatabase {
     if (!roomColumns.some((column) => column.name === "workspace")) {
       this.db.exec("ALTER TABLE rooms ADD COLUMN workspace TEXT");
     }
+    if (!roomColumns.some((column) => column.name === "lead_agent")) {
+      this.db.exec("ALTER TABLE rooms ADD COLUMN lead_agent TEXT");
+    }
     if (!roomColumns.some((column) => column.name === "agent_turn_allowance")) {
       // 人为 Agent 互相对话追加的轮数；只在授予时的那条人类消息之后有效
       this.db.exec("ALTER TABLE rooms ADD COLUMN agent_turn_allowance INTEGER NOT NULL DEFAULT 0");
@@ -876,6 +881,7 @@ export class HiveDatabase {
       name?: string | undefined;
       archived?: boolean | undefined;
       workspace?: string | null | undefined;
+      leadAgent?: string | null | undefined;
     },
   ): RoomSummary {
     const room = this.getRoom(id);
@@ -888,6 +894,9 @@ export class HiveDatabase {
     }
     if (patch.workspace !== undefined) {
       this.db.prepare("UPDATE rooms SET workspace = ? WHERE id = ?").run(patch.workspace, id);
+    }
+    if (patch.leadAgent !== undefined) {
+      this.db.prepare("UPDATE rooms SET lead_agent = ? WHERE id = ?").run(patch.leadAgent, id);
     }
     if (patch.archived === true) {
       this.db

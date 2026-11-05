@@ -826,6 +826,37 @@ describe("App mention autocomplete", () => {
     expect(within(roomsPanel).getByText("main")).toBeTruthy();
   });
 
+  it("marks the room's lead agent and says plain messages go to it", async () => {
+    localStorage.setItem("superhive.username", "Alice");
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    const helper = participant("00000000-0000-4000-8000-000000000002", "helper", "agent");
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self, helper],
+        messages: [],
+        latestSeq: 0,
+      }),
+    );
+    const roomsPanel = screen.getByLabelText("房间列表");
+    await waitFor(() => expect(within(roomsPanel).getByText("# frontend")).toBeTruthy());
+    expect(screen.queryByText("主")).toBeNull();
+    expect(screen.getByPlaceholderText("发送消息，输入 @ 选择成员…")).toBeTruthy();
+    act(() =>
+      socket.serverEvent({
+        type: "rooms.changed",
+        room: { ...roomSummary("general"), leadAgent: "helper" },
+      }),
+    );
+    await waitFor(() => expect(screen.getByText("主")).toBeTruthy());
+    expect(screen.getByPlaceholderText("发送消息，不 @ 时交给主 Agent helper…")).toBeTruthy();
+  });
+
   it("switches rooms, shows unread dots, and creates rooms from the sidebar", async () => {
     const user = userEvent.setup();
     localStorage.setItem("superhive.username", "Alice");

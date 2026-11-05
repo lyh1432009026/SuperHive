@@ -1101,6 +1101,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     // 人回复了 Agent 的提问：结束等待中的调用，并用这条回答重新唤醒提问的 Agent（不必再 @ 它）
     const answered = participant.type === "human" ? answeredQuestion(message) : undefined;
     const targets = [...message.mentions];
+    // 人发的普通消息没有 @ 任何人：交给房间的主 Agent 接话（Agent 的消息、回执、定时触发、话题分隔都不算）
+    const lead =
+      participant.type === "human" && !message.kind && targets.length === 0 && !answered
+        ? leadAgentOf(participant.roomId)
+        : undefined;
+    if (lead) targets.push(lead.username);
     if (
       answered &&
       !targets.some((name) => name.toLocaleLowerCase() === answered.agentName.toLocaleLowerCase())
@@ -1176,6 +1182,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       deliverMention(message, agent, false, steer);
     }
     return result;
+  }
+
+  /** 房间设了主 Agent 且它还在房间里时返回它 */
+  function leadAgentOf(roomId: string): Participant | undefined {
+    const name = database.getRoom(roomId)?.leadAgent;
+    const agent = name ? database.findParticipant(roomId, name) : undefined;
+    return agent?.type === "agent" ? agent : undefined;
   }
 
   /** 这条消息回复的是 Agent 的提问且该调用仍在等人回答时，返回那个等待中的调用 */
@@ -3308,15 +3321,28 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       !body.success ||
       (body.data.name === undefined &&
         body.data.archived === undefined &&
-        body.data.workspace === undefined)
+        body.data.workspace === undefined &&
+        body.data.leadAgent === undefined)
     ) {
       return reply.code(400).send({ error: "Invalid room patch payload." });
+    }
+    // 主 Agent 只能是这个房间里的 Agent；按房间里的大小写存
+    let leadAgent = body.data.leadAgent;
+    if (leadAgent) {
+      const agent = database.findParticipant(params.data.roomId, leadAgent);
+      if (!agent || agent.type !== "agent") {
+        return reply
+          .code(400)
+          .send({ error: `${leadAgent} 不是这个房间里的 Agent。`, code: "ROOM_LEAD_INVALID" });
+      }
+      leadAgent = agent.username;
     }
     try {
       const room = withBranch(
         database.updateRoom(params.data.roomId, {
           ...body.data,
           ...(body.data.workspace ? { workspace: roomWorkspace(body.data.workspace) } : {}),
+          ...(leadAgent !== undefined ? { leadAgent } : {}),
         }),
       );
       broadcastAll({ type: "rooms.changed", room });
