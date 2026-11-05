@@ -420,12 +420,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const removed = database.clearRoom(roomId, actor.username);
     for (const [invocationId, trace] of traces)
       if (trace.roomId === roomId) traces.delete(invocationId);
-    // Agent 清空后从新会话开始：旧会话不再能在终端里接着
-    for (const participantId of [...agentSessions.keys()]) {
-      if (database.getParticipant(participantId)?.roomId === roomId) {
-        agentSessions.delete(participantId);
-      }
-    }
+    forgetAgentSessions(roomId);
     const message = database.createMessage(actor, {
       content: `${actor.username} 清空了房间`,
       clientMessageId: `room-clear-${randomUUID()}`,
@@ -788,6 +783,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   /** Agent 在各房间当前的 Provider 会话（按房间里的成员 ID）：本机房主可以在终端里接着它 */
   const agentSessions = new Map<string, { sessionId: string; cwd: string }>();
 
+  /** 开新话题或清空房间后，Agent 下一轮从新会话开始：旧会话不再能在终端里接着 */
+  function forgetAgentSessions(roomId: string): void {
+    for (const participantId of [...agentSessions.keys()]) {
+      if (database.getParticipant(participantId)?.roomId === roomId) {
+        agentSessions.delete(participantId);
+      }
+    }
+  }
+
   /** 等人批的权限申请（见 requestApproval） */
   const approvals = new Map<string, PendingApproval>();
   const approvalByQuestion = new Map<string, string>();
@@ -1126,7 +1130,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     broadcast(participant.roomId, { type: "message.created", message });
     broadcastRoomActivity(participant.roomId);
     imHub.onMessageCreated(message);
-    if (message.kind === "topic") supersedeStale(message.roomId);
+    if (message.kind === "topic") {
+      supersedeStale(message.roomId);
+      forgetAgentSessions(message.roomId);
+    }
     // 进度只是给人看的：不推进调用，也不唤醒任何 Agent；调用上记一笔最近进度
     if (message.kind === "progress") {
       const invocation = message.parentMessageId

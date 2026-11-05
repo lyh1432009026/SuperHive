@@ -19,7 +19,7 @@ export function resumeCommand(input: {
       case "omp":
         return `omp --resume ${id}`;
       case "copilot":
-        return `copilot --resume ${id}`;
+        return `copilot --resume=${id}`;
       default:
         return undefined;
     }

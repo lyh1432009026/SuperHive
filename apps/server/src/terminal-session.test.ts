@@ -124,6 +124,11 @@ describe("open an agent's session in a terminal", () => {
     expect(ok.json()).toMatchObject({ opened: true });
     expect(opened).toEqual(["cd /repo/web && claude --resume sess-1"]);
 
+    // 开新话题后 Agent 下一轮换新会话：旧的不再能接着
+    alice.send({ type: "topic.start" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect((await terminal()).json().code).toBe("SESSION_UNAVAILABLE");
+
     // 只限本机：其他设备上不能在这台电脑上开窗口
     const remote = await app.inject({
       method: "POST",
