@@ -90,11 +90,29 @@ describe("open an agent's session in a terminal", () => {
       command: "cd /repo/web && claude --resume sess-1",
     });
 
-    // 正在执行时不开，免得两边同时写一个会话
+    // 不像会话 ID 的上报不收
+    agent.send({
+      type: "agent.session",
+      sessionId: "--dangerously-skip-permissions",
+      cwd: "/evil",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: `/api/local/agents/${agentId}/session?roomId=general`,
+          headers: owner,
+        })
+      ).json().command,
+    ).toBe("cd /repo/web && claude --resume sess-1");
+
+    // 排队中、正在执行时都不开，免得两边同时写一个会话
     const { peer: alice } = await join("Alice", "human");
     alice.send({ type: "message.send", clientMessageId: "m1", content: "@rd-claude 做点事" });
     const mentioned = await agent.next((event) => event.type === "agent.mentioned");
     const messageId = (mentioned as Extract<ServerEvent, { type: "agent.mentioned" }>).message.id;
+    expect((await terminal()).json().code).toBe("AGENT_BUSY");
     agent.send({ type: "invocation.report", messageId, status: "running" });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect((await terminal()).json().code).toBe("AGENT_BUSY");

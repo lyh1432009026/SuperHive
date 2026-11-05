@@ -459,7 +459,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       const agent = database.findParticipant(roomId, agentName);
       const session = agent ? agentSessions.get(agent.id) : undefined;
       if (!agent || !session) return undefined;
-      return { ...session, busy: database.listExecutingInvocations(agent.id).length > 0 };
+      // 排队中的也算：它马上会开始，终端开着就成了两边同时写一个会话
+      const busy =
+        database.listExecutingInvocations(agent.id).length > 0 ||
+        database
+          .listInvocations(roomId)
+          .some((item) => item.agentId === agent.id && item.status === "queued");
+      return { ...session, busy };
     },
     isLocal,
     ownerDevices: {
@@ -4089,7 +4095,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         return;
       }
       if (event.type === "agent.session") {
-        if (participant.type === "agent") {
+        // 只认房主自己的 Agent（joinToken 接入）：访客带入的 Agent 不能冒充本机 Agent 上报，
+        // 否则房主点「在终端打开」时会 cd 进它给的目录（那里的配置、钩子可以跑任意代码）
+        if (participant.type === "agent" && !guest) {
           agentSessions.set(participant.id, { sessionId: event.sessionId, cwd: event.cwd });
         }
         return;

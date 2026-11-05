@@ -584,7 +584,11 @@ export const approvalRequestEventSchema = z.object({
 /** Agent 在这个房间当前用的 Provider 会话：人可以在终端里 resume 接着同一个会话 */
 export const agentSessionEventSchema = z.object({
   type: z.literal("agent.session"),
-  sessionId: z.string().trim().min(1).max(200),
+  // 只收常见的会话 ID 字符，不能以 - 开头：拼进命令时既不能注入 shell，也不能被当成命令行选项
+  sessionId: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/),
   /** Provider 实际的工作目录：Claude 等按目录存会话，resume 要在同一个目录里 */
   cwd: z.string().min(1).max(4096),
 });

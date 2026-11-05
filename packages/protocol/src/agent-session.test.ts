@@ -17,9 +17,17 @@ describe("resumeCommand", () => {
         platform: "win32",
       }),
     ).toBe("cd /d C:\\Work\\x && opencode --session s");
-    expect(resumeCommand({ provider: "claude", sessionId: "x';rm -rf ~'", cwd: "/r" })).toBe(
-      "cd /r && claude --resume 'x'\\'';rm -rf ~'\\'''",
-    );
+    // 会话 ID 只收常见字符：shell 元字符、以 - 开头（会被当成别的选项）都不接
+    expect(
+      resumeCommand({ provider: "claude", sessionId: "x';rm -rf ~'", cwd: "/r" }),
+    ).toBeUndefined();
+    expect(
+      resumeCommand({ provider: "claude", sessionId: "--dangerously-skip-permissions", cwd: "/r" }),
+    ).toBeUndefined();
+    // cmd 在引号里也会展开 % 和 !：带这些的目录不接
+    expect(
+      resumeCommand({ provider: "codex", sessionId: "t", cwd: "C:\\%TEMP%", platform: "win32" }),
+    ).toBeUndefined();
     expect(resumeCommand({ provider: "openclaw", sessionId: "s", cwd: "/r" })).toBeUndefined();
   });
 });

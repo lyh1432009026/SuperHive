@@ -24,7 +24,9 @@ export function resumeCommand(input: {
         return undefined;
     }
   })();
-  if (!resume) return undefined;
+  // 会话 ID 拼在选项后面：以 - 开头或带奇怪字符的不接，免得被当成别的选项（例如跳过权限确认）
+  if (!resume || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(input.sessionId)) return undefined;
+  if (windows && /[%!"^&|<>]/.test(input.cwd)) return undefined;
   return windows ? `cd /d ${quote(input.cwd)} && ${resume}` : `cd ${quote(input.cwd)} && ${resume}`;
 }
 
@@ -32,6 +34,7 @@ function posixQuote(value: string): string {
   return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+/** cmd 的引号：% 和 ! 在引号里也会被展开，带这些字符的路径不接（resumeCommand 返回前会检查） */
 function windowsQuote(value: string): string {
-  return /^[\w@%+=:,./\\-]+$/.test(value) ? value : `"${value.replace(/"/g, '""')}"`;
+  return /^[\w@+=:,./\\-]+$/.test(value) ? value : `"${value.replace(/"/g, '""')}"`;
 }
