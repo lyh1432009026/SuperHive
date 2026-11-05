@@ -384,7 +384,7 @@ describe("CodexAppServerResponder", () => {
   });
 
   it.each([
-    ["workspace", "workspace-write", "never"],
+    ["workspace", "workspace-write", "on-request"],
     ["full", "danger-full-access", "never"],
   ] as const)("maps %s access", async (access, sandbox, approvalPolicy) => {
     const { responder, servers } = setup(defaultHandlers(), { access, model: "gpt-x" });
@@ -732,6 +732,76 @@ describe("CodexAppServerResponder", () => {
       _meta: null,
     });
     expect(server.responseTo("x")?.error).toMatchObject({ code: -32601 });
+  });
+
+  it("hands workspace approval requests to a human and answers Codex with the decision", async () => {
+    let complete: () => void = () => undefined;
+    const handlers = defaultHandlers({
+      "turn/start": (message, server) => {
+        const threadId = message.params.threadId;
+        server.emit({ id: message.id, result: { turn: { id: "t" } } });
+        server.emit({
+          id: 200,
+          method: "item/commandExecution/requestApproval",
+          params: { threadId, turnId: "t", command: ["curl", "example.com"], reason: "需要联网" },
+        });
+        server.emit({
+          id: 201,
+          method: "item/fileChange/requestApproval",
+          params: { threadId, turnId: "t", grantRoot: "/etc" },
+        });
+        server.emit({
+          id: 202,
+          method: "mcpServer/elicitation/request",
+          params: {
+            serverName: "github",
+            message: "确认合并 PR #3？",
+            requestedSchema: { type: "object", properties: {} },
+          },
+        });
+        server.emit({
+          id: 203,
+          method: "mcpServer/elicitation/request",
+          params: {
+            serverName: "x",
+            message: "填表",
+            requestedSchema: { type: "object", properties: { name: { type: "string" } } },
+          },
+        });
+        complete = () =>
+          server.emit({
+            method: "turn/completed",
+            params: {
+              threadId,
+              turn: { id: "t", status: "completed", items: [agentMessage("ok")] },
+            },
+          });
+      },
+    });
+    const { responder, servers } = setup(handlers, { access: "workspace" });
+    const asked: string[] = [];
+    const reply = responder.reply({
+      instructions: "r",
+      prompt: "p",
+      requestApproval: async (request) => {
+        asked.push(`${request.tool}:${request.summary}`);
+        return !request.summary.startsWith("修改");
+      },
+    });
+    await vi.waitFor(() => expect(servers[0]?.responseTo(202)).toBeDefined());
+    const server = servers[0]!;
+    expect(asked).toEqual([
+      "command:curl example.com",
+      "fileChange:修改沙箱外的文件",
+      "mcp:github:确认合并 PR #3？",
+    ]);
+    expect(server.responseTo(200)?.result).toEqual({ decision: "accept" });
+    expect(server.responseTo(201)?.result).toEqual({ decision: "decline" });
+    expect(server.responseTo(202)?.result).toMatchObject({ action: "accept" });
+    // 要填字段的表单问不了人：照旧拒绝
+    expect(server.responseTo(203)?.result).toMatchObject({ action: "decline" });
+    complete();
+    await reply;
   });
 
   it("reports progress for started items", async () => {

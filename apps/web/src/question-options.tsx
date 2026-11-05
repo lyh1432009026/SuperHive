@@ -11,8 +11,11 @@ export function QuestionOptions({
   waiting,
   pending,
   answer,
+  allowOther = true,
   onSubmit,
 }: {
+  /** 权限申请只能选「允许 / 拒绝」，不提供「其它」 */
+  allowOther?: boolean;
   spec: QuestionSpec;
   /** 提问对应的调用仍在等人回答 */
   waiting: boolean;
@@ -82,7 +85,8 @@ export function QuestionOptions({
           <span>{answer.other}</span>
         </div>
       ) : (
-        editable && (
+        editable &&
+        allowOther && (
           <div className={`question-option other ${otherOpen ? "open" : ""}`}>
             {spec.multiple ? (
               <label>

@@ -1,7 +1,7 @@
 import type { CommandRunner } from "./command-runner.js";
 import { streamCommandRunner } from "./stream-command-runner.js";
 import { ClaudeStream } from "./claude-stream.js";
-import { redactTrace } from "./trace.js";
+import { claudeToolSummary, redactTrace } from "./trace.js";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -138,6 +138,9 @@ export class ClaudeCodeResponder implements AgentResponder {
       ...(mcp ? ["--strict-mcp-config"] : []),
       "--allowedTools",
       access === "workspace" ? `Read,Glob,Grep,Edit,Write,Bash,${hiveTools}` : hiveTools,
+      // 工作区档：Claude 想做 auto 模式下要人确认的事时，通过标准输入问我们（can_use_tool），交给人批；
+      // 其余档不弹：只读档照旧直接拒绝，完全权限档本来就不问
+      ...(access === "workspace" ? ["--permission-prompt-tool", "stdio"] : []),
       // Claude 自带的定时只活在这一轮的进程里，回复完进程一退就没了，服务端也看不到：一律改用 hive_schedule_create
       "--disallowedTools",
       "CronCreate,CronDelete,CronList,ScheduleWakeup",
@@ -218,6 +221,37 @@ export class ClaudeCodeResponder implements AgentResponder {
       );
       killTimer = setTimeout(() => kill.abort(), this.options.interruptTimeoutMs ?? 5_000);
       killTimer.unref?.();
+    };
+    stream.onPermissionRequest = (requestId, request) => {
+      const answer = (allow: boolean, message?: string) => {
+        if (turn.closed || !turn.stdin) return;
+        turn.stdin.write(
+          `${JSON.stringify({
+            type: "control_response",
+            response: {
+              subtype: "success",
+              request_id: requestId,
+              response: allow
+                ? { behavior: "allow", updatedInput: request.input }
+                : { behavior: "deny", message: message ?? "没有获得批准。" },
+            },
+          })}\n`,
+        );
+      };
+      if (access !== "workspace" || !input.requestApproval) {
+        answer(false, "当前权限档不允许这个操作。");
+        return;
+      }
+      void input
+        .requestApproval({
+          tool: request.toolName,
+          summary: claudeToolSummary(request.toolName, request.input) || request.toolName,
+          ...(request.description ? { detail: request.description } : {}),
+        })
+        .then(
+          (allow) => answer(allow, allow ? undefined : "人没有批准这个操作（拒绝或超时）。"),
+          () => answer(false),
+        );
     };
     stream.onControlResponse = (requestId, ok) => {
       if (requestId === interrupt.requestId && ok) interrupt.acked = true;

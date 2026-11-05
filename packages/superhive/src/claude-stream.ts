@@ -40,6 +40,11 @@ export class ClaudeStream {
   onUserAck?: (uuid: string) => void;
   /** 控制请求（例如 interrupt）的答复 */
   onControlResponse?: (requestId: string, ok: boolean) => void;
+  /** Claude 要求宿主批准一次工具调用（--permission-prompt-tool stdio 时的 can_use_tool） */
+  onPermissionRequest?: (
+    requestId: string,
+    request: { toolName: string; input: Record<string, unknown>; description?: string },
+  ) => void;
   private readonly tools = new Map<string, RuntimeEvent["tool"]>();
   private readonly accounting = new UsageAccumulator();
   private currentMessageId: string | undefined;
@@ -207,6 +212,17 @@ export class ClaudeStream {
       this.results.push(this.result);
       if (!this.result.is_error) this.recovered();
       this.onResult?.(this.result);
+      return;
+    }
+    if (event.type === "control_request") {
+      const request = object(event.request);
+      if (typeof event.request_id === "string" && request?.subtype === "can_use_tool") {
+        this.onPermissionRequest?.(event.request_id, {
+          toolName: typeof request.tool_name === "string" ? request.tool_name : "tool",
+          input: object(request.input) ?? {},
+          ...(typeof request.description === "string" ? { description: request.description } : {}),
+        });
+      }
       return;
     }
     if (event.type === "control_response") {

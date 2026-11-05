@@ -45,6 +45,8 @@ export const LIMITS = {
   maxScheduleTaskLength: 4000,
   /** 执行中途发给人看的进度消息：人发起的任务每个最多几条（Agent 之间的委派只允许一条，防止刷屏） */
   maxProgressPerTask: 3,
+  /** Agent 执行中申请权限（运行时的审批请求）等人批的最长时间，过时按拒绝 */
+  approvalTimeoutMs: 10 * 60_000,
   /** 执行过程：每步摘要与中途文字的长度上限、每次调用在内存里最多保留的步数 */
   maxTraceSummaryLength: 300,
   maxTraceTextLength: 2000,
@@ -106,6 +108,12 @@ export const questionSpecSchema = z.object({
   options: z.array(questionOptionSchema).min(2).max(LIMITS.maxQuestionOptions),
   /** true=多选（复选框 + 提交）；false=单选（点一下即提交） */
   multiple: z.boolean(),
+});
+/** Agent 执行中申请权限时发出的批准请求：提问消息带上它，人点「允许 / 拒绝」后服务端把结果交回正在跑的这一轮 */
+export const approvalRefSchema = z.object({
+  requestId: z.string().uuid(),
+  /** 申请的工具或动作，例如 Bash、commandExecution */
+  tool: z.string().max(64),
 });
 /** 点选产生的答案：正文由服务端按已存的题目生成，这里只记下所选，供界面高亮 */
 export const questionAnswerSchema = z.object({
@@ -169,6 +177,8 @@ export const chatMessageSchema = z.object({
   question: questionSpecSchema.optional(),
   /** 经网页点选提交的答案；手打的回答没有这个字段，正文照样是答案 */
   answer: questionAnswerSchema.optional(),
+  /** kind=question 且是 Agent 执行中申请权限：人点选允许 / 拒绝，结果直接交回正在跑的这一轮，不另起一轮 */
+  approval: approvalRefSchema.optional(),
   /** 经飞书、微信等外部 IM 发来的消息 */
   via: messageViaSchema.optional(),
   /** 随消息发出的附件；撤回后清空 */
@@ -558,6 +568,19 @@ export const scheduleSchema = z.object({
 });
 
 /** Agent 回报自己对某条 @ 的处理进展；received 只确认送达，不改变 queued 状态 */
+/** Agent 执行中遇到运行时的审批请求（命令、改文件、MCP 确认），交给人批 */
+export const approvalRequestEventSchema = z.object({
+  type: z.literal("approval.request"),
+  /** 正在执行的触发消息 */
+  messageId: z.string().uuid(),
+  requestId: z.string().uuid(),
+  tool: z.string().trim().min(1).max(64),
+  /** 一行摘要：要跑的命令、要改的文件 */
+  summary: z.string().trim().min(1).max(1000),
+  /** 补充说明（原因、目录等） */
+  detail: z.string().max(4000).optional(),
+});
+
 export const invocationReportEventSchema = z.object({
   type: z.literal("invocation.report"),
   messageId: z.string().uuid(),
@@ -624,6 +647,7 @@ export const clientEventSchema = z.discriminatedUnion("type", [
   messageDeleteEventSchema,
   topicStartEventSchema,
   questionAnswerEventSchema,
+  approvalRequestEventSchema,
   invocationReportEventSchema,
   invocationRetryEventSchema,
   invocationDismissEventSchema,
@@ -645,8 +669,25 @@ export const roomSnapshotEventSchema = z.object({
   invocations: z.array(invocationSchema).default([]),
   whiteboard: z.array(whiteboardEntrySchema).default([]),
   schedules: z.array(scheduleSchema).default([]),
+  /** 还在等人批的权限申请（对应提问消息的 ID） */
+  approvals: z.array(z.string().uuid()).default([]),
   /** 服务端支持的可选能力，例如 trace（接收执行过程） */
   features: z.array(z.string()).default([]),
+});
+/** 权限申请有了结果（或过时）：网页据此关掉选项 */
+export const approvalUpdatedEventSchema = z.object({
+  type: z.literal("approval.updated"),
+  roomId: z.string(),
+  messageId: z.string().uuid(),
+  state: z.enum(["allowed", "denied", "expired"]),
+});
+/** 发给申请权限的 Agent：人批了还是拒了 */
+export const approvalDecisionEventSchema = z.object({
+  type: z.literal("approval.decision"),
+  requestId: z.string().uuid(),
+  allow: z.boolean(),
+  /** 拒绝或过时的原因，交给 Agent 看 */
+  reason: z.string().max(500).optional(),
 });
 export const messageCreatedEventSchema = z.object({
   type: z.literal("message.created"),
@@ -770,6 +811,8 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   whiteboardRemovedEventSchema,
   scheduleUpdatedEventSchema,
   invocationTraceUpdatedEventSchema,
+  approvalUpdatedEventSchema,
+  approvalDecisionEventSchema,
   presenceChangedEventSchema,
   roomsChangedEventSchema,
   roomActivityEventSchema,
@@ -1133,6 +1176,7 @@ export type AttachmentKind = z.infer<typeof attachmentKindSchema>;
 export type UploadedAttachment = z.infer<typeof uploadedAttachmentSchema>;
 export type QuestionSpec = z.infer<typeof questionSpecSchema>;
 export type QuestionAnswer = z.infer<typeof questionAnswerSchema>;
+export type ApprovalRef = z.infer<typeof approvalRefSchema>;
 export type RoomSummary = z.infer<typeof roomSummarySchema>;
 export type ClientEvent = z.infer<typeof clientEventSchema>;
 export type ServerEvent = z.infer<typeof serverEventSchema>;

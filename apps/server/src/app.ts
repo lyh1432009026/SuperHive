@@ -764,9 +764,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     });
   }
 
+  /** 等人批的权限申请（见 requestApproval） */
+  const approvals = new Map<string, PendingApproval>();
+  const approvalByQuestion = new Map<string, string>();
+
   function emitInvocation(invocation: Invocation): Invocation {
     broadcastAll({ type: "invocation.updated", invocation });
     endTrace(invocation);
+    // 这一轮结束了：它还在等的权限申请作废
+    if (isTerminal(invocation)) {
+      for (const pending of [...approvals.values()]) {
+        if (pending.invocationId === invocation.id) settleApproval(pending.requestId, "expired");
+      }
+    }
     // 这个 Agent 在房间里正常完成了一次任务：它更早留下的异常多半已经过时，自动收起
     if (invocation.status === "completed") setImmediate(() => supersedeStale(invocation.roomId));
     // 任务结果和需要人处理的状态推到房主的 IM（失败、被拦下这些往往没有对应的聊天消息）
@@ -1115,6 +1125,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     ) {
       return result;
     }
+    // 人批了 Agent 执行中申请的权限：结果直接交回正在跑的那一轮，不另起一轮、不唤醒任何人
+    if (participant.type === "human" && message.replyToMessageId) {
+      const requestId = approvalByQuestion.get(message.replyToMessageId);
+      const pending = requestId ? approvals.get(requestId) : undefined;
+      const allow = pending ? approvalChoice(message) : undefined;
+      if (pending && allow !== undefined && canApprove(participant, pending)) {
+        settleApproval(pending.requestId, allow ? "allowed" : "denied", participant.username);
+        return result;
+      }
+    }
     // 人回复了 Agent 的提问：结束等待中的调用，并用这条回答重新唤醒提问的 Agent（不必再 @ 它）
     const answered = participant.type === "human" ? answeredQuestion(message) : undefined;
     const targets = [...message.mentions];
@@ -1283,8 +1303,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     ) {
       throw new HiveError("QUESTION_NOT_FOUND", "这条提问不存在或没有可选项。");
     }
-    if (!waitingForQuestion(question.id)) {
+    const approval = approvalByQuestion.get(question.id);
+    if (!waitingForQuestion(question.id) && !approval) {
       throw new HiveError("QUESTION_CLOSED", "这个提问已经回答过或已停止等待。");
+    }
+    if (approval) {
+      if (!canApprove(human, approvals.get(approval)!)) {
+        throw new HiveError("FORBIDDEN", "只有房主（或带入这个 Agent 的访客）能批这个权限申请。");
+      }
+      if (input.other?.trim()) {
+        throw new HiveError("INVALID_ANSWER", "权限申请只能选「允许」或「拒绝」。");
+      }
     }
     const spec = question.question;
     const selected = [...new Set(input.selected)];
@@ -1401,6 +1430,160 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       }),
     );
     return { invocation: updated, message };
+  }
+
+  /**
+   * Agent 执行中申请权限（Codex 的命令 / 改文件审批、MCP 确认、ACP 权限、Claude 的工具许可）：
+   * 发一条带「允许 / 拒绝」的提问给任务源头的人，人点了或回复了，结果直接交回正在跑的这一轮。
+   * 只在内存里：Server 重启或超过 LIMITS.approvalTimeoutMs 都按拒绝，Agent 那边同样会超时拒绝。
+   */
+  type PendingApproval = {
+    requestId: string;
+    roomId: string;
+    agentId: string;
+    agentName: string;
+    invocationId: string;
+    questionId: string;
+    timer: NodeJS.Timeout;
+  };
+
+  function requestApproval(
+    agent: Participant,
+    event: Extract<ClientEvent, { type: "approval.request" }>,
+  ): void {
+    if (approvals.has(event.requestId)) return;
+    const deny = (reason: string) => {
+      const target = onlineAgent(agent.roomId, agent.username);
+      if (target) {
+        send(target.socket, {
+          type: "approval.decision",
+          requestId: event.requestId,
+          allow: false,
+          reason,
+        });
+      }
+    };
+    const invocation = database.getInvocationFor(event.messageId, agent.id);
+    if (!invocation || !["running", "waiting_human"].includes(invocation.status)) {
+      deny("这一轮已经不在执行，申请作废。");
+      return;
+    }
+    const root = [invocation, ...database.invocationAncestors(invocation.id)].find(
+      (item) => item.requesterType === "human",
+    );
+    const minutes = Math.round(LIMITS.approvalTimeoutMs / 60_000);
+    let question: ChatMessage;
+    try {
+      question = createAndDispatchMessage(
+        agent,
+        {
+          content: [
+            `${root ? `@${root.requesterName} ` : ""}🔐 ${agent.username} 申请权限（${quoteWithoutMentions(event.tool, 64)}）：${quoteWithoutMentions(event.summary, 1000)}`,
+            ...(event.detail ? [quoteWithoutMentions(event.detail, 4000)] : []),
+            "A. 允许",
+            "B. 拒绝",
+            `（点选，或回复这条消息「允许 / 拒绝」；${minutes} 分钟内没人批按拒绝处理）`,
+          ].join("\n"),
+          clientMessageId: `approval-${event.requestId}`,
+          parentMessageId: event.messageId,
+          kind: "question",
+          question: {
+            options: [
+              { key: "A", label: "允许" },
+              { key: "B", label: "拒绝" },
+            ],
+            multiple: false,
+          },
+          approval: { requestId: event.requestId, tool: event.tool },
+        },
+        { inferredParent: true },
+      ).message;
+    } catch (error) {
+      deny(`没能把申请发给人：${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    const timer = setTimeout(
+      () => settleApproval(event.requestId, "expired"),
+      LIMITS.approvalTimeoutMs,
+    );
+    timer.unref?.();
+    approvals.set(event.requestId, {
+      requestId: event.requestId,
+      roomId: agent.roomId,
+      agentId: agent.id,
+      agentName: agent.username,
+      invocationId: invocation.id,
+      questionId: question.id,
+      timer,
+    });
+    approvalByQuestion.set(question.id, event.requestId);
+    if (!isTerminal(invocation)) {
+      emitInvocation(
+        database.updateInvocation(invocation.id, {
+          progress: `等你批准：${event.summary.replace(/\s+/g, " ").slice(0, 160)}`,
+        }),
+      );
+    }
+  }
+
+  function settleApproval(
+    requestId: string,
+    state: "allowed" | "denied" | "expired",
+    by?: string,
+  ): void {
+    const pending = approvals.get(requestId);
+    if (!pending) return;
+    approvals.delete(requestId);
+    approvalByQuestion.delete(pending.questionId);
+    clearTimeout(pending.timer);
+    const target = onlineAgent(pending.roomId, pending.agentName);
+    if (target) {
+      send(target.socket, {
+        type: "approval.decision",
+        requestId,
+        allow: state === "allowed",
+        ...(state === "denied"
+          ? { reason: `${by ?? "人"} 拒绝了这个申请。` }
+          : state === "expired"
+            ? { reason: "没人在时限内批准，按拒绝处理。" }
+            : {}),
+      });
+    }
+    broadcast(pending.roomId, {
+      type: "approval.updated",
+      roomId: pending.roomId,
+      messageId: pending.questionId,
+      state,
+    });
+    const invocation = database.getInvocation(pending.invocationId);
+    if (invocation && !isTerminal(invocation) && invocation.progress?.startsWith("等你批准")) {
+      emitInvocation(database.updateInvocation(invocation.id, { progress: null }));
+    }
+  }
+
+  /** 回复里选的是允许还是拒绝；看不出来时返回 undefined（当普通消息处理） */
+  function approvalChoice(message: ChatMessage): boolean | undefined {
+    if (message.answer) {
+      if (message.answer.selected.includes("A")) return true;
+      if (message.answer.selected.includes("B")) return false;
+      return undefined;
+    }
+    const text = message.content.trim().toLocaleLowerCase();
+    if (/^(?:b|拒绝|不行|不允许|不可以|不同意|不|no|n|deny)(?:$|[\s，。,.!！])/.test(text))
+      return false;
+    if (/^(?:a|允许|同意|批准|可以|行|好|yes|y|ok|approve)(?:$|[\s，。,.!！])/.test(text))
+      return true;
+    return undefined;
+  }
+
+  /** 房主（非访客）都能批；访客只能批自己带入的 Agent 的申请 */
+  function canApprove(human: Participant, pending: PendingApproval): boolean {
+    const guest = guestSessionOf(human);
+    if (!guest) return true;
+    if (guest.state !== "active") return false;
+    const agent = database.getParticipant(pending.agentId);
+    const agentGuest = agent ? guestSessionOf(agent) : undefined;
+    return agentGuest?.sponsor?.id === guest.session.id;
   }
 
   /** Server 所在电脑的时区：Agent 没指定时区时，定时任务按它显示 */
@@ -2480,7 +2663,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         onInsert: (messageId: string) => attachments.bind(ids, messageId),
       };
     },
-    isWaiting: (questionId) => Boolean(waitingForQuestion(questionId)),
+    isWaiting: (questionId) =>
+      Boolean(waitingForQuestion(questionId) || approvalByQuestion.has(questionId)),
     webUrl: (roomId) => {
       const base = (options.webUrl ?? options.publicUrl)?.replace(/\/$/, "");
       return base ? `${base}/#${roomId}` : undefined;
@@ -3753,7 +3937,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             invocations: database.listInvocations(event.roomId),
             whiteboard: database.listWhiteboard(event.roomId),
             schedules: database.listSchedules(event.roomId),
-            features: ["trace"],
+            approvals: [...approvals.values()]
+              .filter((item) => item.roomId === event.roomId)
+              .map((item) => item.questionId),
+            features: ["trace", "approval"],
           });
           // 房主（或允许看过程的访客）刚打开或重连：把正在执行的调用的过程补上
           if (canSeeTrace(connection, event.roomId)) {
@@ -3877,6 +4064,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       if (event.type === "message.ack") return;
       if (event.type === "invocation.trace") {
         if (participant.type === "agent") recordTrace(participant, event.messageId, event.steps);
+        return;
+      }
+      if (event.type === "approval.request") {
+        if (participant.type === "agent") requestApproval(participant, event);
         return;
       }
       if (

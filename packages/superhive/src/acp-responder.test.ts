@@ -320,9 +320,22 @@ describe("AcpResponder", () => {
         agent.emit({ id: message.id, result: { stopReason: "end_turn" } });
       },
     });
-    const outcomes = async (access: "read-only" | "workspace" | "full") => {
+    const asked: string[] = [];
+    const outcomes = async (access: "read-only" | "workspace" | "full", allow?: boolean) => {
       const { responder, agents } = setup(permissionHandlers, { access });
-      await responder.reply({ instructions: "rules", prompt: "hi" });
+      await responder.reply({
+        instructions: "rules",
+        prompt: "hi",
+        ...(allow === undefined
+          ? {}
+          : {
+              requestApproval: async (request) => {
+                asked.push(`${request.tool}:${request.summary}`);
+                return allow;
+              },
+            }),
+      });
+      await new Promise((resolve) => setImmediate(resolve));
       return ["p1", "p2", "p3"].map(
         (id) => agents[0]!.responseTo(id)?.result.outcome.optionId as string,
       );
@@ -331,6 +344,11 @@ describe("AcpResponder", () => {
     expect(await outcomes("read-only")).toEqual(["no", "no", "no"]);
     expect(await outcomes("workspace")).toEqual(["yes", "yes", "no"]);
     expect(await outcomes("full")).toEqual(["yes", "yes", "yes"]);
+    // 工作区档超出范围的交给人批：批了放行，拒了照旧拒绝；只读档不问人
+    expect(await outcomes("workspace", true)).toEqual(["yes", "yes", "yes"]);
+    expect(await outcomes("workspace", false)).toEqual(["yes", "yes", "no"]);
+    expect(await outcomes("read-only", true)).toEqual(["no", "no", "no"]);
+    expect(asked).toEqual(["delete:rm", "delete:rm"]);
   });
 
   it("cancels the turn with session/cancel when the signal aborts", async () => {

@@ -194,6 +194,8 @@ export type ServerEvent =
       lead?: boolean;
     }
   | { type: "agent.cancel"; messageId: string }
+  /** 人对 Agent 执行中申请的权限做了决定（或过时） */
+  | { type: "approval.decision"; requestId: string; allow: boolean; reason?: string }
   | { type: "agent.shutdown" }
   | { type: "invocation.updated"; invocation: Invocation }
   | { type: "presence.changed"; participant: Participant }

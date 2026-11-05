@@ -19,6 +19,7 @@ import {
   type AgentAccessMode,
   type AgentReply,
   type AgentReplyInput,
+  type ApprovalRequest,
   type AgentResponder,
 } from "./responder.js";
 import {
@@ -75,18 +76,100 @@ function packageVersion(): string {
 }
 
 /**
- * 与 codex-client.ts 的 codexAccess 一致，但只读模式使用 "on-request"：
- * codex 0.162 起配置项 approval_policy="untrusted" 已不再被接受（进程直接报错退出）。
- * 只读沙箱下模型若申请越权，审批请求会被本客户端一律拒绝，因此仍保持只读。
+ * 沙箱与审批策略。codex 0.162 起 approval_policy="untrusted" 已不再被接受（进程直接报错退出）。
+ * - 只读：on-request，模型若申请越权，本客户端一律拒绝，仍保持只读；
+ * - 工作区：on-request，沙箱外的操作（联网、写工作区外的文件）由 Codex 申请，转给人批；
+ * - 完全权限：never，不申请。
  */
 function codexAccess(access: AgentAccessMode = "read-only") {
   if (access === "workspace") {
-    return { sandbox: "workspace-write", approvalPolicy: "never" } as const;
+    return { sandbox: "workspace-write", approvalPolicy: "on-request" } as const;
   }
   if (access === "full") {
     return { sandbox: "danger-full-access", approvalPolicy: "never" } as const;
   }
   return { sandbox: "read-only", approvalPolicy: "on-request" } as const;
+}
+
+const commandText = (command: unknown): string =>
+  Array.isArray(command)
+    ? command.map(String).join(" ")
+    : typeof command === "string"
+      ? command
+      : "";
+
+/** 审批请求给人看的摘要；不是审批类请求（或无法问人的 MCP 表单）返回 undefined */
+export function codexApprovalRequest(method: string, params: any): ApprovalRequest | undefined {
+  const reason =
+    typeof params?.reason === "string" && params.reason.trim() ? params.reason : undefined;
+  switch (method) {
+    case "item/commandExecution/requestApproval":
+    case "execCommandApproval": {
+      const command = commandText(params?.command);
+      return {
+        tool: "command",
+        summary: command || reason || "运行沙箱外的命令",
+        ...(reason && command ? { detail: reason } : {}),
+        ...(typeof params?.cwd === "string" && !reason ? { detail: `目录：${params.cwd}` } : {}),
+      };
+    }
+    case "item/fileChange/requestApproval":
+    case "applyPatchApproval": {
+      const files =
+        params?.fileChanges && typeof params.fileChanges === "object"
+          ? Object.keys(params.fileChanges)
+          : [];
+      return {
+        tool: "fileChange",
+        summary:
+          files.length > 0
+            ? `修改 ${files.slice(0, 3).join("、")}${files.length > 3 ? ` 等 ${files.length} 个文件` : ""}`
+            : reason || "修改沙箱外的文件",
+        ...(reason && files.length > 0 ? { detail: reason } : {}),
+        ...(typeof params?.grantRoot === "string"
+          ? { detail: `申请可写目录：${params.grantRoot}` }
+          : {}),
+      };
+    }
+    case "mcpServer/elicitation/request": {
+      // 只能答「允许 / 拒绝」：要填字段的表单问不了人，照旧拒绝
+      const schema = params?.requestedSchema;
+      const fields =
+        schema &&
+        typeof schema === "object" &&
+        schema.properties &&
+        typeof schema.properties === "object"
+          ? Object.keys(schema.properties)
+          : [];
+      if (fields.length > 0) return undefined;
+      const server = typeof params?.serverName === "string" ? params.serverName : "MCP";
+      return {
+        tool: `mcp:${server}`.slice(0, 64),
+        summary:
+          typeof params?.message === "string" && params.message.trim()
+            ? params.message
+            : `${server} 请求确认`,
+      };
+    }
+    default:
+      return undefined;
+  }
+}
+
+export function codexApprovalResponse(method: string, allow: boolean): unknown {
+  switch (method) {
+    case "execCommandApproval":
+    case "applyPatchApproval":
+      return allow
+        ? { decision: "approved" }
+        : { decision: { denied: { rejection: "人没有批准这个操作（拒绝或超时）。" } } };
+    case "mcpServer/elicitation/request":
+      return allow
+        ? { action: "accept", content: {}, _meta: null }
+        : { action: "decline", content: null, _meta: null };
+    default:
+      return { decision: allow ? "accept" : "decline" };
+  }
 }
 
 /** app-server 返回的 JSON-RPC 错误 */
@@ -155,6 +238,8 @@ type ActiveTurn = {
   signal?: AbortSignal | undefined;
   onProgress?: ((progress: string) => void) | undefined;
   onTrace?: ((step: TraceStep) => void) | undefined;
+  /** 工作区档的审批请求交给人批 */
+  requestApproval?: AgentReplyInput["requestApproval"];
   /** 已开始的执行过程条目（按 item id），完成时据此补全 */
   traceSteps: Map<string, TraceStep>;
   messages: AgentMessage[];
@@ -344,6 +429,7 @@ export class CodexAppServerResponder implements AgentResponder {
         signal: input.signal,
         onProgress: input.onProgress,
         onTrace: input.onTrace,
+        requestApproval: input.requestApproval,
         traceSteps: new Map(),
         messages: [],
         reasoningReported: false,
@@ -659,8 +745,24 @@ export class CodexAppServerResponder implements AgentResponder {
     }
   }
 
-  /** Hive 代理以非交互方式运行，审批结果已由沙箱/审批策略预先决定，这里一律拒绝 */
+  /**
+   * Codex 的审批请求：工作区档交给人批（Bridge 转成「允许 / 拒绝」的提问），批了才放行；
+   * 只读档、没有人可问、或要填表单的 MCP 确认，一律拒绝。
+   */
   private handleServerRequest(session: Session, id: unknown, method: string, params: any) {
+    const turn = this.active;
+    const ask =
+      (this.options.access ?? "read-only") === "workspace" && turn && !turn.settled
+        ? turn.requestApproval
+        : undefined;
+    const request = ask ? codexApprovalRequest(method, params) : undefined;
+    if (ask && request) {
+      void ask(request).then(
+        (allow) => this.respond(session, id, codexApprovalResponse(method, allow)),
+        () => this.respond(session, id, codexApprovalResponse(method, false)),
+      );
+      return;
+    }
     switch (method) {
       case "item/commandExecution/requestApproval":
       case "item/fileChange/requestApproval":

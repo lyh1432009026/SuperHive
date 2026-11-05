@@ -1277,6 +1277,8 @@ export function App({
   const [invocations, setInvocations] = useState<ReadonlyMap<string, Invocation>>(new Map());
   const [whiteboard, setWhiteboard] = useState<ReadonlyMap<string, WhiteboardEntry>>(new Map());
   const [schedules, setSchedules] = useState<ReadonlyMap<string, Schedule>>(new Map());
+  /** 还在等人批的权限申请（提问消息 ID） */
+  const [pendingApprovals, setPendingApprovals] = useState<ReadonlySet<string>>(new Set());
   /**
    * 调用的实时过程（房主和获准看过程的访客的页面会收到）。结束后在这个页面里留着，
    * 刷新或切换房间就没了；服务端不保存。
@@ -2062,6 +2064,7 @@ export function App({
       setInvocations(new Map());
       setWhiteboard(new Map());
       setSchedules(new Map());
+      setPendingApprovals(new Set());
       setTraces(new Map());
       setHighlightedMessageId(undefined);
       setPendingJumpId(undefined);
@@ -2186,6 +2189,7 @@ export function App({
           );
           setWhiteboard(new Map((event.whiteboard ?? []).map((entry) => [entry.id, entry])));
           setSchedules(new Map((event.schedules ?? []).map((schedule) => [schedule.id, schedule])));
+          setPendingApprovals(new Set(event.approvals ?? []));
           // 重连后服务端会重新补发执行中调用的过程；已经结束的留着汇总
           {
             const live = new Set(
@@ -2221,6 +2225,11 @@ export function App({
         } else if (event.type === "message.created") {
           if (event.message.roomId !== currentRoomId) return;
           setMessages((current) => mergeMessages(current, [event.message]));
+          // 新的权限申请：等人批，选项可点
+          if (event.message.approval) {
+            const approvalId = event.message.id;
+            setPendingApprovals((current) => new Set(current).add(approvalId));
+          }
           latestSeqRef.current = Math.max(latestSeqRef.current, event.message.seq);
           socket.send(JSON.stringify({ type: "message.ack", seq: event.message.seq }));
           if (event.message.senderName.toLocaleLowerCase() !== username.toLocaleLowerCase()) {
@@ -2268,6 +2277,14 @@ export function App({
               if (next.size <= 50) break;
               if (ended.has(invocationId)) next.delete(invocationId);
             }
+            return next;
+          });
+        } else if (event.type === "approval.updated") {
+          if (event.roomId !== currentRoomId) return;
+          setPendingApprovals((current) => {
+            if (!current.has(event.messageId)) return current;
+            const next = new Set(current);
+            next.delete(event.messageId);
             return next;
           });
         } else if (event.type === "schedule.updated") {
@@ -3911,9 +3928,14 @@ export function App({
                             {message.question && !message.deletedAt && (
                               <QuestionOptions
                                 spec={message.question}
-                                waiting={Boolean(
-                                  waitingInvocationForQuestion(message, invocations.values()),
-                                )}
+                                waiting={
+                                  message.approval
+                                    ? pendingApprovals.has(message.id)
+                                    : Boolean(
+                                        waitingInvocationForQuestion(message, invocations.values()),
+                                      )
+                                }
+                                allowOther={!message.approval}
                                 pending={
                                   pendingAnswers.has(message.id) && !choiceAnswers.has(message.id)
                                 }

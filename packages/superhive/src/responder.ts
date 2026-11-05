@@ -4,6 +4,14 @@ export type AgentProvider =
   "codex" | "claude" | "copilot" | "openclaw" | "opencode" | "omp" | "echo";
 export type AgentAccessMode = "read-only" | "workspace" | "full";
 
+/** 执行中的权限申请：给人看的一行摘要和补充说明 */
+export type ApprovalRequest = {
+  /** 申请的工具或动作，例如 Bash、commandExecution、fileChange */
+  tool: string;
+  summary: string;
+  detail?: string;
+};
+
 export type AgentReplyInput = {
   instructions: string;
   prompt: string;
@@ -24,6 +32,11 @@ export type AgentReplyInput = {
    * 不支持用量的 Provider 不调用。
    */
   onUsage?: (usage: AgentUsage) => void;
+  /**
+   * Runtime 执行中要申请权限（跑命令、改工作区外的文件、MCP 确认）时调用：交给人批，
+   * resolve(true) 才放行。人拒绝、超时、这一轮被停止都 resolve(false)。没有它就一律按拒绝处理。
+   */
+  requestApproval?: (request: ApprovalRequest) => Promise<boolean>;
   /**
    * 是否需要重新注入完整规则。只能把规则拼进用户消息的 Provider（Copilot、OpenClaw、ACP）
    * 据此避免每轮都把同一份长规则写进会话历史；新会话总是需要。

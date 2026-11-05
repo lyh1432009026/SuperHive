@@ -59,6 +59,8 @@ export type RoomClientHandlers = {
     lead?: boolean,
   ) => void;
   onCancel?: (messageId: string) => void;
+  /** 人批了 / 拒了执行中申请的权限 */
+  onApprovalDecision?: (requestId: string, allow: boolean, reason?: string) => void;
   /** 本机 Hive Server 请本进程退出（Windows 上停止本机 Agent 时用） */
   onShutdown?: () => void;
   onMessageDeleted?: (message: ChatMessage) => void;
@@ -86,6 +88,8 @@ export class RoomClient {
   private serverTracksInvocations = true;
   /** 服务端能接收执行过程（旧版服务端不认识这个事件，会回错误） */
   private serverAcceptsTrace = false;
+  /** 服务端能把执行中的权限申请转给人批（旧版服务端没有，这时直接拒绝） */
+  private serverAcceptsApproval = false;
 
   constructor(
     private readonly options: RoomClientOptions,
@@ -131,6 +135,19 @@ export class RoomClient {
   }
 
   /** 上报执行过程：只是实时状态，连接不可用就直接丢掉，不进 outbox */
+  /** 把执行中的权限申请交给服务端转给人批；连不上或服务端不支持时返回 false（调用方按拒绝处理） */
+  requestApproval(request: {
+    messageId: string;
+    requestId: string;
+    tool: string;
+    summary: string;
+    detail?: string;
+  }): boolean {
+    if (!this.serverAcceptsApproval || this.socket?.readyState !== WebSocket.OPEN) return false;
+    this.socket.send(JSON.stringify({ type: "approval.request", ...request }));
+    return true;
+  }
+
   trace(messageId: string, steps: TraceStep[]): void {
     if (!this.serverAcceptsTrace || steps.length === 0) return;
     this.sendRaw({ type: "invocation.trace", messageId, steps });
@@ -252,6 +269,7 @@ export class RoomClient {
       this.joined = true;
       this.serverTracksInvocations = Array.isArray(event.invocations);
       this.serverAcceptsTrace = event.features?.includes("trace") === true;
+      this.serverAcceptsApproval = event.features?.includes("approval") === true;
       if (this.serverTracksInvocations) {
         for (const report of this.outbox.values()) this.sendRaw(report);
       }
@@ -278,6 +296,10 @@ export class RoomClient {
     }
     if (event.type === "agent.cancel") {
       this.handlers.onCancel?.(event.messageId);
+      return;
+    }
+    if (event.type === "approval.decision") {
+      this.handlers.onApprovalDecision?.(event.requestId, event.allow, event.reason);
       return;
     }
     if (event.type === "agent.shutdown") {

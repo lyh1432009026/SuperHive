@@ -2317,7 +2317,9 @@ export class ImHub {
     const mentioned = this.mentionsOwner(message, connection);
     const question = message.kind === "question";
     const title = question
-      ? `${sender} 有问题问你`
+      ? message.approval
+        ? `${sender} 申请权限，等你批准`
+        : `${sender} 有问题问你`
       : message.kind === "progress"
         ? `${sender} 的进度`
         : message.senderType === "human"

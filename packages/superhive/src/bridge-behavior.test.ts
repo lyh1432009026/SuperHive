@@ -107,6 +107,13 @@ class FakeRoom {
     this.messages.push(reply);
     return reply;
   }
+  approvalRequests: Array<{ messageId: string; requestId: string; summary: string }> = [];
+  approvalsSupported = true;
+  requestApproval(request: { messageId: string; requestId: string; summary: string }) {
+    if (!this.approvalsSupported) return false;
+    this.approvalRequests.push(request);
+    return true;
+  }
   traces: Array<{ messageId: string; steps: unknown[] }> = [];
   trace(messageId: string, steps: unknown[]) {
     this.traces.push({ messageId, steps });
@@ -402,6 +409,30 @@ describe("AgentBridge", () => {
     const third = await run("已通过 hive_message_send 发送", "这是完整的答复");
     expect(room.sent).toHaveLength(sentBefore);
     expect(third.completed?.replyMessageId).toBe(third.interim.id);
+  });
+
+  it("hands a runtime approval request to the server and resolves it with the human's decision", async () => {
+    await startBridge(baseState());
+    const mention = chat({ content: "@agent-a 跑一下" });
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    const ask = responder.calls[0]!.requestApproval!;
+    const first = ask({ tool: "Bash", summary: "curl example.com" });
+    await waitUntil(() => room.approvalRequests.length === 1);
+    expect(room.approvalRequests[0]).toMatchObject({
+      messageId: mention.id,
+      summary: "curl example.com",
+    });
+    room.handlers.onApprovalDecision?.(room.approvalRequests[0]!.requestId, true);
+    await expect(first).resolves.toBe(true);
+    // 这一轮被停止：等着的申请按拒绝
+    const second = ask({ tool: "Bash", summary: "rm -rf x" });
+    room.handlers.onCancel?.(mention.id);
+    await expect(second).resolves.toBe(false);
+    // 服务端不支持时直接拒绝，不干等
+    room.approvalsSupported = false;
+    await expect(ask({ tool: "Bash", summary: "x" })).resolves.toBe(false);
   });
 
   it("never takes a progress update as the turn's reply", async () => {

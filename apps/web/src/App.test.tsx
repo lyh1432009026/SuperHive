@@ -16,8 +16,16 @@ type RoomSnapshotEvent = Extract<ServerEvent, { type: "room.snapshot" }>;
 // 与 zod 输入类型一致：快照里的 invocations / whiteboard / schedules 有默认值，可以省略
 type ServerEventInput =
   | Exclude<ServerEvent, RoomSnapshotEvent>
-  | (Omit<RoomSnapshotEvent, "invocations" | "whiteboard" | "schedules" | "features"> &
-      Partial<Pick<RoomSnapshotEvent, "invocations" | "whiteboard" | "schedules" | "features">>);
+  | (Omit<
+      RoomSnapshotEvent,
+      "invocations" | "whiteboard" | "schedules" | "approvals" | "features"
+    > &
+      Partial<
+        Pick<
+          RoomSnapshotEvent,
+          "invocations" | "whiteboard" | "schedules" | "approvals" | "features"
+        >
+      >);
 
 class FakeWebSocket {
   static readonly OPEN = 1;

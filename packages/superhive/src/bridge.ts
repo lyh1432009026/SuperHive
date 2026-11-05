@@ -15,6 +15,7 @@ import {
   isCancelled,
   type AgentAccessMode,
   type AgentReply,
+  type ApprovalRequest,
   type AgentResponder,
 } from "./responder.js";
 import { resolveReplyText } from "./silent-reply.js";
@@ -100,6 +101,8 @@ export type BridgeTuning = {
   traceFlushMs?: number;
   /** 上游模型服务出错、这一轮又没改过东西时，自动接着继续前的等待时间（次数即长度） */
   upstreamRetryDelaysMs?: number[];
+  /** 执行中的权限申请等人批多久，过时按拒绝（略长于服务端的时限，以服务端为准） */
+  approvalTimeoutMs?: number;
   /** 多久未收到 Runtime 新进度时提示待核实；只告警，不自动取消或重试 */
   progressStaleMs?: number;
   /** 隔多少轮或多久重新发送一次完整上下文 */
@@ -214,6 +217,7 @@ export class AgentBridge {
       progressThrottleMs: 3_000,
       traceFlushMs: 300,
       upstreamRetryDelaysMs: [60_000, 180_000],
+      approvalTimeoutMs: 10 * 60_000 + 30_000,
       progressStaleMs: 120_000,
       fullPromptEveryTurns: 8,
       fullPromptEveryMs: 30 * 60_000,
@@ -260,6 +264,8 @@ export class AgentBridge {
           });
         },
         onCancel: (messageId) => this.cancel(messageId),
+        onApprovalDecision: (requestId, allow, reason) =>
+          this.approvals.get(requestId)?.(allow, reason),
         onMessageDeleted: (message) => this.onRecalled(message.id),
         ...(this.options.onRoomsChanged ? { onRoomsChanged: this.options.onRoomsChanged } : {}),
         ...(this.options.onShutdown ? { onShutdown: this.options.onShutdown } : {}),
@@ -855,6 +861,7 @@ export class AgentBridge {
             runtimeEvent: { kind: "activity", phase: "working" },
           });
         },
+        requestApproval: (request) => this.askApproval(active, request),
         onTrace: (step) => {
           if (this.active !== active || active.controller.signal.aborted) return;
           if (isMutatingStep(step)) active.mutated = true;
@@ -1130,6 +1137,45 @@ export class AgentBridge {
     if (!usage || active.turn?.reported) return {};
     active.turn!.reported = true;
     return { usage };
+  }
+
+  /** 等人批的权限申请：requestId → 收到决定时的回调 */
+  private readonly approvals = new Map<string, (allow: boolean, reason?: string) => void>();
+
+  /**
+   * Runtime 执行中申请权限：交给服务端转成「允许 / 拒绝」的提问，等人批。
+   * 服务端不支持、连不上、超时、这一轮被停止都按拒绝；只读档和完全权限档由各 Runtime 自己决定不走这里。
+   */
+  private askApproval(active: ActiveBatch, request: ApprovalRequest): Promise<boolean> {
+    const trigger = active.messages.find((message) => !active.cancelled.has(message.id));
+    if (!trigger || active.controller.signal.aborted) return Promise.resolve(false);
+    const requestId = randomUUID();
+    const sent = this.room.requestApproval({
+      messageId: trigger.id,
+      requestId,
+      tool: request.tool.slice(0, 64),
+      summary: request.summary.replace(/\s+/g, " ").trim().slice(0, 1000) || request.tool,
+      ...(request.detail ? { detail: request.detail.slice(0, 4000) } : {}),
+    });
+    if (!sent) {
+      this.log(`[hive] 权限申请没能交给人（服务端不支持或未连接），按拒绝处理：${request.summary}`);
+      return Promise.resolve(false);
+    }
+    this.log(`[hive] 已把权限申请交给人批：${request.summary}`);
+    return new Promise<boolean>((resolve) => {
+      const finish = (allow: boolean, reason?: string) => {
+        if (!this.approvals.delete(requestId)) return;
+        clearTimeout(timer);
+        active.controller.signal.removeEventListener("abort", onAbort);
+        this.log(`[hive] 权限申请${allow ? "已获准" : `被拒绝${reason ? `：${reason}` : ""}`}`);
+        resolve(allow);
+      };
+      const onAbort = () => finish(false, "这一轮已停止");
+      const timer = setTimeout(() => finish(false, "等人批超时"), this.tuning.approvalTimeoutMs);
+      timer.unref?.();
+      active.controller.signal.addEventListener("abort", onAbort, { once: true });
+      this.approvals.set(requestId, finish);
+    });
   }
 
   private async handleBatchError(active: ActiveBatch, error: unknown): Promise<void> {

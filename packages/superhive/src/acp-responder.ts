@@ -209,6 +209,8 @@ type ActiveTurn = {
   signal?: AbortSignal | undefined;
   onProgress?: ((progress: string) => void) | undefined;
   onTrace?: ((step: TraceStep) => void) | undefined;
+  /** 工作区档超出范围的权限请求交给人批 */
+  requestApproval?: AgentReplyInput["requestApproval"];
   /** 已开始的执行过程条目（按 toolCallId），更新与完成时据此补全 */
   traceSteps: Map<string, TraceStep>;
   /** 正在进行的思考（收到思考片段时开始，开始说话或调用工具时结束） */
@@ -278,6 +280,7 @@ export class AcpResponder implements AgentResponder {
         signal: input.signal,
         onProgress: input.onProgress,
         onTrace: input.onTrace,
+        requestApproval: input.requestApproval,
         traceSteps: new Map(),
         segments: [""],
         toolTitles: new Map(),
@@ -591,6 +594,34 @@ export class AcpResponder implements AgentResponder {
       Array.isArray(params?.options) ? params.options : [],
       decision,
     );
+    // 工作区档超出范围（改工作区外的文件）：不直接拒绝，交给人批；只读档照旧拒绝，完全权限档本来就放行
+    const ask =
+      decision === "reject" && this.options.access === "workspace" && turn && !turn.settled
+        ? turn.requestApproval
+        : undefined;
+    if (ask) {
+      const options: PermissionOption[] = Array.isArray(params?.options) ? params.options : [];
+      void ask({
+        tool: toolCall.kind ?? "tool",
+        summary: truncate(toolCall.title ?? toolCall.kind ?? "未知操作", 300),
+        ...(toolCallPaths(toolCall).length
+          ? { detail: `涉及：${toolCallPaths(toolCall).slice(0, 5).join("、")}` }
+          : {}),
+      }).then(
+        (allow) => {
+          const picked = pickPermissionOption(options, allow ? "allow" : "reject");
+          this.respond(
+            agent,
+            id,
+            picked
+              ? { outcome: { outcome: "selected", optionId: picked.optionId } }
+              : { outcome: { outcome: "cancelled" } },
+          );
+        },
+        () => this.respond(agent, id, { outcome: { outcome: "cancelled" } }),
+      );
+      return;
+    }
     if (decision === "reject") {
       this.log(
         `[hive] ${this.options.label} 请求的操作超出 --access ${this.options.access ?? "read-only"}，已拒绝：${truncate(toolCall.title ?? toolCall.kind ?? "unknown", 120)}`,

@@ -15,11 +15,13 @@ import {
   stripUnsafeCharacters,
   messageViaSchema,
   questionAnswerSchema,
+  approvalRefSchema,
   questionSpecSchema,
   attachmentSchema,
   type ChatMessage,
   type QuestionAnswer,
   type QuestionSpec,
+  type ApprovalRef,
   type Invocation,
   type InvocationBlockReason,
   type InvocationStatus,
@@ -274,6 +276,8 @@ export type CreateMessageInput = {
   kind?: NonNullable<ChatMessage["kind"]>;
   /** 带选项的提问的题目定义 */
   question?: QuestionSpec;
+  /** 权限申请（kind=question 时） */
+  approval?: ApprovalRef;
   /** 点选提交的答案（由服务端校验后生成） */
   answer?: QuestionAnswer;
   /** 经外部 IM 发来的消息（由服务端的 IM 连接设置） */
@@ -332,22 +336,25 @@ function mapMessage(row: MessageRow): ChatMessage {
 /** 损坏或不认识的元数据只当作没有：消息正文仍是唯一的语义来源 */
 function parseMessageMeta(
   raw: string | null,
-): Pick<ChatMessage, "question" | "answer" | "via" | "attachments"> {
+): Pick<ChatMessage, "question" | "answer" | "approval" | "via" | "attachments"> {
   if (!raw) return {};
   try {
     const value = JSON.parse(raw) as {
       question?: unknown;
       answer?: unknown;
+      approval?: unknown;
       via?: unknown;
       attachments?: unknown;
     };
     const question = questionSpecSchema.safeParse(value.question);
     const answer = questionAnswerSchema.safeParse(value.answer);
+    const approval = approvalRefSchema.safeParse(value.approval);
     const via = messageViaSchema.safeParse(value.via);
     const attachments = attachmentSchema.array().min(1).safeParse(value.attachments);
     return {
       ...(question.success ? { question: question.data } : {}),
       ...(answer.success ? { answer: answer.data } : {}),
+      ...(approval.success ? { approval: approval.data } : {}),
       ...(via.success ? { via: via.data } : {}),
       ...(attachments.success ? { attachments: attachments.data } : {}),
     };
@@ -1177,9 +1184,10 @@ export class HiveDatabase {
           input.clientMessageId,
           createdAt,
           input.kind ?? null,
-          input.question || input.answer || input.via || attachments
+          input.question || input.answer || input.approval || input.via || attachments
             ? JSON.stringify({
                 ...(input.question ? { question: input.question } : {}),
+                ...(input.approval ? { approval: input.approval } : {}),
                 ...(input.answer ? { answer: input.answer } : {}),
                 ...(input.via ? { via: input.via } : {}),
                 ...(attachments ? { attachments } : {}),

@@ -33,6 +33,22 @@ describe("QuestionOptions", () => {
     expect(onSubmit).toHaveBeenLastCalledWith([], "都不要");
   });
 
+  it("权限申请只有允许 / 拒绝，没有「其它」", () => {
+    const onSubmit = renderOptions(
+      {
+        options: [
+          { key: "A", label: "允许" },
+          { key: "B", label: "拒绝" },
+        ],
+        multiple: false,
+      },
+      { allowOther: false },
+    );
+    expect(screen.queryByText("其它")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /允许/ }));
+    expect(onSubmit).toHaveBeenLastCalledWith(["A"]);
+  });
+
   it("多选勾选不立即提交，统一提交选项与其它", () => {
     const onSubmit = renderOptions({ options, multiple: true }, {});
     const submit = screen.getByRole("button", { name: "提交回答" });

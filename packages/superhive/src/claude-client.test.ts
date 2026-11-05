@@ -248,6 +248,62 @@ describe("ClaudeCodeResponder", () => {
     expect(killed).toBe(false);
   });
 
+  it("hands a workspace tool-permission prompt to a human and answers Claude with the decision", async () => {
+    const written: string[] = [];
+    let emit: (line: object) => void = () => undefined;
+    let finish: () => void = () => undefined;
+    let args: string[] = [];
+    const runner: CommandRunner = (_command, commandArgs, options) =>
+      new Promise((resolve) => {
+        args = commandArgs;
+        emit = (line) => options.onStdout?.(`${JSON.stringify(line)}\n`);
+        finish = () => resolve({ stdout: "", stderr: "" });
+        options.onStdin?.({ write: (text) => written.push(text), end: () => undefined });
+      });
+    const responder = new ClaudeCodeResponder({
+      command: "claude",
+      cwd: "/w",
+      hive,
+      runner,
+      access: "workspace",
+    });
+    const asked: unknown[] = [];
+    const reply = responder.reply({
+      instructions: "r",
+      prompt: "做事",
+      requestApproval: async (request) => {
+        asked.push(request);
+        return request.summary.includes("allowed");
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(args.join(" ")).toContain("--permission-prompt-tool stdio");
+    const ask = (id: string, command: string) =>
+      emit({
+        type: "control_request",
+        request_id: id,
+        request: { subtype: "can_use_tool", tool_name: "Bash", input: { command } },
+      });
+    ask("p1", "touch allowed");
+    ask("p2", "rm -rf /");
+    await new Promise((resolve) => setImmediate(resolve));
+    const responses = written
+      .map((line) => JSON.parse(line))
+      .filter((line) => line.type === "control_response")
+      .map((line) => [line.response.request_id, line.response.response.behavior]);
+    expect(responses).toEqual([
+      ["p1", "allow"],
+      ["p2", "deny"],
+    ]);
+    expect(asked).toEqual([
+      { tool: "Bash", summary: "touch allowed" },
+      { tool: "Bash", summary: "rm -rf /" },
+    ]);
+    emit({ type: "result", is_error: false, result: "ok", session_id: "s" });
+    finish();
+    await reply;
+  });
+
   it("falls back to killing the process, as an unknown result, when the interrupt is not confirmed", async () => {
     const runner: CommandRunner = (_command, _args, options) =>
       new Promise((_resolve, reject) => {

@@ -822,3 +822,68 @@ describe("progress messages", () => {
     );
   });
 });
+
+describe("runtime approvals", () => {
+  it("asks the task's human to approve, and hands the decision back to the running turn", async () => {
+    const { alice, helper, trigger } = await executingRoom();
+    const ask = (requestId: string, summary: string) =>
+      helper.send({
+        type: "approval.request",
+        messageId: trigger.id,
+        requestId,
+        tool: "Bash",
+        summary,
+      });
+    const first = "00000000-0000-4000-8000-00000000a001";
+    ask(first, "touch /etc/x");
+    const created = await alice.next(
+      (event) => event.type === "message.created" && event.message.approval?.requestId === first,
+    );
+    const question = (created as Extract<ServerEvent, { type: "message.created" }>).message;
+    expect(question).toMatchObject({ kind: "question", senderName: "helper" });
+    expect(question.question!.options.map((option) => option.label)).toEqual(["允许", "拒绝"]);
+    expect(question.content).toContain("@Alice");
+    // 点选「允许」：结果交回 Agent，不另起一轮
+    alice.send({
+      type: "question.answer",
+      questionMessageId: question.id,
+      selected: ["A"],
+      clientMessageId: "approve-1",
+    });
+    expect(
+      await helper.next((event) => event.type === "approval.decision" && event.requestId === first),
+    ).toMatchObject({ allow: true });
+    await alice.next((event) => event.type === "approval.updated" && event.state === "allowed");
+    await expect(helper.next((event) => event.type === "agent.mentioned", 150)).rejects.toThrow();
+
+    // 回复文字「拒绝」也行
+    const second = "00000000-0000-4000-8000-00000000a002";
+    ask(second, "curl example.com");
+    const next = await alice.next(
+      (event) => event.type === "message.created" && event.message.approval?.requestId === second,
+    );
+    alice.send({
+      type: "message.send",
+      clientMessageId: "deny-2",
+      content: "拒绝，别联网",
+      replyToMessageId: (next as Extract<ServerEvent, { type: "message.created" }>).message.id,
+    });
+    expect(
+      await helper.next(
+        (event) => event.type === "approval.decision" && event.requestId === second,
+      ),
+    ).toMatchObject({ allow: false });
+
+    // 这一轮结束后，还没批的申请作废
+    const third = "00000000-0000-4000-8000-00000000a003";
+    ask(third, "rm -rf build");
+    await alice.next(
+      (event) => event.type === "message.created" && event.message.approval?.requestId === third,
+    );
+    helper.send({ type: "invocation.report", messageId: trigger.id, status: "completed" });
+    expect(
+      await helper.next((event) => event.type === "approval.decision" && event.requestId === third),
+    ).toMatchObject({ allow: false });
+    await alice.next((event) => event.type === "approval.updated" && event.state === "expired");
+  });
+});
