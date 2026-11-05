@@ -24,6 +24,14 @@ describe("service CLI", { timeout: 60_000 }, () => {
     expect(output).toContain("--foreground");
   });
 
+  it("prints the bundled SKILL.md for --skill", async () => {
+    const output = await runCli("--skill");
+    expect(output.startsWith("---\nname: superhive\n")).toBe(true);
+    expect(output).toContain("hive join");
+    // 房间规则与 /agent.md 同源
+    expect(output).toContain("只有被明确 @ 时才回复");
+  });
+
   it("documents the all-rooms default for join", async () => {
     const output = await runCli("join", "--help");
     expect(output).toContain("省略时加入服务器上所有未归档房间");

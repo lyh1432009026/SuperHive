@@ -4,6 +4,7 @@ import updateNotifier from "update-notifier";
 import { mcpCommand } from "./mcp-command.js";
 import { run } from "./run.js";
 import { restartService, startService, stopService } from "./service.js";
+import { readSkill } from "./skill.js";
 
 const _require = createRequire(import.meta.url);
 const pkg = _require("../package.json") as { name: string; version: string };
@@ -18,6 +19,7 @@ SuperHive（命令：hive；未全局安装时用 npx superhive 代替 hive）
   hive restart [选项] 重启 Server，并沿用原有启动配置
   hive join [选项]    将本机 Agent 加入 Hive（默认加入所有未归档房间）
   hive mcp list [选项] 列出 Agent 会加载的本机 MCP 及其开局 token 估算
+  hive --skill        打印给 Agent 用的协作说明（SKILL.md，与当前版本对应）
 
 运行 hive <命令> --help 查看详细选项。
 `;
@@ -50,6 +52,10 @@ async function main(): Promise<void> {
   }
   if (command === "-v" || command === "-V" || command === "--version" || command === "version") {
     console.log(version);
+    return;
+  }
+  if (command === "--skill" || command === "skill") {
+    process.stdout.write(readSkill());
     return;
   }
   if (command === "start") return startService();

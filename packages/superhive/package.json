@@ -6,6 +6,7 @@
   "files": [
     "dist",
     "web",
+    "skills",
     "README.md",
     "LICENSE"
   ],
@@ -38,9 +39,10 @@
     "build": "pnpm build:distribution",
     "build:cli": "pnpm clean && tsc -p tsconfig.json",
     "build:server": "esbuild ../../apps/server/src/index.ts --bundle --platform=node --format=esm --target=node22 --packages=external --alias:@superhive/protocol=../../packages/protocol/src/index.ts --outfile=dist/server/index.js",
+    "copy:skill": "node -e \"const fs=require('node:fs');fs.rmSync('skills',{recursive:true,force:true});fs.cpSync('../../skills','skills',{recursive:true})\"",
     "copy:web": "node -e \"const fs=require('node:fs');fs.rmSync('web',{recursive:true,force:true});fs.cpSync('../../apps/web/dist','web',{recursive:true})\"",
     "check:deps": "node scripts/check-release-deps.mjs",
-    "build:distribution": "pnpm build:cli && pnpm --dir ../.. --filter @superhive/protocol build && pnpm --dir ../.. --filter @superhive/web build && pnpm build:server && pnpm copy:web && pnpm check:deps",
+    "build:distribution": "pnpm build:cli && pnpm --dir ../.. --filter @superhive/protocol build && pnpm --dir ../.. --filter @superhive/web build && pnpm build:server && pnpm copy:web && pnpm copy:skill && pnpm check:deps",
     "test": "vitest run",
     "prepack": "pnpm build:distribution"
   },
