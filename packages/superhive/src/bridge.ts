@@ -164,6 +164,8 @@ export class AgentBridge {
   private readonly attempts = new Map<string, number>();
   /** 人要求「停下当前，改做这条」的消息：排在队首、单独成一轮 */
   private readonly soloNext = new Set<string>();
+  /** 服务端标明是当作主 Agent 派来的消息（没有 @ 任何人）：提示词据此说明由它接话、调度 */
+  private readonly leadMessages = new Set<string>();
   /** 上游出错后已自动继续的次数 */
   private readonly upstreamRetries = new Map<string, number>();
   /** 上游出错后正在等待自动继续的消息（及其计时器） */
@@ -247,13 +249,16 @@ export class AgentBridge {
       },
       {
         onSnapshot: (snapshot) => this.onSnapshot(snapshot),
-        onMention: (message, _latestSeq, retry, steer, first) =>
+        onMention: (message, _latestSeq, retry, steer, first, lead) => {
+          if (lead) this.leadMessages.add(message.id);
+          else this.leadMessages.delete(message.id);
           this.enqueue(message, {
             retry,
             invited: true,
             ...(steer ? { steer } : {}),
             ...(first ? { first } : {}),
-          }),
+          });
+        },
         onCancel: (messageId) => this.cancel(messageId),
         onMessageDeleted: (message) => this.onRecalled(message.id),
         ...(this.options.onRoomsChanged ? { onRoomsChanged: this.options.onRoomsChanged } : {}),
@@ -701,6 +706,7 @@ export class AgentBridge {
   }
 
   private rememberProcessed(messageId: string): void {
+    this.leadMessages.delete(messageId);
     this.state.processedMessageIds = [
       ...this.state.processedMessageIds.filter((id) => id !== messageId),
       messageId,
@@ -1357,6 +1363,9 @@ export class AgentBridge {
       triggers,
       mode: full ? "full" : "brief",
       agentName: this.options.username,
+      leadMessageIds: triggers
+        .filter((message) => this.leadMessages.has(message.id))
+        .map((message) => message.id),
       ...(membersUpdate ? { membersUpdate } : {}),
       ...(whiteboardUpdate ? { whiteboardUpdate } : {}),
       attachmentPaths,

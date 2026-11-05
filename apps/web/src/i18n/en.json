@@ -1005,5 +1005,6 @@
   "主 Agent（可选）": "Lead agent (optional)",
   "不设置": "None",
   "人发的、没有 @ 任何人的消息交给它接话，由它决定自己做还是用 hive_invoke 分派给其他 Agent；带 @ 的消息照常只发给被 @ 的成员。": "Messages from people that @ no one go to this agent, which handles them itself or dispatches other agents with hive_invoke. Messages with an @ still go only to whoever is mentioned.",
-  "进入这个房间后才能从它的 Agent 里选择。": "Open this room to choose from its agents."
+  "进入这个房间后才能从它的 Agent 里选择。": "Open this room to choose from its agents.",
+  "主 Agent {0} 已不在这个房间，不带 @ 的消息现在没人接，请重新选择。": "Lead agent {0} is no longer in this room, so messages without an @ go unanswered. Choose another one."
 }

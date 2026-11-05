@@ -190,6 +190,8 @@ export type ServerEvent =
       steer?: boolean;
       /** 人要求停下当前任务改做这条：排到队首，下一轮只做它 */
       first?: boolean;
+      /** 这条没有 @ 任何人，派给你是因为你是房间的主 Agent */
+      lead?: boolean;
     }
   | { type: "agent.cancel"; messageId: string }
   | { type: "agent.shutdown" }

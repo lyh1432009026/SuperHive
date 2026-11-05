@@ -62,6 +62,7 @@ describe("room lead agent", () => {
     alice.send({ type: "message.send", clientMessageId: "plain", content: "帮我看下 README" });
     const mentioned = (await lead.next((event) => event.type === "agent.mentioned")) as Mentioned;
     expect(mentioned.message.content).toBe("帮我看下 README");
+    expect(mentioned.lead).toBe(true);
     const queued = await alice.next(
       (event) =>
         event.type === "invocation.updated" &&
@@ -82,6 +83,25 @@ describe("room lead agent", () => {
     // 取消后恢复原样
     expect((await setLead(null)).json().room.leadAgent).toBeUndefined();
     alice.send({ type: "message.send", clientMessageId: "after", content: "还有人吗" });
+    await expect(lead.next((event) => event.type === "agent.mentioned", 150)).rejects.toThrow();
+  });
+
+  it("sends a reply to an agent's message to that agent, not the lead", async () => {
+    const { alice, lead, other, setLead } = await room();
+    await setLead("Lead");
+    other.send({ type: "message.send", clientMessageId: "done", content: "改好了" });
+    const done = (await alice.next(
+      (event) => event.type === "message.created" && event.message.senderName === "other",
+    )) as Extract<ServerEvent, { type: "message.created" }>;
+    alice.send({
+      type: "message.send",
+      clientMessageId: "reply",
+      content: "这里再改一下",
+      replyToMessageId: done.message.id,
+    });
+    const mentioned = (await other.next((event) => event.type === "agent.mentioned")) as Mentioned;
+    expect(mentioned.message.content).toBe("这里再改一下");
+    expect(mentioned.lead).toBeUndefined();
     await expect(lead.next((event) => event.type === "agent.mentioned", 150)).rejects.toThrow();
   });
 

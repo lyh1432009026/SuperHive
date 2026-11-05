@@ -55,6 +55,8 @@ export type RoomClientHandlers = {
     retry: boolean,
     steer?: boolean,
     first?: boolean,
+    /** 没有 @ 任何人、因为是房间的主 Agent 才派来的 */
+    lead?: boolean,
   ) => void;
   onCancel?: (messageId: string) => void;
   /** 本机 Hive Server 请本进程退出（Windows 上停止本机 Agent 时用） */
@@ -270,6 +272,7 @@ export class RoomClient {
         event.retry === true,
         event.steer === true,
         event.first === true,
+        event.lead === true,
       );
       return;
     }

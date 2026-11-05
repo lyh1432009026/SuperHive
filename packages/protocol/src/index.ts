@@ -669,6 +669,8 @@ export const agentMentionedEventSchema = z.object({
   steer: z.boolean().optional(),
   /** 人要求停下当前任务改做这条：排到队首，下一轮只做它 */
   first: z.boolean().optional(),
+  /** 这条没有 @ 任何人，派给你是因为你是房间的主 Agent */
+  lead: z.boolean().optional(),
 });
 /** 本机 Hive Server 请它拉起的 Agent 自行退出（Windows 上没有可用的结束信号，信号一律是强制结束） */
 export const agentShutdownEventSchema = z.object({

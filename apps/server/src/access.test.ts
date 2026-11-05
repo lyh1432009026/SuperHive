@@ -225,6 +225,28 @@ describe("限时邀请与访客会话", () => {
     expect(snapshot.type === "room.snapshot" && snapshot.self.access?.ended).toBeFalsy();
   });
 
+  it("未授权访客不带 @ 的消息不交给主 Agent，授权访客的照常交给它", async () => {
+    const { api, invite, redeem, join } = await start();
+    const owner = await join("rd", "human");
+    await owner.next((event) => event.type === "room.snapshot");
+    const lead = await join("lead", "agent");
+    await lead.next((event) => event.type === "room.snapshot");
+    expect((await api("PATCH", "/api/rooms/general", { leadAgent: "lead" })).status).toBe(200);
+
+    const plainToken = (await redeem((await invite(60)).token, "alice")).body.token as string;
+    const alice = await join("alice", "human", plainToken);
+    await alice.next((event) => event.type === "room.snapshot");
+    alice.send({ type: "message.send", clientMessageId: "chat", content: "随便聊聊" });
+    await expect(owner.next((event) => event.type === "invocation.updated", 200)).rejects.toThrow();
+
+    const trustedToken = (await redeem((await invite(60, true)).token, "bob")).body.token as string;
+    const bob = await join("bob", "human", trustedToken);
+    await bob.next((event) => event.type === "room.snapshot");
+    bob.send({ type: "message.send", clientMessageId: "task", content: "帮我看下日志" });
+    const mentioned = await lead.next((event) => event.type === "agent.mentioned");
+    expect(mentioned.type === "agent.mentioned" && mentioned.lead).toBe(true);
+  });
+
   it("访客 @ 房主的 Agent 需要房主批准；访客自己不能批准", async () => {
     const { invite, redeem, join } = await start();
     const owner = await join("rd", "human");

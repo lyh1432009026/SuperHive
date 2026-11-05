@@ -209,6 +209,8 @@ export type MentionPromptInput = {
   whiteboardUpdate?: PromptContextUpdate;
   /** Bridge 已为 Agent 准备好的附件本地路径 */
   attachmentPaths?: AttachmentPaths;
+  /** 服务端标明当作主 Agent 派来的触发消息（没有 @ 任何人） */
+  leadMessageIds?: string[];
 };
 
 export function buildMentionPrompt(input: MentionPromptInput): string {
@@ -262,19 +264,9 @@ export function buildMentionPrompt(input: MentionPromptInput): string {
   sections.push(
     `${input.triggers.length > 1 ? `当前有 ${input.triggers.length} 条消息在你忙时先后唤醒了你` : "当前明确唤醒你的消息是"}：\n<trigger_message>\n${triggers}\n</trigger_message>`,
   );
-  // 服务端只把没有 @ 任何人的人类消息派给房间的主 Agent（回答提问的续接除外），收到这种就是被当作主 Agent 唤醒的
-  const ownQuestion = (id: string | undefined) =>
-    input.messages.some(
-      (message) =>
-        message.id === id && message.kind === "question" && message.senderName === input.agentName,
-    );
-  const ledTriggers = input.triggers.filter(
-    (message) =>
-      message.senderType === "human" &&
-      !message.kind &&
-      message.mentions.length === 0 &&
-      !ownQuestion(message.replyToMessageId),
-  );
+  // 服务端派发时标明了哪些是当作主 Agent 派来的，这里不自己推断，两边才一致
+  const leadIds = new Set(input.leadMessageIds ?? []);
+  const ledTriggers = input.triggers.filter((message) => leadIds.has(message.id));
   if (ledTriggers.length > 0) {
     sections.push(
       `${ledTriggers.map((message) => `#${message.seq}`).join("、")} 没有 @ 任何人：你是本房间的主 Agent，由你接话。能自己处理的直接处理；需要别的 Agent 做的，按成员的角色和忙闲用 hive_invoke 分派，收到子任务回执后汇总给发起人；只是人与人之间的交流、不需要你回应时只输出 ${SILENT_REPLY_TOKEN}。`,

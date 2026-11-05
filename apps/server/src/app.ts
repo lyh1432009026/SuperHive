@@ -893,6 +893,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       ...(retry ? { retry: true } : {}),
       ...(steer ? { steer: true } : {}),
       ...(first ? { first: true } : {}),
+      ...(asLead(message, agent) ? { lead: true } : {}),
     });
   }
 
@@ -1101,12 +1102,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     // 人回复了 Agent 的提问：结束等待中的调用，并用这条回答重新唤醒提问的 Agent（不必再 @ 它）
     const answered = participant.type === "human" ? answeredQuestion(message) : undefined;
     const targets = [...message.mentions];
-    // 人发的普通消息没有 @ 任何人：交给房间的主 Agent 接话（Agent 的消息、回执、定时触发、话题分隔都不算）
-    const lead =
-      participant.type === "human" && !message.kind && targets.length === 0 && !answered
-        ? leadAgentOf(participant.roomId)
-        : undefined;
-    if (lead) targets.push(lead.username);
+    // 访客（及其 Agent）发出的 @：房主的 Agent 可能有本机完全权限，未获授权时等房主批准
+    const senderGuest = options.receipt ? undefined : guestSessionOf(participant);
+    // 房间设了主 Agent 时，人发的、没有 @ 任何人的消息也有人接（未授权访客的不算，免得闲聊堆满待批准）
+    const implicit =
+      !answered && !(senderGuest && !senderGuest.allowAgents) ? implicitTarget(message) : undefined;
+    if (implicit) targets.push(implicit.username);
     if (
       answered &&
       !targets.some((name) => name.toLocaleLowerCase() === answered.agentName.toLocaleLowerCase())
@@ -1118,8 +1119,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       participant.type === "agent" && message.parentMessageId
         ? database.getInvocationFor(message.parentMessageId, participant.id)
         : undefined;
-    // 访客（及其 Agent）发出的 @：房主的 Agent 可能有本机完全权限，未获授权时等房主批准
-    const senderGuest = options.receipt ? undefined : guestSessionOf(participant);
     for (const mention of targets) {
       if (mention.toLocaleLowerCase() === "all") continue;
       const agent = database.findParticipant(participant.roomId, mention);
@@ -1189,6 +1188,39 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const name = database.getRoom(roomId)?.leadAgent;
     const agent = name ? database.findParticipant(roomId, name) : undefined;
     return agent?.type === "agent" ? agent : undefined;
+  }
+
+  /** 人发的普通消息、没有 @ 任何人（Agent 的消息、回执、定时触发、话题分隔都不算） */
+  function unaddressed(message: ChatMessage): boolean {
+    return message.senderType === "human" && !message.kind && message.mentions.length === 0;
+  }
+
+  /** 回复的是哪个 Agent 的消息（它还在房间里时） */
+  function repliedAgent(message: ChatMessage): Participant | undefined {
+    const replied = message.replyToMessageId
+      ? database.getMessage(message.replyToMessageId)
+      : undefined;
+    if (!replied || replied.deletedAt || replied.senderType !== "agent") return undefined;
+    const agent = database.getParticipant(replied.senderId);
+    return agent?.type === "agent" && agent.roomId === message.roomId ? agent : undefined;
+  }
+
+  /**
+   * 设了主 Agent 的房间里，没有 @ 任何人的消息交给谁：回复的是某个 Agent 的消息就交给它，
+   * 否则交给主 Agent。没设主 Agent 时和以前一样没人接。
+   */
+  function implicitTarget(message: ChatMessage): Participant | undefined {
+    if (!unaddressed(message)) return undefined;
+    const lead = leadAgentOf(message.roomId);
+    if (!lead) return undefined;
+    return repliedAgent(message) ?? lead;
+  }
+
+  /** 这次派发是不是把这个 Agent 当作主 Agent 唤醒（重试、批准后、重连补发都按同一规则算） */
+  function asLead(message: ChatMessage, agent: Participant): boolean {
+    return (
+      unaddressed(message) && !repliedAgent(message) && leadAgentOf(message.roomId)?.id === agent.id
+    );
   }
 
   /** 这条消息回复的是 Agent 的提问且该调用仍在等人回答时，返回那个等待中的调用 */

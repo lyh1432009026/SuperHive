@@ -1492,10 +1492,11 @@ export function App({
   );
   const currentRoomName = currentRoom?.name ?? currentRoomId;
   const currentRoomWorkspace = currentRoom?.workspace;
-  const currentLeadAgent = currentRoom?.leadAgent;
   const isLeadAgent = (participant: Participant) =>
     participant.type === "agent" &&
-    currentLeadAgent?.toLocaleLowerCase() === participant.username.toLocaleLowerCase();
+    currentRoom?.leadAgent?.toLocaleLowerCase() === participant.username.toLocaleLowerCase();
+  // 主 Agent 被删掉后服务端不再派给它：输入框不再这么提示
+  const currentLeadAgent = participants.find(isLeadAgent)?.username;
   // 房间顺序：拖拽排出来的，存在这台浏览器里
   const [roomOrder, setRoomOrder] = useState<string[]>(() =>
     loadRoomOrder(typeof localStorage === "undefined" ? undefined : localStorage),
@@ -5700,6 +5701,15 @@ export function App({
                       </option>
                     ))}
                   </select>
+                  {roomDialogLead &&
+                    roomDialog.room.id === currentRoomId &&
+                    !leadCandidates(roomDialog.room).includes(roomDialogLead) && (
+                      <small className="room-field-warning" role="alert">
+                        {t("主 Agent {0} 已不在这个房间，不带 @ 的消息现在没人接，请重新选择。", {
+                          0: roomDialogLead,
+                        })}
+                      </small>
+                    )}
                   <small>
                     {roomDialog.room.id === currentRoomId
                       ? t(
