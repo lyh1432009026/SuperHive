@@ -1099,7 +1099,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       if (invocation && !isTerminal(invocation)) {
         emitInvocation(
           database.updateInvocation(invocation.id, {
-            progress: `已发进度 #${message.seq}`,
+            progress: oneLineProgress(message.content),
           }),
         );
       }
@@ -1162,6 +1162,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         if (database.adoptContinuation(answered.id, invocation.id)) {
           invocation = database.getInvocation(invocation.id)!;
         }
+        // 提问前发过的进度接着算：一问一答不能把名额重新刷满
+        database.setProgressCount(invocation.id, database.progressCount(answered.id));
         // 定时任务那一轮提过问：后续结果在续上的新调用里，状态与补发说明都跟着它走
         const schedule = database.scheduleForInvocation(answered.id);
         if (schedule) {
@@ -1654,14 +1656,30 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (!parent || !invocation || !["running", "waiting_human"].includes(invocation.status)) {
       throw new HiveError("NOT_EXECUTING", "只能在执行任务的过程中发进度；最终结论请直接回复。");
     }
-    // 人直接派的任务放宽；Agent 之间委派的子任务只给一条，免得互相刷屏
+    // 进度不派发 @：@ 到 Agent 看起来像派了活、其实没人接，直接拒绝；@ 人照常（会提醒到他）
+    const agents = parseMentions(input.content).filter(
+      (name) => database.findParticipant(agent.roomId, name)?.type === "agent",
+    );
+    if (agents.length > 0) {
+      throw new HiveError(
+        "PROGRESS_MENTIONS_AGENT",
+        `进度消息不会唤醒 ${agents.map((name) => `@${name}`).join("、")}；要别的 Agent 干活请用 hive_invoke，进度里提到它时去掉 @。`,
+      );
+    }
+    // 人直接派的任务放宽；Agent 之间委派的子任务只给一条，免得互相刷屏。
+    // 按这一轮执行计数：合批时这一轮的几条触发消息共用名额，换个 parent 也绕不过去
     const limit = invocation.requesterType === "human" ? LIMITS.maxProgressPerTask : 1;
-    if (database.countProgress(parent.id, agent.id) >= limit) {
+    const batch = database
+      .listExecutingInvocations(agent.id)
+      .filter((item) => item.roomId === agent.roomId);
+    const used = batch.reduce((sum, item) => sum + database.progressCount(item.id), 0);
+    if (used >= limit) {
       throw new HiveError(
         "PROGRESS_LIMIT",
         `这个任务的进度消息已经发了 ${limit} 条，到上限了；把剩下的写进最终回复。`,
       );
     }
+    database.setProgressCount(invocation.id, database.progressCount(invocation.id) + 1);
     return createAndDispatchMessage(
       agent,
       {
@@ -1673,6 +1691,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       },
       { fromTool: true },
     ).message;
+  }
+
+  /** 状态行上显示进度正文的第一行 */
+  function oneLineProgress(content: string): string {
+    const line = content.trim().split(/\r?\n/)[0]!.replace(/\s+/g, " ");
+    return line.length > 40 ? `${line.slice(0, 39)}…` : line;
   }
 
   function cancelSchedule(actor: Participant, scheduleId: string): Schedule {
@@ -1923,6 +1947,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   }
 
   function resetForRedelivery(invocation: Invocation, detail: string): Invocation {
+    // 重新执行是新的一次：进度名额重新算
+    database.setProgressCount(invocation.id, 0);
     return database.updateInvocation(invocation.id, {
       status: "queued",
       attempts: invocation.attempts + 1,

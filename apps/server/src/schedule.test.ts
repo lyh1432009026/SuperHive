@@ -759,8 +759,12 @@ describe("progress messages", () => {
         structuredContent?: Record<string, any>;
         content: Array<{ text: string }>;
       };
+    // @ 到 Agent 不会派活：直接拒绝，免得看起来像派出去了
+    const mentioning = await send("第 1 阶段完成，@other 接着做");
+    expect(mentioning.isError).toBe(true);
+    expect(mentioning.content[0]!.text).toContain("hive_invoke");
     for (let index = 1; index <= 3; index += 1) {
-      const sent = await send(`第 ${index} 阶段完成，@other 看一下`);
+      const sent = await send(`第 ${index} 阶段完成，@Alice 看一下`);
       expect(sent.isError).toBeFalsy();
       expect(sent.structuredContent!.message).toMatchObject({
         kind: "progress",
@@ -776,6 +780,45 @@ describe("progress messages", () => {
       (event) => event.type === "invocation.updated" && event.invocation.messageId === trigger.id,
     ) as Array<Extract<ServerEvent, { type: "invocation.updated" }>>;
     expect(updates.at(-1)!.invocation.status).toBe("running");
+    expect(updates.at(-1)!.invocation.progress).toBe("第 3 阶段完成，@Alice 看一下");
     void helper;
+  });
+
+  it("keeps counting across a question and its answer", async () => {
+    const { alice, helper, trigger, client } = await executingRoom();
+    const call = async (name: string, args: Record<string, unknown>) =>
+      (await client.callTool({ name, arguments: args })) as {
+        isError?: boolean;
+        structuredContent?: Record<string, any>;
+      };
+    for (let index = 0; index < 3; index += 1) {
+      expect(
+        (await call("hive_message_send", { content: `进度 ${index}`, progress: true })).isError,
+      ).toBeFalsy();
+    }
+    const asked = await call("hive_ask_human", { question: "继续吗？" });
+    const questionId = asked.structuredContent!.questionMessageId as string;
+    helper.send({ type: "invocation.report", messageId: trigger.id, status: "completed" });
+    alice.send({
+      type: "message.send",
+      clientMessageId: "yes",
+      content: "继续",
+      replyToMessageId: questionId,
+    });
+    const woken = await helper.next(
+      (event) => event.type === "agent.mentioned" && event.message.content === "继续",
+    );
+    const answer = (woken as Extract<ServerEvent, { type: "agent.mentioned" }>).message;
+    helper.send({ type: "invocation.report", messageId: answer.id, status: "running" });
+    await alice.next(
+      (event) =>
+        event.type === "invocation.updated" &&
+        event.invocation.messageId === answer.id &&
+        event.invocation.status === "running",
+    );
+    // 一问一答不会把名额重新刷满
+    expect((await call("hive_message_send", { content: "又一条", progress: true })).isError).toBe(
+      true,
+    );
   });
 });

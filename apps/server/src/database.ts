@@ -691,6 +691,10 @@ export class HiveDatabase {
     if (!invocationColumns.some((column) => column.name === "runtime")) {
       this.db.exec("ALTER TABLE invocations ADD COLUMN runtime TEXT");
     }
+    // 这一次执行已发的进度条数（重试清零，提问后续上的调用接着算）
+    if (!invocationColumns.some((column) => column.name === "progress_count")) {
+      this.db.exec("ALTER TABLE invocations ADD COLUMN progress_count INTEGER NOT NULL DEFAULT 0");
+    }
     if (!invocationColumns.some((column) => column.name === "resolution_kind")) {
       this.db.exec(`
         ALTER TABLE invocations ADD COLUMN resolution_kind TEXT;
@@ -1056,14 +1060,18 @@ export class HiveDatabase {
     })();
   }
 
-  /** 某个 Agent 在某条触发消息下已发的进度条数 */
-  countProgress(parentMessageId: string, senderId: string): number {
+  /** 这次执行已发的进度条数 */
+  progressCount(invocationId: string): number {
     const row = this.db
-      .prepare(
-        "SELECT COUNT(*) AS count FROM messages WHERE parent_message_id = ? AND sender_id = ? AND kind = 'progress'",
-      )
-      .get(parentMessageId, senderId) as { count: number };
-    return row.count;
+      .prepare("SELECT progress_count FROM invocations WHERE id = ?")
+      .get(invocationId) as { progress_count: number } | undefined;
+    return row?.progress_count ?? 0;
+  }
+
+  setProgressCount(invocationId: string, count: number): void {
+    this.db
+      .prepare("UPDATE invocations SET progress_count = ? WHERE id = ?")
+      .run(count, invocationId);
   }
 
   getMessage(id: string): ChatMessage | undefined {

@@ -1946,7 +1946,6 @@ export class ImHub {
     return owner?.type === "human" ? owner : undefined;
   }
 
-  /** 这条调用最初是谁派的：沿委派链走到最上游 */
   /** 这条 Agent 消息所在的任务是不是房主自己派的（沿委派链找到源头的人） */
   private isOwnersTask(connection: StoredConnection, message: ChatMessage): boolean {
     const owner = this.ownerOf(connection);
@@ -1957,6 +1956,7 @@ export class ImHub {
     return Boolean(invocation && this.rootRequesterId(invocation) === owner.id);
   }
 
+  /** 这条调用最初是谁派的：沿委派链走到最上游 */
   private rootRequesterId(invocation: Invocation): string | undefined {
     const chain = this.deps.invocationAncestors(invocation.id);
     return (chain.at(-1) ?? invocation).requesterId;
