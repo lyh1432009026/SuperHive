@@ -1391,6 +1391,20 @@ export function App({
   const nearBottomRef = useRef(true);
   const messageCountRef = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  /** 打开或刷新页面后，输入框出现时自动聚焦一次（触屏不聚焦，免得一进来就弹出键盘） */
+  const composerAutoFocused = useRef(false);
+  const attachComposer = useCallback((element: HTMLTextAreaElement | null) => {
+    textareaRef.current = element;
+    if (!element || composerAutoFocused.current) return;
+    composerAutoFocused.current = true;
+    if (window.matchMedia?.("(hover: none)").matches) return;
+    window.requestAnimationFrame(() => {
+      // 已经有别的地方拿到焦点（弹窗、搜索框）就不抢
+      const active = document.activeElement;
+      if (active && active !== document.body) return;
+      element.focus({ preventScroll: true });
+    });
+  }, []);
   const browsingHistoryRef = useRef<string | undefined>(undefined);
   const highlightRef = useRef<HTMLDivElement>(null);
   const membersCloseRef = useRef<HTMLButtonElement>(null);
@@ -4097,7 +4111,7 @@ export function App({
                   {"\u200b"}
                 </div>
                 <textarea
-                  ref={textareaRef}
+                  ref={attachComposer}
                   rows={1}
                   value={draft}
                   onScroll={(event) => {

@@ -311,6 +311,13 @@ describe("App mention autocomplete", () => {
     expect(document.querySelector(".connection")?.classList.contains("online")).toBe(true);
   });
 
+  it("focuses the composer once when the page opens", async () => {
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    render(<App />);
+    await waitFor(() => expect(document.activeElement?.tagName).toBe("TEXTAREA"));
+  });
+
   it("keeps the mention option chosen with the keyboard in view", async () => {
     localStorage.setItem("superhive.username", "Alice");
     render(<App />);
@@ -332,6 +339,8 @@ describe("App mention autocomplete", () => {
     );
     const composer = screen.getByLabelText<HTMLTextAreaElement>("消息");
     fireEvent.change(composer, { target: { value: "@", selectionStart: 1 } });
+    // 输入框已自动聚焦：先让 React 记下当前光标位置，否则按方向键时它会以为光标变了、把选中项重置
+    fireEvent.keyUp(composer, { key: "@" });
     const scrolled = vi.mocked(Element.prototype.scrollIntoView);
     scrolled.mockClear();
 
