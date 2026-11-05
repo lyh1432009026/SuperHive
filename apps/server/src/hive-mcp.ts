@@ -7,6 +7,7 @@ import {
   type ChatMessage,
   type Invocation,
   type Participant,
+  type RoomSummary,
   type Schedule,
   type WhiteboardEntry,
 } from "@superhive/protocol";
@@ -98,6 +99,8 @@ export type HiveMcpContext = {
     clientMessageId: string;
   }) => { schedule: Schedule; created: boolean };
   listSchedules: () => Schedule[];
+  /** 替房主新建房间（只能在房主本人发起的任务里用）；本机 Agent 会自动加入新房间 */
+  createRoom: (input: { id: string; name?: string; workspace?: string }) => RoomSummary;
   cancelSchedule: (id: string) => Schedule;
   /** 短时等待一个调用结束；超时只说明还没结束，不改变子任务状态 */
   wait: (input: {
@@ -529,6 +532,56 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
         const schedule = context.cancelSchedule(scheduleId);
         return toolResult(
           { cancelled: true, schedule: scheduleView(schedule) },
+          context.takeInbox(),
+        );
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hive_room_create",
+    {
+      title: "Create a room for the owner",
+      description:
+        "替房主新建一个房间，可同时指定工作区（这台电脑上已存在的绝对路径，可用 ~）。只能在房主本人发起的任务里使用：访客发起的、Agent 之间的对话里都不能建。房间建好后，本机 Agent 会自动加入并在工作区里工作；在回复里告诉人房间 ID，并提醒他在新房间里 @ 需要的 Agent 接着做。",
+      inputSchema: {
+        id: z
+          .string()
+          .trim()
+          .min(1)
+          .max(64)
+          .regex(/^[A-Za-z0-9_-]+$/)
+          .describe("房间 ID：字母、数字、- 或 _，例如 z-code"),
+        name: z.string().trim().min(1).max(64).optional().describe("显示名称，默认同 ID"),
+        workspace: z
+          .string()
+          .trim()
+          .min(1)
+          .max(4096)
+          .optional()
+          .describe("工作区目录，例如 ~/Work/z-code"),
+      },
+    },
+    async ({ id, name, workspace }) => {
+      try {
+        const room = context.createRoom({
+          id,
+          ...(name ? { name } : {}),
+          ...(workspace ? { workspace } : {}),
+        });
+        return toolResult(
+          {
+            created: true,
+            room: {
+              id: room.id,
+              name: room.name,
+              ...(room.workspace ? { workspace: room.workspace } : {}),
+              ...(room.branch ? { branch: room.branch } : {}),
+            },
+            note: "本机 Agent 会在几秒内自动加入新房间。在回复里写明房间 ID，请人切到新房间 @ 需要的 Agent。",
+          },
           context.takeInbox(),
         );
       } catch (error) {

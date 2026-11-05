@@ -1513,6 +1513,50 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     return { schedule, created };
   }
 
+  /**
+   * hive_room_create：Agent 替房主新建房间。只认房主本人发起的任务（访客发起的、Agent 之间的对话都不行），
+   * Agent 自己也不能是访客带入的；建房间本来就只有房主能做，这里不扩大谁能建。
+   */
+  function createRoomForAgent(
+    agent: Participant,
+    input: { id: string; name?: string; workspace?: string },
+  ): RoomSummary {
+    if (guestSessionOf(agent)) {
+      throw new HiveError("FORBIDDEN", "访客带入的 Agent 不能新建房间。");
+    }
+    const parent = inferExecutingParent(agent);
+    const invocation = parent ? database.getInvocationFor(parent.id, agent.id) : undefined;
+    if (!parent || !invocation || invocation.status === "cancelling") {
+      throw new HiveError("NOT_EXECUTING", "只能在处理某条消息的过程中新建房间。");
+    }
+    const chain = [invocation, ...database.invocationAncestors(invocation.id)];
+    const root = chain.find((item) => item.requesterType === "human");
+    const requester = root?.requesterId ? database.getParticipant(root.requesterId) : undefined;
+    if (!requester || requester.type !== "human" || guestSessionOf(requester)) {
+      throw new HiveError(
+        "OWNER_ONLY",
+        "只有房主本人发起的任务里才能新建房间（访客发起的、Agent 之间的对话都不行）。",
+      );
+    }
+    try {
+      const room = withBranch(
+        database.createRoom({
+          id: input.id,
+          ...(input.name ? { name: input.name } : {}),
+          createdBy: requester.username,
+          ...(input.workspace ? { workspace: roomWorkspace(input.workspace) } : {}),
+        }),
+      );
+      broadcastAll({ type: "rooms.changed", room });
+      return room;
+    } catch (error) {
+      if (error instanceof HiveError && error.code.startsWith("LOCAL_AGENT_CWD")) {
+        throw new HiveError("ROOM_WORKSPACE_INVALID", error.message);
+      }
+      throw error;
+    }
+  }
+
   function cancelSchedule(actor: Participant, scheduleId: string): Schedule {
     const schedule = database.getSchedule(scheduleId);
     if (!schedule || schedule.roomId !== actor.roomId) {
@@ -3097,6 +3141,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       createSchedule: (input) => createSchedule(participant, input),
       listSchedules: () => database.listSchedules(participant.roomId),
       cancelSchedule: (id) => cancelSchedule(participant, id),
+      createRoom: (input) => createRoomForAgent(participant, input),
       formatScheduleTime,
       wait: (input) => waitForInvocation(participant, input),
       readAttachment: (input) => readAttachmentForAgent(participant, input),

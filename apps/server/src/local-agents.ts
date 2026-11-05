@@ -733,6 +733,8 @@ export class LocalAgentSupervisor {
       ...(config.cwd ? ["--cwd", config.cwd] : []),
       ...(config.model ? ["--model", config.model] : []),
       ...(settingsFile ? ["--agent-settings", settingsFile] : []),
+      // 本机拉起的 Agent 是房主自己的：房主在网页上给房间设的工作区直接跟随，不用再手动 --allow-root
+      "--trust-room-workspace",
     ];
     runtime.phase = "running";
     runtime.stopping = false;

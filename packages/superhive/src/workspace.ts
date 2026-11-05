@@ -57,6 +57,11 @@ export function resolveRoomWorkspace(input: {
   defaultCwd: string;
   allowedRoots: string[];
   access: AgentAccessMode;
+  /**
+   * 由本机 Hive Server 拉起的 Agent：房间工作区只有房主能设，房主设了就是授权，
+   * 不再受启动目录及其上一级的限制（仍要求目录存在、不是文件系统根）
+   */
+  trusted?: boolean;
 }): RoomWorkspace {
   const { roomWorkspace, defaultCwd } = input;
   if (!roomWorkspace) return { cwd: defaultCwd };
@@ -73,6 +78,7 @@ export function resolveRoomWorkspace(input: {
       note: `房间设置的工作区 ${roomWorkspace} 在你所在的电脑上不存在，仍在 ${defaultCwd} 工作。`,
     };
   }
+  if (input.trusted && path.parse(resolved).root !== resolved) return { cwd: resolved };
   if (!input.allowedRoots.some((root) => isInside(root, resolved))) {
     return {
       cwd: defaultCwd,

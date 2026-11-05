@@ -44,6 +44,9 @@ SuperHive Agent
   --access MODE     read-only、workspace 或 full（默认 read-only）
   --persona TEXT    Agent 的角色描述
   --allow-root PATH 允许跟随房间工作区切换到的目录（可重复）；默认只有 --cwd 及其上一级
+  --trust-room-workspace
+                    房间工作区一律跟随（由本机 Hive Server 拉起的 Agent 使用：
+                    工作区只有房主能设）
   --cwd PATH        Agent 工作目录（workspace/full 必填；只读默认使用状态目录下
                     该 Agent 专属的空目录）
   --state-dir PATH  Agent 状态目录（默认 ~/.superhive/agents）
@@ -153,6 +156,7 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
       persona: { type: "string" },
       cwd: { type: "string" },
       "allow-root": { type: "string", multiple: true },
+      "trust-room-workspace": { type: "boolean", default: false },
       "state-dir": { type: "string" },
       codex: { type: "string", default: "codex" },
       "codex-transport": { type: "string", default: "auto" },
@@ -340,6 +344,7 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
       defaultCwd: cwd,
       allowedRoots,
       access,
+      trusted: parsed.values["trust-room-workspace"] === true,
     });
     if (room.workspace) {
       console.log(

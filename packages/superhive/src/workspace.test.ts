@@ -31,4 +31,19 @@ describe("房间工作区", () => {
     expect(resolve(path.join(base, "nope")).note).toContain("不存在");
     expect(resolve(other, "read-only").note).toContain("只读");
   });
+
+  it("本机 Server 拉起的 Agent 信任房主设的工作区：范围外也跟随，但仍要存在、只读仍不跟随、不接受根目录", () => {
+    const trusted = (roomWorkspace: string, access: "workspace" | "read-only" = "workspace") =>
+      resolveRoomWorkspace({
+        roomWorkspace,
+        defaultCwd: hive,
+        allowedRoots: roots,
+        access,
+        trusted: true,
+      });
+    expect(trusted(outside)).toEqual({ cwd: outside });
+    expect(trusted(path.join(base, "nope")).note).toContain("不存在");
+    expect(trusted(outside, "read-only").note).toContain("只读");
+    expect(trusted("/")).toMatchObject({ cwd: hive });
+  });
 });

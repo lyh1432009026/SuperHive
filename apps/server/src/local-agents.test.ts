@@ -533,6 +533,7 @@ describe("local agent routes", () => {
       "read-only",
       "--model",
       "p/m",
+      "--trust-room-workspace",
     ]);
     expect(child.args.join(" ")).not.toContain("join-token");
     expect(child.env).toEqual({

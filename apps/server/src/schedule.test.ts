@@ -666,3 +666,35 @@ describe("live execution trace", () => {
     expect(hidden.events.some((event) => event.type === "invocation.trace")).toBe(false);
   });
 });
+
+describe("hive_room_create", () => {
+  it("creates a room with a workspace for the owner, and refuses outside an owner's task", async () => {
+    const { alice, client, mcp, join } = await executingRoom();
+    const workspace = mkdtempSync(path.join(tmpdir(), "hive-room-ws-"));
+    cleanup.push(() => rmSync(workspace, { recursive: true, force: true }));
+    const call = async (c: typeof client, args: Record<string, unknown>) =>
+      (await c.callTool({ name: "hive_room_create", arguments: args })) as {
+        isError?: boolean;
+        structuredContent?: Record<string, any>;
+        content: Array<{ text: string }>;
+      };
+    const created = await call(client, { id: "z-code", name: "Z Code", workspace });
+    expect(created.isError).toBeFalsy();
+    expect(created.structuredContent!.room).toMatchObject({ id: "z-code", name: "Z Code" });
+    const changed = await alice.next(
+      (event) => event.type === "rooms.changed" && "room" in event && event.room?.id === "z-code",
+    );
+    expect((changed as any).room.createdBy).toBe("Alice");
+    expect((changed as any).room.workspace).toBeTruthy();
+
+    expect((await call(client, { id: "z-code" })).isError).toBe(true);
+    expect((await call(client, { id: "nope", workspace: "/definitely/not/here" })).isError).toBe(
+      true,
+    );
+
+    // 不在执行任务的 Agent 不能建
+    await join("helper2", "agent");
+    const idle = await mcp("helper2");
+    expect((await call(idle, { id: "idle-room" })).isError).toBe(true);
+  });
+});

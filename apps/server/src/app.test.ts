@@ -198,6 +198,7 @@ describe("Hive WebSocket protocol", () => {
       "hive_invoke",
       "hive_members_list",
       "hive_message_send",
+      "hive_room_create",
       "hive_room_read",
       "hive_schedule_cancel",
       "hive_schedule_create",
