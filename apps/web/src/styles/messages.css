@@ -1012,3 +1012,25 @@ label.question-option:hover {
   border-color: color-mix(in srgb, var(--accent) 50%, transparent);
   background: var(--accent-soft);
 }
+
+/* 执行中途的进度：比最终回复轻一点，标上「进度」 */
+.message-progress-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+}
+
+.message.progress .message-content > .message-progress-tag {
+  margin-bottom: 4px;
+}
+
+.message.progress .message-body {
+  color: var(--text-secondary);
+  font-size: 0.95em;
+}

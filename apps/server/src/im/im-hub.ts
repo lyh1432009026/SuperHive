@@ -1947,6 +1947,16 @@ export class ImHub {
   }
 
   /** 这条调用最初是谁派的：沿委派链走到最上游 */
+  /** 这条 Agent 消息所在的任务是不是房主自己派的（沿委派链找到源头的人） */
+  private isOwnersTask(connection: StoredConnection, message: ChatMessage): boolean {
+    const owner = this.ownerOf(connection);
+    if (!owner || !message.parentMessageId) return false;
+    const invocation = this.deps
+      .invocationsFor(message.parentMessageId)
+      .find((item) => item.agentId === message.senderId);
+    return Boolean(invocation && this.rootRequesterId(invocation) === owner.id);
+  }
+
   private rootRequesterId(invocation: Invocation): string | undefined {
     const chain = this.deps.invocationAncestors(invocation.id);
     return (chain.at(-1) ?? invocation).requesterId;
@@ -2099,6 +2109,11 @@ export class ImHub {
   private decide(connection: StoredConnection, message: ChatMessage): "now" | "batch" | "skip" {
     if (connection.level === "all") return "now";
     if (message.senderType !== "agent" || message.via || message.kind === "topic") return "skip";
+    // 进度：只推房主自己派的任务（IM 档只推从这个 IM 发起的），每个任务有条数上限，马上推不会刷屏
+    if (message.kind === "progress") {
+      if (connection.level === "im") return this.originOf(message, connection.id) ? "now" : "skip";
+      return this.isOwnersTask(connection, message) ? "now" : "skip";
+    }
     const mentionsOwner = this.mentionsOwner(message, connection);
     if (connection.level === "im") {
       // 早期行为：IM 发起的任务链里给人看的回复，以及提到房主的消息
@@ -2303,11 +2318,13 @@ export class ImHub {
     const question = message.kind === "question";
     const title = question
       ? `${sender} 有问题问你`
-      : message.senderType === "human"
-        ? `${sender} 的消息`
-        : mentioned
-          ? `${sender} 提到了你`
-          : `${sender} 的回复`;
+      : message.kind === "progress"
+        ? `${sender} 的进度`
+        : message.senderType === "human"
+          ? `${sender} 的消息`
+          : mentioned
+            ? `${sender} 提到了你`
+            : `${sender} 的回复`;
     const attachments = (message.attachments ?? []).map((item) => ({
       name: item.name,
       size: formatSize(item.size),
@@ -2318,7 +2335,9 @@ export class ImHub {
       tone: question ? "question" : mentioned ? "mention" : "reply",
       ...(question
         ? { tag: message.question ? (message.question.multiple ? "多选" : "单选") : "待回答" }
-        : {}),
+        : message.kind === "progress"
+          ? { tag: "进度" }
+          : {}),
       ...(body ? { body } : {}),
       ...(options ? { options } : {}),
       ...(question && this.cardsEnabled(connection)

@@ -404,6 +404,29 @@ describe("AgentBridge", () => {
     expect(third.completed?.replyMessageId).toBe(third.interim.id);
   });
 
+  it("never takes a progress update as the turn's reply", async () => {
+    await startBridge(baseState());
+    const mention = chat({ content: "@agent-a 跑一遍全量测试" });
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    room.messages.push(
+      chat({
+        senderId: SELF,
+        senderName: "agent-a",
+        senderType: "agent",
+        content: "全部通过",
+        mentions: [],
+        parentMessageId: mention.id,
+        kind: "progress",
+      }),
+    );
+    // 最终输出和进度一样，也照常作为回复发出
+    responder.finish("全部通过");
+    await waitUntil(() => room.statuses(mention.id).includes("completed"));
+    expect(room.sent.at(-1)).toMatchObject({ content: "全部通过" });
+  });
+
   it("processes a server-dispatched answer that does not @ the agent", async () => {
     await startBridge(baseState());
     // 人回复了 Agent 的提问：正文没有 @，但服务端已为它派发

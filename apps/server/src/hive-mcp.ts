@@ -52,6 +52,7 @@ export type HiveMcpContext = {
     clientMessageId: string;
     parentMessageId?: string;
     replyToMessageId?: string;
+    progress?: boolean;
   }) => ChatMessage;
   readWhiteboard: () => WhiteboardEntry[];
   updateWhiteboard: (input: {
@@ -271,8 +272,7 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
     "hive_message_send",
     {
       title: "Send a Hive room message",
-      description:
-        "以当前已连接 Agent 身份向 Hive 房间发送一条公共消息。可在 content 中 @其他在线 Agent。回复或委派时传入触发消息 ID；执行调用期间省略时，服务端会自动挂到当前触发消息下，防循环上限照常生效。",
+      description: `以当前已连接 Agent 身份向 Hive 房间发送一条公共消息。可在 content 中 @其他在线 Agent。回复或委派时传入触发消息 ID；执行调用期间省略时，服务端会自动挂到当前触发消息下，防循环上限照常生效。长任务中途有值得人知道的进展（完成一个阶段、发现需要人知道的问题、有中间产物）时传 progress=true 发进度：人发起的任务每个最多 ${LIMITS.maxProgressPerTask} 条，Agent 之间委派的任务 1 条；进度不算这一轮的回复（最终结论照常直接输出），也不会唤醒其他 Agent（要别人干活用 hive_invoke）。不要发心跳、不要发百分比。`,
       inputSchema: {
         content: messageContentSchema.describe("要发送到公共房间的文本"),
         clientMessageId: z
@@ -283,15 +283,20 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
           .describe("可选幂等键；重试同一发送时复用"),
         parentMessageId: z.string().uuid().optional().describe("触发本次回复或委派的父消息 ID"),
         replyToMessageId: z.string().uuid().optional().describe("仅用于 UI 回复关系"),
+        progress: z
+          .boolean()
+          .optional()
+          .describe("执行中途给人看的进度（不是最终回复）；有条数上限"),
       },
     },
-    async ({ content, clientMessageId, parentMessageId, replyToMessageId }) => {
+    async ({ content, clientMessageId, parentMessageId, replyToMessageId, progress }) => {
       try {
         const message = context.sendMessage({
           content,
           clientMessageId: clientMessageId ?? randomUUID(),
           ...(parentMessageId ? { parentMessageId } : {}),
           ...(replyToMessageId ? { replyToMessageId } : {}),
+          ...(progress ? { progress: true } : {}),
         });
         return toolResult({ sent: true, message }, context.takeInbox());
       } catch (error) {

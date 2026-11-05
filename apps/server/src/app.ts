@@ -1091,6 +1091,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     broadcastRoomActivity(participant.roomId);
     imHub.onMessageCreated(message);
     if (message.kind === "topic") supersedeStale(message.roomId);
+    // 进度只是给人看的：不推进调用，也不唤醒任何 Agent；调用上记一笔最近进度
+    if (message.kind === "progress") {
+      const invocation = message.parentMessageId
+        ? database.getInvocationFor(message.parentMessageId, participant.id)
+        : undefined;
+      if (invocation && !isTerminal(invocation)) {
+        emitInvocation(
+          database.updateInvocation(invocation.id, {
+            progress: `已发进度 #${message.seq}`,
+          }),
+        );
+      }
+      return result;
+    }
     // 回执由服务端代发，不是被委派方的回复：既不推进子任务，也不因子任务已停止而吞掉对委派方的 @
     if (
       participant.type === "agent" &&
@@ -1616,6 +1630,49 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       clientMessageId: input.clientMessageId,
     });
     return message;
+  }
+
+  /**
+   * 执行中途发给人看的进度：挂在正在执行的触发消息下，不算这一轮的回复（不推进调用），
+   * 也不唤醒其他 Agent。人发起的任务每个最多 LIMITS.maxProgressPerTask 条，Agent 之间委派的 1 条。
+   */
+  function sendProgress(
+    agent: Participant,
+    input: {
+      content: string;
+      clientMessageId: string;
+      parentMessageId?: string;
+      replyToMessageId?: string;
+    },
+  ): ChatMessage {
+    const existing = database.findMessageByClientId(agent.id, input.clientMessageId);
+    if (existing) return existing;
+    const parent = input.parentMessageId
+      ? database.getMessage(input.parentMessageId)
+      : inferExecutingParent(agent);
+    const invocation = parent ? database.getInvocationFor(parent.id, agent.id) : undefined;
+    if (!parent || !invocation || !["running", "waiting_human"].includes(invocation.status)) {
+      throw new HiveError("NOT_EXECUTING", "只能在执行任务的过程中发进度；最终结论请直接回复。");
+    }
+    // 人直接派的任务放宽；Agent 之间委派的子任务只给一条，免得互相刷屏
+    const limit = invocation.requesterType === "human" ? LIMITS.maxProgressPerTask : 1;
+    if (database.countProgress(parent.id, agent.id) >= limit) {
+      throw new HiveError(
+        "PROGRESS_LIMIT",
+        `这个任务的进度消息已经发了 ${limit} 条，到上限了；把剩下的写进最终回复。`,
+      );
+    }
+    return createAndDispatchMessage(
+      agent,
+      {
+        content: input.content,
+        clientMessageId: input.clientMessageId,
+        parentMessageId: parent.id,
+        ...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
+        kind: "progress",
+      },
+      { fromTool: true },
+    ).message;
   }
 
   function cancelSchedule(actor: Participant, scheduleId: string): Schedule {
@@ -3166,7 +3223,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         return message;
       },
       listMembers: () => participantsOf(participant.roomId),
-      sendMessage: (input) => {
+      sendMessage: ({ progress, ...input }) => {
+        if (progress) return sendProgress(participant, input);
         if (input.parentMessageId) {
           return createAndDispatchMessage(participant, input, { fromTool: true }).message;
         }

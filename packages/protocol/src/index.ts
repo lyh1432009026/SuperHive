@@ -43,6 +43,8 @@ export const LIMITS = {
   maxScheduleAheadMs: 30 * 24 * 60 * 60_000,
   scheduleGraceMs: 10 * 60_000,
   maxScheduleTaskLength: 4000,
+  /** 执行中途发给人看的进度消息：人发起的任务每个最多几条（Agent 之间的委派只允许一条，防止刷屏） */
+  maxProgressPerTask: 3,
   /** 执行过程：每步摘要与中途文字的长度上限、每次调用在内存里最多保留的步数 */
   maxTraceSummaryLength: 300,
   maxTraceTextLength: 2000,
@@ -160,8 +162,9 @@ export const chatMessageSchema = z.object({
    * receipt：子任务结束后服务端代被委派方发给委派方的结果回执。
    * question：Agent 经 hive_ask_human 向人提的问题；人回复它即可把答案交回并唤醒提问的 Agent。
    * schedule：定时任务到点后服务端代发起人发出的触发消息；不算人在场，不重置 Agent 连续轮数。
+   * progress：Agent 执行中途发给人看的进度（hive_message_send progress=true）；不算这一轮的回复，不唤醒其他 Agent。
    */
-  kind: z.enum(["topic", "delegation", "receipt", "question", "schedule"]).optional(),
+  kind: z.enum(["topic", "delegation", "receipt", "question", "schedule", "progress"]).optional(),
   /** kind=question 且带选项时的题目定义；没有它就是自由回答的问题 */
   question: questionSpecSchema.optional(),
   /** 经网页点选提交的答案；手打的回答没有这个字段，正文照样是答案 */

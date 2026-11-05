@@ -3603,7 +3603,7 @@ export function App({
                             message.deletedAt ? "deleted" : ""
                           } ${highlightedMessageId === message.id ? "highlighted" : ""} ${
                             message.kind === "question" ? "question" : ""
-                          }`}
+                          } ${message.kind === "progress" ? "progress" : ""}`}
                           data-message-id={message.id}
                           style={
                             message.senderType === "human"
@@ -3632,10 +3632,26 @@ export function App({
                             </span>
                           )}
                           <div className="message-content">
+                            {message.kind === "progress" && grouped && (
+                              <span
+                                className="message-progress-tag"
+                                title={t("Agent 执行中途发来的进度，最终结论在它之后的回复里")}
+                              >
+                                {t("进度")}
+                              </span>
+                            )}
                             {!grouped && (
                               <header>
                                 <strong>{message.senderName}</strong>
                                 {message.senderType === "agent" && <b>Agent</b>}
+                                {message.kind === "progress" && (
+                                  <span
+                                    className="message-progress-tag"
+                                    title={t("Agent 执行中途发来的进度，最终结论在它之后的回复里")}
+                                  >
+                                    {t("进度")}
+                                  </span>
+                                )}
                                 {message.via && (
                                   <span className="message-via">
                                     {t("来自{0}", { 0: IM_CHANNEL_LABELS[message.via.channel] })}

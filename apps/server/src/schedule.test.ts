@@ -745,3 +745,37 @@ describe("hive_room_create", () => {
     ).toBe(true);
   });
 });
+
+describe("progress messages", () => {
+  it("lets an agent post a few progress updates mid-task without ending the turn or waking anyone", async () => {
+    const { alice, helper, trigger, client, join } = await executingRoom();
+    const { peer: other } = await join("other", "agent");
+    const send = async (content: string) =>
+      (await client.callTool({
+        name: "hive_message_send",
+        arguments: { content, progress: true },
+      })) as {
+        isError?: boolean;
+        structuredContent?: Record<string, any>;
+        content: Array<{ text: string }>;
+      };
+    for (let index = 1; index <= 3; index += 1) {
+      const sent = await send(`第 ${index} 阶段完成，@other 看一下`);
+      expect(sent.isError).toBeFalsy();
+      expect(sent.structuredContent!.message).toMatchObject({
+        kind: "progress",
+        parentMessageId: trigger.id,
+      });
+    }
+    const over = await send("第 4 条");
+    expect(over.isError).toBe(true);
+    expect(over.content[0]!.text).toContain("上限");
+    // 进度不唤醒别的 Agent，也不结束这一轮
+    await expect(other.next((event) => event.type === "agent.mentioned", 200)).rejects.toThrow();
+    const updates = alice.events.filter(
+      (event) => event.type === "invocation.updated" && event.invocation.messageId === trigger.id,
+    ) as Array<Extract<ServerEvent, { type: "invocation.updated" }>>;
+    expect(updates.at(-1)!.invocation.status).toBe("running");
+    void helper;
+  });
+});

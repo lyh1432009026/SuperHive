@@ -321,7 +321,8 @@ function mapMessage(row: MessageRow): ChatMessage {
     row.kind === "delegation" ||
     row.kind === "receipt" ||
     row.kind === "question" ||
-    row.kind === "schedule"
+    row.kind === "schedule" ||
+    row.kind === "progress"
       ? { kind: row.kind as NonNullable<ChatMessage["kind"]> }
       : {}),
     ...(row.deleted_at ? {} : parseMessageMeta(row.meta)),
@@ -1055,6 +1056,16 @@ export class HiveDatabase {
     })();
   }
 
+  /** 某个 Agent 在某条触发消息下已发的进度条数 */
+  countProgress(parentMessageId: string, senderId: string): number {
+    const row = this.db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM messages WHERE parent_message_id = ? AND sender_id = ? AND kind = 'progress'",
+      )
+      .get(parentMessageId, senderId) as { count: number };
+    return row.count;
+  }
+
   getMessage(id: string): ChatMessage | undefined {
     const row = this.db.prepare("SELECT * FROM messages WHERE id = ?").get(id) as
       MessageRow | undefined;
@@ -1207,7 +1218,8 @@ export class HiveDatabase {
     const used = (
       this.db
         .prepare(
-          "SELECT COUNT(*) AS count FROM messages WHERE room_id = ? AND sender_type = 'agent' AND seq > ?",
+          // 进度消息只是给人看的，不唤醒任何 Agent，不占连续轮数
+          "SELECT COUNT(*) AS count FROM messages WHERE room_id = ? AND sender_type = 'agent' AND seq > ? AND (kind IS NULL OR kind != 'progress')",
         )
         .get(roomId, lastHumanSeq) as { count: number }
     ).count;
