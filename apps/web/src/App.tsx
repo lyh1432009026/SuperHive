@@ -53,6 +53,21 @@ import { loadRoomOrder, orderRooms, storedRoomOrderKey, useRoomReorder } from ".
 import { isLiveInvocation, mergeTraceSteps } from "./live-trace";
 import { ActivityPanel, isInFlight, needsAttention, type ActivityView } from "./activity";
 import {
+  AttentionRoomGroup,
+  AttentionToasts,
+  attentionDeliveryOptions,
+  playAttentionTone,
+  useAttention,
+  type AttentionDelivery,
+} from "./attention-alerts";
+import {
+  OnboardingGuide,
+  finishOnboarding,
+  markOnboardingIfNew,
+  onboardingPending,
+  type OnboardingStep,
+} from "./onboarding";
+import {
   LocalAgentList,
   LocalLaunch,
   providerInfo,
@@ -112,7 +127,7 @@ import {
   useAttachmentQueue,
 } from "./attachments";
 import { agentActivity } from "./agent-activity";
-import { IM_CHANNEL_LABELS } from "./im-api";
+import { IM_CHANNEL_LABELS, listImConnections } from "./im-api";
 import { ProviderLogo, providerLogoName } from "./provider-logos";
 import { resolveServerBase, resolveShareBase, resolveWebSocketUrl } from "./server-url";
 import {
@@ -140,6 +155,9 @@ const storedMessageSizeKey = "superhive.message-size";
 const storedMembersCollapsedKey = "superhive.members-collapsed";
 const storedRoomsCollapsedKey = "superhive.rooms-collapsed";
 const storedReduceMotionKey = "superhive.reduce-motion";
+const storedAttentionDeliveryKey = "superhive.attention-delivery";
+const storedAttentionSoundKey = "superhive.attention-sound";
+const storedAttentionGroupKey = "superhive.attention-group";
 type SelectableAgentProvider = "codex" | "claude" | "copilot" | "openclaw" | "opencode" | "omp";
 type AgentAccessMode = "read-only" | "workspace" | "full";
 type AgentSetupStep = 1 | 2 | 3;
@@ -1209,6 +1227,14 @@ export function App({
   useLocale();
   const localePreference = getLocalePreference();
   const [meta, setMeta] = useState<MetaResponse>();
+  // 第一次打开（本机还没有昵称）的标成待引导；必须在读昵称之前判断
+  const [onboardingWanted, setOnboardingWanted] = useState(() => {
+    if (guest) return false;
+    markOnboardingIfNew(localStorage, storedUsernameKey);
+    return onboardingPending(localStorage);
+  });
+  const [onboardingOpen, setOnboardingOpen] = useState(true);
+  const [imConnected, setImConnected] = useState(false);
   const [username, setUsername] = useState(
     () => guest?.username ?? localStorage.getItem(storedUsernameKey) ?? "",
   );
@@ -1272,6 +1298,7 @@ export function App({
   const [crossRoomJumpId, setCrossRoomJumpId] = useState<string>();
   const [onlineInvocationIds, setOnlineInvocationIds] = useState<ReadonlySet<string>>(new Set());
   const activityTriggerRef = useRef<HTMLElement | null>(null);
+  const attentionRef = useRef<ReturnType<typeof useAttention> | undefined>(undefined);
   const globalEventsRef = useRef<{
     onInvocation: (invocation: Invocation) => void;
     onRoomActivity: () => void;
@@ -1347,6 +1374,15 @@ export function App({
   );
   const [presenceNotifications, setPresenceNotifications] = useState(() =>
     storedBoolean(storedPresenceNotificationsKey, false),
+  );
+  const [attentionDelivery, setAttentionDelivery] = useState<AttentionDelivery>(() =>
+    storedChoice(storedAttentionDeliveryKey, ["system", "page", "off"], "system"),
+  );
+  const [attentionSound, setAttentionSound] = useState(() =>
+    storedBoolean(storedAttentionSoundKey, true),
+  );
+  const [attentionGroup, setAttentionGroup] = useState(() =>
+    storedBoolean(storedAttentionGroupKey, true),
   );
   const [notificationPermission, setNotificationPermission] =
     useState<BrowserNotificationPermission>(browserNotificationPermission);
@@ -2201,6 +2237,7 @@ export function App({
             }
           }
         } else if (event.type === "invocation.updated") {
+          attentionRef.current?.observe(event.invocation);
           globalEventsRef.current.onInvocation(event.invocation);
           if (event.invocation.roomId !== currentRoomId) return;
           setInvocations((current) => upsertInvocation(current, event.invocation));
@@ -2397,6 +2434,7 @@ export function App({
       onlineInvocationIds?: string[];
     }>("/api/invocations");
     setOnlineInvocationIds(new Set(payload.onlineInvocationIds ?? []));
+    attentionRef.current?.seed(payload.invocations);
     setActiveInvocations(
       new Map(payload.invocations.map((invocation) => [invocation.id, invocation])),
     );
@@ -2533,6 +2571,40 @@ export function App({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  const roomNameOf = (roomId: string) => rooms.find((room) => room.id === roomId)?.name ?? roomId;
+  const attention = useAttention({
+    username,
+    isOwner,
+    currentRoomId,
+    activeInvocations,
+    preferences: { delivery: attentionDelivery, sound: attentionSound },
+    roomName: roomNameOf,
+    onOpen: ({ roomId, messageId }) => {
+      if (roomId === currentRoomId) {
+        jumpToMessage(messageId);
+        return;
+      }
+      setCrossRoomJumpId(messageId);
+      switchRoom(roomId);
+    },
+  });
+  attentionRef.current = attention;
+
+  // 首次引导的「连 IM」一步：看这个房间有没有连上飞书或微信
+  const showOnboarding = onboardingWanted && isOwner && Boolean(username);
+  useEffect(() => {
+    if (!showOnboarding || !authToken || imDialogOpen) return;
+    let cancelled = false;
+    listImConnections(base, authToken, currentRoomId)
+      .then((connections) => {
+        if (!cancelled) setImConnected(connections.length > 0);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, base, currentRoomId, imDialogOpen, showOnboarding]);
+
   if (!username) {
     return (
       <LoginDialog
@@ -2579,6 +2651,59 @@ export function App({
     setMessageNotifications(next);
     localStorage.setItem(storedMessageNotificationsKey, next);
   }
+
+  async function updateAttentionDelivery(next: AttentionDelivery) {
+    // 选系统通知时顺便请求授权；没授权也照样生效，退回页面内提示
+    if (next === "system") await ensureNotificationPermission();
+    setAttentionDelivery(next);
+    localStorage.setItem(storedAttentionDeliveryKey, next);
+  }
+
+  function closeOnboarding() {
+    finishOnboarding(localStorage);
+    setOnboardingWanted(false);
+  }
+
+  const onboardingSteps: OnboardingStep[] = [
+    {
+      id: "agent",
+      title: t("接入一个 Agent"),
+      description: t("选 Claude、Codex 等运行时，在这台电脑上一键启动，或复制命令到别的电脑运行。"),
+      action: t("接入 Agent"),
+      done: participants.some((participant) => participant.type === "agent"),
+      onAction: (trigger) => {
+        setOnboardingOpen(false);
+        openAgentDialog(trigger);
+      },
+    },
+    {
+      id: "notifications",
+      title: t("打开通知"),
+      description: t("Agent 等你回答、失败或做完时，切到别的页面也能收到提醒。"),
+      action: t("允许通知"),
+      done: notificationPermission === "granted",
+      ...(notificationPermission === "unsupported" || notificationPermission === "denied"
+        ? {
+            unavailable:
+              notificationPermission === "unsupported"
+                ? t("当前浏览器不支持系统通知，页面内照样会提醒。")
+                : t("通知被浏览器阻止了，可以在站点权限里重新允许；页面内照样会提醒。"),
+          }
+        : {}),
+      onAction: () => void ensureNotificationPermission(),
+    },
+    {
+      id: "im",
+      title: t("连上飞书或微信"),
+      description: t("扫码后，在手机上就能给房间发消息、收结果、回答提问。"),
+      action: t("连接 IM"),
+      done: imConnected,
+      onAction: () => {
+        setOnboardingOpen(false);
+        setImDialogOpen(true);
+      },
+    },
+  ];
 
   async function updatePresenceNotifications(next: boolean) {
     const enabled = next && (await ensureNotificationPermission());
@@ -3151,6 +3276,13 @@ export function App({
               )}
             </button>
           </nav>
+          {attentionGroup && (
+            <AttentionRoomGroup
+              items={attention.items}
+              roomName={roomNameOf}
+              onOpen={attention.open}
+            />
+          )}
           <div className="sidebar-section-label">
             <span>{t("房间")}</span>
             <span className="panel-meta">{activeRoomCount}</span>
@@ -3205,8 +3337,9 @@ export function App({
                       {room.archivedAt ? t("已归档") : t("{0} 在线", { 0: room.onlineCount })}
                     </span>
                     {(() => {
-                      const tasks = roomTaskCounts.get(room.id);
-                      if (!tasks || room.archivedAt) return null;
+                      const tasks = roomTaskCounts.get(room.id) ?? { attention: 0, inFlight: 0 };
+                      const unseenDone = attention.unseenByRoom.get(room.id) ?? 0;
+                      if (room.archivedAt) return null;
                       if (tasks.attention > 0) {
                         return (
                           <span
@@ -3219,6 +3352,21 @@ export function App({
                             })}
                           >
                             {tasks.attention}
+                          </span>
+                        );
+                      }
+                      if (unseenDone > 0) {
+                        return (
+                          <span
+                            className="room-task done"
+                            role="img"
+                            title={t("{0} 个任务做完了，你还没看", { 0: unseenDone })}
+                            aria-label={t("# {0}：{1} 个任务做完了，还没看", {
+                              0: room.name,
+                              1: unseenDone,
+                            })}
+                          >
+                            ✓{unseenDone > 1 && unseenDone}
                           </span>
                         );
                       }
@@ -5402,7 +5550,65 @@ export function App({
                         ))}
                       </div>
                     </div>
+                    <div className="settings-group divided">
+                      <div className="settings-section-heading">
+                        <div>
+                          <h4>{t("任务提醒")}</h4>
+                          <p>
+                            {t(
+                              "你发起的任务等你回答、失败、结果未知或做完了，以及等你放行的任务，不管在哪个房间都提醒；正看着那个房间时不打扰。",
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      <div
+                        className="shortcut-selector notification-modes"
+                        role="radiogroup"
+                        aria-label={t("任务提醒")}
+                      >
+                        {attentionDeliveryOptions.map((option) => (
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={attentionDelivery === option.id}
+                            className={attentionDelivery === option.id ? "active" : ""}
+                            onClick={() => void updateAttentionDelivery(option.id)}
+                            key={option.id}
+                          >
+                            <span>
+                              <strong>{option.label}</strong>
+                              <small>{option.description}</small>
+                            </span>
+                            <i aria-hidden="true">
+                              <Icon name="check" size={14} />
+                            </i>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <div className="settings-group divided settings-switch-list">
+                      <SettingsSwitch
+                        checked={attentionSound}
+                        disabled={attentionDelivery === "off"}
+                        label={t("任务提醒提示音")}
+                        description={t("需要你处理时响两声，做完时响一声")}
+                        onChange={(checked) => {
+                          setAttentionSound(checked);
+                          localStorage.setItem(storedAttentionSoundKey, String(checked));
+                          if (checked) playAttentionTone("question");
+                        }}
+                      />
+                      <SettingsSwitch
+                        checked={attentionGroup}
+                        label={t("侧栏显示「需要你处理」")}
+                        description={t(
+                          "在房间列表上方列出待处理的任务，点一下直接跳过去；不影响房间顺序",
+                        )}
+                        onChange={(checked) => {
+                          setAttentionGroup(checked);
+                          localStorage.setItem(storedAttentionGroupKey, String(checked));
+                        }}
+                      />
                       <SettingsSwitch
                         checked={notificationSound}
                         label={t("新消息提示音")}
@@ -5847,6 +6053,23 @@ export function App({
             </form>
           </div>
         </div>
+      )}
+      <AttentionToasts
+        toasts={attention.toasts}
+        roomName={roomNameOf}
+        onOpen={attention.open}
+        onDismiss={attention.dismissToast}
+      />
+      {showOnboarding && onboardingOpen && (
+        <OnboardingGuide steps={onboardingSteps} onClose={closeOnboarding} />
+      )}
+      {showOnboarding && !onboardingOpen && !agentDialogOpen && !imDialogOpen && (
+        <button type="button" className="onboarding-resume" onClick={() => setOnboardingOpen(true)}>
+          {t("继续上手引导（{0}/{1}）", {
+            0: onboardingSteps.filter((step) => step.done).length,
+            1: onboardingSteps.length,
+          })}
+        </button>
       )}
     </main>
   );

@@ -1,0 +1,409 @@
+/* 「需要你处理」：侧栏分组、房间上的「完成未看」标记、页面内提示、首次使用引导 */
+
+.room-task.done {
+  min-width: 16px;
+  height: 16px;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  padding: 0 4px;
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.attention-group {
+  margin: 4px 0 2px;
+}
+
+.attention-group-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 12px 10px 4px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.attention-group ul {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attention-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-fast);
+}
+
+.attention-row:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.attention-kind {
+  flex: 0 0 auto;
+  min-width: 58px;
+  padding: 1px 6px;
+  text-align: center;
+  border-radius: var(--radius-pill);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 11px;
+  font-weight: var(--weight-semibold);
+  line-height: 16px;
+}
+
+.attention-row.question .attention-kind,
+.attention-row.approval .attention-kind {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.attention-row.failed .attention-kind {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.attention-row.unseen .attention-kind {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.attention-row-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attention-more {
+  margin: 2px 10px 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+/* 页面内提示：右下角，叠在最上层但不挡输入框 */
+.attention-toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 96px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(360px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.attention-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-popover);
+  pointer-events: auto;
+  animation: attention-toast-in var(--duration) var(--ease-out);
+}
+
+.attention-toast.question,
+.attention-toast.approval {
+  border-left-color: var(--accent);
+}
+
+.attention-toast.failed {
+  border-left-color: var(--danger);
+}
+
+.attention-toast.unseen {
+  border-left-color: var(--success);
+}
+
+.attention-toast.question .attention-toast-icon,
+.attention-toast.approval .attention-toast-icon {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.attention-toast.failed .attention-toast-icon {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.attention-toast.unknown .attention-toast-icon {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.attention-toast.unseen .attention-toast-icon {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.attention-toast-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: var(--weight-semibold);
+}
+
+.attention-toast-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.attention-toast-text strong {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.attention-toast-text span {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attention-toast-open {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  background: var(--bg-main);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.attention-toast-open:hover {
+  background: var(--bg-hover);
+}
+
+.attention-toast-close {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.attention-toast-close:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+@keyframes attention-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attention-toast {
+    animation: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .attention-toasts {
+    right: 8px;
+    bottom: 88px;
+    left: 8px;
+    width: auto;
+  }
+}
+
+/* 首次使用引导 */
+.onboarding-guide {
+  width: min(520px, calc(100vw - 32px));
+  max-width: none;
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  color: var(--text);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-dialog);
+  font-family: var(--font-sans);
+}
+
+.onboarding-guide::backdrop {
+  background: var(--bg-scrim);
+}
+
+.onboarding-guide header {
+  padding: 22px 24px 8px;
+}
+
+.onboarding-eyebrow {
+  margin: 0 0 4px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.onboarding-guide h2 {
+  margin: 0 0 6px;
+  font-size: var(--text-xl);
+}
+
+.onboarding-guide header p:last-child {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.onboarding-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 24px;
+  list-style: none;
+}
+
+.onboarding-steps li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+}
+
+.onboarding-steps li > div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.onboarding-steps strong {
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+}
+
+.onboarding-steps small {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.onboarding-step-index {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.onboarding-steps li.done .onboarding-step-index {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.onboarding-steps button,
+.onboarding-guide footer button,
+.onboarding-resume {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  background: var(--bg-main);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.onboarding-steps button:hover,
+.onboarding-guide footer button:hover,
+.onboarding-resume:hover {
+  background: var(--bg-hover);
+}
+
+.onboarding-steps button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.onboarding-step-done {
+  color: var(--success);
+  font-size: var(--text-sm);
+}
+
+.onboarding-guide footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 24px 20px;
+}
+
+.onboarding-guide footer button.primary {
+  border-color: transparent;
+  color: var(--button-primary-text);
+  background: var(--button-primary-bg);
+}
+
+.onboarding-guide footer button.primary:hover {
+  background: var(--button-primary-hover);
+}
+
+.onboarding-resume {
+  position: fixed;
+  bottom: 132px;
+  left: 50%;
+  z-index: 55;
+  box-shadow: var(--shadow-popover);
+  transform: translateX(-50%);
+}
+
+@media (max-width: 720px) {
+  .onboarding-steps li {
+    flex-wrap: wrap;
+  }
+  .onboarding-steps li > button {
+    margin-left: 38px;
+  }
+}

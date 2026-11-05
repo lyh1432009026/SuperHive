@@ -418,6 +418,9 @@ describe("App mention autocomplete", () => {
     // 默认开启 @ 通知，进入聊天室的点击手势里顺带请求浏览器授权
     await waitFor(() => expect(FakeNotification.permission).toBe("granted"));
     expect(screen.queryByRole("status", { name: "开启浏览器通知" })).toBeNull();
+    // 第一次用的房主会看到上手引导，这里先跳过
+    await user.click(await screen.findByRole("button", { name: "跳过，以后再说" }));
+    expect(localStorage.getItem("superhive.onboarding")).toBe("done");
 
     const socket = FakeWebSocket.instances[0]!;
     act(() => socket.open());
@@ -2006,6 +2009,142 @@ describe("App mention autocomplete", () => {
     );
     expect(within(list).getByText("已取消")).toBeTruthy();
     expect(within(tab).queryByText("1")).toBeNull();
+  });
+
+  it("reminds me across rooms when my task needs me or finishes, and jumps to it", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    FakeNotification.permission = "granted";
+    const at = new Date().toISOString();
+    const task = (id: string, status: Invocation["status"], extra: Partial<Invocation> = {}) =>
+      ({
+        id,
+        roomId: "frontend",
+        messageId: "00000000-0000-4000-8000-000000000201",
+        agentId: "00000000-0000-4000-8000-000000000105",
+        agentName: "frontend-agent",
+        requesterName: "Alice",
+        requesterType: "human",
+        status,
+        attempts: 1,
+        createdAt: at,
+        updatedAt: at,
+        ...extra,
+      }) as Invocation;
+    const first = "00000000-0000-4000-8000-000000000301";
+    const second = "00000000-0000-4000-8000-000000000302";
+    crossRoom.invocations = [task(first, "running"), task(second, "running")];
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self: participant("00000000-0000-4000-8000-000000000001", "Alice", "human"),
+        participants: [],
+        messages: [],
+        latestSeq: 0,
+      }),
+    );
+    expect(await screen.findByRole("img", { name: "# frontend：2 个任务进行中" })).toBeTruthy();
+
+    // 页面不在前台：两条任务各弹一条系统通知，不会互相顶掉
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    act(() => {
+      socket.serverEvent({ type: "invocation.updated", invocation: task(first, "waiting_human") });
+      socket.serverEvent({
+        type: "invocation.updated",
+        invocation: task(second, "failed", { detail: "测试没过" }),
+      });
+    });
+    expect(FakeNotification.instances.map((item) => item.title)).toEqual([
+      "frontend-agent 在等你回答",
+      "frontend-agent 的任务失败了",
+    ]);
+    expect(FakeNotification.instances[1]!.options?.body).toBe("# frontend · 测试没过");
+    expect(new Set(FakeNotification.instances.map((item) => item.options?.tag)).size).toBe(2);
+    // 同一状态的重复推送不再提醒
+    act(() =>
+      socket.serverEvent({
+        type: "invocation.updated",
+        invocation: task(second, "failed", { detail: "测试没过" }),
+      }),
+    );
+    expect(FakeNotification.instances).toHaveLength(2);
+    // 侧栏列出需要处理的，最急的在前
+    const group = screen.getByRole("region", { name: "需要你处理" });
+    expect(
+      within(group)
+        .getAllByRole("button")
+        .map((item) => item.textContent),
+    ).toEqual(["等你回答frontend-agent · # frontend", "失败frontend-agent · # frontend"]);
+
+    // 回到前台、但看的是别的房间：做完了在页面内提示，房间上标「完成未看」
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      socket.serverEvent({ type: "invocation.updated", invocation: task(first, "completed") });
+    });
+    expect(FakeNotification.instances).toHaveLength(2);
+    const toasts = screen.getByRole("region", { name: "任务提醒" });
+    expect(within(toasts).getByText("frontend-agent 做完了")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "# frontend：1 个任务需要处理" })).toBeTruthy();
+    act(() =>
+      socket.serverEvent({
+        type: "invocation.updated",
+        invocation: task(second, "failed", {
+          detail: "测试没过",
+          resolution: { kind: "dismissed", at },
+        }),
+      }),
+    );
+    expect(
+      await screen.findByRole("img", { name: "# frontend：1 个任务做完了，还没看" }),
+    ).toBeTruthy();
+
+    // 点「查看」跳到那个房间；看过之后「完成未看」消失
+    await user.click(within(toasts).getByRole("button", { name: "查看" }));
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2));
+    await waitFor(() =>
+      expect(screen.queryByRole("img", { name: "# frontend：1 个任务做完了，还没看" })).toBeNull(),
+    );
+    expect(within(toasts).queryByText("frontend-agent 做完了")).toBeNull();
+  });
+
+  it("walks a first-time owner through connecting an agent, notifications and IM", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.type(screen.getByLabelText("你的用户名"), "Alice");
+    await user.click(screen.getByRole("button", { name: /进入聊天室/ }));
+    const guide = await screen.findByRole("dialog", { name: "三步开始用 SuperHive" });
+    expect(within(guide).getByText("接入一个 Agent")).toBeTruthy();
+    expect(within(guide).getByText("连上飞书或微信")).toBeTruthy();
+    // 进入时已顺带授权了通知，这一步自动算完成
+    await waitFor(() => expect(within(guide).getByText("第一次使用 · 已完成 1/3")).toBeTruthy());
+
+    // 去接 Agent：引导先收起，弹窗关掉后可以接着看
+    await user.click(within(guide).getByRole("button", { name: "接入 Agent" }));
+    expect(screen.queryByRole("dialog", { name: "三步开始用 SuperHive" })).toBeNull();
+    await user.keyboard("{Escape}");
+    await user.click(await screen.findByRole("button", { name: "继续上手引导（1/3）" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "三步开始用 SuperHive" })).getByRole("button", {
+        name: "跳过，以后再说",
+      }),
+    );
+    expect(screen.queryByRole("dialog", { name: "三步开始用 SuperHive" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /继续上手引导/ })).toBeNull();
+    expect(localStorage.getItem("superhive.onboarding")).toBe("done");
+  });
+
+  it("does not show the first-time guide to people who already used this browser", async () => {
+    localStorage.setItem("superhive.username", "Alice");
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    expect(screen.queryByRole("dialog", { name: "三步开始用 SuperHive" })).toBeNull();
+    expect(localStorage.getItem("superhive.onboarding")).toBeNull();
   });
 
   it("opens search, mentions and agent tasks from the sidebar and jumps across rooms", async () => {
