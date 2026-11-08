@@ -68,7 +68,7 @@ import { GoToPalette } from "./goto-palette";
 import { matchShortcut, type ShortcutId } from "./shortcuts";
 import { ShortcutsHelp } from "./shortcuts-help";
 import { ContextMenu, contextMenuPoint, type ContextMenuState } from "./context-menu";
-import { isMachineMessage, machineSummary } from "./machine-message";
+import { isMachineMessage, machinePreview } from "./machine-message";
 import {
   AttentionRoomGroup,
   AttentionToasts,
@@ -4362,19 +4362,31 @@ export function App({
                                   : t("{0} 撤回了一条消息", { 0: message.senderName })}
                               </p>
                             ) : isMachine(message) && !openMachineIds.has(message.id) ? (
-                              <button
-                                type="button"
-                                className="message-machine-summary"
-                                title={t("Agent 之间的往来，点开看全文")}
-                                aria-expanded={false}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setOpenMachineIds((current) => new Set(current).add(message.id));
-                                }}
-                              >
-                                <span>{machineSummary(message)}</span>
-                                <small>{t("展开")}</small>
-                              </button>
+                              (() => {
+                                const preview = machinePreview(message);
+                                return (
+                                  <button
+                                    type="button"
+                                    className="message-machine-card"
+                                    title={t("Agent 之间的往来，点开看全文")}
+                                    aria-expanded={false}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setOpenMachineIds((current) =>
+                                        new Set(current).add(message.id),
+                                      );
+                                    }}
+                                  >
+                                    <span className="message-machine-label">
+                                      {preview.label}
+                                      <small>{t("展开")}</small>
+                                    </span>
+                                    {preview.text && (
+                                      <span className="message-machine-text">{preview.text}</span>
+                                    )}
+                                  </button>
+                                );
+                              })()
                             ) : (
                               message.content && (
                                 <div className="message-body">

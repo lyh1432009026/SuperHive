@@ -13,20 +13,19 @@ export function isMachineMessage(
   return message.mentions.length > 0 && message.mentions.every(isAgent);
 }
 
-/** 收起时显示的一行摘要 */
-export function machineSummary(message: ChatMessage): string {
+/** 收起时卡片上的内容：一行标签（委派 / 子任务回执 · 状态 · 结果见 #N）和露出前两行的正文 */
+export function machinePreview(message: ChatMessage): { label: string; text: string } {
   if (message.kind === "receipt") {
     const status = /^状态：(.+)$/m.exec(message.content)?.[1]?.trim();
-    const result = /结果（#(\d+)）/.exec(message.content)?.[1];
-    return [t("子任务回执"), status, result ? t("结果见 #{0}", { 0: result }) : undefined]
-      .filter(Boolean)
-      .join(" · ");
+    const result = /结果（#(\d+)）：?\n?([\s\S]*?)(?:\n子任务 ID：|$)/.exec(message.content);
+    const note = /^说明：(.+)$/m.exec(message.content)?.[1]?.trim();
+    return {
+      label: [t("子任务回执"), status, result?.[1] ? t("结果见 #{0}", { 0: result[1] }) : undefined]
+        .filter(Boolean)
+        .join(" · "),
+      text: (result?.[2] ?? note ?? "").trim(),
+    };
   }
-  const firstLine = message.content
-    .replace(/^\s*(?:@[\w.-]+\s*)+/, "")
-    .split("\n")
-    .find((line) => line.trim())
-    ?.trim();
-  const text = firstLine ?? "";
-  return `${t("委派")} · ${text.length > 80 ? `${text.slice(0, 79)}…` : text}`;
+  // 委派：去掉开头的 @对方，正文就是任务说明
+  return { label: t("委派"), text: message.content.replace(/^\s*(?:@[\w.-]+\s*)+/, "").trim() };
 }
