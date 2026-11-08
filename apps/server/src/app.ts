@@ -2218,7 +2218,32 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
    * 停止调用。尚未开始执行的直接给出终态；已开始的进入 cancelling，等 Agent 回报结束才算停下，
    * 期间不允许重试。状态落库，服务端重启或 Agent 断线后仍保持，Agent 重连时会再次收到停止请求。
    */
-  function cancelInvocation(actor: Participant, invocationId: string): void {
+  /**
+   * 撤回并停止：只停这条消息直接派出的任务，它们引出的下游子任务不连带停。
+   * 排队中、被拦下的直接取消；执行中、等人回答的按「停止」处理（Agent 把几条合在一轮里做时，
+   * 它只丢掉撤回的这条、其余照常做完）。
+   */
+  function stopRecalledTasks(actor: Participant, message: ChatMessage): void {
+    for (const invocation of database.invocationsForMessage(message.id)) {
+      if (isTerminal(invocation) || invocation.roomId !== actor.roomId) continue;
+      if (invocation.status === "queued" || invocation.status === "blocked") {
+        emitInvocation(
+          database.updateInvocation(invocation.id, {
+            status: "cancelled",
+            finishedAt: new Date().toISOString(),
+            progress: null,
+            detail: "消息已撤回，未执行",
+          }),
+        );
+        const target = onlineAgent(invocation.roomId, invocation.agentName);
+        if (target) send(target.socket, { type: "agent.cancel", messageId: message.id });
+        continue;
+      }
+      cancelInvocation(actor, invocation.id, "消息已撤回");
+    }
+  }
+
+  function cancelInvocation(actor: Participant, invocationId: string, reason?: string): void {
     const invocation = invocationInRoom(actor, invocationId);
     if (isTerminal(invocation)) return;
     // 等人回答且这一轮已结束：没有在跑的执行需要确认，直接停下
@@ -2226,7 +2251,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       emitInvocation(
         database.updateInvocation(invocation.id, {
           status: "cancelled",
-          detail: `${actor.username} 不再回答，已停止`,
+          detail: reason ? `${reason}，已停止` : `${actor.username} 不再回答，已停止`,
         }),
       );
       return;
@@ -2236,7 +2261,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       emitInvocation(
         database.updateInvocation(invocation.id, {
           status: "cancelling",
-          detail: `${actor.username} 已请求停止，等待 ${invocation.agentName} 确认`,
+          detail: `${reason ? `${reason}，` : ""}${actor.username} 已请求停止，等待 ${invocation.agentName} 确认`,
           progress: null,
         }),
       );
@@ -2352,10 +2377,27 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         status: invocation.status === "cancelling" ? "cancelled" : report.status,
         finishedAt: now,
         progress: null,
-        detail: report.detail ?? terminalDetail(invocation, report.status),
+        detail:
+          recalledDetail(invocation, report.status) ??
+          report.detail ??
+          terminalDetail(invocation, report.status),
         ...(report.replyMessageId ? { replyMessageId: report.replyMessageId } : {}),
       }),
     );
+  }
+
+  /** 撤回并停止的任务结束时写明原因，不显示成普通的失败或停止 */
+  function recalledDetail(
+    invocation: Invocation,
+    status: Invocation["status"],
+  ): string | undefined {
+    if (
+      invocation.status !== "cancelling" ||
+      !database.getMessage(invocation.messageId)?.deletedAt
+    ) {
+      return undefined;
+    }
+    return status === "cancelled" ? "消息已撤回，已停止" : undefined;
   }
 
   function terminalDetail(invocation: Invocation, status: Invocation["status"]): string | null {
@@ -4188,6 +4230,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           const message = database.deleteMessage(participant, event.messageId);
           attachments.revokeForMessage(message.id);
           broadcast(participant.roomId, { type: "message.deleted", message });
+          if (event.stop) stopRecalledTasks(participant, message);
         } catch (error) {
           const hiveError = error instanceof HiveError ? error : undefined;
           send(socket, {

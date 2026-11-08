@@ -220,6 +220,11 @@ export const messageAckEventSchema = z.object({
 export const messageDeleteEventSchema = z.object({
   type: z.literal("message.delete"),
   messageId: z.string().uuid(),
+  /**
+   * 撤回时一起停掉这条消息派出、还没结束的任务（排队中的取消，执行中的按「停止」处理）。
+   * 不传等于只撤回：已经在做的照常做完，只是不再回复。
+   */
+  stop: z.boolean().optional(),
 });
 /**
  * 人点选回答 Agent 的提问：服务端按已存的题目校验所选，生成完整正文后作为对提问的回复发出，

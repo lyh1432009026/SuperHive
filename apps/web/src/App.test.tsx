@@ -1096,8 +1096,61 @@ describe("App mention autocomplete", () => {
       "@backend-agent ",
     );
 
-    // 二次确认：先取消，再确认
+    // 还有 Agent 在做这条消息派的活：确认里默认「撤回并停止」，也可以只撤回
+    const now = new Date().toISOString();
+    act(() =>
+      socket.serverEvent({
+        type: "invocation.updated",
+        invocation: {
+          id: "00000000-0000-4000-8000-0000000000b1",
+          roomId: "general",
+          messageId: mine.id,
+          agentId: agent.id,
+          agentName: "backend-agent",
+          requesterName: "Alice",
+          requesterType: "human",
+          status: "running",
+          attempts: 1,
+          createdAt: now,
+          updatedAt: now,
+          startedAt: now,
+        },
+      }),
+    );
     await user.click(recallButtons[0]!);
+    const stopConfirm = list().getByRole("group", { name: "确认撤回" });
+    expect(stopConfirm.textContent).toContain("撤回并停止 @backend-agent 的任务？");
+    expect(within(stopConfirm).getByRole("button", { name: "只撤回" })).toBeTruthy();
+    const sentBeforeStop = socket.sent.length;
+    await user.click(within(stopConfirm).getByRole("button", { name: "撤回并停止" }));
+    expect(JSON.parse(socket.sent.at(-1)!)).toEqual({
+      type: "message.delete",
+      messageId: mine.id,
+      stop: true,
+    });
+    expect(socket.sent).toHaveLength(sentBeforeStop + 1);
+    act(() =>
+      socket.serverEvent({
+        type: "invocation.updated",
+        invocation: {
+          id: "00000000-0000-4000-8000-0000000000b1",
+          roomId: "general",
+          messageId: mine.id,
+          agentId: agent.id,
+          agentName: "backend-agent",
+          requesterName: "Alice",
+          requesterType: "human",
+          status: "completed",
+          attempts: 1,
+          createdAt: now,
+          updatedAt: now,
+          finishedAt: now,
+        },
+      }),
+    );
+
+    // 二次确认：先取消，再确认
+    await user.click(list().getByRole("button", { name: "撤回这条消息" }));
     const confirm = list().getByRole("group", { name: "确认撤回" });
     await user.click(within(confirm).getByRole("button", { name: "取消" }));
     expect(list().queryByRole("group", { name: "确认撤回" })).toBeNull();

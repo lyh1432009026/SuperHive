@@ -2939,13 +2939,14 @@ export function App({
     }
   }
 
-  function recallMessage(messageId: string) {
+  /** stop：一起停掉这条消息派出、还没结束的任务（服务端处理，只停直接派出的，不连带下游） */
+  function recallMessage(messageId: string, stop = false) {
     const socket = socketRef.current;
     if (socket?.readyState !== WebSocket.OPEN) {
       setError(t("当前未连接到 Hive Server，无法撤回。"));
       return;
     }
-    socket.send(JSON.stringify({ type: "message.delete", messageId }));
+    socket.send(JSON.stringify({ type: "message.delete", messageId, ...(stop ? { stop } : {}) }));
     setRecallCandidateId(undefined);
   }
 
@@ -4246,26 +4247,66 @@ export function App({
                                   @
                                 </button>
                               ) : recallCandidateId === message.id ? (
-                                <span
-                                  className="message-recall-confirm"
-                                  role="group"
-                                  aria-label={t("确认撤回")}
-                                >
-                                  <span>{t("撤回这条消息？")}</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => setRecallCandidateId(undefined)}
-                                  >
-                                    {t("取消")}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="danger"
-                                    onClick={() => recallMessage(message.id)}
-                                  >
-                                    {t("撤回")}
-                                  </button>
-                                </span>
+                                (() => {
+                                  // 这条消息派出、还没结束的任务：撤回时默认一起停掉
+                                  const open = (invocationsByMessage.get(message.id) ?? []).filter(
+                                    (invocation) =>
+                                      ["queued", "running", "waiting_human", "blocked"].includes(
+                                        invocation.status,
+                                      ),
+                                  );
+                                  return (
+                                    <span
+                                      className="message-recall-confirm"
+                                      role="group"
+                                      aria-label={t("确认撤回")}
+                                    >
+                                      <span
+                                        title={
+                                          open.length
+                                            ? t(
+                                                "只停这条消息直接派出的任务，它们再派出去的子任务不受影响；已经改的文件、跑过的命令不会撤销。",
+                                              )
+                                            : undefined
+                                        }
+                                      >
+                                        {open.length
+                                          ? t("撤回并停止 {0} 的任务？", {
+                                              0: [
+                                                ...new Set(
+                                                  open.map(
+                                                    (invocation) => `@${invocation.agentName}`,
+                                                  ),
+                                                ),
+                                              ].join("、"),
+                                            })
+                                          : t("撤回这条消息？")}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setRecallCandidateId(undefined)}
+                                      >
+                                        {t("取消")}
+                                      </button>
+                                      {open.length > 0 && (
+                                        <button
+                                          type="button"
+                                          title={t("消息撤回，正在做的照常做完，只是不再回复")}
+                                          onClick={() => recallMessage(message.id)}
+                                        >
+                                          {t("只撤回")}
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        className="danger"
+                                        onClick={() => recallMessage(message.id, open.length > 0)}
+                                      >
+                                        {open.length ? t("撤回并停止") : t("撤回")}
+                                      </button>
+                                    </span>
+                                  );
+                                })()
                               ) : (
                                 <button
                                   type="button"

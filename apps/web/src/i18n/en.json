@@ -1146,5 +1146,10 @@
   "已在终端打开 {0} 的会话；用完退出后再在房间里 @ 它。": "Opened {0}'s session in a terminal. Quit it before you @ the agent in the room again.",
   "{0}（命令已复制：{1}）": "{0} (command copied: {1})",
   "它正在执行：打开后能看到到目前为止的会话记录，别在终端里发消息": "It is running: you'll see the session so far. Don't send messages from the terminal.",
-  "{0}\n\n仍要打开吗？": "{0}\n\nOpen it anyway?"
+  "{0}\n\n仍要打开吗？": "{0}\n\nOpen it anyway?",
+  "只停这条消息直接派出的任务，它们再派出去的子任务不受影响；已经改的文件、跑过的命令不会撤销。": "Only tasks this message dispatched directly are stopped; their subtasks keep going. Files already changed and commands already run are not undone.",
+  "撤回并停止 {0} 的任务？": "Recall and stop {0}'s task?",
+  "消息撤回，正在做的照常做完，只是不再回复": "Recall the message but let running work finish; it just won't reply",
+  "只撤回": "Recall only",
+  "撤回并停止": "Recall and stop"
 }
