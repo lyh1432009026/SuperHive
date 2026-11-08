@@ -84,7 +84,6 @@ import {
   type OnboardingStep,
 } from "./onboarding";
 import {
-  LocalAgentList,
   LocalLaunch,
   providerInfo,
   useLocalAgents,
@@ -272,8 +271,16 @@ const agentAccessOptions: Array<{
   label: string;
   description: string;
 }> = localized(() => [
-  { id: "read-only", label: t("只读"), description: t("推荐。只读取与规划，不写入工作区。") },
-  { id: "workspace", label: t("工作区"), description: t("可在当前终端目录内读写文件、运行命令。") },
+  {
+    id: "read-only",
+    label: t("只读"),
+    description: t("只能读代码、出方案，不能改文件、跑命令；适合只想让它看看、给建议。"),
+  },
+  {
+    id: "workspace",
+    label: t("工作区"),
+    description: t("推荐。可在指定目录内读写文件、运行命令；越界的操作会被拦下或先问你。"),
+  },
   {
     id: "full",
     label: t("完全访问"),
@@ -1359,7 +1366,12 @@ export function App({
   const [commandCopied, setCommandCopied] = useState(false);
   const [copyError, setCopyError] = useState<string>();
   const [agentProvider, setAgentProvider] = useState<SelectableAgentProvider>("codex");
-  const [agentAccess, setAgentAccess] = useState<AgentAccessMode>("read-only");
+  // 默认工作区档：只读什么都改不了，接进来基本没用；完全访问每次都要明确选
+  const [agentAccess, setAgentAccess] = useState<AgentAccessMode>("workspace");
+  // 第一步先让人选 Agent，选了才能下一步（不默认替人选一个）
+  const [agentProviderChosen, setAgentProviderChosen] = useState(false);
+  // 真的启动了或复制了命令才显示「完成」，免得第 3 步点了「完成」却什么也没发生
+  const [agentConnected, setAgentConnected] = useState(false);
   const [agentStep, setAgentStep] = useState<AgentSetupStep>(1);
   const [fullAccessConfirmationOpen, setFullAccessConfirmationOpen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>();
@@ -1893,8 +1905,10 @@ export function App({
   const openAgentDialog = useCallback((trigger: HTMLButtonElement) => {
     agentDialogTriggerRef.current = trigger;
     setAgentStep(1);
+    setAgentProviderChosen(false);
+    setAgentConnected(false);
     // 完全访问不跨次保留：每次打开都要重新明确选择最高权限
-    setAgentAccess((current) => (current === "full" ? "read-only" : current));
+    setAgentAccess((current) => (current === "full" ? "workspace" : current));
     setCommandCopied(false);
     setCopyError(undefined);
     setAgentDialogOpen(true);
@@ -3124,6 +3138,7 @@ export function App({
     try {
       await copyTextToClipboard(selectedAgentCommand);
       setCommandCopied(true);
+      setAgentConnected(true);
       window.setTimeout(() => setCommandCopied(false), 1500);
     } catch {
       setCommandCopied(false);
@@ -5460,9 +5475,13 @@ export function App({
                           : t("在本机启动")
                         : t("复制命令，到终端运行")}
                 </h3>
-                {agentStep === 1 && <p>{t("接入命令会根据所选 Agent 的运行环境自动调整。")}</p>}
+                {agentStep === 1 && (
+                  <p>{t("点一个就进下一步；接入命令会按所选 Agent 的运行环境自动调整。")}</p>
+                )}
                 {agentStep === 2 && (
-                  <p>{t("权限只在 Agent 所在电脑生效，Hive Server 始终只转发消息。默认只读。")}</p>
+                  <p>
+                    {t("权限只在 Agent 所在电脑生效，Hive Server 始终只转发消息。默认工作区档。")}
+                  </p>
                 )}
                 {agentStep === 3 && (
                   <p>
@@ -5475,8 +5494,6 @@ export function App({
                 )}
               </div>
 
-              {agentStep === 1 && <LocalAgentList local={local} />}
-
               {agentStep === 1 && (
                 <div
                   className="provider-selector"
@@ -5486,7 +5503,10 @@ export function App({
                     moveRadioSelection(
                       event,
                       selectableAgentProviders.indexOf(agentProvider),
-                      (index) => setAgentProvider(selectableAgentProviders[index]!),
+                      (index) => {
+                        setAgentProvider(selectableAgentProviders[index]!);
+                        setAgentProviderChosen(true);
+                      },
                     )
                   }
                 >
@@ -5494,15 +5514,25 @@ export function App({
                     <button
                       type="button"
                       role="radio"
-                      aria-checked={agentProvider === provider}
-                      tabIndex={agentProvider === provider ? 0 : -1}
+                      aria-checked={agentProviderChosen && agentProvider === provider}
+                      tabIndex={
+                        agentProvider === provider ||
+                        (!agentProviderChosen && provider === selectableAgentProviders[0])
+                          ? 0
+                          : -1
+                      }
                       className={[
-                        agentProvider === provider ? "active" : "",
+                        agentProviderChosen && agentProvider === provider ? "active" : "",
                         providerInfo(local, provider)?.installed === false ? "unavailable" : "",
                       ]
                         .filter(Boolean)
                         .join(" ")}
-                      onClick={() => setAgentProvider(provider)}
+                      // 点一下就进下一步，不用再点「下一步」
+                      onClick={() => {
+                        setAgentProvider(provider);
+                        setAgentProviderChosen(true);
+                        goToAgentStep(2);
+                      }}
                       key={provider}
                     >
                       <span className="provider-monogram" aria-hidden="true">
@@ -5552,7 +5582,11 @@ export function App({
                         }
                         tabIndex={agentAccess === option.id ? 0 : -1}
                         className={`${option.id} ${agentAccess === option.id ? "active" : ""}`}
-                        onClick={() => chooseAgentAccess(option.id)}
+                        // 点一下就进下一步；完全访问要先在下面确认风险
+                        onClick={() => {
+                          chooseAgentAccess(option.id);
+                          if (option.id !== "full" || agentAccess === "full") goToAgentStep(3);
+                        }}
                         key={option.id}
                       >
                         <span className="access-indicator" aria-hidden="true">
@@ -5597,6 +5631,7 @@ export function App({
                           onClick={() => {
                             setAgentAccess("full");
                             setFullAccessConfirmationOpen(false);
+                            goToAgentStep(3);
                           }}
                         >
                           {t("我了解风险，开启完全访问")}
@@ -5668,6 +5703,7 @@ export function App({
                         access={agentAccess}
                         defaultName={agentNameFor(username, agentProvider)}
                         providerLabel={agentProviderLabel(agentProvider)}
+                        onLaunched={() => setAgentConnected(true)}
                       >
                         {commandSection}
                       </LocalLaunch>
@@ -5721,15 +5757,21 @@ export function App({
                   <button
                     type="button"
                     className="primary"
+                    disabled={agentStep === 1 && !agentProviderChosen}
+                    title={
+                      agentStep === 1 && !agentProviderChosen ? t("先选一个 Agent") : undefined
+                    }
                     onClick={() => goToAgentStep((agentStep + 1) as AgentSetupStep)}
                   >
                     <span>{t("下一步")}</span>
                     <Icon name="arrow-right" size={16} />
                   </button>
                 ) : (
-                  <button type="button" onClick={closeAgentDialog}>
-                    {t("完成")}
-                  </button>
+                  agentConnected && (
+                    <button type="button" className="primary" onClick={closeAgentDialog}>
+                      {t("完成")}
+                    </button>
+                  )
                 )}
               </div>
             </footer>

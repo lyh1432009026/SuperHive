@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LocalAgent, LocalAgentMcpResponse } from "@superhive/protocol";
 import { AgentSettingsDialog, formatTokens } from "./agent-settings-dialog";
@@ -60,7 +60,14 @@ describe("AgentSettingsDialog", () => {
     render(
       <AgentSettingsDialog
         agent={agent}
-        local={{ mcpServers, updateSettings, act, canManage: true }}
+        local={{
+          mcpServers,
+          updateSettings,
+          act,
+          canManage: true,
+          logs: async () => [],
+          remove: async () => undefined,
+        }}
         onClose={() => undefined}
       />,
     );
@@ -91,6 +98,8 @@ describe("AgentSettingsDialog", () => {
           updateSettings: async (_id, settings) => ({ ...agent, ...settings }),
           act: async () => undefined,
           canManage: false,
+          logs: async () => [],
+          remove: async () => undefined,
         }}
         onClose={() => undefined}
       />,
@@ -115,6 +124,8 @@ describe("AgentSettingsDialog", () => {
           updateSettings: async (_id, settings) => ({ ...agent, ...settings }),
           act,
           canManage: true,
+          logs: async () => [],
+          remove: async () => undefined,
         }}
         onClose={() => undefined}
       />,
@@ -139,6 +150,8 @@ describe("AgentSettingsDialog", () => {
       updateSettings: vi.fn(async () => agent),
       act,
       canManage: true,
+      logs: vi.fn(async () => ["[hive] 已加入 #build"]),
+      remove: vi.fn(async () => undefined),
     };
     const { rerender } = render(
       <AgentSettingsDialog agent={agent} local={props} onClose={() => undefined} />,
@@ -159,5 +172,13 @@ describe("AgentSettingsDialog", () => {
     expect(screen.queryByRole("button", { name: "重启" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "启动" }));
     await waitFor(() => expect(act).toHaveBeenCalledWith(agent.id, "start"));
+
+    // 日志和删除也在这里（不再单独放一块本机 Agent 列表）
+    fireEvent.click(screen.getByRole("button", { name: "日志" }));
+    expect(await screen.findByText(/已加入 #build/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "删除" }));
+    const confirm = screen.getByRole("alert");
+    fireEvent.click(within(confirm).getByRole("button", { name: "删除" }));
+    await waitFor(() => expect(props.remove).toHaveBeenCalledWith(agent.id));
   });
 });

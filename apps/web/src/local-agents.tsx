@@ -660,13 +660,8 @@ export const localAgentStatusLabels: Record<LocalAgent["status"], string> = loca
   crashed: t("已崩溃"),
 }));
 
-const accessLabels: Record<LocalAgent["access"], string> = localized(() => ({
-  "read-only": t("只读"),
-  workspace: t("工作区"),
-  full: t("完全访问"),
-}));
-
-function LogViewer({
+/** 本机 Agent 的最近日志，定时刷新 */
+export function LogViewer({
   load: fetchLogs,
   agentId,
 }: {
@@ -698,116 +693,6 @@ function LogViewer({
   );
 }
 
-/** 面板顶部的"本机 Agent"列表：状态、停止 / 启动 / 重启 / 删除、日志 */
-export function LocalAgentList({ local }: { local: LocalAgentsState }) {
-  const [openLogs, setOpenLogs] = useState<string>();
-  const [busy, setBusy] = useState<string>();
-  const [error, setError] = useState<string>();
-  if (!local.enabled || local.agents.length === 0) return null;
-  // 房主设备没获批时只能看：按钮置灰，点不了
-  const locked = !local.canManage;
-  const title =
-    local.mode === "device"
-      ? t("{0} 上的 Agent", { 0: local.hostLabel ?? t("Server 所在电脑") })
-      : t("本机 Agent");
-
-  const run = async (id: string, task: () => Promise<void>) => {
-    setBusy(id);
-    setError(undefined);
-    try {
-      await task();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(undefined);
-    }
-  };
-
-  return (
-    <section className="local-agents" aria-label={title}>
-      <h4>{title}</h4>
-      {locked && (
-        <p className="settings-note">{t("这台设备只能查看。要启动、停止或删除，先申请管理权。")}</p>
-      )}
-      <ul>
-        {local.agents.map((agent) => {
-          const live = agent.status !== "stopped" && agent.status !== "crashed";
-          return (
-            <li key={agent.id} className={`local-agent ${agent.status}`}>
-              <div className="local-agent-row">
-                <span className="local-agent-dot" aria-hidden="true" />
-                <span className="local-agent-name">{agent.name}</span>
-                <span className="local-agent-meta">
-                  {agent.provider} · {accessLabels[agent.access]} ·{" "}
-                  {localAgentStatusLabels[agent.status]}
-                  {agent.restarts > 0 ? t(" · 重启 {0} 次", { 0: agent.restarts }) : ""}
-                </span>
-                <span className="local-agent-actions">
-                  {live ? (
-                    <>
-                      <button
-                        type="button"
-                        disabled={busy === agent.id || locked}
-                        onClick={() => void run(agent.id, () => local.act(agent.id, "restart"))}
-                      >
-                        {t("重启")}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy === agent.id || locked}
-                        onClick={() => void run(agent.id, () => local.act(agent.id, "stop"))}
-                      >
-                        {t("停止")}
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        disabled={busy === agent.id || locked}
-                        onClick={() => void run(agent.id, () => local.act(agent.id, "start"))}
-                      >
-                        {t("启动")}
-                      </button>
-                      <button
-                        type="button"
-                        className="danger"
-                        disabled={busy === agent.id || locked}
-                        aria-label={t("删除 {0}", { 0: agent.name })}
-                        onClick={() => void run(agent.id, () => local.remove(agent.id))}
-                      >
-                        {t("删除")}
-                      </button>
-                    </>
-                  )}
-                  <button
-                    type="button"
-                    aria-expanded={openLogs === agent.id}
-                    onClick={() =>
-                      setOpenLogs((current) => (current === agent.id ? undefined : agent.id))
-                    }
-                  >
-                    {t("日志")}
-                  </button>
-                </span>
-              </div>
-              {agent.status === "crashed" && agent.lastError && (
-                <p className="local-agent-error">{agent.lastError}</p>
-              )}
-              {openLogs === agent.id && <LogViewer load={local.logs} agentId={agent.id} />}
-            </li>
-          );
-        })}
-      </ul>
-      {error && (
-        <p className="local-agent-error" role="alert">
-          {error}
-        </p>
-      )}
-    </section>
-  );
-}
-
 /** 第 3 步：在本机启动；下方保留"复制命令"作为备选 */
 export function LocalLaunch({
   local,
@@ -816,7 +701,10 @@ export function LocalLaunch({
   defaultName,
   providerLabel,
   children,
+  onLaunched,
 }: {
+  /** 已经在本机启动：弹窗据此显示「完成」 */
+  onLaunched?: () => void;
   local: LocalAgentsState;
   provider: LocalAgentProvider;
   access: "read-only" | "workspace" | "full";
@@ -898,6 +786,7 @@ export function LocalLaunch({
         ...(mcpSelectable && mcpDisabled.size > 0 ? { mcpDisabled: [...mcpDisabled] } : {}),
       });
       setLaunchedId(agent.id);
+      onLaunched?.();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {

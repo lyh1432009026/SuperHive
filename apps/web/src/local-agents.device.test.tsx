@@ -4,7 +4,8 @@ import { act, cleanup, render, renderHook, screen, waitFor } from "@testing-libr
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LocalAgent } from "@superhive/protocol";
 import { HostManageNotice, OwnerDevicesGroup } from "./App";
-import { LocalAgentList, useLocalAgents, type LocalAgentsState } from "./local-agents";
+import { AgentSettingsDialog } from "./agent-settings-dialog";
+import { useLocalAgents, type LocalAgentsState } from "./local-agents";
 
 /** 房主在其他设备上：凭设备令牌管理 Server 所在电脑 */
 
@@ -92,17 +93,18 @@ describe("房主设备上的本机功能", () => {
       return (
         <>
           <HostManageNotice local={local} />
-          <LocalAgentList local={local} />
+          {local.agents[0] && (
+            <AgentSettingsDialog agent={local.agents[0]} local={local} onClose={() => undefined} />
+          )}
         </>
       );
     }
     render(<Harness />);
-    expect(await screen.findByRole("heading", { name: "studio-mac 上的 Agent" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "申请管理这台电脑" })).toBeTruthy();
-    expect((screen.getByRole("button", { name: "启动" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(await screen.findByRole("button", { name: "申请管理这台电脑" })).toBeTruthy();
     expect(
-      (screen.getByRole("button", { name: "删除 rd-omp" }) as HTMLButtonElement).disabled,
+      ((await screen.findByRole("button", { name: "启动" })) as HTMLButtonElement).disabled,
     ).toBe(true);
+    expect((screen.getByRole("button", { name: "删除" }) as HTMLButtonElement).disabled).toBe(true);
     for (const call of calls.filter((item) => item.url.includes("/api/local/"))) {
       expect(call.headers.get("Authorization")).toBe(`Bearer ${DEVICE_TOKEN}`);
       expect(call.headers.get("X-Hive-Owner")).toBeNull();

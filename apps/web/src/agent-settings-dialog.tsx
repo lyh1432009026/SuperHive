@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { LocalAgent, LocalAgentMcpResponse, LocalMcpServer } from "@superhive/protocol";
 import { localized, t } from "./i18n";
-import { localAgentStatusLabels, type LocalAgentsState } from "./local-agents";
+import { LogViewer, localAgentStatusLabels, type LocalAgentsState } from "./local-agents";
 
 function CloseGlyph() {
   return (
@@ -147,7 +147,10 @@ export function AgentSettingsDialog({
   agent: LocalAgent;
   /** 在终端里接着它在当前房间的会话 */
   onOpenTerminal?: () => void;
-  local: Pick<LocalAgentsState, "mcpServers" | "updateSettings" | "act" | "canManage">;
+  local: Pick<
+    LocalAgentsState,
+    "mcpServers" | "updateSettings" | "act" | "canManage" | "logs" | "remove"
+  >;
   onClose: () => void;
 }) {
   const [data, setData] = useState<LocalAgentMcpResponse | undefined>();
@@ -158,14 +161,21 @@ export function AgentSettingsDialog({
   const [saved, setSaved] = useState<"saved" | "restarted" | undefined>();
   const [autoSteer, setAutoSteer] = useState(agent.autoSteer);
   const [savingSteer, setSavingSteer] = useState(false);
-  const [acting, setActing] = useState<"start" | "stop" | "restart">();
+  const [acting, setActing] = useState<"start" | "stop" | "restart" | "remove">();
+  const [logsOpen, setLogsOpen] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const live = agent.status !== "stopped" && agent.status !== "crashed";
 
   /** 启动、停止、重启：和「接入 Agent」里本机 Agent 列表的按钮是同一个操作 */
-  async function control(action: "start" | "stop" | "restart") {
+  async function control(action: "start" | "stop" | "restart" | "remove") {
     setActing(action);
     setError(undefined);
     try {
+      if (action === "remove") {
+        await local.remove(agent.id);
+        onClose();
+        return;
+      }
       await local.act(agent.id, action);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -312,15 +322,50 @@ export function AgentSettingsDialog({
                 </button>
               </>
             ) : (
+              <>
+                <button
+                  type="button"
+                  disabled={acting !== undefined || !local.canManage}
+                  onClick={() => void control("start")}
+                >
+                  {acting === "start" ? t("启动中…") : t("启动")}
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={acting !== undefined || !local.canManage}
+                  onClick={() => setConfirmRemove(true)}
+                >
+                  {t("删除")}
+                </button>
+              </>
+            )}
+            <button type="button" aria-expanded={logsOpen} onClick={() => setLogsOpen(!logsOpen)}>
+              {t("日志")}
+            </button>
+          </div>
+          {agent.status === "crashed" && agent.lastError && (
+            <p className="local-agent-error">{agent.lastError}</p>
+          )}
+          {confirmRemove && (
+            <div className="agent-remove-confirm" role="alert">
+              <span>
+                {t("删除 {0}？它会退出所有房间，之后要用得重新接入。", { 0: agent.name })}
+              </span>
+              <button type="button" onClick={() => setConfirmRemove(false)}>
+                {t("取消")}
+              </button>
               <button
                 type="button"
-                disabled={acting !== undefined || !local.canManage}
-                onClick={() => void control("start")}
+                className="danger"
+                disabled={acting !== undefined}
+                onClick={() => void control("remove")}
               >
-                {acting === "start" ? t("启动中…") : t("启动")}
+                {t("删除")}
               </button>
-            )}
-          </div>
+            </div>
+          )}
+          {logsOpen && <LogViewer load={local.logs} agentId={agent.id} />}
           <label className="agent-auto-steer">
             <input
               type="checkbox"

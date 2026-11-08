@@ -827,6 +827,7 @@
 /* Agent 设置里的运行状态与重启 / 停止 / 启动 */
 .agent-run-control {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   border: 1px solid var(--border);
@@ -865,4 +866,34 @@
 
 .agent-run-control button:hover:not(:disabled) {
   background: var(--bg-active);
+}
+
+.agent-run-control button.danger,
+.agent-remove-confirm button.danger {
+  color: var(--danger);
+}
+
+.agent-remove-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  border-radius: var(--radius-lg);
+  padding: 8px 12px;
+  font-size: var(--text-sm);
+}
+
+.agent-remove-confirm span {
+  flex: 1;
+  min-width: 12em;
+}
+
+.agent-remove-confirm button {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  font-size: var(--text-xs);
 }
