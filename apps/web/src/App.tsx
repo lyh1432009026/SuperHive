@@ -4715,7 +4715,9 @@ export function App({
                     title={t("点一下回到编辑")}
                   >
                     {draft.trim() ? (
-                      <MessageMarkdown content={draft} />
+                      <div className="message-body">
+                        <MessageMarkdown content={draft} />
+                      </div>
                     ) : (
                       <p className="composer-preview-empty">{t("还没有内容")}</p>
                     )}

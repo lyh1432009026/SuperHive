@@ -69,6 +69,12 @@
   resize: none;
 }
 
+/* 预览时藏起来（display: block 会盖过 hidden 属性） */
+.composer textarea[hidden],
+.composer-highlight[hidden] {
+  display: none;
+}
+
 .composer textarea::selection {
   background: var(--accent-soft);
 }
