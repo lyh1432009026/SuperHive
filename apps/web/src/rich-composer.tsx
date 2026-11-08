@@ -115,9 +115,15 @@ function insertNewline(editor: Editor): boolean {
   if (editor.isActive("codeBlock")) return editor.commands.newlineInCode();
   if (fenceToCodeBlock(editor)) return true;
   const { $from, empty } = editor.state.selection;
-  if (editor.isActive("listItem")) {
-    if (empty && $from.parent.content.size === 0) return editor.commands.liftListItem("listItem");
-    if (editor.commands.splitListItem("listItem")) return true;
+  // 最里层的列表项（普通列表或任务列表）
+  let item: string | undefined;
+  for (let depth = $from.depth; depth > 0 && !item; depth -= 1) {
+    const name = $from.node(depth).type.name;
+    if (name === "listItem" || name === "taskItem") item = name;
+  }
+  if (item) {
+    if (empty && $from.parent.content.size === 0) return editor.commands.liftListItem(item);
+    if (editor.commands.splitListItem(item)) return true;
   }
   if (editor.isActive("heading")) return editor.commands.splitBlock();
   if (editor.isActive("blockquote") && empty) {

@@ -159,7 +159,8 @@ const markdownComponents: Components = {
 export const MessageMarkdown = memo(function MessageMarkdown({ content }: { content: string }) {
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, remarkBreaks, remarkMentionHighlights]}
+      // 只认 ~~ 为删除线：「~100~200 元」这种写法很常见，和输入框保持一致
+      remarkPlugins={[[remarkGfm, { singleTilde: false }], remarkBreaks, remarkMentionHighlights]}
       // 不开语言自动检测：未标记语言的代码块要用全部语法逐一试探打分，遇到长文本是
       // 主线程热点（实测单块可达数百毫秒）；标记了语言的代码块仍正常高亮
       rehypePlugins={[rehypeHighlight]}

@@ -24,6 +24,18 @@ describe("rich composer markdown", () => {
     expect(roundTrip("<div>x</div> 5 < 6 & 7")).toBe("<div>x</div> 5 < 6 & 7");
   });
 
+  it("keeps backslashes, entities and single tildes from pasted or restored text", () => {
+    expect(roundTrip("C:\\Users\\rd\\_x 正则 \\d+\\.\\w a\\*b")).toBe(
+      "C:\\Users\\rd\\_x 正则 \\d+\\.\\w a\\*b",
+    );
+    expect(roundTrip("a &amp; b &lt;c&gt; &#39; & d")).toBe("a &amp; b &lt;c&gt; &#39; & d");
+    expect(roundTrip("价格 ~100~200 元，~~删掉~~")).toBe("价格 ~100~200 元，~~删掉~~");
+  });
+
+  it("keeps task lists", () => {
+    expect(roundTrip("- [ ] todo\n- [x] done")).toBe("- [ ] todo\n- [x] done");
+  });
+
   it("uses a single newline for line breaks, like the message view", () => {
     expect(roundTrip("第一行\n第二行\n\n第三段")).toBe("第一行\n第二行\n\n第三段");
   });

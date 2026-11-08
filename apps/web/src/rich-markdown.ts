@@ -3,6 +3,7 @@ import { Placeholder } from "@tiptap/extensions";
 import { Markdown } from "@tiptap/markdown";
 import { Marked, Tokenizer, type Tokens } from "marked";
 import { HardBreak } from "@tiptap/extension-hard-break";
+import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { TableKit } from "@tiptap/extension-table";
 import StarterKit from "@tiptap/starter-kit";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
@@ -30,8 +31,11 @@ const PlainMarkdownText = Extension.create({
 });
 
 /**
- * 消息展示不渲染 HTML，所以 <div>、<br> 这类写法在输入框里也只是普通文字：
- * 解析时把 HTML 块和标签当文字，不然从历史里翻出来、粘贴进来时会被吞掉。
+ * 解析和导出要对称：导出不转义，解析时就不能吃掉原文里的东西。
+ * - 消息展示不渲染 HTML，所以 <div>、<br> 这类写法在输入框里也只是普通文字，不然翻历史、粘贴时会被吞掉；
+ * - 反斜杠原样保留（C:\Users\rd\_x、正则 \d+\.），不当成转义去掉；
+ * - &amp;、&lt; 原样保留（编辑器会把文字里的实体解码，先把 & 写成 &amp; 抵消掉）；
+ * - 只有 ~~ 才是删除线，「价格 ~100~200 元」不变。
  */
 function createMarked() {
   const instance = new Marked({ gfm: true, breaks: true });
@@ -48,6 +52,27 @@ function createMarked() {
           tokens: this.lexer.inline(text),
         };
         return paragraph as unknown as Tokens.HTML;
+      },
+      escape(source) {
+        const token = Tokenizer.prototype.escape.call(this, source) as Tokens.Escape | undefined;
+        if (!token) return undefined;
+        return { ...token, text: token.raw };
+      },
+      inlineText(source) {
+        const token = Tokenizer.prototype.inlineText.call(this, source) as Tokens.Text | undefined;
+        if (!token) return undefined;
+        return { ...token, text: token.text.replace(/&/g, "&amp;") };
+      },
+      del(source, maskedSource, previousCharacter) {
+        const token = Tokenizer.prototype.del.call(
+          this,
+          source,
+          maskedSource,
+          previousCharacter,
+        ) as Tokens.Del | undefined;
+        if (!token) return undefined;
+        if (token.raw.startsWith("~~")) return token;
+        return { type: "text", raw: "~", text: "~" } as unknown as Tokens.Del;
       },
       tag(source) {
         const token = Tokenizer.prototype.tag.call(this, source) as Tokens.Tag | undefined;
@@ -115,6 +140,8 @@ export function richComposerExtensions(placeholder: () => string): AnyExtension[
       addKeyboardShortcuts: () => ({}),
     }).configure({ keepMarks: true }),
     TableKit.configure({ table: { resizable: false } }),
+    TaskList,
+    TaskItem.configure({ nested: true }),
     Placeholder.configure({ placeholder }),
     Markdown.configure({ marked: createMarked() as never }),
     PlainMarkdownText,

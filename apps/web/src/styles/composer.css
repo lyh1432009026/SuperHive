@@ -551,3 +551,29 @@
     font-size: 16px;
   }
 }
+
+/* 任务列表：勾选框和文字一行 */
+.rich-composer ul[data-type="taskList"] {
+  padding-left: 4px;
+  list-style: none;
+}
+
+.rich-composer ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.rich-composer ul[data-type="taskList"] li > label {
+  flex: none;
+  margin-top: 1px;
+}
+
+.rich-composer ul[data-type="taskList"] li > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.rich-composer ul[data-type="taskList"] li > div > p {
+  margin: 0;
+}
