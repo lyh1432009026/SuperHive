@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -703,6 +703,7 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
   const peers: TestPeer[] = [];
 
   afterEach(async () => {
+    vi.useRealTimers();
     for (const peer of peers.splice(0)) peer.close();
     await closeApp?.();
     closeApp = undefined;
@@ -1224,7 +1225,10 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
     // 每轮都由人重新发起一条链，绕开 hop 限制，只测试"连续轮数"预算
     let speaker = { client: mcpA.client, peer: agentA, other: "agent-b", otherPeer: agentB };
     let listener = { client: mcpB.client, peer: agentB, other: "agent-a", otherPeer: agentA };
+    // 连续轮数上限比单 Agent 每分钟条数大：只假装时间在走（定时器照常），免得先撞上限流
+    vi.useFakeTimers({ toFake: ["Date"] });
     for (let turn = 1; turn <= LIMITS.maxConsecutiveAgentTurns; turn += 1) {
+      vi.setSystemTime(Date.now() + 6_000);
       const parent = trigger.type === "agent.mentioned" ? trigger.message : undefined;
       const sent = await speaker.client.callTool({
         name: "hive_message_send",
@@ -1655,7 +1659,9 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
     it("returns immediately when the subtask is blocked by the budget", async () => {
       const { plannerMcp, workerMcp, invoke } = await delegationRoom();
       // 两个 Agent 轮流发言，耗尽「人上次发言以来的 Agent 连续发言」预算（避开单 Agent 每分钟上限）
+      vi.useFakeTimers({ toFake: ["Date"] });
       for (let index = 0; index < LIMITS.maxConsecutiveAgentTurns; index += 1) {
+        vi.setSystemTime(Date.now() + 6_000);
         const sent = await (index % 2 ? plannerMcp : workerMcp).client.callTool({
           name: "hive_message_send",
           arguments: { content: `进度 ${index}`, clientMessageId: `fill-${index}` },

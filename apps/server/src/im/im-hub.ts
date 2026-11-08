@@ -210,6 +210,9 @@ export class ImHub {
   async close(): Promise<void> {
     this.closed = true;
     if (this.pumpTimer) clearInterval(this.pumpTimer);
+    // 还没到点的任务卡片刷新不再发：Server 关了以后数据库也关了
+    for (const timer of this.taskTimers.values()) clearTimeout(timer);
+    this.taskTimers.clear();
     for (const login of this.logins.values()) login.abort.abort();
     await Promise.allSettled([...this.transports.values()].map((transport) => transport.close()));
     this.transports.clear();

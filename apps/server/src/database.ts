@@ -1234,8 +1234,8 @@ export class HiveDatabase {
     const used = (
       this.db
         .prepare(
-          // 进度消息只是给人看的，不唤醒任何 Agent，不占连续轮数
-          "SELECT COUNT(*) AS count FROM messages WHERE room_id = ? AND sender_type = 'agent' AND seq > ? AND (kind IS NULL OR kind != 'progress')",
+          // 进度消息只是给人看的，不唤醒任何 Agent；子任务回执由服务端代发，是已放行的委派的收尾。都不占连续轮数
+          "SELECT COUNT(*) AS count FROM messages WHERE room_id = ? AND sender_type = 'agent' AND seq > ? AND (kind IS NULL OR kind NOT IN ('progress', 'receipt'))",
         )
         .get(roomId, lastHumanSeq) as { count: number }
     ).count;

@@ -11,8 +11,13 @@ export const LIMITS = {
   maxMessageLength: 100_000,
   /** 容纳上限内正文的 UTF-8 / JSON 转义开销，同时限制传输层的内存占用。 */
   maxClientPayloadBytes: 1_048_576,
-  /** 自上一条人类消息以来，房间内 Agent 发言触发其他 Agent 的最多轮数；人一发言即清零 */
-  maxConsecutiveAgentTurns: 16,
+  /**
+   * 自上一条人类消息以来，房间内 Agent 发言触发其他 Agent 的最多轮数；人一发言即清零。
+   * 这是费用刹车，不是防循环：环路由转交深度、单链条数、每分钟条数、同一对每天次数兜住，
+   * 所以放得比较宽，一次委派几个 Agent、来回 review 两轮的协作不用人中途点「继续」。
+   * 服务端代发的子任务回执、进度消息不计入。
+   */
+  maxConsecutiveAgentTurns: 50,
   /** 同一对 Agent（发起方 → 目标）在一个房间里 24 小时内的最多唤醒次数 */
   maxAgentPairTurnsPerDay: 100,
   /** running 调用超过这么久没有任何回报，视为结果未知（timed_out） */

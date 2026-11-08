@@ -1034,6 +1034,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       };
     }
     if (sender.type !== "agent") return undefined;
+    // 回执把已放行的委派结果交回发起方：拦下它，发起方就永远等不到结果，只受转交深度约束
+    if (message.kind === "receipt") return undefined;
     const budget = database.agentTurnBudget(message.roomId);
     if (budget.used > budget.limit) {
       return {

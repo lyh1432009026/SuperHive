@@ -468,6 +468,9 @@ describe("HiveDatabase", () => {
     db.createMessage(human, { content: "start", clientMessageId: "h1" });
     db.createMessage(agentA, { content: "one", clientMessageId: "a1" });
     db.createMessage(agentB, { content: "two", clientMessageId: "b1" });
+    // 进度和子任务回执不占轮数
+    db.createMessage(agentA, { content: "进度", clientMessageId: "a-progress", kind: "progress" });
+    db.createMessage(agentB, { content: "回执", clientMessageId: "b-receipt", kind: "receipt" });
     expect(db.agentTurnBudget("general")).toEqual({
       used: 2,
       limit: LIMITS.maxConsecutiveAgentTurns,
