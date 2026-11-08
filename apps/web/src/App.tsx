@@ -4248,7 +4248,11 @@ export function App({
                           : invocationByReply.get(message.id);
                         const steps = source ? traces.get(source.id) : undefined;
                         return source && steps?.length ? (
-                          <TraceRecap invocation={source} steps={steps} />
+                          <TraceRecap
+                            invocation={source}
+                            steps={steps}
+                            replyText={message.content}
+                          />
                         ) : null;
                       })()}
                       {message.kind === "topic" ? (
@@ -4648,6 +4652,7 @@ export function App({
                         key={`card-${invocation.id}`}
                         invocation={invocation}
                         steps={traces.get(invocation.id)}
+                        traceAllowed={!guest || guest.showTrace !== false}
                         defaultCollapsed={live.length > 3 && index < live.length - 1}
                         avatar={
                           <AvatarGlyph
