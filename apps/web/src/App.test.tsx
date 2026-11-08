@@ -1803,7 +1803,7 @@ describe("App mention autocomplete", () => {
     expect(within(panel).getByText("hive_board_update")).toBeTruthy();
   });
 
-  it("shows a running agent's current step inline and the full live steps in the details dialog", async () => {
+  it("shows a thinking card in the conversation while an agent works and folds it above the reply", async () => {
     localStorage.setItem("superhive.username", "Alice");
     localStorage.setItem("superhive.notify-prompt-dismissed", "true");
     render(<App />);
@@ -1871,17 +1871,44 @@ describe("App mention autocomplete", () => {
     );
     const list = () =>
       within(document.querySelector(".message-list")!.shadowRoot as unknown as HTMLElement);
-    // 消息下面不展开过程框：状态行只显示当前这一步，完整过程在「详情」弹窗里
-    await waitFor(() => expect(list().getByText("运行 git status")).toBeTruthy());
-    expect(list().queryByRole("region", { name: "执行过程" })).toBeNull();
+    // 对话流里出现「思考中」卡片：顶部是当前这一步，主体是中途说的话，命令收成一行
+    const card = await waitFor(() => list().getByRole("article", { name: "helper 正在处理" }));
+    expect(within(card).getByText("运行 git status")).toBeTruthy();
+    expect(within(card).getByText("先看一下改动")).toBeTruthy();
+    expect(within(card).getByText("运行 1 条命令")).toBeTruthy();
+    // 状态行不再重复当前这一步；底部「谁在干活」也不再重复列出有卡片的 Agent
+    expect(list().getAllByText("运行 git status")).toHaveLength(1);
+    expect(
+      document.querySelector(".message-list")!.shadowRoot!.querySelector(".typing"),
+    ).toBeNull();
+    // 思考摘要按纯文本显示，和中途说的话分开
+    act(() =>
+      socket.serverEvent({
+        type: "invocation.trace",
+        roomId: "general",
+        invocationId: invocation.id,
+        steps: [
+          {
+            id: "th1",
+            kind: "thinking",
+            text: "<b>Checking</b> the diff [link](https://x.y)",
+            startedAt: now,
+          },
+        ],
+      }),
+    );
+    const thought = within(card).getByText("<b>Checking</b> the diff [link](https://x.y)");
+    expect(thought.classList.contains("thinking")).toBe(true);
+    expect(within(card).queryByRole("link")).toBeNull();
 
+    // 详情弹窗里的完整时间线默认收起，免得同一份内容摆两遍
     await userEvent.setup().click(list().getByRole("button", { name: /@helper.*查看调用详情/ }));
     const dialog = screen.getByRole("dialog", { name: "调用详情" });
+    const full = within(dialog)
+      .getByText(/完整执行过程（3 步）/)
+      .closest("details")!;
+    expect(full.open).toBe(false);
     const trace = within(dialog).getByRole("region", { name: "执行过程" });
-    expect(within(trace).getByText("先看一下改动")).toBeTruthy();
-    expect(within(trace).getByText("git status")).toBeTruthy();
-    expect(within(trace).getByText(/运行 1 条命令/)).toBeTruthy();
-
     act(() =>
       socket.serverEvent({
         type: "invocation.trace",
@@ -1891,25 +1918,47 @@ describe("App mention autocomplete", () => {
       }),
     );
     expect(within(trace).getByText("失败")).toBeTruthy();
-    expect(within(trace).getByText("git status")).toBeTruthy();
+    await userEvent.setup().keyboard("{Escape}");
 
-    act(() =>
+    // 做完并回复：卡片消失，回复上方收成一行回顾，点开还能看这一轮的过程
+    const reply: ChatMessage = {
+      ...message,
+      id: "00000000-0000-4000-8000-0000000000a4",
+      seq: 2,
+      senderId: agent.id,
+      senderName: "helper",
+      senderType: "agent",
+      content: "提交好了",
+      mentions: [],
+      parentMessageId: message.id,
+    };
+    act(() => {
       socket.serverEvent({
         type: "invocation.trace",
         roomId: "general",
         invocationId: invocation.id,
         steps: [],
         ended: true,
-      }),
-    );
-    act(() =>
+      });
+      socket.serverEvent({ type: "message.created", message: reply });
       socket.serverEvent({
         type: "invocation.updated",
-        invocation: { ...invocation, status: "completed", finishedAt: now, updatedAt: now },
-      }),
+        invocation: {
+          ...invocation,
+          status: "completed",
+          finishedAt: now,
+          updatedAt: now,
+          replyMessageId: reply.id,
+        },
+      });
+    });
+    await waitFor(() =>
+      expect(list().queryByRole("article", { name: "helper 正在处理" })).toBeNull(),
     );
-    // 结束后弹窗里的过程照样能看（只留到刷新为止）
-    expect(within(dialog).getByRole("region", { name: "执行过程" })).toBeTruthy();
+    const recap = list().getByRole("button", { name: /helper 的过程/ });
+    expect(recap.textContent).toContain("运行 1 条命令");
+    await userEvent.setup().click(recap);
+    expect(list().getByText("先看一下改动")).toBeTruthy();
   });
 
   it("offers send-and-insert only when the draft mentions an agent that is running", async () => {

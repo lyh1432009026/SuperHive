@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { InvocationDetails } from "./invocation-details";
-import { currentTraceStep, isLiveInvocation } from "./live-trace";
 import {
   explainInvocationState,
   type ChatMessage,
@@ -462,9 +461,8 @@ export function InvocationChips({
             .filter(Boolean)
             .join(" · ");
           const hint = !rawHint || rawHint === label ? undefined : rawHint;
-          const steps = traces?.get(invocation.id);
-          const currentStep =
-            steps && isLiveInvocation(invocation) ? currentTraceStep(steps) : undefined;
+          // 有执行过程时，当前这一步显示在对话流的「思考中」卡片里，状态行不再重复
+          const traced = Boolean(traces?.get(invocation.id)?.length);
           const jumpTarget =
             invocation.status === "completed" &&
             invocation.replyMessageId &&
@@ -482,13 +480,11 @@ export function InvocationChips({
               </span>
               <span className="invocation-agent">@{invocation.agentName}</span>
               <span className="invocation-status">{label}</span>
-              {invocation.status === "running" && (currentStep ?? invocation.progress) && (
-                <span className={`invocation-progress${currentStep ? " trace-current" : ""}`}>
-                  {currentStep ?? invocation.progress}
-                </span>
+              {invocation.status === "running" && !traced && invocation.progress && (
+                <span className="invocation-progress">{invocation.progress}</span>
               )}
               {/* 插话的进展（正在插入、已并入 #n、没插进去转回排队……） */}
-              {((invocation.status === "running" && !currentStep && !invocation.progress) ||
+              {((invocation.status === "running" && !traced && !invocation.progress) ||
                 invocation.status === "queued") &&
                 invocation.detail &&
                 // 服务端收到确认时写的「已送达，排队中」和状态文字一样，不重复显示

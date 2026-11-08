@@ -250,7 +250,13 @@ export function InvocationDetails({
             {t("Agent 当前离线；保留的是最后收到的信息。")}
           </p>
         )}
-        {steps?.length ? <TraceLog invocation={invocation} steps={steps} /> : null}
+        {steps?.length ? (
+          // 过程主要在对话流的卡片里看；这里收起放完整时间线，免得同一份内容摆两遍
+          <details className="invocation-details-trace">
+            <summary>{t("完整执行过程（{0} 步）", { 0: steps.length })}</summary>
+            <TraceLog invocation={invocation} steps={steps} />
+          </details>
+        ) : null}
         {invocation.usage ? (
           <InvocationUsage usage={invocation.usage} />
         ) : (

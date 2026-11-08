@@ -62,6 +62,7 @@ import {
 } from "./room-reorder";
 import { isLiveInvocation, mergeTraceSteps } from "./live-trace";
 import { ActivityPanel, isInFlight, needsAttention, type ActivityView } from "./activity";
+import { ThinkingCard, TraceRecap, showsLiveCard } from "./thinking-card";
 import { buildGoToItems } from "./goto";
 import { GoToPalette } from "./goto-palette";
 import { matchShortcut, type ShortcutId } from "./shortcuts";
@@ -1656,6 +1657,14 @@ export function App({
     [topicMessages, visibleLimit, hiddenCount],
   );
   const invocationsByMessage = useMemo(() => groupInvocationsByMessage(invocations), [invocations]);
+  /** 回复消息 → 产生它的那次调用：回复上方显示这一轮过程的回顾 */
+  const invocationByReply = useMemo(() => {
+    const byReply = new Map<string, Invocation>();
+    for (const invocation of invocations.values()) {
+      if (invocation.replyMessageId) byReply.set(invocation.replyMessageId, invocation);
+    }
+    return byReply;
+  }, [invocations]);
   // 点选提交的答案按提问归档，用来在提问上高亮所选；先到的一条生效
   const choiceAnswers = useMemo(() => {
     const answers = new Map<string, QuestionAnswer>();
@@ -4232,6 +4241,16 @@ export function App({
                           <span>{dateDividerLabel(message.createdAt)}</span>
                         </div>
                       )}
+                      {(() => {
+                        // 这条是某次调用的回复：上方收着这一轮的过程（只在内存里，刷新后没有）
+                        const source = message.deletedAt
+                          ? undefined
+                          : invocationByReply.get(message.id);
+                        const steps = source ? traces.get(source.id) : undefined;
+                        return source && steps?.length ? (
+                          <TraceRecap invocation={source} steps={steps} />
+                        ) : null;
+                      })()}
                       {message.kind === "topic" ? (
                         <div
                           className="topic-divider"
@@ -4460,6 +4479,21 @@ export function App({
                                 traces={traces}
                               />
                             )}
+                            {(invocationsByMessage.get(message.id) ?? [])
+                              .filter(
+                                (invocation) =>
+                                  !invocation.replyMessageId &&
+                                  !showsLiveCard(invocation) &&
+                                  invocation.status !== "queued" &&
+                                  Boolean(traces.get(invocation.id)?.length),
+                              )
+                              .map((invocation) => (
+                                <TraceRecap
+                                  key={`recap-${invocation.id}`}
+                                  invocation={invocation}
+                                  steps={traces.get(invocation.id)!}
+                                />
+                              ))}
                           </div>
                           {message.deletedAt ? null : shareMode ? (
                             <span
@@ -4600,8 +4634,40 @@ export function App({
                     </Fragment>
                   ))}
                   {(() => {
-                    // 谁在干活：每个 Agent 一个头像，点了跳到它正在处理的那条消息
-                    const rows = agentActivity(participants, invocations.values(), currentRoomId);
+                    // 正在干活的 Agent：每人一张「思考中」卡片，出现在回复将来出现的位置；同时超过 3 张时只展开最新的
+                    const live = [...invocations.values()]
+                      .filter(
+                        (invocation) =>
+                          invocation.roomId === currentRoomId && showsLiveCard(invocation),
+                      )
+                      .sort((a, b) =>
+                        (a.startedAt ?? a.createdAt).localeCompare(b.startedAt ?? b.createdAt),
+                      );
+                    return live.map((invocation, index) => (
+                      <ThinkingCard
+                        key={`card-${invocation.id}`}
+                        invocation={invocation}
+                        steps={traces.get(invocation.id)}
+                        defaultCollapsed={live.length > 3 && index < live.length - 1}
+                        avatar={
+                          <AvatarGlyph
+                            type="agent"
+                            name={invocation.agentName}
+                            provider={agentProviderByName.get(
+                              invocation.agentName.toLocaleLowerCase(),
+                            )}
+                          />
+                        }
+                      />
+                    ));
+                  })()}
+                  {(() => {
+                    // 谁在干活：已经有卡片的不再重复列出，只剩排队、等你回答这些没在跑的
+                    const rows = agentActivity(
+                      participants,
+                      invocations.values(),
+                      currentRoomId,
+                    ).filter((row) => !row.invocation || !showsLiveCard(row.invocation));
                     if (!rows.length) return null;
                     return (
                       <div className="typing" role="status" aria-live="polite">

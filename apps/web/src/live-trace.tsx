@@ -70,7 +70,7 @@ export function traceSummary(steps: readonly TraceStep[], now: number): string {
   return parts.join(" · ");
 }
 
-/** 最近一步在做什么：给底部「正在执行」浮条用 */
+/** 最近一步在做什么：「思考中」卡片顶部那一行 */
 export function currentTraceStep(steps: readonly TraceStep[]): string | undefined {
   const actions = steps.filter((item) => item.kind !== "text");
   const step = [...actions].reverse().find((item) => item.status === "running") ?? actions.at(-1);

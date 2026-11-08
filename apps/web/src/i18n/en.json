@@ -1167,5 +1167,15 @@
   "展开输入框": "Expand the composer",
   "展开输入框，写长内容更方便": "Expand the composer for long messages",
   "输入框直接显示格式": "Format as you type",
-  "像飞书一样边写边显示标题、列表、加粗、代码；关掉则是纯文本 Markdown，可手动预览": "Headings, lists, bold and code show up as you type. Turn off for plain Markdown with a manual preview"
+  "像飞书一样边写边显示标题、列表、加粗、代码；关掉则是纯文本 Markdown，可手动预览": "Headings, lists, bold and code show up as you type. Turn off for plain Markdown with a manual preview",
+  "{0} 正在处理": "{0} is working",
+  "{0} 的过程": "{0}'s process",
+  "↓ 最新": "↓ Latest",
+  "只看最近几行": "Show recent lines only",
+  "完整执行过程（{0} 步）": "Full execution log ({0} steps)",
+  "执行步骤 {0} 个": "{0} steps",
+  "用时 {0}": "took {0}",
+  "看不到具体步骤": "Steps not available",
+  "看全部": "Show all",
+  "这种 Agent 不上报执行过程，或你没有查看执行过程的权限": "This agent doesn't report its steps, or you aren't allowed to see them"
 }
