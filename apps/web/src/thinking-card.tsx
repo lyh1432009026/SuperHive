@@ -63,6 +63,32 @@ export function narrativeSteps(steps: readonly TraceStep[]): TraceStep[] {
 }
 
 /** 卡片该不该出现：执行中（含停止中），或者这一轮还没结束的等人回答 */
+/**
+ * 一个 Agent 在房间里同一时间只跑一轮：它把排队的几条消息合在一轮里做时，每条消息各有一条调用、
+ * 执行过程也一样，合成一张卡片，标出这一轮在处理哪几条，而不是摆出几张一模一样的卡片。
+ * 等人回答的（这一轮已停下）各自单独一张。
+ */
+export function groupLiveCards(
+  invocations: readonly Invocation[],
+): Array<{ invocation: Invocation; batch: Invocation[] }> {
+  const groups: Array<{ invocation: Invocation; batch: Invocation[] }> = [];
+  const byAgent = new Map<string, { invocation: Invocation; batch: Invocation[] }>();
+  for (const invocation of invocations) {
+    if (!isLiveInvocation(invocation)) {
+      groups.push({ invocation, batch: [invocation] });
+      continue;
+    }
+    const group = byAgent.get(invocation.agentId);
+    if (group) group.batch.push(invocation);
+    else {
+      const created = { invocation, batch: [invocation] };
+      byAgent.set(invocation.agentId, created);
+      groups.push(created);
+    }
+  }
+  return groups;
+}
+
 export function showsLiveCard(invocation: Invocation): boolean {
   return (
     isLiveInvocation(invocation) ||
@@ -180,7 +206,10 @@ export function ThinkingCard({
   avatar,
   traceAllowed = true,
   defaultCollapsed = false,
+  batchSeqs = [],
 }: {
+  /** 这一轮合在一起处理的几条消息的序号（两条以上才显示） */
+  batchSeqs?: number[];
   invocation: Invocation;
   steps: readonly TraceStep[] | undefined;
   avatar: ReactNode;
@@ -217,6 +246,11 @@ export function ThinkingCard({
       <div className="thinking-card-content">
         <header>
           <strong>{invocation.agentName}</strong>
+          {batchSeqs.length > 1 && (
+            <span className="thinking-card-batch" title={t("这几条消息在同一轮里一起处理")}>
+              {t("一起处理 {0}", { 0: batchSeqs.map((seq) => `#${seq}`).join("、") })}
+            </span>
+          )}
           <span className={`thinking-card-state ${invocation.status}`}>
             <span className="thinking-card-dot" aria-hidden="true" />
             {stateLabel(invocation, list)}

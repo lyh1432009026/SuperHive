@@ -339,3 +339,10 @@
     display: none;
   }
 }
+
+/* 几条消息合在一轮里处理：标出是哪几条 */
+.thinking-card-batch {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}

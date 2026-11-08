@@ -62,7 +62,7 @@ import {
 } from "./room-reorder";
 import { isLiveInvocation, mergeTraceSteps } from "./live-trace";
 import { ActivityPanel, isInFlight, needsAttention, type ActivityView } from "./activity";
-import { ThinkingCard, TraceRecap, showsLiveCard } from "./thinking-card";
+import { ThinkingCard, TraceRecap, groupLiveCards, showsLiveCard } from "./thinking-card";
 import { buildGoToItems } from "./goto";
 import { GoToPalette } from "./goto-palette";
 import { matchShortcut, type ShortcutId } from "./shortcuts";
@@ -4688,13 +4688,22 @@ export function App({
                       .sort((a, b) =>
                         (a.startedAt ?? a.createdAt).localeCompare(b.startedAt ?? b.createdAt),
                       );
-                    return live.map((invocation, index) => (
+                    const cards = groupLiveCards(live);
+                    const seqOf = new Map(messages.map((message) => [message.id, message.seq]));
+                    return cards.map(({ invocation, batch }, index) => (
                       <ThinkingCard
                         key={`card-${invocation.id}`}
                         invocation={invocation}
-                        steps={traces.get(invocation.id)}
+                        steps={
+                          traces.get(invocation.id) ??
+                          batch.map((item) => traces.get(item.id)).find(Boolean)
+                        }
+                        batchSeqs={batch
+                          .map((item) => seqOf.get(item.messageId))
+                          .filter((seq): seq is number => seq !== undefined)
+                          .sort((a, b) => a - b)}
                         traceAllowed={!guest || guest.showTrace !== false}
-                        defaultCollapsed={live.length > 3 && index < live.length - 1}
+                        defaultCollapsed={cards.length > 3 && index < cards.length - 1}
                         avatar={
                           <AvatarGlyph
                             type="agent"

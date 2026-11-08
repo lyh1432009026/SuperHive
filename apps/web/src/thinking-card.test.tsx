@@ -5,6 +5,7 @@ import type { Invocation, TraceStep } from "@superhive/protocol";
 import {
   ThinkingCard,
   TraceRecap,
+  groupLiveCards,
   narrativeSteps,
   showsLiveCard,
   withoutFinalReply,
@@ -196,5 +197,38 @@ describe("thinking card", () => {
     expect(
       screen.getByRole("button", { name: /^helper 的过程/ }).getAttribute("aria-expanded"),
     ).toBe("true");
+  });
+});
+
+describe("groupLiveCards", () => {
+  it("merges the messages one agent handles in the same turn into one card", () => {
+    const a = invocation({ id: "00000000-0000-4000-8000-0000000000d1" });
+    const b = invocation({ id: "00000000-0000-4000-8000-0000000000d2" });
+    const other = invocation({
+      id: "00000000-0000-4000-8000-0000000000d3",
+      agentId: "00000000-0000-4000-8000-0000000000d9",
+    });
+    const waiting = invocation({
+      id: "00000000-0000-4000-8000-0000000000d4",
+      status: "waiting_human",
+    });
+    const cards = groupLiveCards([a, b, other, waiting]);
+    expect(cards.map((card) => card.batch.map((item) => item.id))).toEqual([
+      [a.id, b.id],
+      [other.id],
+      [waiting.id],
+    ]);
+  });
+
+  it("names the messages a merged turn is handling", () => {
+    render(
+      <ThinkingCard
+        invocation={invocation()}
+        steps={[]}
+        avatar={null}
+        batchSeqs={[1825, 1828, 1830]}
+      />,
+    );
+    expect(screen.getByText("一起处理 #1825、#1828、#1830")).toBeTruthy();
   });
 });
