@@ -238,6 +238,8 @@ type IconName =
   | "external"
   | "hash"
   | "logout"
+  | "maximize"
+  | "minimize"
   | "message"
   | "more"
   | "panel-left"
@@ -445,6 +447,8 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
       </>
     ),
     activity: <path d="M3 12h4l2.5-6 5 12 2.5-6H21" />,
+    maximize: <path d="M15 4h5v5M9 20H4v-5M20 4l-6.5 6.5M4 20l6.5-6.5" />,
+    minimize: <path d="M14 10h5.5M14 10V4.5M10 14H4.5M10 14v5.5M14 10l6-6M10 14l-6 6" />,
     search: (
       <>
         <circle cx="11" cy="11" r="6.5" />
@@ -748,11 +752,18 @@ function composerMaxHeight(expanded: boolean): number {
   return Math.round(Math.max(176, viewport * (expanded ? 0.7 : 0.4)));
 }
 
+/** 展开后直接变高（约半屏），不用等写满才看得出变化 */
+function composerMinHeight(expanded: boolean): number {
+  if (!expanded) return 54;
+  const viewport = typeof window === "undefined" ? 800 : window.innerHeight;
+  return Math.round(Math.max(176, viewport * 0.5));
+}
+
 function resizeComposer(textarea: HTMLTextAreaElement, expanded = false): void {
   const max = composerMaxHeight(expanded);
   textarea.style.maxHeight = `${max}px`;
   textarea.style.height = "0px";
-  const nextHeight = Math.min(max, Math.max(54, textarea.scrollHeight));
+  const nextHeight = Math.min(max, Math.max(composerMinHeight(expanded), textarea.scrollHeight));
   textarea.style.height = `${nextHeight}px`;
   textarea.style.overflowY = textarea.scrollHeight > max ? "auto" : "hidden";
 }
@@ -2914,6 +2925,8 @@ export function App({
     setAttachmentNotice(undefined);
     setDraft("");
     setComposerPreview(false);
+    // 发完长内容自动收回，免得输入框一直占着半屏
+    setComposerExpanded(false);
     setMentionContext(undefined);
     setAnswering(undefined);
   }
@@ -5081,16 +5094,21 @@ export function App({
                 )}
                 <button
                   type="button"
-                  className={`composer-tool ${composerExpanded ? "active" : ""}`}
+                  className={`composer-tool composer-expand ${composerExpanded ? "active" : ""}`}
                   aria-pressed={composerExpanded}
                   aria-label={composerExpanded ? t("收起输入框") : t("展开输入框")}
-                  title={composerExpanded ? t("收起输入框") : t("展开输入框，写长内容更方便")}
+                  title={
+                    composerExpanded
+                      ? t("收起输入框，回到普通高度")
+                      : t("把输入框拉高到约半屏，写长内容更方便；发送后自动收回")
+                  }
                   onClick={() => {
                     setComposerExpanded((value) => !value);
                     window.requestAnimationFrame(() => textareaRef.current?.focus());
                   }}
                 >
-                  {composerExpanded ? "⤡" : "⤢"}
+                  <Icon name={composerExpanded ? "minimize" : "maximize"} size={15} />
+                  <span>{composerExpanded ? t("收起") : t("展开")}</span>
                 </button>
                 <span className="composer-hint">
                   {sendShortcut === "modifier-enter" ? (

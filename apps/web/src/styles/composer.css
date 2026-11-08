@@ -487,6 +487,7 @@
 }
 
 .rich-composer.expanded {
+  min-height: max(176px, 50vh);
   max-height: max(176px, 70vh);
 }
 
@@ -576,4 +577,11 @@
 
 .rich-composer ul[data-type="taskList"] li > div > p {
   margin: 0;
+}
+
+/* 展开按钮：图标 + 文字，一眼看得出是干嘛的 */
+.composer-tool.composer-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }

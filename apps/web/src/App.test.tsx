@@ -344,13 +344,16 @@ describe("App mention autocomplete", () => {
     expect(preview.querySelector("strong")?.textContent).toBe("先");
     await user.click(preview);
     expect(screen.queryByRole("region", { name: "Markdown 预览" })).toBeNull();
-    // 展开：输入框最高高度变大
+    // 展开：内容不多也立刻变高（约半屏），上限也变大
     const before = Number.parseInt(composer.style.maxHeight, 10);
+    const heightBefore = Number.parseInt(composer.style.height, 10);
     await user.click(screen.getByRole("button", { name: "展开输入框" }));
     await waitFor(() =>
       expect(Number.parseInt(composer.style.maxHeight, 10)).toBeGreaterThan(before),
     );
-    expect(screen.getByRole("button", { name: "收起输入框" })).toBeTruthy();
+    expect(Number.parseInt(composer.style.height, 10)).toBeGreaterThan(heightBefore);
+    expect(Number.parseInt(composer.style.height, 10)).toBeGreaterThanOrEqual(176);
+    expect(screen.getByRole("button", { name: "收起输入框" }).textContent).toContain("收起");
   });
 
   it("keeps the mention option chosen with the keyboard in view", async () => {
