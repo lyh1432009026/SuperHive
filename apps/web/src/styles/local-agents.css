@@ -359,6 +359,32 @@
   gap: 10px;
 }
 
+/* 表单里通用的 label / input 样式（名称、目录输入框）不能套到 MCP 勾选列表上，否则复选框被撑成 38px 高的输入框 */
+.local-launch-form .agent-mcp-list label {
+  display: flex;
+  gap: 10px;
+}
+
+.local-launch-form .agent-mcp-list label span {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.local-launch-form .agent-mcp-list .agent-mcp-heavy {
+  color: var(--warning);
+  font-weight: var(--weight-medium);
+}
+
+.local-launch-form .agent-mcp-list input {
+  width: auto;
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
 .local-launch-mcp > summary {
   cursor: pointer;
   color: var(--text-secondary);
