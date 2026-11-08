@@ -4255,21 +4255,21 @@ export function App({
                                         invocation.status,
                                       ),
                                   );
+                                  // 只有已经开始做的才有「只撤回、让它做完」可选；排队中的撤回后本来就不会再执行
+                                  const started = open.some(
+                                    (invocation) =>
+                                      invocation.status === "running" ||
+                                      invocation.status === "waiting_human",
+                                  );
+                                  const noteId = `recall-note-${message.id}`;
                                   return (
                                     <span
-                                      className="message-recall-confirm"
+                                      className={`message-recall-confirm ${open.length ? "with-tasks" : ""}`}
                                       role="group"
                                       aria-label={t("确认撤回")}
+                                      {...(open.length ? { "aria-describedby": noteId } : {})}
                                     >
-                                      <span
-                                        title={
-                                          open.length
-                                            ? t(
-                                                "只停这条消息直接派出的任务，它们再派出去的子任务不受影响；已经改的文件、跑过的命令不会撤销。",
-                                              )
-                                            : undefined
-                                        }
-                                      >
+                                      <span className="message-recall-question">
                                         {open.length
                                           ? t("撤回并停止 {0} 的任务？", {
                                               0: [
@@ -4282,28 +4282,37 @@ export function App({
                                             })
                                           : t("撤回这条消息？")}
                                       </span>
-                                      <button
-                                        type="button"
-                                        onClick={() => setRecallCandidateId(undefined)}
-                                      >
-                                        {t("取消")}
-                                      </button>
                                       {open.length > 0 && (
+                                        <small id={noteId} className="message-recall-note">
+                                          {t(
+                                            "只停这条消息直接派出的任务，它们再派出去的子任务不受影响；已经改的文件、跑过的命令不会撤销。",
+                                          )}
+                                        </small>
+                                      )}
+                                      <span className="message-recall-actions">
                                         <button
                                           type="button"
-                                          title={t("消息撤回，正在做的照常做完，只是不再回复")}
-                                          onClick={() => recallMessage(message.id)}
+                                          onClick={() => setRecallCandidateId(undefined)}
                                         >
-                                          {t("只撤回")}
+                                          {t("取消")}
                                         </button>
-                                      )}
-                                      <button
-                                        type="button"
-                                        className="danger"
-                                        onClick={() => recallMessage(message.id, open.length > 0)}
-                                      >
-                                        {open.length ? t("撤回并停止") : t("撤回")}
-                                      </button>
+                                        {started && (
+                                          <button
+                                            type="button"
+                                            title={t("消息撤回，正在做的照常做完，只是不再回复")}
+                                            onClick={() => recallMessage(message.id)}
+                                          >
+                                            {t("只撤回")}
+                                          </button>
+                                        )}
+                                        <button
+                                          type="button"
+                                          className="danger"
+                                          onClick={() => recallMessage(message.id, open.length > 0)}
+                                        >
+                                          {open.length ? t("撤回并停止") : t("撤回")}
+                                        </button>
+                                      </span>
                                     </span>
                                   );
                                 })()

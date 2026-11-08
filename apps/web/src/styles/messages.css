@@ -392,6 +392,31 @@
   color: #fff;
 }
 
+.message-recall-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+/* 带任务时说明更长：允许换行，按钮另起一行靠右，窄屏上不会被挤出消息外 */
+.message-recall-confirm.with-tasks {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: min(420px, calc(100vw - 48px));
+  white-space: normal;
+}
+
+.message-recall-confirm.with-tasks .message-recall-question {
+  flex: 1 1 100%;
+  color: var(--text);
+}
+
+.message-recall-note {
+  flex: 1 1 100%;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 /* ---------- 正文排版（Markdown） ---------- */
 .message-body {
   margin-top: 2px;

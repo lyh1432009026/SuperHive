@@ -1098,6 +1098,30 @@ describe("App mention autocomplete", () => {
 
     // 还有 Agent 在做这条消息派的活：确认里默认「撤回并停止」，也可以只撤回
     const now = new Date().toISOString();
+    // 只是在排队：撤回后本来就不会执行，没有「只撤回」可选；说明直接显示出来（触屏看不到悬停提示）
+    act(() =>
+      socket.serverEvent({
+        type: "invocation.updated",
+        invocation: {
+          id: "00000000-0000-4000-8000-0000000000b1",
+          roomId: "general",
+          messageId: mine.id,
+          agentId: agent.id,
+          agentName: "backend-agent",
+          requesterName: "Alice",
+          requesterType: "human",
+          status: "queued",
+          attempts: 1,
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+    );
+    await user.click(recallButtons[0]!);
+    const queuedConfirm = list().getByRole("group", { name: "确认撤回" });
+    expect(within(queuedConfirm).queryByRole("button", { name: "只撤回" })).toBeNull();
+    expect(queuedConfirm.textContent).toContain("已经改的文件、跑过的命令不会撤销");
+    await user.click(within(queuedConfirm).getByRole("button", { name: "取消" }));
     act(() =>
       socket.serverEvent({
         type: "invocation.updated",
@@ -1117,7 +1141,7 @@ describe("App mention autocomplete", () => {
         },
       }),
     );
-    await user.click(recallButtons[0]!);
+    await user.click(list().getByRole("button", { name: "撤回这条消息" }));
     const stopConfirm = list().getByRole("group", { name: "确认撤回" });
     expect(stopConfirm.textContent).toContain("撤回并停止 @backend-agent 的任务？");
     expect(within(stopConfirm).getByRole("button", { name: "只撤回" })).toBeTruthy();

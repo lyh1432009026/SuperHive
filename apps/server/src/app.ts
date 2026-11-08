@@ -2215,10 +2215,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   }
 
   /**
-   * 停止调用。尚未开始执行的直接给出终态；已开始的进入 cancelling，等 Agent 回报结束才算停下，
-   * 期间不允许重试。状态落库，服务端重启或 Agent 断线后仍保持，Agent 重连时会再次收到停止请求。
-   */
-  /**
    * 撤回并停止：只停这条消息直接派出的任务，它们引出的下游子任务不连带停。
    * 排队中、被拦下的直接取消；执行中、等人回答的按「停止」处理（Agent 把几条合在一轮里做时，
    * 它只丢掉撤回的这条、其余照常做完）。
@@ -2226,23 +2222,40 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   function stopRecalledTasks(actor: Participant, message: ChatMessage): void {
     for (const invocation of database.invocationsForMessage(message.id)) {
       if (isTerminal(invocation) || invocation.roomId !== actor.roomId) continue;
-      if (invocation.status === "queued" || invocation.status === "blocked") {
-        emitInvocation(
-          database.updateInvocation(invocation.id, {
-            status: "cancelled",
-            finishedAt: new Date().toISOString(),
-            progress: null,
-            detail: "消息已撤回，未执行",
-          }),
-        );
-        const target = onlineAgent(invocation.roomId, invocation.agentName);
-        if (target) send(target.socket, { type: "agent.cancel", messageId: message.id });
-        continue;
+      // 消息已经撤回成功：某一条停不下来（例如并发下已被别处结束）不能让撤回报错，也不能挡住其余几条
+      try {
+        stopRecalledTask(actor, message, invocation);
+      } catch (error) {
+        app.log.warn({ err: error, invocationId: invocation.id }, "撤回时停止任务失败");
       }
-      cancelInvocation(actor, invocation.id, "消息已撤回");
     }
   }
 
+  function stopRecalledTask(
+    actor: Participant,
+    message: ChatMessage,
+    invocation: Invocation,
+  ): void {
+    if (invocation.status === "queued" || invocation.status === "blocked") {
+      emitInvocation(
+        database.updateInvocation(invocation.id, {
+          status: "cancelled",
+          finishedAt: new Date().toISOString(),
+          progress: null,
+          detail: "消息已撤回，未执行",
+        }),
+      );
+      const target = onlineAgent(invocation.roomId, invocation.agentName);
+      if (target) send(target.socket, { type: "agent.cancel", messageId: message.id });
+      return;
+    }
+    cancelInvocation(actor, invocation.id, "消息已撤回");
+  }
+
+  /**
+   * 停止调用。尚未开始执行的直接给出终态；已开始的进入 cancelling，等 Agent 回报结束才算停下，
+   * 期间不允许重试。状态落库，服务端重启或 Agent 断线后仍保持，Agent 重连时会再次收到停止请求。
+   */
   function cancelInvocation(actor: Participant, invocationId: string, reason?: string): void {
     const invocation = invocationInRoom(actor, invocationId);
     if (isTerminal(invocation)) return;
