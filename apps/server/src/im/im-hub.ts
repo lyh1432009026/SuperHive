@@ -56,6 +56,8 @@ export type ImHubDeps = {
   ): ChatMessage;
   /** 卡片按钮：重试 / 批准、忽略、追加对话轮数（与网页上的同名操作同一套校验） */
   retry(owner: Participant, invocationId: string): void;
+  /** 卡片上的「停止」：与网页上的停止同一套校验 */
+  cancel(owner: Participant, invocationId: string): void;
   dismiss(owner: Participant, invocationId: string): void;
   extendBudget(owner: Participant, turns: number): void;
   /** 一条消息触发的调用（进度卡片按它们画） */
@@ -566,6 +568,11 @@ export class ImHub {
       this.handleCommand(connection, message, text);
       return;
     }
+    // 只发「菜单」两个字：弹出控制面板（不当成消息发进房间）
+    if (!files.length && /^(菜单|menu)$/i.test(text)) {
+      this.handleCommand(connection, message, "/menu");
+      return;
+    }
     const owner = this.deps.findParticipant(connection.roomId, connection.ownerName);
     if (!owner || owner.type !== "human") {
       this.reply(
@@ -802,6 +809,20 @@ export class ImHub {
     const say = (reply: string) =>
       this.reply(connection, message.chatId, reply, message.externalId);
     switch (command?.toLowerCase()) {
+      case "/":
+      case "/menu":
+      case "/m":
+        if (this.richCapable(connection)) {
+          this.enqueueCard(
+            connection,
+            message.chatId,
+            "menu",
+            message.externalId,
+            this.menuCard(connection),
+          );
+          return;
+        }
+        return say(HELP);
       case "/help":
         if (this.richCapable(connection)) {
           this.enqueueCard(
@@ -1082,7 +1103,8 @@ export class ImHub {
     const url = this.cardUrl(connection, message.roomId);
     return {
       title: `已派给 ${tasks.map((task) => task.agentName).join("、")}`,
-      subtitle: `${this.roomName(message.roomId)} · #${message.seq}`,
+      room: this.roomName(message.roomId),
+      subtitle: `#${message.seq}`,
       tone: "reply",
       tag: finished ? (failed ? "未全部完成" : "已完成") : "进行中",
       body: `> ${plain(oneLine(message.content, 120))}`,
@@ -1090,8 +1112,25 @@ export class ImHub {
       ...(finished && !failed ? { resolved: { text: "已完成", ok: true } } : {}),
       note: finished ? "结果已单独发来" : "这张卡片会随进度自动更新",
       ...this.footerFor(connection),
-      ...(this.cardsEnabled(connection) ? { actions: [SWITCH_TARGET_ACTION] } : {}),
-      ...(url ? { link: { label: `在网页查看 #${message.seq}`, url } } : {}),
+      ...(this.cardsEnabled(connection)
+        ? {
+            actions: [
+              // 还有在跑或排队的：可以直接停
+              ...(finished
+                ? []
+                : [
+                    {
+                      label: "停止",
+                      value: { do: "stop", message: message.id },
+                      style: "danger" as const,
+                    },
+                  ]),
+              { label: "切换对象", value: { do: "to" }, style: "default" as const },
+              { label: "菜单", value: { do: "menu" }, style: "default" as const },
+            ],
+          }
+        : {}),
+      ...(url ? { link: { label: "网页查看", url } } : {}),
       summary: `已派给 ${tasks.map((task) => task.agentName).join("、")}`,
     };
   }
@@ -1501,6 +1540,57 @@ export class ImHub {
     return Boolean(this.deps.drivers[connection.channel]?.richTextLength);
   }
 
+  /** Agent 回复卡片底部的快捷按钮：接着问它、换对象、换房间、打开控制面板 */
+  private replyActions(agent: string): NonNullable<ImRich["actions"]> {
+    return [
+      { label: "继续问它", value: { do: "follow", agent }, style: "primary" },
+      { label: "切换对象", value: { do: "to" }, style: "default" },
+      { label: "切换房间", value: { do: "room" }, style: "default" },
+      { label: "菜单", value: { do: "menu" }, style: "default" },
+    ];
+  }
+
+  /** 控制面板：当前房间、对象、档位和忙闲一览，常用操作都在按钮上，不用记命令 */
+  private menuCard(connection: StoredConnection): ImRich {
+    const target = this.targetOf(connection);
+    const agents = this.deps
+      .participants(connection.roomId)
+      .filter((participant) => participant.type === "agent");
+    const busy = agents.filter((agent) => agent.status === "busy").length;
+    const tasks = this.deps.roomTasks(connection.roomId);
+    const url = this.cardUrl(connection, connection.roomId);
+    const buttons = this.cardsEnabled(connection);
+    return {
+      title: "控制面板",
+      room: this.roomName(connection.roomId),
+      tone: "reply",
+      body: [
+        `**对话对象**：${target ? `${target}（直接打字就发给它）` : "未指定，消息里写 @ 或先选一个"}`,
+        `**推送档位**：${LEVEL_TEXT[connection.level ?? "mine"]}`,
+        `**Agent**：${agents.length} 个，${busy ? `${busy} 个忙碌` : "都空闲"}${
+          tasks.running || tasks.waiting
+            ? `；进行中 ${tasks.running} 个任务${tasks.waiting ? `，${tasks.waiting} 个在等你回答` : ""}`
+            : ""
+        }`,
+      ].join("\n"),
+      ...(buttons
+        ? {
+            actions: [
+              { label: "选对话对象", value: { do: "to" }, style: "primary" },
+              { label: "切换房间", value: { do: "room" }, style: "default" },
+              { label: "谁在忙", value: { do: "who" }, style: "default" },
+              { label: "推送档位", value: { do: "level" }, style: "default" },
+              { label: "使用说明", value: { do: "help" }, style: "default" },
+            ],
+          }
+        : {
+            note: "命令：/to 选对象、/room 换房间、/who 谁在忙、/level 推送档位、/help 说明",
+          }),
+      ...(url ? { link: { label: "打开网页", url } } : {}),
+      summary: `控制面板：${this.roomName(connection.roomId)}`,
+    };
+  }
+
   /** 常用操作按钮（需要卡片回调） */
   private quickActions(connection: StoredConnection): Pick<ImRich, "actions"> {
     if (!this.cardsEnabled(connection)) return {};
@@ -1541,6 +1631,7 @@ export class ImHub {
         {
           title: "⌨️ 命令",
           body: [
+            "- 发「菜单」或 `/` 打开**控制面板**，常用操作都能点",
             "- `/to` 选对话对象，`/to codex` 直接指定，`/to off` 取消",
             "- `/room` 切换房间",
             "- `/who` 谁在忙",
@@ -1552,7 +1643,7 @@ export class ImHub {
         },
         {
           title: "📌 机器人菜单（可选）",
-          body: "飞书开发者后台 → 机器人 → 自定义菜单，菜单项选「推送事件」，事件 key 填 `to`、`room`、`who`、`level`、`help`",
+          body: "飞书开发者后台 → 机器人 → 自定义菜单，菜单项选「推送事件」，事件 key 填 `menu`（控制面板）、`to`、`room`、`who`、`level`、`help`",
         },
       ],
       ...(buttons ? {} : { note: "重新扫码连接飞书后，提问、提醒卡片上会出现可以点的按钮" }),
@@ -1804,6 +1895,46 @@ export class ImHub {
         toast: { type: "success", text: `已切换到 ${this.roomName(current.roomId)}` },
         // 卡片原地变成新房间的对象选择
         rich: this.agentPicker(current, `已切换到 ${this.roomName(current.roomId)}`),
+      };
+    }
+    if (op === "follow") {
+      const agent = action.value.agent ?? "";
+      if (!this.agentNames(connection.roomId).includes(agent)) {
+        return {
+          toast: {
+            type: "error",
+            text: `${agent} 不在当前房间「${this.roomName(connection.roomId)}」，先切换房间`,
+          },
+        };
+      }
+      this.setTarget(connection, agent);
+      return { toast: { type: "success", text: `之后直接打字就发给 ${agent}` } };
+    }
+    if (op === "menu") {
+      this.enqueueCard(connection, action.chatId, "menu", undefined, this.menuCard(connection));
+      return { toast: { type: "info", text: "已发来控制面板" } };
+    }
+    if (op === "help") {
+      this.enqueueCard(connection, action.chatId, "help", undefined, this.helpCard(connection));
+      return { toast: { type: "info", text: "已发来使用说明" } };
+    }
+    if (op === "stop") {
+      const tasks = this.deps
+        .invocationsFor(action.value.message ?? "")
+        .filter((task) => ["queued", "running", "waiting_human", "blocked"].includes(task.status));
+      if (!tasks.length) return { toast: { type: "info", text: "已经都结束了" } };
+      let failed = 0;
+      for (const task of tasks) {
+        try {
+          this.deps.cancel(owner, task.id);
+        } catch {
+          failed += 1;
+        }
+      }
+      return {
+        toast: failed
+          ? { type: "warning", text: `${tasks.length - failed} 个已请求停止，${failed} 个停不了` }
+          : { type: "success", text: `已请求停止 ${tasks.length} 个任务` },
       };
     }
     if (op === "to") {
@@ -2219,7 +2350,8 @@ export class ImHub {
     const detail = invocation.detail ? invocation.detail.replace(/\s+/g, " ").trim() : "";
     const agent = invocation.agentName;
     const url = this.cardUrl(connection, invocation.roomId);
-    const subtitle = `${this.roomName(invocation.roomId)}${trigger ? ` · #${trigger.seq}` : ""}`;
+    const subtitle = trigger ? `#${trigger.seq}` : "";
+    const room = this.roomName(invocation.roomId);
     const quote = trigger ? `> ${plain(oneLine(trigger.content, 120))}` : "";
     const act = (
       ...items: Array<[string, string, "primary" | "default" | "danger"]>
@@ -2230,7 +2362,8 @@ export class ImHub {
     const ignore: [string, string, "default"] = ["忽略", "dismiss", "default"];
     const base = (rich: Omit<ImRich, "subtitle" | "link" | "summary">): ImRich => ({
       ...rich,
-      subtitle,
+      room,
+      ...(subtitle ? { subtitle } : {}),
       summary: `${rich.title}${detail ? `：${detail}` : ""}`,
       ...(url ? { link: { label: `到网页处理 ${ref}`, url } } : {}),
     });
@@ -2333,7 +2466,8 @@ export class ImHub {
     }));
     return {
       title,
-      subtitle: `${this.roomName(message.roomId)} · #${message.seq}`,
+      room: this.roomName(message.roomId),
+      subtitle: `#${message.seq} · ${clock(message.createdAt)}`,
       tone: question ? "question" : mentioned ? "mention" : "reply",
       ...(question
         ? { tag: message.question ? (message.question.multiple ? "多选" : "单选") : "待回答" }
@@ -2346,11 +2480,11 @@ export class ImHub {
         ? { choice: { multiple: Boolean(message.question?.multiple) } }
         : {}),
       ...(!question && message.senderType === "agent" && this.cardsEnabled(connection)
-        ? { ...this.footerFor(connection), actions: [SWITCH_TARGET_ACTION] }
+        ? { ...this.footerFor(connection), actions: this.replyActions(sender) }
         : {}),
       ...(note ? { note } : {}),
       ...(attachments.length ? { attachments } : {}),
-      ...(url ? { link: { label: `在网页查看 #${message.seq}`, url } } : {}),
+      ...(url ? { link: { label: "网页查看", url } } : {}),
       summary: `${sender}：${oneLine(body || attachments[0]?.name || "", 60)}`,
     };
   }
@@ -2541,11 +2675,6 @@ function formatSize(bytes: number): string {
 /** 合并项按单条长度上限切组 */
 const MAX_FORWARDED_FILES = 5;
 const MAX_FORWARDED_FILE_BYTES = 20 * 1024 * 1024;
-const SWITCH_TARGET_ACTION = {
-  label: "切换对象",
-  value: { do: "to" },
-  style: "default" as const,
-};
 /** 文字编号菜单的有效期 */
 const TEXT_MENU_TTL_MS = 10 * 60_000;
 /** 进度卡片 2 秒内最多改一次，避免频繁调接口 */
@@ -2577,6 +2706,17 @@ function settledLabel(invocation: Invocation): { text: string; ok: boolean } {
   }
 }
 
+/** 卡片上的发送时间：今天只显示时分 */
+function clock(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return date.toDateString() === new Date().toDateString()
+    ? time
+    : `${date.getMonth() + 1}/${date.getDate()} ${time}`;
+}
+
 function oneLine(text: string, max: number): string {
   const single = text.replace(/\s+/g, " ").trim();
   return single.length > max ? `${single.slice(0, max - 1)}…` : single;
@@ -2585,16 +2725,14 @@ function oneLine(text: string, max: number): string {
 /** 合并推送：多条卡片合成一张，每条一节 */
 function combineRich(items: ImRich[]): ImRich {
   if (items.length === 1) return items[0]!;
-  const subtitles = [
-    ...new Set(items.map((item) => item.subtitle?.split(" · ")[0]).filter(Boolean)),
-  ];
+  const rooms = [...new Set(items.map((item) => item.room).filter(Boolean))] as string[];
   const link = items.find((item) => item.link)?.link;
   return {
     title: `${items.length} 条新消息`,
-    ...(subtitles.length ? { subtitle: subtitles.join("、") } : {}),
+    ...(rooms.length ? { room: rooms.join("、") } : {}),
     tone: "digest",
     sections: items.map((item) => ({
-      title: item.title,
+      title: rooms.length > 1 && item.room ? `${item.room}｜${item.title}` : item.title,
       ...(item.subtitle ? { subtitle: item.subtitle } : {}),
       body: [
         item.body ?? "",

@@ -207,4 +207,25 @@ describe("飞书卡片", () => {
     }) as any;
     expect(few.body.elements[0].tag).toBe("column_set");
   });
+
+  it("标题最前面标出房间；短按钮每行 3 个", () => {
+    const card = renderFeishuCard({
+      title: "rd-claude 的回复",
+      room: "z-code",
+      subtitle: "#12 · 10:30",
+      tone: "reply",
+      body: "好了",
+      actions: [
+        { label: "继续问它", value: { do: "follow" } },
+        { label: "切换对象", value: { do: "to" } },
+        { label: "切换房间", value: { do: "room" } },
+        { label: "菜单", value: { do: "menu" } },
+      ],
+      link: { label: "网页查看", url: "http://hive.test/" },
+      summary: "x",
+    }) as any;
+    expect(card.header.title.content).toBe("z-code｜rd-claude 的回复");
+    const rows = (card.body.elements as any[]).filter((item) => item.tag === "column_set");
+    expect(rows.map((row) => row.columns.length)).toEqual([3, 2]);
+  });
 });

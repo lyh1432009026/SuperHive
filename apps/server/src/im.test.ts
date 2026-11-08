@@ -614,6 +614,7 @@ describe("IM 连接", () => {
       4_000,
     );
     expect(running.rich.steps![0]!.detail).toBe("执行命令：pnpm test");
+    expect(running.rich.actions!.map((action) => action.label)).toContain("停止");
     helper.send({
       type: "message.send",
       clientMessageId: "done",
@@ -624,6 +625,31 @@ describe("IM 连接", () => {
     expect(done.rich).toMatchObject({ tag: "已完成", steps: [{ state: "done" }] });
     await until(() => fake.reactions.find((item) => item.emoji === "DONE"));
     expect(fake.reactions.some((item) => item.op === "remove")).toBe(true);
+    // 进行中的卡片上点「停止」：走网页同样的停止
+    fake.emit({ text: "@helper 再跑一次" });
+    const again = await helper.next((event) => event.type === "agent.mentioned");
+    const second = (again as { message: ChatMessage }).message;
+    helper.send({ type: "invocation.report", messageId: second.id, status: "running" });
+    const card2 = await until(() =>
+      [...fake.sent, ...fake.updates]
+        .map((item) => item.rich)
+        .find((rich) =>
+          rich?.actions?.some(
+            (action) => action.value.do === "stop" && action.value.message === second.id,
+          ),
+        ),
+    );
+    const sent2 = fake.sent.find((item) => item.rich?.steps && item.replyTo && item !== card)!;
+    expect(
+      fake.events!.onAction!({
+        externalId: fake.sentIds.get(sent2)!,
+        chatId: sent2.chatId,
+        operatorId: "owner-open-id",
+        value: { hive: "1", do: "stop", message: second.id },
+      }),
+    ).toMatchObject({ toast: { type: "success", text: "已请求停止 1 个任务" } });
+    await helper.next((event) => event.type === "agent.cancel");
+    void card2;
     void rd;
   });
 
@@ -891,7 +917,8 @@ describe("IM 推送档位", () => {
     expect(reply.rich).toMatchObject({
       title: "helper 的回复",
       tone: "reply",
-      subtitle: expect.stringMatching(/^general · #\d+$/),
+      room: "general",
+      subtitle: expect.stringMatching(/^#\d+ · /),
       body: "**结论**：可以\n- 第一点",
     });
     expect(reply.text).toContain("general - helper");
@@ -1034,11 +1061,39 @@ describe("IM 推送档位", () => {
     const card = await until(() => fake.sent.find((item) => item.rich?.body?.includes("缓存问题")));
     expect(card.rich).toMatchObject({
       footer: "当前：general → rd-codex",
-      actions: [{ label: "切换对象", value: { do: "to" } }],
+      actions: [
+        { label: "继续问它", value: { do: "follow", agent: "helper" } },
+        { label: "切换对象", value: { do: "to" } },
+        { label: "切换房间", value: { do: "room" } },
+        { label: "菜单", value: { do: "menu" } },
+      ],
     });
     fake.emit({ text: "怎么修？", replyToExternalId: fake.sentIds.get(card)! });
     const followUp = await helper.next((event) => event.type === "agent.mentioned");
     expect((followUp as { message: ChatMessage }).message.content).toBe("@helper 怎么修？");
+    // 「继续问它」：之后不带 @ 的消息发给它，卡片不变
+    const tap = (value: Record<string, string>, externalId = fake.sentIds.get(card)!) =>
+      fake.events!.onAction!({
+        externalId,
+        chatId: card.chatId,
+        operatorId: "owner-open-id",
+        value: { hive: "1", ...value },
+      });
+    expect(tap({ do: "follow", agent: "helper" })).toEqual({
+      toast: { type: "success", text: "之后直接打字就发给 helper" },
+    });
+    fake.emit({ text: "再看看" });
+    const next = await helper.next(
+      (event) => event.type === "agent.mentioned" && event.message.content === "@helper 再看看",
+    );
+    expect(next).toBeTruthy();
+    // 「菜单」和发「菜单」两个字都弹出控制面板
+    expect(tap({ do: "menu" })).toMatchObject({ toast: { text: "已发来控制面板" } });
+    fake.emit({ text: "菜单" });
+    await until(() => fake.sent.filter((item) => item.rich?.title === "控制面板").length === 2);
+    const panel = fake.sent.find((item) => item.rich?.title === "控制面板")!;
+    expect(panel.rich).toMatchObject({ room: "general" });
+    expect(panel.rich!.body).toContain("helper（直接打字就发给它）");
   });
 
   it("简写对上多个 Agent 弹卡片选，选完带着原消息发出且只发一次；没对上按普通文字处理", async () => {

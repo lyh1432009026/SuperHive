@@ -2686,6 +2686,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         ...(other ? { other } : {}),
       }).message,
     retry: (owner, invocationId) => retryInvocation(owner, invocationId),
+    cancel: (owner, invocationId) => cancelInvocation(owner, invocationId),
     dismiss: (owner, invocationId) => {
       for (const invocation of database.dismissInvocations(
         owner.roomId,

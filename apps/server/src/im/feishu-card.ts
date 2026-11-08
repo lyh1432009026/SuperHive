@@ -88,6 +88,14 @@ export function buttonLayout(
     String((item.text as { content?: string } | undefined)?.content ?? "");
   const total = buttons.reduce((sum, item) => sum + label(item).length, 0);
   if (buttons.length <= 3 && total <= 18) return [buttonRow(buttons)];
+  // 都是短按钮（比如快捷操作）：每行 3 个，比一个一行省地方
+  if (buttons.every((item) => label(item).length <= 6)) {
+    const rows: Array<Record<string, unknown>> = [];
+    for (let index = 0; index < buttons.length; index += 3) {
+      rows.push(buttonRow(buttons.slice(index, index + 3)));
+    }
+    return rows;
+  }
   return buttons.map((item) => ({ ...item, width: "fill" }));
 }
 
@@ -185,6 +193,12 @@ function choiceElements(rich: ImRich): Array<Record<string, unknown>> {
   ];
 }
 
+/** 标题：「房间｜谁在做什么」，房间放最前，手机上一眼能分清是哪个房间的 */
+export function cardTitle(rich: Pick<ImRich, "title" | "room">): string {
+  if (!rich.room) return plainText(rich.title, 80);
+  return `${plainText(rich.room, 24)}｜${plainText(rich.title, 56)}`;
+}
+
 /** 渲染成飞书消息卡片（JSON 2.0） */
 export function renderFeishuCard(rich: ImRich): Record<string, unknown> {
   const tone = rich.resolved ? (rich.resolved.ok ? RESOLVED_OK : RESOLVED_OTHER) : TONES[rich.tone];
@@ -276,7 +290,7 @@ export function renderFeishuCard(rich: ImRich): Record<string, unknown> {
       summary: { content: plainText(rich.summary, 100) },
     },
     header: {
-      title: { tag: "plain_text", content: plainText(rich.title, 80) },
+      title: { tag: "plain_text", content: cardTitle(rich) },
       ...(rich.subtitle
         ? { subtitle: { tag: "plain_text", content: plainText(rich.subtitle, 80) } }
         : {}),

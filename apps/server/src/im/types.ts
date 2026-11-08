@@ -54,6 +54,8 @@ export type ImTransportEvents = {
 export type ImRich = {
   /** 卡片标题，例如「rd-claude 的回复」 */
   title: string;
+  /** 来自哪个房间：标题最前面醒目地标出，一眼看出是哪个房间的 */
+  room?: string;
   /** 一行上下文：房间、消息序号 */
   subtitle?: string;
   /** 决定标题栏颜色与图标 */
