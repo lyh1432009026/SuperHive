@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useDeferredValue, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { Invocation, TraceStep } from "@superhive/protocol";
 import { t } from "./i18n";
 import {
@@ -10,6 +10,44 @@ import {
   useTraceClock,
 } from "./live-trace";
 import "./styles/thinking-card.css";
+
+// 和消息正文共用同一个 Markdown 渲染器（独立 chunk，App 启动时已在预加载）；没加载好之前先按纯文本显示
+type MarkdownComponent = (typeof import("./message-markdown"))["MessageMarkdown"];
+let loadedMarkdown: MarkdownComponent | undefined;
+const markdownReady = import("./message-markdown").then((module) => {
+  loadedMarkdown = module.MessageMarkdown;
+  return module.MessageMarkdown;
+});
+
+function useMarkdown(): MarkdownComponent | undefined {
+  const [component, setComponent] = useState(() => loadedMarkdown);
+  useLayoutEffect(() => {
+    if (component) return;
+    let cancelled = false;
+    void markdownReady.then((loaded) => {
+      if (!cancelled) setComponent(() => loaded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [component]);
+  return component;
+}
+
+/**
+ * 一段思考或中途的话，按 Markdown 渲染（链接不可点、图片不加载、不渲染 HTML）。
+ * 流式更新时用 useDeferredValue 让渲染让位给输入和滚动；没变的段落因 memo 不会重渲染。
+ * 没闭合的 ``` 这类中间状态 remark 会按到结尾的代码块显示，不会乱。
+ */
+const NarrativeMarkdown = memo(function NarrativeMarkdown({ text }: { text: string }) {
+  const Markdown = useMarkdown();
+  const deferred = useDeferredValue(text);
+  return (
+    <div className="message-body thinking-card-md">
+      {Markdown ? <Markdown content={deferred} inert /> : <p>{deferred}</p>}
+    </div>
+  );
+});
 
 /**
  * 对话流里的「思考中」卡片：Agent 干活时出现在回复将来出现的位置，像一条正在写的回复。
@@ -34,10 +72,12 @@ export function showsLiveCard(invocation: Invocation): boolean {
 
 function NarrativeLine({ step }: { step: TraceStep }) {
   return (
-    <p className={`thinking-card-line ${step.kind}`}>
-      {/* 思考和中途的话一律按纯文本显示：可能转述了网页或文件里的内容，不能当链接或 HTML 解析 */}
-      {step.text}
-    </p>
+    <div
+      className={`thinking-card-line ${step.kind}`}
+      {...(step.kind === "thinking" ? { "aria-label": t("思考") } : {})}
+    >
+      <NarrativeMarkdown text={step.text ?? ""} />
+    </div>
   );
 }
 
@@ -71,7 +111,7 @@ function Narrative({
           setBehind(!atBottom);
         }}
       >
-        {steps.map((step) => (
+        {(expanded ? steps : steps.slice(-2)).map((step) => (
           <NarrativeLine key={step.id} step={step} />
         ))}
       </div>
@@ -246,6 +286,7 @@ export function TraceRecap({
   replyText?: string;
 }) {
   const steps = withoutFinalReply(allSteps, replyText);
+  const lastWords = narrativeSteps(steps).at(-1);
   const [open, setOpen] = useState(false);
   const now = useTraceClock(invocation);
   const start = Date.parse(invocation.startedAt ?? invocation.createdAt);
@@ -273,10 +314,22 @@ export function TraceRecap({
         {t("{0} 的过程", { 0: invocation.agentName })}
         {summary && <span className="trace-recap-summary">· {summary}</span>}
       </button>
-      {open && (
+      {open ? (
         <div className="trace-recap-body">
           <CardBody invocation={invocation} steps={steps} expanded now={now} />
         </div>
+      ) : (
+        lastWords && (
+          // 收起时露出这一轮最后那段话的开头几行，点一下展开看完整过程
+          <button
+            type="button"
+            className="trace-recap-preview"
+            aria-label={t("展开 {0} 的过程", { 0: invocation.agentName })}
+            onClick={() => setOpen(true)}
+          >
+            <NarrativeLine step={lastWords} />
+          </button>
+        )
       )}
     </div>
   );

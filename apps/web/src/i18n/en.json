@@ -1177,5 +1177,8 @@
   "用时 {0}": "took {0}",
   "看不到具体步骤": "Steps not available",
   "看全部": "Show all",
-  "这种 Agent 不上报执行过程，或你没有查看执行过程的权限": "This agent doesn't report its steps, or you aren't allowed to see them"
+  "这种 Agent 不上报执行过程，或你没有查看执行过程的权限": "This agent doesn't report its steps, or you aren't allowed to see them",
+  "思考": "Thinking",
+  "展开 {0} 的过程": "Expand {0}'s process",
+  "[图片]": "[image]"
 }

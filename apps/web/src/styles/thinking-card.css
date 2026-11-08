@@ -99,14 +99,14 @@
   color: var(--text);
 }
 
-/* 叙述：默认只露最近四行左右，旧的淡出；展开后最多约 40% 屏高，在卡片里滚动 */
+/* 叙述：默认只露最近两段、约八行，旧的淡出；展开后最多约 40% 屏高，在卡片里滚动 */
 .thinking-card-narrative-wrap {
   position: relative;
   margin-top: 6px;
 }
 
 .thinking-card-narrative {
-  max-height: calc(1.6em * 4 + 8px);
+  max-height: calc(1.6em * 8 + 8px);
   overflow-y: auto;
   font-size: var(--text-sm);
   line-height: 1.6;
@@ -120,19 +120,63 @@
 }
 
 .thinking-card-line {
-  margin: 0 0 4px;
-  white-space: pre-wrap;
+  margin: 0 0 6px;
   overflow-wrap: anywhere;
 }
 
-.thinking-card-line.text {
-  color: var(--text);
+/* 卡片里的 Markdown 沿用消息正文的排版，只是字号小一号、段距收紧 */
+.thinking-card-md {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.6;
 }
 
-/* 思考摘要更淡，和 Agent 说的话分开 */
+.thinking-card-md > :first-child {
+  margin-top: 0;
+}
+
+.thinking-card-md > :last-child {
+  margin-bottom: 0;
+}
+
+.thinking-card-md p,
+.thinking-card-md ul,
+.thinking-card-md ol,
+.thinking-card-md blockquote {
+  margin: 0 0 4px;
+}
+
+.thinking-card-md h1,
+.thinking-card-md h2,
+.thinking-card-md h3,
+.thinking-card-md h4 {
+  margin: 6px 0 2px;
+  font-size: var(--text-sm);
+}
+
+.thinking-card-md .code-block {
+  margin: 4px 0;
+}
+
+/* 思考：颜色更淡、左侧一道细线，和 Agent 说的话分开 */
 .thinking-card-line.thinking {
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+}
+
+.thinking-card-line.thinking .thinking-card-md {
   color: var(--text-tertiary);
-  font-style: italic;
+}
+
+/* 不可点的链接：只留下划线；图片只显示替代文字 */
+.md-inert-link {
+  text-decoration: underline;
+  text-decoration-color: var(--border-heavy);
+  text-underline-offset: 2px;
+}
+
+.md-inert-image {
+  color: var(--text-tertiary);
 }
 
 .thinking-card-latest {
@@ -183,7 +227,7 @@
 
 /* 结束后的一行回顾：挂在回复上方，点开看这一轮的过程 */
 .trace-recap {
-  margin: 10px 0 -12px 42px;
+  margin: 10px 0 -8px 42px;
   color: var(--text-tertiary);
   font-size: var(--text-xs);
 }
@@ -228,6 +272,36 @@
   white-space: nowrap;
 }
 
+/* 回顾收起时露出最后一段话的前三行（在渲染后的块上截，不切坏 Markdown） */
+.trace-recap-preview {
+  display: block;
+  width: 100%;
+  max-height: calc(1.6em * 3 + 2px);
+  margin: 2px 0 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.4em), transparent);
+}
+
+.trace-recap-preview .thinking-card-line {
+  margin: 0;
+}
+
+.trace-recap-preview .thinking-card-md {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.trace-recap-preview:hover .thinking-card-md {
+  color: var(--text);
+}
+
 .trace-recap-body {
   margin-top: 4px;
   padding: 8px 12px;
@@ -256,7 +330,7 @@
 
 @media (max-width: 720px) {
   .thinking-card-narrative {
-    max-height: calc(1.6em * 2 + 4px);
+    max-height: calc(1.6em * 6 + 4px);
   }
   .thinking-card-narrative.expanded {
     max-height: 60vh;

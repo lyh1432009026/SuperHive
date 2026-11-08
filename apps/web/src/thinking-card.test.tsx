@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Invocation, TraceStep } from "@superhive/protocol";
 import {
@@ -127,7 +127,7 @@ describe("thinking card", () => {
         steps={steps}
       />,
     );
-    expect(screen.getByRole("button", { name: /helper 的过程/ }).textContent).toContain("已停止");
+    expect(screen.getByRole("button", { name: /^helper 的过程/ }).textContent).toContain("已停止");
   });
 
   it("较早的卡片默认收起，点展开再看", () => {
@@ -142,5 +142,59 @@ describe("thinking card", () => {
     expect(screen.queryByText("先看看")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "展开" }));
     expect(screen.getByText("先看看")).toBeTruthy();
+  });
+
+  it("思考和中途的话按 Markdown 渲染：列表、代码块、加粗照常；链接不可点、图片不加载、HTML 不渲染", async () => {
+    const text = [
+      "**先确认**两点：",
+      "",
+      "- 服务端在哪里停任务",
+      "- 前端确认框",
+      "",
+      "```ts",
+      "const a = 1;",
+      "```",
+      "",
+      "看 [文档](https://evil.example) ![图](https://evil.example/x.png) <img src=x onerror=alert(1)>",
+    ].join("\n");
+    const { container } = render(
+      <ThinkingCard
+        invocation={invocation()}
+        steps={[
+          step("th", { kind: "thinking", text }),
+          step("x", { kind: "text", text: "接着写一半的代码：\n\n```ts\nconst b" }),
+        ]}
+        avatar="AI"
+      />,
+    );
+    await waitFor(() =>
+      expect(container.querySelector(".thinking-card-md strong")?.textContent).toBe("先确认"),
+    );
+    expect(container.querySelectorAll("li")).toHaveLength(2);
+    expect(container.querySelector("pre code")?.textContent).toContain("const a = 1;");
+    expect(container.querySelector("a")).toBeNull();
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector(".md-inert-link")?.textContent).toBe("文档");
+    expect(container.querySelector(".md-inert-image")?.textContent).toBe("[图]");
+    expect(container.textContent).toContain("<img src=x onerror=alert(1)>");
+    // 思考段带标记（更淡、左侧细线），没闭合的代码块照样按代码显示
+    expect(container.querySelector(".thinking-card-line.thinking")).toBeTruthy();
+    expect(container.querySelectorAll("pre code")[1]?.textContent).toContain("const b");
+  });
+
+  it("回顾收起时露出最后一段话的开头，点一下展开", async () => {
+    render(
+      <TraceRecap
+        invocation={invocation({ status: "completed", finishedAt: now })}
+        steps={[step("a", { kind: "text", text: "改好了 **两处**" })]}
+      />,
+    );
+    const preview = screen.getByRole("button", { name: "展开 helper 的过程" });
+    await waitFor(() => expect(preview.querySelector("strong")?.textContent).toBe("两处"));
+    fireEvent.click(preview);
+    expect(screen.queryByRole("button", { name: "展开 helper 的过程" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /^helper 的过程/ }).getAttribute("aria-expanded"),
+    ).toBe("true");
   });
 });

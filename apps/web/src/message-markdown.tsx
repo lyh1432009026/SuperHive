@@ -156,7 +156,36 @@ const markdownComponents: Components = {
   pre: CodeBlock,
 };
 
-export const MessageMarkdown = memo(function MessageMarkdown({ content }: { content: string }) {
+/**
+ * 不可交互的渲染：Agent 的思考和中途的话可能转述了网页、文件里的内容（包括提示词注入），
+ * 链接只显示文字不可点，图片不加载外链只显示替代文字。原始 HTML 本来就不渲染（没开 rehype-raw）。
+ */
+const inertComponents: Components = {
+  ...markdownComponents,
+  a(props) {
+    const { node, href, children } = props;
+    void node;
+    return (
+      <span className="md-inert-link" title={typeof href === "string" ? href : undefined}>
+        {children}
+      </span>
+    );
+  },
+  img(props) {
+    const { node, alt } = props;
+    void node;
+    return <span className="md-inert-image">{alt ? `[${alt}]` : t("[图片]")}</span>;
+  },
+};
+
+export const MessageMarkdown = memo(function MessageMarkdown({
+  content,
+  inert = false,
+}: {
+  content: string;
+  /** 链接不可点、图片不加载：用于展示 Agent 的思考和执行中说的话 */
+  inert?: boolean;
+}) {
   return (
     <ReactMarkdown
       // 只认 ~~ 为删除线：「~100~200 元」这种写法很常见，和输入框保持一致
@@ -164,7 +193,7 @@ export const MessageMarkdown = memo(function MessageMarkdown({ content }: { cont
       // 不开语言自动检测：未标记语言的代码块要用全部语法逐一试探打分，遇到长文本是
       // 主线程热点（实测单块可达数百毫秒）；标记了语言的代码块仍正常高亮
       rehypePlugins={[rehypeHighlight]}
-      components={markdownComponents}
+      components={inert ? inertComponents : markdownComponents}
     >
       {content}
     </ReactMarkdown>

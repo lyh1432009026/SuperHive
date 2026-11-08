@@ -1874,7 +1874,7 @@ describe("App mention autocomplete", () => {
     // 对话流里出现「思考中」卡片：顶部是当前这一步，主体是中途说的话，命令收成一行
     const card = await waitFor(() => list().getByRole("article", { name: "helper 正在处理" }));
     expect(within(card).getByText("运行 git status")).toBeTruthy();
-    expect(within(card).getByText("先看一下改动")).toBeTruthy();
+    await waitFor(() => expect(within(card).getByText("先看一下改动")).toBeTruthy());
     expect(within(card).getByText("运行 1 条命令")).toBeTruthy();
     // 状态行不再重复当前这一步；底部「谁在干活」也不再重复列出有卡片的 Agent
     expect(list().getAllByText("运行 git status")).toHaveLength(1);
@@ -1897,8 +1897,10 @@ describe("App mention autocomplete", () => {
         ],
       }),
     );
-    const thought = within(card).getByText("<b>Checking</b> the diff [link](https://x.y)");
-    expect(thought.classList.contains("thinking")).toBe(true);
+    // 思考按 Markdown 渲染：HTML 原样显示成文字，链接不可点
+    await waitFor(() => expect(within(card).getByText("link")).toBeTruthy());
+    expect(within(card).getByText("link").closest(".thinking-card-line.thinking")).toBeTruthy();
+    expect(card.textContent).toContain("<b>Checking</b>");
     expect(within(card).queryByRole("link")).toBeNull();
 
     // 详情弹窗里的完整时间线默认收起，免得同一份内容摆两遍
@@ -1955,10 +1957,10 @@ describe("App mention autocomplete", () => {
     await waitFor(() =>
       expect(list().queryByRole("article", { name: "helper 正在处理" })).toBeNull(),
     );
-    const recap = list().getByRole("button", { name: /helper 的过程/ });
+    const recap = list().getByRole("button", { name: /^helper 的过程/ });
     expect(recap.textContent).toContain("运行 1 条命令");
     await userEvent.setup().click(recap);
-    expect(list().getByText("先看一下改动")).toBeTruthy();
+    await waitFor(() => expect(list().getByText("先看一下改动")).toBeTruthy());
   });
 
   it("offers send-and-insert only when the draft mentions an agent that is running", async () => {
