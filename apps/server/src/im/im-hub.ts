@@ -2238,7 +2238,12 @@ export class ImHub {
   }
 
   private decide(connection: StoredConnection, message: ChatMessage): "now" | "batch" | "skip" {
-    if (connection.level === "all") return "now";
+    if (connection.level === "all") {
+      // 回执只是把子任务结果转给派活的 Agent，结果那条回复已经推过了；回执 @ 到房主（定时任务没完成）时照推
+      return message.kind === "receipt" && !this.mentionsOwner(message, connection)
+        ? "skip"
+        : "now";
+    }
     if (message.senderType !== "agent" || message.via || message.kind === "topic") return "skip";
     // 进度：只推房主自己派的任务（IM 档只推从这个 IM 发起的），每个任务有条数上限，马上推不会刷屏
     if (message.kind === "progress") {

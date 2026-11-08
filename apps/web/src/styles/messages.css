@@ -1059,3 +1059,55 @@ label.question-option:hover {
   color: var(--text-secondary);
   font-size: 0.95em;
 }
+
+/* Agent 之间的委派、子任务回执：给 Agent 看的，在对话流里收成一行、淡显 */
+.message.machine {
+  opacity: 0.78;
+}
+
+.message.machine .avatar {
+  transform: scale(0.8);
+}
+
+.message.machine header strong {
+  font-weight: 400;
+}
+
+.message-machine-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: 100%;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.message-machine-summary span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-machine-summary small,
+.message-machine-collapse {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: var(--text-xs);
+}
+
+.message-machine-summary:hover span {
+  color: var(--text-secondary);
+}
+
+.message-machine-collapse {
+  float: right;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}

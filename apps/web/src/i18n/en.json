@@ -1151,5 +1151,8 @@
   "撤回并停止 {0} 的任务？": "Recall and stop {0}'s task?",
   "消息撤回，正在做的照常做完，只是不再回复": "Recall the message but let running work finish; it just won't reply",
   "只撤回": "Recall only",
-  "撤回并停止": "Recall and stop"
+  "撤回并停止": "Recall and stop",
+  "子任务回执": "Subtask receipt",
+  "结果见 #{0}": "result in #{0}",
+  "Agent 之间的往来，点开看全文": "Agent-to-agent message; click to read it in full"
 }

@@ -66,6 +66,7 @@ import { GoToPalette } from "./goto-palette";
 import { matchShortcut, type ShortcutId } from "./shortcuts";
 import { ShortcutsHelp } from "./shortcuts-help";
 import { ContextMenu, contextMenuPoint, type ContextMenuState } from "./context-menu";
+import { isMachineMessage, machineSummary } from "./machine-message";
 import {
   AttentionRoomGroup,
   AttentionToasts,
@@ -1304,6 +1305,19 @@ export function App({
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // 房间列表、成员列表的右键菜单
   const [contextMenu, setContextMenu] = useState<ContextMenuState>();
+  // Agent 之间的委派、回执默认收成一行；点开的记在这里
+  const [openMachineIds, setOpenMachineIds] = useState<ReadonlySet<string>>(new Set());
+  const agentNames = useMemo(
+    () =>
+      new Set(
+        participants
+          .filter((participant) => participant.type === "agent")
+          .map((participant) => participant.username.toLocaleLowerCase()),
+      ),
+    [participants],
+  );
+  const isMachine = (message: ChatMessage) =>
+    isMachineMessage(message, (name) => agentNames.has(name.toLocaleLowerCase()));
   const closeContextMenu = useCallback(() => setContextMenu(undefined), []);
   const [mentionMessages, setMentionMessages] = useState<ChatMessage[]>([]);
   // 正在回答的 Agent 提问；发送时作为 replyToMessageId
@@ -4023,7 +4037,9 @@ export function App({
                             message.deletedAt ? "deleted" : ""
                           } ${highlightedMessageId === message.id ? "highlighted" : ""} ${
                             message.kind === "question" ? "question" : ""
-                          } ${message.kind === "progress" ? "progress" : ""}`}
+                          } ${message.kind === "progress" ? "progress" : ""} ${
+                            isMachine(message) ? "machine" : ""
+                          }`}
                           data-message-id={message.id}
                           style={
                             message.senderType === "human"
@@ -4103,9 +4119,40 @@ export function App({
                                   ? t("你撤回了一条消息")
                                   : t("{0} 撤回了一条消息", { 0: message.senderName })}
                               </p>
+                            ) : isMachine(message) && !openMachineIds.has(message.id) ? (
+                              <button
+                                type="button"
+                                className="message-machine-summary"
+                                title={t("Agent 之间的往来，点开看全文")}
+                                aria-expanded={false}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setOpenMachineIds((current) => new Set(current).add(message.id));
+                                }}
+                              >
+                                <span>{machineSummary(message)}</span>
+                                <small>{t("展开")}</small>
+                              </button>
                             ) : (
                               message.content && (
                                 <div className="message-body">
+                                  {isMachine(message) && (
+                                    <button
+                                      type="button"
+                                      className="message-machine-collapse"
+                                      aria-expanded={true}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setOpenMachineIds((current) => {
+                                          const next = new Set(current);
+                                          next.delete(message.id);
+                                          return next;
+                                        });
+                                      }}
+                                    >
+                                      {t("收起")}
+                                    </button>
+                                  )}
                                   <CollapsibleMessage
                                     content={message.content}
                                     forceExpanded={shareMode}
