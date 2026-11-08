@@ -103,7 +103,9 @@ describe("local agent routes", () => {
     closeApp = undefined;
   });
 
-  async function setup(extra: Partial<LocalAgentSupervisorOptions> & { publicUrl?: string } = {}) {
+  async function setup(
+    extra: Partial<LocalAgentSupervisorOptions> & { publicUrl?: string | (() => string) } = {},
+  ) {
     const spawner = fakeSpawner();
     const { publicUrl, ...agentOptions } = extra;
     const app = await buildApp({
@@ -127,6 +129,26 @@ describe("local agent routes", () => {
     const owner = { "x-hive-owner": session.ownerToken ?? "" };
     return { app, spawner, session, owner };
   }
+
+  it("builds the QR link from the current network address, not the one at startup", async () => {
+    // 启动时连着手机热点，之后换到了 Wi-Fi
+    let address = "172.20.10.6";
+    const { app, owner } = await setup({ publicUrl: () => `http://${address}:8787` });
+    const pair = async () =>
+      new URL(
+        (
+          await app.inject({
+            method: "POST",
+            url: "/api/local/owner-devices/pair",
+            headers: owner,
+            payload: { origin: "http://localhost:5188" },
+          })
+        ).json().url as string,
+      ).host;
+    expect(await pair()).toBe("172.20.10.6:8787");
+    address = "192.168.1.110";
+    expect(await pair()).toBe("192.168.1.110:8787");
+  });
 
   it("logs the owner in on another device with a one-time QR ticket, without handing out the join token", async () => {
     const { app, owner } = await setup({ publicUrl: "http://10.0.0.8:8787" });

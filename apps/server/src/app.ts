@@ -92,12 +92,19 @@ type Connection = {
   lastHeartbeat: number;
 };
 
+export type ConfiguredUrl = string | (() => string);
+
+export function resolveUrl(value: ConfiguredUrl): string {
+  return (typeof value === "function" ? value() : value).replace(/\/$/, "");
+}
+
 export type BuildAppOptions = {
   databasePath?: string;
   token?: string;
-  publicUrl?: string;
+  /** 对外地址；传函数时每次用到现取（按当前网卡推算的地址会随换网变化） */
+  publicUrl?: ConfiguredUrl;
   /** 网页地址（开发时是 Vite 的端口）；飞书卡片上的「在网页查看」用它，缺省同 publicUrl */
-  webUrl?: string;
+  webUrl?: ConfiguredUrl;
   agentCommandPrefix?: string;
   instanceId?: string;
   logger?: boolean;
@@ -157,9 +164,9 @@ function headerString(value: string | string[] | undefined): string | undefined 
 
 function requestPublicUrl(
   request: { protocol: string; headers: { host?: string | undefined } },
-  configuredUrl?: string,
+  configuredUrl?: ConfiguredUrl,
 ): string {
-  if (configuredUrl) return configuredUrl.replace(/\/$/, "");
+  if (configuredUrl) return resolveUrl(configuredUrl);
   return `${request.protocol}://${request.headers.host ?? "localhost:8787"}`;
 }
 
@@ -230,12 +237,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     ...(options.now ? { now: options.now } : {}),
   });
   const clock = () => options.now?.() ?? Date.now();
+  const webBase = () => {
+    const configured = options.webUrl ?? options.publicUrl;
+    return configured ? resolveUrl(configured) : undefined;
+  };
   const hostApprovals = new HostApprovals({ now: clock });
   // 本机网页可能开在别的端口（dev 时的 Vite、单独公布的网页地址）：只放行这些登记过的端口
+  // 端口不随换网变化，启动时取一次即可
   const originPorts = [options.webUrl, options.publicUrl].flatMap((value) => {
     if (!value) return [];
     try {
-      const url = new URL(value);
+      const url = new URL(resolveUrl(value));
       return [url.port || (url.protocol === "https:" ? "443" : "80")];
     } catch {
       return [];
@@ -473,7 +485,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           .filter((id) => id !== except)
           .filter((id) => revokeOwnerDevice(id)),
       pair: () => ownerDevices.createPairTicket(),
-      webBase: () => (options.webUrl ?? options.publicUrl)?.replace(/\/$/, ""),
+      webBase,
       joinToken: () => joinToken,
       resolve: (token) => {
         const id = ownerDevices.resolve(token);
@@ -2767,12 +2779,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     isWaiting: (questionId) =>
       Boolean(waitingForQuestion(questionId) || approvalByQuestion.has(questionId)),
     webUrl: (roomId) => {
-      const base = (options.webUrl ?? options.publicUrl)?.replace(/\/$/, "");
+      const base = webBase();
       return base ? `${base}/#${roomId}` : undefined;
     },
     // 卡片按钮：带 24 小时有效的登录票，手机上点开直接以房主身份进入
     loginUrl: (connectionId, roomId) => {
-      const base = (options.webUrl ?? options.publicUrl)?.replace(/\/$/, "");
+      const base = webBase();
       return base
         ? `${base}/?login=${ownerDevices.createImTicket(connectionId)}#${roomId}`
         : undefined;

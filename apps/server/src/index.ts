@@ -2,9 +2,10 @@ import { existsSync, mkdirSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import path from "node:path";
 import { timingSafeEqual } from "node:crypto";
-import { buildApp } from "./app.js";
+import { buildApp, resolveUrl } from "./app.js";
 import { feishuDriver } from "./im/feishu.js";
 import type { ImChannelDriver } from "./im/types.js";
+import { lanAddresses } from "./lan-address.js";
 
 import type { AgentCli } from "./local-agents.js";
 
@@ -13,22 +14,22 @@ const port = Number.parseInt(process.env.HIVE_PORT ?? "8787", 10);
 const databasePath = process.env.HIVE_DATABASE ?? path.resolve("data/hive.sqlite");
 const staticDir = process.env.HIVE_STATIC_DIR;
 const instanceId = process.env.HIVE_INSTANCE_ID;
-const lanAddresses: string[] = [];
-for (const entries of Object.values(networkInterfaces())) {
-  for (const entry of entries ?? []) {
-    if (entry.family === "IPv4" && !entry.internal) lanAddresses.push(entry.address);
-  }
-}
-const detectedHost = host === "0.0.0.0" || host === "::" ? (lanAddresses[0] ?? "localhost") : host;
-const detectedUrl = `http://${detectedHost.includes(":") ? `[${detectedHost}]` : detectedHost}:${port}`;
-const publicUrl = (process.env.HIVE_PUBLIC_URL ?? detectedUrl).replace(/\/$/, "");
+const wildcardHost = host === "0.0.0.0" || host === "::";
+const urlHost = (value: string) => (value.includes(":") ? `[${value}]` : value);
+const trimUrl = (value: string) => value.replace(/\/$/, "");
+// 没配置时按当前网卡现算：换 Wi-Fi、开关手机热点后二维码和外链自动跟着变，不用重启
+const detectedUrl = () =>
+  `http://${urlHost(wildcardHost ? (lanAddresses()[0] ?? "localhost") : host)}:${port}`;
+const configuredPublicUrl = process.env.HIVE_PUBLIC_URL;
+const publicUrl = configuredPublicUrl ? trimUrl(configuredPublicUrl) : detectedUrl;
 // 网页地址：开发时网页由 Vite 提供（另一个端口），飞书卡片等外链要指向它而不是 Server
-const webUrl = (
-  process.env.HIVE_WEB_URL ??
-  (process.env.HIVE_DEV_WEB_PORT
-    ? publicUrl.replace(/:\d+$/, `:${process.env.HIVE_DEV_WEB_PORT}`)
-    : publicUrl)
-).replace(/\/$/, "");
+const configuredWebUrl = process.env.HIVE_WEB_URL;
+const devWebPort = process.env.HIVE_DEV_WEB_PORT;
+const webUrl = configuredWebUrl
+  ? trimUrl(configuredWebUrl)
+  : devWebPort
+    ? () => resolveUrl(publicUrl).replace(/:\d+$/, `:${devWebPort}`)
+    : publicUrl;
 // 开发模式（tsx 直接运行 src/）默认生成仓库本地命令；构建产物（dist/）默认生成已发布的 npx 命令。
 const isDevRuntime = import.meta.dirname.endsWith(`${path.sep}src`);
 const agentCommandPrefix =
@@ -141,17 +142,18 @@ if (shutdownToken) {
 }
 await app.listen({ host, port });
 
+const shareUrl = resolveUrl(publicUrl);
 const addresses = new Set([
-  publicUrl,
-  ...lanAddresses.map((address) => `http://${address}:${port}`),
+  shareUrl,
+  ...lanAddresses().map((address) => `http://${urlHost(address)}:${port}`),
   `http://localhost:${port}`,
 ]);
 
 app.log.info("SuperHive is ready");
-app.log.info(`Share URL: ${publicUrl}`);
+app.log.info(`Share URL: ${shareUrl}`);
 for (const address of addresses) app.log.info(`Web: ${address}`);
 app.log.info(
-  `Agent: ${agentCommandPrefix} join --server ${publicUrl} --name my-agent --token <JOIN_TOKEN>`,
+  `Agent: ${agentCommandPrefix} join --server ${shareUrl} --name my-agent --token <JOIN_TOKEN>`,
 );
 
 // SIGBREAK：Windows 控制台的 Ctrl+Break
