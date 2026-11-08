@@ -326,6 +326,33 @@ describe("App mention autocomplete", () => {
     await waitFor(() => expect(document.activeElement?.tagName).toBe("TEXTAREA"));
   });
 
+  it("previews the draft as Markdown, colors its syntax while editing, and expands the composer", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    const { container } = render(<App />);
+    const composer = screen.getByLabelText<HTMLTextAreaElement>("消息");
+    fireEvent.change(composer, { target: { value: "# 计划\n- **先**跑测试" } });
+    // 编辑时：高亮层给标题、加粗上色
+    const highlight = container.querySelector(".composer-highlight")!;
+    expect(highlight.querySelector(".md-heading")?.textContent).toBe("计划");
+    expect(highlight.querySelector(".md-strong")?.textContent).toBe("先");
+    // 预览：按消息里同样的 Markdown 渲染，点一下回到编辑
+    await user.click(screen.getByRole("button", { name: "预览" }));
+    const preview = await screen.findByRole("region", { name: "Markdown 预览" });
+    await waitFor(() => expect(preview.querySelector("h1")?.textContent).toBe("计划"));
+    expect(preview.querySelector("strong")?.textContent).toBe("先");
+    await user.click(preview);
+    expect(screen.queryByRole("region", { name: "Markdown 预览" })).toBeNull();
+    // 展开：输入框最高高度变大
+    const before = Number.parseInt(composer.style.maxHeight, 10);
+    await user.click(screen.getByRole("button", { name: "展开输入框" }));
+    await waitFor(() =>
+      expect(Number.parseInt(composer.style.maxHeight, 10)).toBeGreaterThan(before),
+    );
+    expect(screen.getByRole("button", { name: "收起输入框" })).toBeTruthy();
+  });
+
   it("keeps the mention option chosen with the keyboard in view", async () => {
     localStorage.setItem("superhive.username", "Alice");
     render(<App />);

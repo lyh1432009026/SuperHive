@@ -1156,5 +1156,14 @@
   "推荐。可在指定目录内读写文件、运行命令；越界的操作会被拦下或先问你。": "Recommended. Can edit files and run commands inside the chosen folder; anything beyond that is blocked or asks you first.",
   "删除 {0}？它会退出所有房间，之后要用得重新接入。": "Delete {0}? It leaves every room; you'll need to add it again to use it.",
   "点一个就进下一步；接入命令会按所选 Agent 的运行环境自动调整。": "Pick one to continue; the join command adapts to the agent's runtime.",
-  "权限只在 Agent 所在电脑生效，Hive Server 始终只转发消息。默认工作区档。": "Permissions apply only on the agent's computer; the Hive Server only relays messages. Defaults to Workspace."
+  "权限只在 Agent 所在电脑生效，Hive Server 始终只转发消息。默认工作区档。": "Permissions apply only on the agent's computer; the Hive Server only relays messages. Defaults to Workspace.",
+  "点一下回到编辑": "Click to keep editing",
+  "还没有内容": "Nothing yet",
+  "Markdown 预览": "Markdown preview",
+  "回到编辑（{0}）": "Back to editing ({0})",
+  "预览 Markdown 效果（{0}）": "Preview Markdown ({0})",
+  "预览": "Preview",
+  "收起输入框": "Shrink the composer",
+  "展开输入框": "Expand the composer",
+  "展开输入框，写长内容更方便": "Expand the composer for long messages"
 }

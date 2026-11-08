@@ -36,7 +36,6 @@ import {
   draftMentions,
   filterMentionParticipants,
   findMentionContext,
-  splitDraftMentions,
   type MentionContext,
 } from "./mention-autocomplete";
 import { createClientMessageId } from "./client-id";
@@ -51,6 +50,7 @@ import {
   waitingInvocationForQuestion,
 } from "./invocations";
 import { WhiteboardPanel, upsertWhiteboardEntry } from "./whiteboard";
+import { highlightDraft } from "./draft-highlight";
 import { SchedulePanel, isPendingSchedule, upsertSchedule } from "./schedules";
 import {
   loadRoomOrder,
@@ -734,11 +734,22 @@ function avatarHueStyle(name: string): CSSProperties {
   return { "--avatar-hue": avatarHue(name) } as CSSProperties;
 }
 
-function resizeComposer(textarea: HTMLTextAreaElement): void {
+/**
+ * 输入框随内容长高：平时最多约窗口高度的 40%（至少 176px），展开后最多约 70%；
+ * 超出才出现滚动条。
+ */
+function composerMaxHeight(expanded: boolean): number {
+  const viewport = typeof window === "undefined" ? 800 : window.innerHeight;
+  return Math.round(Math.max(176, viewport * (expanded ? 0.7 : 0.4)));
+}
+
+function resizeComposer(textarea: HTMLTextAreaElement, expanded = false): void {
+  const max = composerMaxHeight(expanded);
+  textarea.style.maxHeight = `${max}px`;
   textarea.style.height = "0px";
-  const nextHeight = Math.min(176, Math.max(54, textarea.scrollHeight));
+  const nextHeight = Math.min(max, Math.max(54, textarea.scrollHeight));
   textarea.style.height = `${nextHeight}px`;
-  textarea.style.overflowY = textarea.scrollHeight > 176 ? "auto" : "hidden";
+  textarea.style.overflowY = textarea.scrollHeight > max ? "auto" : "hidden";
 }
 
 function SettingsSwitch({
@@ -1475,6 +1486,9 @@ export function App({
   const nearBottomRef = useRef(true);
   const messageCountRef = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  /** 输入框：预览 Markdown 效果、展开成大输入框 */
+  const [composerPreview, setComposerPreview] = useState(false);
+  const [composerExpanded, setComposerExpanded] = useState(false);
   /** 打开或刷新页面后，输入框出现时自动聚焦一次（触屏不聚焦，免得一进来就弹出键盘） */
   const composerAutoFocused = useRef(false);
   const attachComposer = useCallback((element: HTMLTextAreaElement | null) => {
@@ -1865,11 +1879,19 @@ export function App({
   }, [scrollContentElement]);
 
   useLayoutEffect(() => {
-    if (textareaRef.current) resizeComposer(textareaRef.current);
+    if (textareaRef.current) resizeComposer(textareaRef.current, composerExpanded);
     if (textareaRef.current && highlightRef.current) {
       highlightRef.current.scrollTop = textareaRef.current.scrollTop;
     }
-  }, [draft, username]);
+  }, [draft, username, composerExpanded, composerPreview]);
+  // 窗口大小变了，输入框的最高高度跟着变
+  useEffect(() => {
+    const onResize = () => {
+      if (textareaRef.current) resizeComposer(textareaRef.current, composerExpanded);
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [composerExpanded]);
 
   const closeMobilePanel = useCallback((restoreFocus = true) => {
     setMobilePanel(undefined);
@@ -2871,6 +2893,7 @@ export function App({
     attachmentQueue.clear();
     setAttachmentNotice(undefined);
     setDraft("");
+    setComposerPreview(false);
     setMentionContext(undefined);
     setAnswering(undefined);
   }
@@ -4666,9 +4689,54 @@ export function App({
                 onRetry={attachmentQueue.retry}
               />
               <div className="composer-input">
-                <div className="composer-highlight" ref={highlightRef} aria-hidden="true">
-                  {splitDraftMentions(draft).map((segment, index) =>
-                    segment.mention ? <mark key={index}>{segment.text}</mark> : segment.text,
+                {composerPreview && (
+                  <div
+                    className="composer-preview"
+                    role="region"
+                    aria-label={t("Markdown 预览")}
+                    tabIndex={0}
+                    ref={(element) => element?.focus({ preventScroll: true })}
+                    style={{ maxHeight: `${composerMaxHeight(composerExpanded)}px` }}
+                    onKeyDown={(event) => {
+                      const toggle =
+                        (event.metaKey || event.ctrlKey) &&
+                        event.shiftKey &&
+                        event.key.toLowerCase() === "e";
+                      if (event.key !== "Escape" && !toggle) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setComposerPreview(false);
+                      window.requestAnimationFrame(() => textareaRef.current?.focus());
+                    }}
+                    onClick={() => {
+                      setComposerPreview(false);
+                      window.requestAnimationFrame(() => textareaRef.current?.focus());
+                    }}
+                    title={t("点一下回到编辑")}
+                  >
+                    {draft.trim() ? (
+                      <MessageMarkdown content={draft} />
+                    ) : (
+                      <p className="composer-preview-empty">{t("还没有内容")}</p>
+                    )}
+                  </div>
+                )}
+                <div
+                  className="composer-highlight"
+                  ref={highlightRef}
+                  aria-hidden="true"
+                  hidden={composerPreview}
+                >
+                  {highlightDraft(draft).map((segment, index) =>
+                    segment.kind === "mention" ? (
+                      <mark key={index}>{segment.text}</mark>
+                    ) : segment.kind ? (
+                      <span key={index} className={`md-${segment.kind}`}>
+                        {segment.text}
+                      </span>
+                    ) : (
+                      segment.text
+                    ),
                   )}
                   {/* 末尾换行需要占位，否则高亮层比输入框少一行 */}
                   {"\u200b"}
@@ -4676,6 +4744,7 @@ export function App({
                 <textarea
                   ref={attachComposer}
                   rows={1}
+                  hidden={composerPreview}
                   value={draft}
                   onScroll={(event) => {
                     if (highlightRef.current) {
@@ -4718,6 +4787,17 @@ export function App({
                     addAttachments(files);
                   }}
                   onKeyDown={(event) => {
+                    // ⌘/Ctrl+Shift+E：切到预览
+                    if (
+                      (event.metaKey || event.ctrlKey) &&
+                      event.shiftKey &&
+                      event.key.toLowerCase() === "e" &&
+                      draft.trim()
+                    ) {
+                      event.preventDefault();
+                      setComposerPreview(true);
+                      return;
+                    }
                     if (
                       composingRef.current ||
                       event.nativeEvent.isComposing ||
@@ -4836,6 +4916,39 @@ export function App({
                     {attachmentNotice ?? t("有附件上传失败，请重试或移除后再发送")}
                   </span>
                 )}
+                {(draft.trim() || composerPreview) && (
+                  <button
+                    type="button"
+                    className={`composer-tool ${composerPreview ? "active" : ""}`}
+                    aria-pressed={composerPreview}
+                    onClick={() => {
+                      setComposerPreview((value) => !value);
+                      if (composerPreview) {
+                        window.requestAnimationFrame(() => textareaRef.current?.focus());
+                      }
+                    }}
+                    title={
+                      composerPreview
+                        ? t("回到编辑（{0}）", { 0: `${modifierKeyLabel}+Shift+E` })
+                        : t("预览 Markdown 效果（{0}）", { 0: `${modifierKeyLabel}+Shift+E` })
+                    }
+                  >
+                    {composerPreview ? t("编辑") : t("预览")}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={`composer-tool ${composerExpanded ? "active" : ""}`}
+                  aria-pressed={composerExpanded}
+                  aria-label={composerExpanded ? t("收起输入框") : t("展开输入框")}
+                  title={composerExpanded ? t("收起输入框") : t("展开输入框，写长内容更方便")}
+                  onClick={() => {
+                    setComposerExpanded((value) => !value);
+                    window.requestAnimationFrame(() => textareaRef.current?.focus());
+                  }}
+                >
+                  {composerExpanded ? "⤡" : "⤢"}
+                </button>
                 <span className="composer-hint">
                   {sendShortcut === "modifier-enter" ? (
                     <>
