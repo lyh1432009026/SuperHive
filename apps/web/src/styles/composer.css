@@ -475,3 +475,79 @@
   background: var(--accent-soft);
   color: var(--accent);
 }
+
+/* 所见即所得输入框：正文排版沿用消息的 .message-body，发出去是什么样，写的时候就是什么样 */
+.rich-composer {
+  min-height: 54px;
+  max-height: max(176px, 40vh);
+  overflow-y: auto;
+  padding: 15px 20px 3px;
+  cursor: text;
+  scrollbar-gutter: stable;
+}
+
+.rich-composer.expanded {
+  max-height: max(176px, 70vh);
+}
+
+.rich-composer .rich-composer-content {
+  min-height: 24px;
+  margin: 0;
+  outline: none;
+  line-height: 24px;
+  white-space: pre-wrap;
+}
+
+.rich-composer .rich-composer-content p,
+.rich-composer .rich-composer-content ul,
+.rich-composer .rich-composer-content ol,
+.rich-composer .rich-composer-content blockquote,
+.rich-composer .rich-composer-content table,
+.rich-composer .rich-composer-content hr {
+  margin: 6px 0;
+}
+
+.rich-composer .rich-composer-content > :first-child {
+  margin-top: 0;
+}
+
+.rich-composer .rich-composer-content > :last-child {
+  margin-bottom: 0;
+}
+
+.rich-composer .rich-composer-content pre {
+  margin: 6px 0;
+  border-radius: var(--radius-lg);
+  background: var(--bg-code);
+  box-shadow: inset 0 0 0 1px var(--border-light);
+}
+
+.rich-composer .composer-mention {
+  color: var(--accent);
+}
+
+.rich-composer .rich-composer-content p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.rich-composer .ProseMirror-selectednode {
+  outline: 2px solid var(--accent-soft);
+}
+
+:root[data-density="compact"] .rich-composer {
+  padding-top: 13px;
+}
+
+@media (max-width: 720px) {
+  .rich-composer {
+    padding: 15px 16px 0;
+  }
+
+  .rich-composer .rich-composer-content {
+    font-size: 16px;
+  }
+}

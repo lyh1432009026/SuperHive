@@ -1165,5 +1165,7 @@
   "预览": "Preview",
   "收起输入框": "Shrink the composer",
   "展开输入框": "Expand the composer",
-  "展开输入框，写长内容更方便": "Expand the composer for long messages"
+  "展开输入框，写长内容更方便": "Expand the composer for long messages",
+  "输入框直接显示格式": "Format as you type",
+  "像飞书一样边写边显示标题、列表、加粗、代码；关掉则是纯文本 Markdown，可手动预览": "Headings, lists, bold and code show up as you type. Turn off for plain Markdown with a manual preview"
 }

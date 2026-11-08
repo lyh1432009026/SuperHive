@@ -1,0 +1,50 @@
+// @vitest-environment jsdom
+import { Editor } from "@tiptap/core";
+import { afterEach, describe, expect, it } from "vitest";
+import { editorMarkdown, richComposerExtensions } from "./rich-markdown";
+
+let editor: Editor | undefined;
+afterEach(() => {
+  editor?.destroy();
+  editor = undefined;
+});
+
+function roundTrip(markdown: string): string {
+  editor ??= new Editor({ extensions: richComposerExtensions(() => "") });
+  editor.commands.setContent(markdown, { contentType: "markdown" });
+  return editorMarkdown(editor);
+}
+
+describe("rich composer markdown", () => {
+  it("keeps typed text as is instead of escaping it", () => {
+    // 默认序列化会写成 rd\_x、@rd-claude\_2，提及就断了
+    expect(roundTrip("a*b and rd_x @rd-claude_2 snake_case [x] ~/code")).toBe(
+      "a*b and rd_x @rd-claude_2 snake_case [x] ~/code",
+    );
+    expect(roundTrip("<div>x</div> 5 < 6 & 7")).toBe("<div>x</div> 5 < 6 & 7");
+  });
+
+  it("uses a single newline for line breaks, like the message view", () => {
+    expect(roundTrip("第一行\n第二行\n\n第三段")).toBe("第一行\n第二行\n\n第三段");
+  });
+
+  it("round-trips common blocks", () => {
+    const blocks = [
+      "# 标题\n\n正文 **粗** *斜* `code` ~~删~~ [链接](https://example.com)",
+      "- a\n- b\n\n1. x\n2. y",
+      "> 引用\n> 第二行",
+      "```ts\nconst a = 1;\n\nb\n```",
+    ];
+    for (const block of blocks) expect(roundTrip(block)).toBe(block);
+  });
+
+  it("keeps GFM tables", () => {
+    expect(roundTrip("| a | b |\n| - | - |\n| 1 | 2 |")).toBe(
+      "| a   | b   |\n| --- | --- |\n| 1   | 2   |",
+    );
+  });
+
+  it("returns an empty string for an empty editor", () => {
+    expect(roundTrip("")).toBe("");
+  });
+});

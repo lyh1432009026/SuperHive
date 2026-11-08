@@ -51,6 +51,7 @@ import {
 } from "./invocations";
 import { WhiteboardPanel, upsertWhiteboardEntry } from "./whiteboard";
 import { highlightDraft } from "./draft-highlight";
+import type { ComposerHandle, ComposerKeyInfo } from "./rich-composer";
 import { SchedulePanel, isPendingSchedule, upsertSchedule } from "./schedules";
 import {
   loadRoomOrder,
@@ -159,6 +160,9 @@ const storedUsernameKey = "superhive.username";
 const storedRoomKey = "superhive.room";
 const storedSendShortcutKey = "superhive.send-shortcut";
 const storedAutoSaveDraftKey = "superhive.auto-save-draft";
+const storedRichComposerKey = "superhive.rich-composer";
+/** 所见即所得输入框（Tiptap）单独打包，用到时才加载；加载完之前先用纯文本输入框顶着 */
+const RichComposer = lazy(() => import("./rich-composer"));
 const storedTimeFormatKey = "superhive.time-format";
 const storedMessageNotificationsKey = "superhive.notify-messages";
 const storedNotificationPromptDismissedKey = "superhive.notify-prompt-dismissed";
@@ -1422,6 +1426,10 @@ export function App({
   const [autoSaveDraft, setAutoSaveDraft] = useState(() =>
     storedBoolean(storedAutoSaveDraftKey, true),
   );
+  /** 输入框边写边渲染 Markdown；关掉就是纯文本输入框 + 预览。单元测试里默认关（jsdom 跑不了编辑器的选区） */
+  const [richComposer, setRichComposer] = useState(() =>
+    storedBoolean(storedRichComposerKey, import.meta.env.MODE !== "test"),
+  );
   const [timeFormat, setTimeFormat] = useState<TimeFormat>(() =>
     storedChoice(storedTimeFormatKey, ["system", "24h", "12h"], "system"),
   );
@@ -1485,13 +1493,14 @@ export function App({
   const messageListRef = useRef<HTMLDivElement>(null);
   const nearBottomRef = useRef(true);
   const messageCountRef = useRef(0);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  /** 纯文本模式下就是 textarea 本身；所见即所得模式下是编辑器给的同名方法 */
+  const textareaRef = useRef<ComposerHandle | null>(null);
   /** 输入框：预览 Markdown 效果、展开成大输入框 */
   const [composerPreview, setComposerPreview] = useState(false);
   const [composerExpanded, setComposerExpanded] = useState(false);
   /** 打开或刷新页面后，输入框出现时自动聚焦一次（触屏不聚焦，免得一进来就弹出键盘） */
   const composerAutoFocused = useRef(false);
-  const attachComposer = useCallback((element: HTMLTextAreaElement | null) => {
+  const attachComposer = useCallback((element: ComposerHandle | null) => {
     textareaRef.current = element;
     if (!element || composerAutoFocused.current) return;
     composerAutoFocused.current = true;
@@ -1500,7 +1509,8 @@ export function App({
       // 已经有别的地方拿到焦点（弹窗、搜索框）就不抢
       const active = document.activeElement;
       if (active && active !== document.body) return;
-      element.focus({ preventScroll: true });
+      // 所见即所得编辑器加载完会顶替先挂上的纯文本输入框，聚焦当下的那个
+      textareaRef.current?.focus({ preventScroll: true });
     });
   }, []);
   const browsingHistoryRef = useRef<string | undefined>(undefined);
@@ -1879,15 +1889,16 @@ export function App({
   }, [scrollContentElement]);
 
   useLayoutEffect(() => {
-    if (textareaRef.current) resizeComposer(textareaRef.current, composerExpanded);
-    if (textareaRef.current && highlightRef.current) {
-      highlightRef.current.scrollTop = textareaRef.current.scrollTop;
-    }
-  }, [draft, username, composerExpanded, composerPreview]);
+    const textarea = textareaRef.current;
+    if (!(textarea instanceof HTMLTextAreaElement)) return;
+    resizeComposer(textarea, composerExpanded);
+    if (highlightRef.current) highlightRef.current.scrollTop = textarea.scrollTop;
+  }, [draft, username, composerExpanded, composerPreview, richComposer]);
   // 窗口大小变了，输入框的最高高度跟着变
   useEffect(() => {
     const onResize = () => {
-      if (textareaRef.current) resizeComposer(textareaRef.current, composerExpanded);
+      const textarea = textareaRef.current;
+      if (textarea instanceof HTMLTextAreaElement) resizeComposer(textarea, composerExpanded);
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
@@ -2934,8 +2945,79 @@ export function App({
     });
   }
 
+  /** 输入框的按键：发送、选 @ 成员、翻历史。返回 true 表示已处理，调用方阻止默认行为 */
+  function handleComposerKey(event: KeyboardEvent, caret: ComposerKeyInfo): boolean {
+    if (event.isComposing || event.keyCode === 229) return false;
+    if (event.key === "Enter" && !event.shiftKey && (event.metaKey || event.ctrlKey)) {
+      sendMessage();
+      return true;
+    }
+    if (mentionContext && event.key === "ArrowDown") {
+      setActiveMentionIndex((index) =>
+        mentionSuggestions.length ? (index + 1) % mentionSuggestions.length : 0,
+      );
+      return true;
+    }
+    if (mentionContext && event.key === "ArrowUp") {
+      setActiveMentionIndex((index) =>
+        mentionSuggestions.length
+          ? (index - 1 + mentionSuggestions.length) % mentionSuggestions.length
+          : 0,
+      );
+      return true;
+    }
+    if (mentionContext && event.key === "Escape") {
+      setMentionContext(undefined);
+      return true;
+    }
+    if (
+      mentionContext &&
+      mentionSuggestions[activeMentionIndex] &&
+      (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey))
+    ) {
+      chooseMention(mentionSuggestions[activeMentionIndex]);
+      return true;
+    }
+    // 代码块里 Enter 是换行，要发送用组合键
+    if (sendShortcut === "enter" && event.key === "Enter" && !event.shiftKey && !caret.inCode) {
+      sendMessage();
+      return true;
+    }
+    if (event.key === "Escape" && draft && draft === browsingHistoryRef.current) {
+      showHistoryEntry("");
+      return true;
+    }
+    if (
+      (event.key === "ArrowUp" || event.key === "ArrowDown") &&
+      !event.shiftKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      !event.ctrlKey
+    ) {
+      const next = stepComposerHistory({
+        history: composerHistory(messages, username),
+        draft,
+        browsing: browsingHistoryRef.current,
+        direction: event.key === "ArrowUp" ? "older" : "newer",
+        selectionStart: caret.selectionStart,
+        selectionEnd: caret.selectionEnd,
+      });
+      if (next !== undefined) {
+        showHistoryEntry(next);
+        return true;
+      }
+    }
+    return false;
+  }
+
   function chooseMention(participant: Participant) {
     if (!mentionContext) return;
+    if (textareaRef.current?.applyMention) {
+      textareaRef.current.applyMention(participant.username);
+      setMentionContext(undefined);
+      setActiveMentionIndex(0);
+      return;
+    }
     const next = applyMention(draft, mentionContext, participant.username);
     setDraft(next.value);
     setMentionContext(undefined);
@@ -3469,6 +3551,105 @@ export function App({
       setRoomDialogBusy(false);
     }
   }
+
+  const composerPlaceholder = currentLeadAgent
+    ? t("发送消息，不 @ 时交给主 Agent {0}…", { 0: currentLeadAgent })
+    : t("发送消息，输入 @ 选择成员…");
+  const plainComposerInput = (
+    <>
+      <div
+        className="composer-highlight"
+        ref={highlightRef}
+        aria-hidden="true"
+        hidden={composerPreview}
+      >
+        {highlightDraft(draft).map((segment, index) =>
+          segment.kind === "mention" ? (
+            <mark key={index}>{segment.text}</mark>
+          ) : segment.kind ? (
+            <span key={index} className={`md-${segment.kind}`}>
+              {segment.text}
+            </span>
+          ) : (
+            segment.text
+          ),
+        )}
+        {/* 末尾换行需要占位，否则高亮层比输入框少一行 */}
+        {"\u200b"}
+      </div>
+      <textarea
+        ref={attachComposer}
+        rows={1}
+        hidden={composerPreview}
+        value={draft}
+        onScroll={(event) => {
+          if (highlightRef.current) {
+            highlightRef.current.scrollTop = event.currentTarget.scrollTop;
+          }
+        }}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          if (!composingRef.current) {
+            updateMentionContext(event.target.value, event.target.selectionStart);
+          }
+        }}
+        onCompositionStart={() => {
+          composingRef.current = true;
+        }}
+        onCompositionEnd={(event) => {
+          composingRef.current = false;
+          updateMentionContext(event.currentTarget.value, event.currentTarget.selectionStart);
+        }}
+        onSelect={(event) => {
+          // 翻到的旧消息以 @某人 结尾时不弹成员列表，否则方向键会被列表接走
+          if (!composingRef.current && event.currentTarget.value !== browsingHistoryRef.current) {
+            updateMentionContext(event.currentTarget.value, event.currentTarget.selectionStart);
+          }
+        }}
+        onPaste={(event) => {
+          // 只接收浏览器交来的文件（截图、复制的图片）；粘贴的路径文本仍按文字处理，不去读本地文件
+          const files = [...event.clipboardData.files];
+          if (files.length === 0) return;
+          event.preventDefault();
+          addAttachments(files);
+        }}
+        onKeyDown={(event) => {
+          // ⌘/Ctrl+Shift+E：切到预览
+          if (
+            (event.metaKey || event.ctrlKey) &&
+            event.shiftKey &&
+            event.key.toLowerCase() === "e" &&
+            draft.trim()
+          ) {
+            event.preventDefault();
+            setComposerPreview(true);
+            return;
+          }
+          if (composingRef.current) return;
+          const textarea = event.currentTarget;
+          if (
+            handleComposerKey(event.nativeEvent, {
+              selectionStart: textarea.selectionStart,
+              selectionEnd: textarea.selectionEnd,
+              inCode: false,
+            })
+          ) {
+            event.preventDefault();
+          }
+        }}
+        placeholder={composerPlaceholder}
+        aria-label={t("消息")}
+        aria-autocomplete="list"
+        aria-controls={mentionContext ? "mention-suggestions" : undefined}
+        aria-expanded={Boolean(mentionContext)}
+        aria-activedescendant={
+          mentionContext && mentionSuggestions[activeMentionIndex]
+            ? `mention-option-${mentionSuggestions[activeMentionIndex].id}`
+            : undefined
+        }
+      />
+    </>
+  );
 
   return (
     <main className="app-shell">
@@ -4723,175 +4904,36 @@ export function App({
                     )}
                   </div>
                 )}
-                <div
-                  className="composer-highlight"
-                  ref={highlightRef}
-                  aria-hidden="true"
-                  hidden={composerPreview}
-                >
-                  {highlightDraft(draft).map((segment, index) =>
-                    segment.kind === "mention" ? (
-                      <mark key={index}>{segment.text}</mark>
-                    ) : segment.kind ? (
-                      <span key={index} className={`md-${segment.kind}`}>
-                        {segment.text}
-                      </span>
-                    ) : (
-                      segment.text
-                    ),
-                  )}
-                  {/* 末尾换行需要占位，否则高亮层比输入框少一行 */}
-                  {"\u200b"}
-                </div>
-                <textarea
-                  ref={attachComposer}
-                  rows={1}
-                  hidden={composerPreview}
-                  value={draft}
-                  onScroll={(event) => {
-                    if (highlightRef.current) {
-                      highlightRef.current.scrollTop = event.currentTarget.scrollTop;
-                    }
-                  }}
-                  onChange={(event) => {
-                    setDraft(event.target.value);
-                    if (!composingRef.current) {
-                      updateMentionContext(event.target.value, event.target.selectionStart);
-                    }
-                  }}
-                  onCompositionStart={() => {
-                    composingRef.current = true;
-                  }}
-                  onCompositionEnd={(event) => {
-                    composingRef.current = false;
-                    updateMentionContext(
-                      event.currentTarget.value,
-                      event.currentTarget.selectionStart,
-                    );
-                  }}
-                  onSelect={(event) => {
-                    // 翻到的旧消息以 @某人 结尾时不弹成员列表，否则方向键会被列表接走
-                    if (
-                      !composingRef.current &&
-                      event.currentTarget.value !== browsingHistoryRef.current
-                    ) {
-                      updateMentionContext(
-                        event.currentTarget.value,
-                        event.currentTarget.selectionStart,
-                      );
-                    }
-                  }}
-                  onPaste={(event) => {
-                    // 只接收浏览器交来的文件（截图、复制的图片）；粘贴的路径文本仍按文字处理，不去读本地文件
-                    const files = [...event.clipboardData.files];
-                    if (files.length === 0) return;
-                    event.preventDefault();
-                    addAttachments(files);
-                  }}
-                  onKeyDown={(event) => {
-                    // ⌘/Ctrl+Shift+E：切到预览
-                    if (
-                      (event.metaKey || event.ctrlKey) &&
-                      event.shiftKey &&
-                      event.key.toLowerCase() === "e" &&
-                      draft.trim()
-                    ) {
-                      event.preventDefault();
-                      setComposerPreview(true);
-                      return;
-                    }
-                    if (
-                      composingRef.current ||
-                      event.nativeEvent.isComposing ||
-                      event.nativeEvent.keyCode === 229
-                    ) {
-                      return;
-                    }
-                    if (
-                      event.key === "Enter" &&
-                      !event.shiftKey &&
-                      (event.metaKey || event.ctrlKey)
-                    ) {
-                      event.preventDefault();
-                      sendMessage();
-                      return;
-                    }
-                    if (mentionContext && event.key === "ArrowDown") {
-                      event.preventDefault();
-                      setActiveMentionIndex((index) =>
-                        mentionSuggestions.length ? (index + 1) % mentionSuggestions.length : 0,
-                      );
-                      return;
-                    }
-                    if (mentionContext && event.key === "ArrowUp") {
-                      event.preventDefault();
-                      setActiveMentionIndex((index) =>
-                        mentionSuggestions.length
-                          ? (index - 1 + mentionSuggestions.length) % mentionSuggestions.length
-                          : 0,
-                      );
-                      return;
-                    }
-                    if (mentionContext && event.key === "Escape") {
-                      event.preventDefault();
-                      setMentionContext(undefined);
-                      return;
-                    }
-                    if (
-                      mentionContext &&
-                      mentionSuggestions[activeMentionIndex] &&
-                      (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey))
-                    ) {
-                      event.preventDefault();
-                      chooseMention(mentionSuggestions[activeMentionIndex]);
-                      return;
-                    }
-                    if (sendShortcut === "enter" && event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault();
-                      sendMessage();
-                      return;
-                    }
-                    if (event.key === "Escape" && draft && draft === browsingHistoryRef.current) {
-                      event.preventDefault();
-                      showHistoryEntry("");
-                      return;
-                    }
-                    if (
-                      (event.key === "ArrowUp" || event.key === "ArrowDown") &&
-                      !event.shiftKey &&
-                      !event.altKey &&
-                      !event.metaKey &&
-                      !event.ctrlKey
-                    ) {
-                      const next = stepComposerHistory({
-                        history: composerHistory(messages, username),
-                        draft,
-                        browsing: browsingHistoryRef.current,
-                        direction: event.key === "ArrowUp" ? "older" : "newer",
-                        selectionStart: event.currentTarget.selectionStart,
-                        selectionEnd: event.currentTarget.selectionEnd,
-                      });
-                      if (next !== undefined) {
-                        event.preventDefault();
-                        showHistoryEntry(next);
+                {richComposer ? (
+                  <Suspense fallback={plainComposerInput}>
+                    <RichComposer
+                      value={draft}
+                      onChange={(value) => setDraft(value)}
+                      onMentionContext={(value, context) => {
+                        // 翻到的旧消息以 @某人 结尾时不弹成员列表，否则方向键会被列表接走
+                        if (value && value === browsingHistoryRef.current) return;
+                        setMentionContext(context);
+                        setActiveMentionIndex(0);
+                      }}
+                      onKeyDown={handleComposerKey}
+                      onPasteFiles={addAttachments}
+                      handleRef={attachComposer}
+                      placeholder={composerPlaceholder}
+                      expanded={composerExpanded}
+                      newlineOnEnter={sendShortcut === "modifier-enter"}
+                      ariaLabel={t("消息")}
+                      ariaExpanded={Boolean(mentionContext)}
+                      ariaControls={mentionContext ? "mention-suggestions" : undefined}
+                      ariaActiveDescendant={
+                        mentionContext && mentionSuggestions[activeMentionIndex]
+                          ? `mention-option-${mentionSuggestions[activeMentionIndex].id}`
+                          : undefined
                       }
-                    }
-                  }}
-                  placeholder={
-                    currentLeadAgent
-                      ? t("发送消息，不 @ 时交给主 Agent {0}…", { 0: currentLeadAgent })
-                      : t("发送消息，输入 @ 选择成员…")
-                  }
-                  aria-label={t("消息")}
-                  aria-autocomplete="list"
-                  aria-controls={mentionContext ? "mention-suggestions" : undefined}
-                  aria-expanded={Boolean(mentionContext)}
-                  aria-activedescendant={
-                    mentionContext && mentionSuggestions[activeMentionIndex]
-                      ? `mention-option-${mentionSuggestions[activeMentionIndex].id}`
-                      : undefined
-                  }
-                />
+                    />
+                  </Suspense>
+                ) : (
+                  plainComposerInput
+                )}
               </div>
               <div className="composer-footer">
                 <button
@@ -4918,7 +4960,7 @@ export function App({
                     {attachmentNotice ?? t("有附件上传失败，请重试或移除后再发送")}
                   </span>
                 )}
-                {(draft.trim() || composerPreview) && (
+                {!richComposer && (draft.trim() || composerPreview) && (
                   <button
                     type="button"
                     className={`composer-tool ${composerPreview ? "active" : ""}`}
@@ -6039,6 +6081,18 @@ export function App({
                           } else if (checked && username && draft) {
                             localStorage.setItem(draftStorageKey(username, currentRoomId), draft);
                           }
+                        }}
+                      />
+                      <SettingsSwitch
+                        checked={richComposer}
+                        label={t("输入框直接显示格式")}
+                        description={t(
+                          "像飞书一样边写边显示标题、列表、加粗、代码；关掉则是纯文本 Markdown，可手动预览",
+                        )}
+                        onChange={(checked) => {
+                          setRichComposer(checked);
+                          setComposerPreview(false);
+                          localStorage.setItem(storedRichComposerKey, String(checked));
                         }}
                       />
                       <div className="settings-inline-row">
