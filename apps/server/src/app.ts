@@ -2236,7 +2236,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     message: ChatMessage,
     invocation: Invocation,
   ): void {
-    if (invocation.status === "queued" || invocation.status === "blocked") {
+    // Agent 已经收到的排队任务可能马上就开始：和执行中一样请它停，等它确认，不在这边直接判成没执行
+    const delivered = invocation.status === "queued" && invocation.receivedAt;
+    if ((invocation.status === "queued" && !delivered) || invocation.status === "blocked") {
       emitInvocation(
         database.updateInvocation(invocation.id, {
           status: "cancelled",
@@ -2337,11 +2339,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       // 停止中收到结果未知：Agent 这边的回合已经结束（Claude 只能确认主进程停了），不再占着「停止中」
       // 等 10 分钟超时；改为结果未知，照样不允许直接重试，要人核对后再决定
       const stopping = invocation.status === "cancelling";
+      // 撤回并停止的：人已经在确认框里处理过，写明原因，不再算作「需要你处理」
+      const recalledBy = stopping ? database.getMessage(invocation.messageId) : undefined;
+      const recalled = Boolean(recalledBy?.deletedAt);
       emitInvocation(
         database.updateInvocation(invocation.id, {
           status: "timed_out",
           detail: stopping
-            ? `已停止 Agent 这一轮，但无法确认工具子进程都已停下：${report.detail ?? "结果未知"}`.slice(
+            ? `${recalled ? "消息已撤回，停止未确认：" : "已停止 Agent 这一轮，但"}无法确认工具子进程都已停下：${report.detail ?? "结果未知"}`.slice(
                 0,
                 500,
               )
@@ -2349,6 +2354,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           progress: null,
         }),
       );
+      if (recalled) {
+        for (const dismissed of database.dismissInvocations(
+          invocation.roomId,
+          [invocation.id],
+          recalledBy!.senderName,
+        )) {
+          emitInvocation(dismissed);
+        }
+      }
       return;
     }
     if (report.status === "running") {

@@ -101,4 +101,32 @@ describe("recalling a message that dispatched work", () => {
     await alice.next((event) => event.type === "message.deleted");
     await expect(helper.next((event) => event.type === "agent.cancel", 200)).rejects.toThrow();
   });
+
+  it("asks the agent to stop a delivered queued task, and files an unconfirmed stop as handled", async () => {
+    const { alice, helper } = await room();
+    alice.send({ type: "message.send", clientMessageId: "d1", content: "@helper 马上要开始" });
+    const { message } = (await helper.next(
+      (event) => event.type === "agent.mentioned",
+    )) as Mentioned;
+    helper.send({ type: "invocation.report", messageId: message.id, status: "received" });
+    await alice.next(updated(message.id, (invocation) => Boolean(invocation.receivedAt)));
+
+    alice.send({ type: "message.delete", messageId: message.id, stop: true });
+    // 已经送达：不在服务端直接判成「未执行」，等 Agent 确认
+    await alice.next(updated(message.id, (invocation) => invocation.status === "cancelling"));
+    expect(await helper.next((event) => event.type === "agent.cancel")).toMatchObject({
+      messageId: message.id,
+    });
+    helper.send({ type: "invocation.report", messageId: message.id, status: "uncertain" });
+    const done = await alice.next(
+      updated(
+        message.id,
+        (invocation) => invocation.status === "timed_out" && Boolean(invocation.resolution),
+      ),
+    );
+    const invocation = (done as Extract<ServerEvent, { type: "invocation.updated" }>).invocation;
+    expect(invocation.detail).toContain("消息已撤回，停止未确认");
+    // 人已经在撤回确认里处理过，不再算作需要处理
+    expect(invocation.resolution?.kind).toBe("dismissed");
+  });
 });
