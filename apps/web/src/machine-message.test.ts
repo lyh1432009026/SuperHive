@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatMessage } from "@superhive/protocol";
-import { isMachineMessage, machinePreview } from "./machine-message";
+import { isMachineMessage, machinePreview, splitMentions } from "./machine-message";
 
 const base = {
   id: "00000000-0000-4000-8000-000000000001",
@@ -27,7 +27,7 @@ describe("machine messages", () => {
     };
     expect(isMachineMessage(receipt, isAgent)).toBe(true);
     expect(machinePreview(receipt)).toEqual({
-      label: "子任务回执 · 已完成 · 结果见 #1678",
+      label: "子任务回执 → @rd-claude · 已完成 · 结果见 #1678",
       text: "可以合",
     });
     expect(isMachineMessage({ ...receipt, mentions: ["rd"] }, isAgent)).toBe(false);
@@ -41,8 +41,16 @@ describe("machine messages", () => {
     expect(isMachineMessage(delegation, isAgent)).toBe(true);
     expect(machinePreview(delegation)).toEqual({
       label: "委派",
-      text: "请 review「撤回并停止」\n做法：……",
+      text: "@rd-claude3 请 review「撤回并停止」\n做法：……",
     });
     expect(isMachineMessage({ ...delegation, kind: undefined }, isAgent)).toBe(false);
+  });
+
+  it("splits out @mentions so the card can highlight them, but not e-mail addresses", () => {
+    expect(splitMentions("@rd-claude3 看下，抄送 a@b.com 和 @rd")).toEqual([
+      { text: "@rd-claude3", mention: true },
+      { text: " 看下，抄送 a@b.com 和 ", mention: false },
+      { text: "@rd", mention: true },
+    ]);
   });
 });

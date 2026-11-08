@@ -1132,3 +1132,11 @@ label.question-option:hover {
   background: transparent;
   cursor: pointer;
 }
+
+/* 卡片里的 @ 和正文一样高亮，看得出派给谁、交回给谁 */
+.message-machine-card mark {
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font-weight: var(--weight-medium);
+}

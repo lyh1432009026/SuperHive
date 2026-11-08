@@ -20,12 +20,33 @@ export function machinePreview(message: ChatMessage): { label: string; text: str
     const result = /结果（#(\d+)）：?\n?([\s\S]*?)(?:\n子任务 ID：|$)/.exec(message.content);
     const note = /^说明：(.+)$/m.exec(message.content)?.[1]?.trim();
     return {
-      label: [t("子任务回执"), status, result?.[1] ? t("结果见 #{0}", { 0: result[1] }) : undefined]
+      label: [
+        // 交给谁：回执正文里的 @ 被转成了全角，这里按消息的 mentions 标出来
+        `${t("子任务回执")} → ${message.mentions.map((name) => `@${name}`).join(" ")}`,
+        status,
+        result?.[1] ? t("结果见 #{0}", { 0: result[1] }) : undefined,
+      ]
         .filter(Boolean)
         .join(" · "),
       text: (result?.[2] ?? note ?? "").trim(),
     };
   }
-  // 委派：去掉开头的 @对方，正文就是任务说明
-  return { label: t("委派"), text: message.content.replace(/^\s*(?:@[\w.-]+\s*)+/, "").trim() };
+  // 委派：正文就是「@对方 任务说明」，@ 谁照原样露出
+  return { label: t("委派"), text: message.content.trim() };
+}
+
+/** 和消息正文一致：邮箱里的 @ 不算提及 */
+const mentionPattern = /(?<![A-Za-z0-9_.])@[\p{L}\p{N}_.-]+/gu;
+
+/** 把一段纯文本切成普通文字和 @提及，卡片里给 @ 上和正文一样的高亮 */
+export function splitMentions(text: string): Array<{ text: string; mention: boolean }> {
+  const parts: Array<{ text: string; mention: boolean }> = [];
+  let cursor = 0;
+  for (const match of text.matchAll(mentionPattern)) {
+    if (match.index > cursor) parts.push({ text: text.slice(cursor, match.index), mention: false });
+    parts.push({ text: match[0], mention: true });
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < text.length) parts.push({ text: text.slice(cursor), mention: false });
+  return parts;
 }

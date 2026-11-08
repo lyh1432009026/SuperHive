@@ -68,7 +68,7 @@ import { GoToPalette } from "./goto-palette";
 import { matchShortcut, type ShortcutId } from "./shortcuts";
 import { ShortcutsHelp } from "./shortcuts-help";
 import { ContextMenu, contextMenuPoint, type ContextMenuState } from "./context-menu";
-import { isMachineMessage, machinePreview } from "./machine-message";
+import { isMachineMessage, machinePreview, splitMentions } from "./machine-message";
 import {
   AttentionRoomGroup,
   AttentionToasts,
@@ -4378,11 +4378,27 @@ export function App({
                                     }}
                                   >
                                     <span className="message-machine-label">
-                                      {preview.label}
+                                      <span>
+                                        {splitMentions(preview.label).map((part, index) =>
+                                          part.mention ? (
+                                            <mark key={index}>{part.text}</mark>
+                                          ) : (
+                                            part.text
+                                          ),
+                                        )}
+                                      </span>
                                       <small>{t("展开")}</small>
                                     </span>
                                     {preview.text && (
-                                      <span className="message-machine-text">{preview.text}</span>
+                                      <span className="message-machine-text">
+                                        {splitMentions(preview.text).map((part, index) =>
+                                          part.mention ? (
+                                            <mark key={index}>{part.text}</mark>
+                                          ) : (
+                                            part.text
+                                          ),
+                                        )}
+                                      </span>
                                     )}
                                   </button>
                                 );
