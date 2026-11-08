@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { AgentUsage, RuntimeEvent, TraceStep } from "./hive-protocol.js";
-import { claudeToolSummary } from "./trace.js";
+import { ThinkingTrace, claudeToolSummary } from "./trace.js";
 import { UsageAccumulator, anthropicBuckets } from "./usage.js";
 
 type ObjectValue = Record<string, unknown>;
@@ -51,14 +51,18 @@ export class ClaudeStream {
   private sessionCost: number | undefined;
   /** 工具调用开始时的信息：结果回来时据此补全这一步 */
   private readonly traceTools = new Map<string, TraceStep>();
-  /** 当前消息里正在进行的思考块（按块序号） */
-  private readonly thinking = new Map<number, TraceStep>();
+  /** 当前消息里正在进行的思考块（块序号 → 步骤 id） */
+  private readonly thinking = new Map<number, string>();
+  private readonly thinkingTrace: ThinkingTrace;
   private readonly seenTexts = new Set<string>();
   constructor(
     private readonly emit: (event: RuntimeEvent) => void,
     private readonly trace: (step: TraceStep) => void = () => undefined,
     private readonly session: (sessionId: string) => void = () => undefined,
-  ) {}
+    now: () => number = Date.now,
+  ) {
+    this.thinkingTrace = new ThinkingTrace((step) => this.trace(step), now);
+  }
 
   private traceAssistant(message: ObjectValue | undefined): void {
     if (!Array.isArray(message?.content)) return;
@@ -126,6 +130,7 @@ export class ClaudeStream {
   finish(): ClaudeResult | undefined {
     if (!this.discarding && this.buffer.trim()) this.line(this.buffer);
     this.buffer = "";
+    this.thinkingTrace.endAll();
     // 插话后多跑了几轮：以最后一轮为准。它看得到前面的对话，通常会把结论连同插话一起重说一遍，
     // 直接拼接反而重复；最后一轮没给出文字时才退回到上一轮的回复
     if (this.results.length <= 1) return this.result;
@@ -279,9 +284,7 @@ export class ClaudeStream {
         const message = object(stream.message);
         if (typeof message?.id === "string") this.currentMessageId = message.id;
         // 上一条消息里没等到结束的思考块，到这里一并收尾
-        for (const step of this.thinking.values()) {
-          this.trace({ ...step, status: "ok", endedAt: new Date().toISOString() });
-        }
+        for (const id of this.thinking.values()) this.thinkingTrace.end(id);
         this.thinking.clear();
         this.account(message, message?.id);
         this.recovered();
@@ -293,25 +296,27 @@ export class ClaudeStream {
       } else if (stream?.type === "content_block_start") {
         this.block(stream.content_block);
         const index = integer(stream.index, 0, 10_000);
-        if (object(stream.content_block)?.type === "thinking" && index !== undefined) {
-          const step: TraceStep = {
-            id: `thinking:${this.currentMessageId ?? "message"}:${index}`,
-            kind: "thinking",
-            status: "running",
-            startedAt: new Date().toISOString(),
-          };
-          this.thinking.set(index, step);
-          this.trace(step);
+        const type = object(stream.content_block)?.type;
+        // redacted_thinking 拿不到正文，只记时长
+        if ((type === "thinking" || type === "redacted_thinking") && index !== undefined) {
+          const id = `thinking:${this.currentMessageId ?? "message"}:${index}`;
+          this.thinking.set(index, id);
+          this.thinkingTrace.start(id);
         }
       } else if (stream?.type === "content_block_stop") {
         const index = integer(stream.index, 0, 10_000);
-        const step = index !== undefined ? this.thinking.get(index) : undefined;
-        if (step && index !== undefined) {
+        const id = index !== undefined ? this.thinking.get(index) : undefined;
+        if (id && index !== undefined) {
           this.thinking.delete(index);
-          this.trace({ ...step, status: "ok", endedAt: new Date().toISOString() });
+          this.thinkingTrace.end(id);
         }
       } else if (stream?.type === "content_block_delta") {
         const delta = object(stream.delta);
+        if (delta?.type === "thinking_delta" && typeof delta.thinking === "string") {
+          const index = integer(stream.index, 0, 10_000);
+          const id = index !== undefined ? this.thinking.get(index) : undefined;
+          if (id) this.thinkingTrace.append(id, delta.thinking);
+        }
         if (delta?.type === "text_delta" || delta?.type === "thinking_delta") {
           this.emit({ kind: "activity", phase: "thinking" });
         }

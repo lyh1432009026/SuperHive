@@ -1,3 +1,4 @@
+import type { TraceStep } from "./hive-protocol.js";
 import { describe, expect, it, vi } from "vitest";
 import { AcpResponder, decideAcpPermission, type AcpResponderOptions } from "./acp-responder.js";
 import { AgentCancelledError } from "./responder.js";
@@ -167,6 +168,29 @@ describe("AcpResponder", () => {
       sessionId: "ses-new",
       prompt: [{ type: "text", text: "rules\n\n---\n\nhi" }],
     });
+  });
+
+  it("puts thought chunks on one thinking step and ends it when the agent starts talking", async () => {
+    const { responder } = setup(
+      defaultHandlers({
+        "session/prompt": (message, agent) => {
+          const sessionId = message.params.sessionId;
+          for (const piece of ["先读 ", "README，", "token=abcdef123456"]) {
+            agent.update(sessionId, {
+              sessionUpdate: "agent_thought_chunk",
+              content: { type: "text", text: piece },
+            });
+          }
+          agent.update(sessionId, text("好了。"));
+          agent.emit({ id: message.id, result: { stopReason: "end_turn" } });
+        },
+      }),
+    );
+    const steps: TraceStep[] = [];
+    await responder.reply({ instructions: "r", prompt: "p", onTrace: (step) => steps.push(step) });
+    const thinking = steps.filter((step) => step.kind === "thinking");
+    expect(new Set(thinking.map((step) => step.id)).size).toBe(1);
+    expect(thinking.at(-1)).toMatchObject({ status: "ok", text: "先读 README，token=***" });
   });
 
   it("returns the final answer after tool calls and reports tool progress", async () => {

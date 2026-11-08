@@ -1,5 +1,5 @@
 import { UsageAccumulator, codexBuckets } from "./usage.js";
-import { redactTrace } from "./trace.js";
+import { ThinkingTrace, redactTrace } from "./trace.js";
 import type { AgentUsage, TraceStep } from "./hive-protocol.js";
 import { codexStartupFailure } from "./codex-errors.js";
 import { isMissingCodexThread } from "./codex-client.js";
@@ -242,6 +242,10 @@ type ActiveTurn = {
   requestApproval?: AgentReplyInput["requestApproval"];
   /** 已开始的执行过程条目（按 item id），完成时据此补全 */
   traceSteps: Map<string, TraceStep>;
+  /** 推理摘要：按条目 id 累积成思考正文 */
+  thinking: ThinkingTrace;
+  /** 每个推理条目当前写到第几段摘要（换段时空一行） */
+  summaryIndex: Map<string, number>;
   messages: AgentMessage[];
   reasoningReported: boolean;
   cancelled: boolean;
@@ -432,6 +436,14 @@ export class CodexAppServerResponder implements AgentResponder {
         onTrace: input.onTrace,
         requestApproval: input.requestApproval,
         traceSteps: new Map(),
+        thinking: new ThinkingTrace((step) => {
+          try {
+            turn.onTrace?.(step);
+          } catch {
+            // 进度回调异常不影响回合
+          }
+        }),
+        summaryIndex: new Map(),
         messages: [],
         reasoningReported: false,
         cancelled: false,
@@ -547,6 +559,7 @@ export class CodexAppServerResponder implements AgentResponder {
 
   private finishTurn(turn: ActiveTurn, outcome: AgentReply | Error) {
     if (turn.settled) return;
+    if (turn.onTrace) turn.thinking.endAll();
     turn.settled = true;
     if (turn.graceTimer) clearTimeout(turn.graceTimer);
     if (this.active === turn) this.active = undefined;
@@ -812,9 +825,12 @@ export class CodexAppServerResponder implements AgentResponder {
       }
       case "item/started": {
         const turn = this.matchesActive(params);
-        const step = turn?.onTrace
-          ? traceForItem(params.item, new Date().toISOString())
-          : undefined;
+        const reasoning = params.item?.type === "reasoning" && typeof params.item.id === "string";
+        if (turn?.onTrace && reasoning) turn.thinking.start(params.item.id);
+        const step =
+          turn?.onTrace && !reasoning
+            ? traceForItem(params.item, new Date().toISOString())
+            : undefined;
         if (turn && step && turn.traceSteps.size < 1024) {
           turn.traceSteps.set(step.id, step);
           try {
@@ -834,8 +850,32 @@ export class CodexAppServerResponder implements AgentResponder {
         }
         return;
       }
+      case "item/reasoning/summaryTextDelta": {
+        const turn = this.matchesActive(params);
+        if (!turn?.onTrace || typeof params.itemId !== "string" || typeof params.delta !== "string")
+          return;
+        const index = typeof params.summaryIndex === "number" ? params.summaryIndex : 0;
+        const previous = turn.summaryIndex.get(params.itemId);
+        turn.summaryIndex.set(params.itemId, index);
+        turn.thinking.append(
+          params.itemId,
+          previous !== undefined && previous !== index ? `\n\n${params.delta}` : params.delta,
+        );
+        return;
+      }
       case "item/completed": {
         const turn = this.matchesActive(params);
+        if (
+          turn?.onTrace &&
+          params.item?.type === "reasoning" &&
+          typeof params.item.id === "string"
+        ) {
+          const summary = Array.isArray(params.item.summary)
+            ? params.item.summary.filter((part: unknown) => typeof part === "string").join("\n\n")
+            : "";
+          turn.thinking.end(params.item.id, summary);
+          turn.summaryIndex.delete(params.item.id);
+        }
         const started =
           turn && typeof params.item?.id === "string"
             ? turn.traceSteps.get(params.item.id)

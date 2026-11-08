@@ -92,6 +92,7 @@ class FakeRoom {
     return this.participants;
   }
   report(report: Omit<InvocationReport, "type">) {
+    this.order.push(report.status);
     this.reports.push(report);
   }
   async sendMessage(input: { content: string; clientMessageId: string; parentMessageId: string }) {
@@ -115,7 +116,10 @@ class FakeRoom {
     return true;
   }
   traces: Array<{ messageId: string; steps: unknown[] }> = [];
+  /** 按先后记下执行过程和状态回报，用来核对顺序 */
+  order: string[] = [];
   trace(messageId: string, steps: unknown[]) {
+    this.order.push("trace");
     this.traces.push({ messageId, steps });
   }
   statuses(messageId: string) {
@@ -856,6 +860,28 @@ describe("AgentBridge", () => {
     expect(failed?.detail).toContain("连续失败 3 次");
     expect((await store.load())?.processedMessageIds).toContain(mention.id);
   }, 10_000);
+
+  it("sends the trace steps still waiting to be batched before reporting the turn as done", async () => {
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    // 最后一段思考刚结束、还没到合批时间，回合就结束了
+    responder.calls[0]!.onTrace?.({
+      id: "th",
+      kind: "thinking",
+      status: "ok",
+      text: "最后想到的",
+      startedAt: new Date().toISOString(),
+    });
+    responder.finish("做完了");
+    await waitUntil(() => room.statuses(mention.id).includes("completed"));
+    expect(room.traces.at(-1)?.steps).toEqual([
+      expect.objectContaining({ id: "th", text: "最后想到的" }),
+    ]);
+    expect(room.order.lastIndexOf("trace")).toBeLessThan(room.order.lastIndexOf("completed"));
+  });
 
   it("continues automatically on the same session after an upstream failure when nothing was changed", async () => {
     await startBridge(baseState());

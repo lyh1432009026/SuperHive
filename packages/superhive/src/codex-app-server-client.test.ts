@@ -848,6 +848,48 @@ describe("CodexAppServerResponder", () => {
     ]);
   });
 
+  it("streams reasoning summaries into the thinking step and settles on the final summary", async () => {
+    const handlers = defaultHandlers({
+      "turn/start": (message, server) => {
+        const threadId = message.params.threadId;
+        server.emit({ id: message.id, result: { turn: { id: "t" } } });
+        const item = { id: "r1", type: "reasoning", summary: [], content: [] };
+        server.emit({ method: "item/started", params: { threadId, turnId: "t", item } });
+        for (const [summaryIndex, delta] of [
+          [0, "**Checking files**"],
+          [1, "Then run tests"],
+        ] as const) {
+          server.emit({
+            method: "item/reasoning/summaryTextDelta",
+            params: { threadId, turnId: "t", itemId: "r1", summaryIndex, delta },
+          });
+        }
+        server.emit({
+          method: "item/completed",
+          params: {
+            threadId,
+            turnId: "t",
+            item: { ...item, summary: ["**Checking files**", "Then run tests."] },
+          },
+        });
+        server.emit({
+          method: "turn/completed",
+          params: { threadId, turn: { id: "t", status: "completed", items: [agentMessage("ok")] } },
+        });
+      },
+    });
+    const { responder } = setup(handlers);
+    const onTrace = vi.fn();
+    await responder.reply({ instructions: "r", prompt: "p", onTrace });
+    const steps = onTrace.mock.calls.map(([step]) => step as TraceStep);
+    expect(steps.every((step) => step.id === "r1" && step.kind === "thinking")).toBe(true);
+    expect(steps[0]).toMatchObject({ status: "running" });
+    expect(steps.at(-1)).toMatchObject({
+      status: "ok",
+      text: "**Checking files**\n\nThen run tests.",
+    });
+  });
+
   it("lists unknown item types in the trace as tools that may have side effects", async () => {
     const handlers = defaultHandlers({
       "turn/start": (message, server) => {

@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { acpHiveMcpServer, type HiveMcpConnection } from "./hive-mcp-config.js";
 import type { TraceStep } from "./hive-protocol.js";
+import { ThinkingTrace } from "./trace.js";
 import {
   AgentCancelledError,
   type AgentAccessMode,
@@ -213,8 +214,10 @@ type ActiveTurn = {
   requestApproval?: AgentReplyInput["requestApproval"];
   /** 已开始的执行过程条目（按 toolCallId），更新与完成时据此补全 */
   traceSteps: Map<string, TraceStep>;
-  /** 正在进行的思考（收到思考片段时开始，开始说话或调用工具时结束） */
-  thinkingStep?: TraceStep | undefined;
+  /** 正在进行的思考的步骤 id（收到思考片段时开始，开始说话或调用工具时结束） */
+  thinkingStep?: string | undefined;
+  /** 思考正文的累积、节流与段数上限 */
+  thinking: ThinkingTrace;
   /** 按工具调用切分的回复片段：最后一个非空片段即最终回答 */
   segments: string[];
   toolTitles: Map<string, string>;
@@ -283,6 +286,7 @@ export class AcpResponder implements AgentResponder {
         onTrace: input.onTrace,
         requestApproval: input.requestApproval,
         traceSteps: new Map(),
+        thinking: new ThinkingTrace((step) => this.traceStep(turn, step)),
         segments: [""],
         toolTitles: new Map(),
         thinkingReported: false,
@@ -369,6 +373,7 @@ export class AcpResponder implements AgentResponder {
 
   private finishTurn(turn: ActiveTurn, outcome: AgentReply | Error) {
     if (turn.settled) return;
+    this.endThinking(turn);
     turn.settled = true;
     if (turn.graceTimer) clearTimeout(turn.graceTimer);
     if (this.active === turn) this.active = undefined;
@@ -648,14 +653,10 @@ export class AcpResponder implements AgentResponder {
         }
         return;
       case "agent_thought_chunk":
-        if (!turn.thinkingStep) {
-          turn.thinkingStep = {
-            id: `thinking:${turn.traceSteps.size}:${Date.now()}`,
-            kind: "thinking",
-            status: "running",
-            startedAt: new Date().toISOString(),
-          };
-          this.traceStep(turn, turn.thinkingStep);
+        turn.thinkingStep ??= `thinking:${turn.traceSteps.size}:${Date.now()}`;
+        turn.thinking.start(turn.thinkingStep);
+        if (update.content?.type === "text" && typeof update.content.text === "string") {
+          turn.thinking.append(turn.thinkingStep, update.content.text);
         }
         if (!turn.thinkingReported) {
           turn.thinkingReported = true;
@@ -741,11 +742,7 @@ export class AcpResponder implements AgentResponder {
 
   private endThinking(turn: ActiveTurn) {
     if (!turn.thinkingStep) return;
-    this.traceStep(turn, {
-      ...turn.thinkingStep,
-      status: "ok",
-      endedAt: new Date().toISOString(),
-    });
+    turn.thinking.end(turn.thinkingStep);
     turn.thinkingStep = undefined;
   }
 

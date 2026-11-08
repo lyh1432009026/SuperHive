@@ -66,6 +66,107 @@ export function sanitizeTraceStep(step: TraceStep): TraceStep {
   };
 }
 
+/** 每轮最多这么多段思考带正文；更早的只留时长，免得一轮几十段思考把执行过程撑满 */
+export const THINKING_TEXT_STEPS_MAX = 20;
+/** 同一段思考最快每秒更新一次正文 */
+export const THINKING_THROTTLE_MS = 1_000;
+
+/** 思考正文：先脱敏，超长时保留末尾（最新想到的），前面标「…」 */
+export function thinkingText(value: string): string {
+  const text = redactTrace(value.trim());
+  return text.length > TRACE_TEXT_MAX ? `…${text.slice(-(TRACE_TEXT_MAX - 1))}` : text;
+}
+
+/**
+ * 一轮里的思考步骤：各 Runtime 把思考片段交给它，累积成正文挂在 thinking 步骤上（同一个 id 原地更新）。
+ * 正文更新按段节流；超过 THINKING_TEXT_STEPS_MAX 段时把最早一段的正文清空（text: ""）。
+ */
+export class ThinkingTrace {
+  private readonly steps = new Map<
+    string,
+    {
+      step: TraceStep;
+      text: string;
+      emittedAt: number;
+      timer?: ReturnType<typeof setTimeout> | undefined;
+      /** 超出段数上限被清掉了正文，之后也不再带正文 */
+      dropped?: boolean;
+    }
+  >();
+  /** 带过正文的段，按先后 */
+  private readonly withText: string[] = [];
+
+  constructor(
+    private readonly emit: (step: TraceStep) => void,
+    private readonly now: () => number = Date.now,
+  ) {}
+
+  /** 开始一段思考（已开始的不重复上报） */
+  start(id: string): void {
+    if (this.steps.has(id)) return;
+    const step: TraceStep = {
+      id,
+      kind: "thinking",
+      status: "running",
+      startedAt: new Date(this.now()).toISOString(),
+    };
+    this.steps.set(id, { step, text: "", emittedAt: this.now() });
+    this.emit(step);
+  }
+
+  /** 追加思考片段；距上次上报不到 1 秒的攒着，到点再报 */
+  append(id: string, delta: string): void {
+    if (!delta) return;
+    this.start(id);
+    const entry = this.steps.get(id)!;
+    if (entry.step.status !== "running") return;
+    entry.text += delta;
+    // 只保留够用的末尾，避免很长的思考一直占内存
+    if (entry.text.length > TRACE_TEXT_MAX * 4) entry.text = entry.text.slice(-TRACE_TEXT_MAX * 2);
+    const wait = THINKING_THROTTLE_MS - (this.now() - entry.emittedAt);
+    if (wait <= 0) {
+      this.flush(id);
+    } else if (!entry.timer) {
+      entry.timer = setTimeout(() => this.flush(id), wait);
+      entry.timer.unref?.();
+    }
+  }
+
+  /** 结束一段思考；final 是 Runtime 最后给出的完整正文（有就以它为准） */
+  end(id: string, final?: string): void {
+    const entry = this.steps.get(id);
+    if (!entry || entry.step.status !== "running") return;
+    if (final?.trim()) entry.text = final;
+    entry.step = { ...entry.step, status: "ok", endedAt: new Date(this.now()).toISOString() };
+    this.flush(id);
+  }
+
+  /** 结束所有还在进行的思考（回合结束、被打断时） */
+  endAll(): void {
+    for (const id of this.steps.keys()) this.end(id);
+  }
+
+  private flush(id: string): void {
+    const entry = this.steps.get(id);
+    if (!entry) return;
+    if (entry.timer) clearTimeout(entry.timer);
+    entry.timer = undefined;
+    entry.emittedAt = this.now();
+    const text = !entry.dropped && entry.text.trim() ? thinkingText(entry.text) : "";
+    if (text && !this.withText.includes(id)) {
+      this.withText.push(id);
+      while (this.withText.length > THINKING_TEXT_STEPS_MAX) {
+        const dropped = this.steps.get(this.withText.shift()!);
+        if (!dropped) continue;
+        dropped.text = "";
+        dropped.dropped = true;
+        this.emit({ ...dropped.step, text: "" });
+      }
+    }
+    this.emit(text ? { ...entry.step, text } : entry.step);
+  }
+}
+
 /** 常见的只读命令（第一个词）；能执行别的命令或写文件的（find、sed、awk、env、sort、date……）不放进来 */
 const readOnlyCommands = new Set([
   "cat",

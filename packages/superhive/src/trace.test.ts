@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClaudeStream } from "./claude-stream.js";
 import type { TraceStep } from "./hive-protocol.js";
 import {
@@ -6,6 +6,9 @@ import {
   isMutatingStep,
   redactTrace,
   sanitizeTraceStep,
+  THINKING_TEXT_STEPS_MAX,
+  ThinkingTrace,
+  thinkingText,
   traceSummary,
 } from "./trace.js";
 import { isUpstreamFailure } from "./responder.js";
@@ -217,5 +220,128 @@ describe("isUpstreamFailure", () => {
     ]) {
       expect(isUpstreamFailure(text), text).toBe(false);
     }
+  });
+});
+
+describe("ThinkingTrace", () => {
+  afterEach(() => vi.useRealTimers());
+
+  function tracker() {
+    vi.useFakeTimers();
+    const steps: TraceStep[] = [];
+    let now = 0;
+    const thinking = new ThinkingTrace(
+      (step) => steps.push(step),
+      () => now,
+    );
+    return { thinking, steps, advance: (ms: number) => ((now += ms), vi.advanceTimersByTime(ms)) };
+  }
+
+  it("accumulates fragments on one step id and updates it at most once a second", () => {
+    const { thinking, steps, advance } = tracker();
+    thinking.start("th");
+    thinking.append("th", "先看");
+    thinking.append("th", "一下");
+    // 开始时报一次，不到 1 秒的片段先攒着
+    expect(steps.map((step) => step.text)).toEqual([undefined]);
+    advance(1_000);
+    expect(steps.at(-1)).toMatchObject({
+      id: "th",
+      kind: "thinking",
+      status: "running",
+      text: "先看一下",
+    });
+    thinking.append("th", "改动");
+    thinking.end("th");
+    expect(steps.at(-1)).toMatchObject({ id: "th", status: "ok", text: "先看一下改动" });
+    expect(steps.at(-1)!.endedAt).toBeDefined();
+    // 结束后不再有迟到的更新
+    advance(5_000);
+    expect(steps).toHaveLength(3);
+  });
+
+  it("keeps the tail of long thinking and redacts secrets", () => {
+    const long = `开头 ${"x".repeat(5_000)} 结尾 api_key=sk-ant-abcdefgh12345678abcd`;
+    const text = thinkingText(long);
+    expect(text.length).toBe(2_000);
+    expect(text.startsWith("…")).toBe(true);
+    expect(text).toContain("结尾");
+    expect(text).not.toContain("12345678abcd");
+    expect(
+      sanitizeTraceStep({ id: "t", kind: "thinking", text, startedAt: new Date().toISOString() })
+        .text,
+    ).toBe(text);
+  });
+
+  it("drops the text of the oldest steps beyond the per-turn limit, keeping their duration", () => {
+    const { thinking, steps } = tracker();
+    for (let index = 0; index <= THINKING_TEXT_STEPS_MAX; index += 1) {
+      thinking.start(`th${index}`);
+      thinking.append(`th${index}`, `第 ${index} 段`);
+      thinking.end(`th${index}`);
+    }
+    const cleared = steps.filter((step) => step.text === "");
+    expect(cleared).toEqual([expect.objectContaining({ id: "th0", status: "ok" })]);
+    expect(steps.at(-1)).toMatchObject({
+      id: `th${THINKING_TEXT_STEPS_MAX}`,
+      text: `第 ${THINKING_TEXT_STEPS_MAX} 段`,
+    });
+  });
+
+  it("emits no text for thinking without content (redacted)", () => {
+    const { thinking, steps } = tracker();
+    thinking.start("r");
+    thinking.end("r");
+    expect(steps.map((step) => [step.status, step.text])).toEqual([
+      ["running", undefined],
+      ["ok", undefined],
+    ]);
+  });
+
+  it("puts Claude thinking_delta text on the thinking step; redacted_thinking only keeps time", () => {
+    const steps: TraceStep[] = [];
+    const stream = new ClaudeStream(
+      () => undefined,
+      (step) => steps.push(step),
+    );
+    const event = (value: unknown) => JSON.stringify({ type: "stream_event", event: value });
+    stream.push(
+      [
+        event({ type: "message_start", message: { id: "m1" } }),
+        event({ type: "content_block_start", index: 0, content_block: { type: "thinking" } }),
+        event({
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "thinking_delta", thinking: "I'm multiplying " },
+        }),
+        event({
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "thinking_delta", thinking: "17 by 23." },
+        }),
+        event({
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "signature_delta", signature: "sig" },
+        }),
+        event({ type: "content_block_stop", index: 0 }),
+        event({
+          type: "content_block_start",
+          index: 1,
+          content_block: { type: "redacted_thinking", data: "x" },
+        }),
+        event({ type: "content_block_stop", index: 1 }),
+      ].join("\n") + "\n",
+    );
+    const done = steps.filter((step) => step.status === "ok");
+    expect(done).toEqual([
+      expect.objectContaining({
+        id: "thinking:m1:0",
+        kind: "thinking",
+        text: "I'm multiplying 17 by 23.",
+      }),
+      expect.objectContaining({ id: "thinking:m1:1", kind: "thinking" }),
+    ]);
+    expect(done[1]!.text).toBeUndefined();
   });
 });

@@ -762,6 +762,8 @@ export class AgentBridge {
     this.active = active;
     let heartbeat: NodeJS.Timeout | undefined;
     let traceTimer: NodeJS.Timeout | undefined;
+    // 回合结束前把攒着的执行过程发出去：Server 在调用结束后就不再收，最后一段思考、最后一步的结果会丢
+    let flushPendingTrace: () => void = () => undefined;
     try {
       const context = await this.room.fetchMessages(this.state.lastProcessedSeq);
       // 先落盘执行意图，再调用 Provider：崩溃后据此判定"结果未知"而不是重跑
@@ -794,6 +796,10 @@ export class AgentBridge {
             this.room.trace(message.id, steps.slice(index, index + 50));
           }
         }
+      };
+      flushPendingTrace = () => {
+        if (traceTimer) clearTimeout(traceTimer);
+        flushTrace();
       };
       const reportProgress = (progress: string) => {
         lastProgressReportAt = Date.now();
@@ -921,6 +927,7 @@ export class AgentBridge {
         ...(this.state.threadId ? { threadId: this.state.threadId } : {}),
       });
       active.accepting = false;
+      flushPendingTrace();
       if (reply.usage) turn.observed = reply.usage;
       const usage = this.settleUsage(active, "completed", reply);
       if (reply.threadId) this.state.threadId = reply.threadId;
@@ -1045,6 +1052,7 @@ export class AgentBridge {
         `[hive] ${replyMessageId ? "已回复" : "已处理"} ${active.messages.map((message) => `#${message.seq}`).join("、")}`,
       );
     } catch (error) {
+      flushPendingTrace();
       await this.handleBatchError(active, error);
     } finally {
       active.accepting = false;
