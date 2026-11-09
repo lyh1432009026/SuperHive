@@ -305,7 +305,7 @@ const toastIcons: Record<AttentionKind, string> = {
   unseen: "✓",
 };
 
-/** 页面内提示：右下角，最多三条，点「查看」跳到对应任务 */
+/** 页面内提示：右下角，最多三条，点整条提示跳到对应任务 */
 export function AttentionToasts({
   toasts,
   roomName,
@@ -358,19 +358,20 @@ function AttentionToastItem({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <span className="attention-toast-icon" aria-hidden="true">
-        {toastIcons[toast.kind]}
-      </span>
-      <div className="attention-toast-text">
-        <strong>{attentionTitle(toast.kind, toast.invocation)}</strong>
-        <span>{attentionBody(toast.invocation, roomName(toast.invocation.roomId))}</span>
-      </div>
+      {/* 整条提示都能点：跳到对应任务；只有右边的 × 是关闭 */}
       <button
         type="button"
         className="attention-toast-open"
+        title={t("跳到这条任务")}
         onClick={() => onOpen(toast.invocation)}
       >
-        {t("查看")}
+        <span className="attention-toast-icon" aria-hidden="true">
+          {toastIcons[toast.kind]}
+        </span>
+        <span className="attention-toast-text">
+          <strong>{attentionTitle(toast.kind, toast.invocation)}</strong>
+          <span>{attentionBody(toast.invocation, roomName(toast.invocation.roomId))}</span>
+        </span>
       </button>
       <button
         type="button"

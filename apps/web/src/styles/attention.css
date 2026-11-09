@@ -113,9 +113,10 @@
 
 .attention-toast {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 8px 10px 12px;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 6px 0 0;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-left: 3px solid var(--warning);
   border-radius: var(--radius-lg);
@@ -193,16 +194,19 @@
   white-space: nowrap;
 }
 
+/* 整条提示就是跳转按钮，热区覆盖除 × 以外的全部 */
 .attention-toast-open {
-  flex: 0 0 auto;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  color: var(--text);
-  background: var(--bg-main);
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 6px 10px 12px;
+  border: 0;
+  color: inherit;
+  background: transparent;
   font: inherit;
-  font-size: var(--text-sm);
+  text-align: left;
   cursor: pointer;
 }
 
@@ -210,8 +214,14 @@
   background: var(--bg-hover);
 }
 
+.attention-toast-open:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
 .attention-toast-close {
   flex: 0 0 auto;
+  align-self: center;
   width: 24px;
   height: 24px;
   border: 0;

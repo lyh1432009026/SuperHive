@@ -2319,7 +2319,9 @@ describe("App mention autocomplete", () => {
     ).toBeTruthy();
 
     // 点「查看」跳到那个房间；看过之后「完成未看」消失
-    await user.click(within(toasts).getByRole("button", { name: "查看" }));
+    // 点整条提示就跳过去，没有单独的「查看」按钮
+    expect(within(toasts).queryByRole("button", { name: "查看" })).toBeNull();
+    await user.click(within(toasts).getByRole("button", { name: /frontend-agent 做完了/ }));
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2));
     await waitFor(() =>
       expect(screen.queryByRole("img", { name: "# frontend：1 个任务做完了，还没看" })).toBeNull(),

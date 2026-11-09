@@ -1188,5 +1188,6 @@
   "每 {0} 分钟": "Every {0} min",
   "{0} · 第 {1} 次 · 到 {2}": "{0} · run {1} · until {2}",
   "取消后整个周期结束，后面的不再执行": "Cancelling ends the whole series; later runs won't happen",
-  "结束周期": "End series"
+  "结束周期": "End series",
+  "跳到这条任务": "Go to this task"
 }
