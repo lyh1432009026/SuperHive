@@ -93,6 +93,8 @@ export class RoomClient {
   private serverAcceptsSession = false;
   /** 这个房间当前的 Provider 会话：重连后再报一次 */
   private session?: { sessionId: string; cwd: string };
+  /** 正在干活：重连后服务端会把状态重置成在线，要再报一次，否则成员列表显示空闲、对话流里却还在执行 */
+  private typing = false;
 
   constructor(
     private readonly options: RoomClientOptions,
@@ -118,6 +120,7 @@ export class RoomClient {
   }
 
   setTyping(active: boolean): void {
+    this.typing = active;
     this.sendRaw({ type: "agent.typing", active });
   }
 
@@ -284,6 +287,7 @@ export class RoomClient {
       if (this.serverAcceptsSession && this.session) {
         this.sendRaw({ type: "agent.session", ...this.session });
       }
+      if (this.typing) this.sendRaw({ type: "agent.typing", active: true });
       if (this.serverTracksInvocations) {
         for (const report of this.outbox.values()) this.sendRaw(report);
       }

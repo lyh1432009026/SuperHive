@@ -296,6 +296,52 @@ describe("RoomClient with an older server", () => {
       { type: "agent.session", sessionId: "sess-2", cwd: "/repo" },
     ]);
   });
+  it("re-announces that it is busy after reconnecting mid-task", async () => {
+    server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+    await waitFor<void>((resolve) => server!.on("listening", () => resolve()));
+    const port = (server.address() as AddressInfo).port;
+    const received: Array<Record<string, unknown>> = [];
+    let joins = 0;
+    let resolveSecondJoin!: () => void;
+    const secondJoin = waitFor<void>((resolve) => (resolveSecondJoin = resolve));
+    server.on("connection", (connection) => {
+      connection.on("message", (raw) => {
+        const event = JSON.parse(raw.toString()) as Record<string, unknown>;
+        received.push(event);
+        if (event.type !== "participant.join") return;
+        joins += 1;
+        connection.send(
+          JSON.stringify({
+            type: "room.snapshot",
+            self: { id: "self" },
+            participants: [],
+            messages: [],
+            latestSeq: 0,
+            invocations: [],
+          }),
+        );
+        if (joins === 2) resolveSecondJoin();
+      });
+    });
+    let resolveSnapshot!: () => void;
+    const snapshot = waitFor<void>((resolve) => (resolveSnapshot = resolve));
+    client = new RoomClient(
+      { serverUrl: `http://127.0.0.1:${port}`, roomId: "general", username: "a", token: "t" },
+      { onSnapshot: () => resolveSnapshot(), onMention: () => undefined, onError: () => undefined },
+    );
+    client.start();
+    await snapshot;
+    client.setTyping(true);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // 服务端重启：连接断开，重连后服务端把它当成刚上线（空闲）
+    for (const connection of server.clients) connection.terminate();
+    await secondJoin;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const afterReconnect = received.slice(
+      received.findLastIndex((e) => e.type === "participant.join"),
+    );
+    expect(afterReconnect).toContainEqual({ type: "agent.typing", active: true });
+  });
 });
 
 describe("fetchRooms", () => {
