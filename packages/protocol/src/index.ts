@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { serverTextSchema } from "./server-text.js";
 
 export const LIMITS = {
   /** 一条 Agent 转交链的最大深度；人追加轮数时同步放宽，人一发言即恢复默认 */
@@ -191,6 +192,11 @@ export const chatMessageSchema = z.object({
   via: messageViaSchema.optional(),
   /** 随消息发出的附件；撤回后清空 */
   attachments: z.array(attachmentSchema).max(LIMITS.maxAttachmentsPerMessage).optional(),
+  /**
+   * 服务端代发的系统消息（回执、定时、权限申请、话题分隔……）的结构化正文：网页按用户语言渲染。
+   * content 仍是中文原文，给 Agent 读、给旧客户端显示。
+   */
+  text: serverTextSchema.optional(),
 });
 
 export const participantJoinEventSchema = z.object({
@@ -499,6 +505,8 @@ export const invocationSchema = z.object({
   status: invocationStatusSchema,
   blockReason: invocationBlockReasonSchema.optional(),
   detail: z.string().max(500).optional(),
+  /** detail 的结构化版本：网页按用户语言渲染；没有时显示 detail 原文 */
+  detailText: serverTextSchema.optional(),
   progress: z.string().max(200).optional(),
   runtime: runtimeObservationSchema.optional(),
   usage: agentUsageSchema.optional(),
@@ -789,6 +797,8 @@ export const serverErrorEventSchema = z.object({
   type: z.literal("error"),
   code: z.string(),
   message: z.string(),
+  /** message 的结构化版本（见 server-text.ts） */
+  text: serverTextSchema.optional(),
 });
 
 export const roomIdSchema = z
@@ -1312,3 +1322,4 @@ export function stripUnsafeCharacters(value: string): string {
 export * from "./invocation-state.js";
 export * from "./agent-session.js";
 export * from "./plural.js";
+export * from "./server-text.js";
