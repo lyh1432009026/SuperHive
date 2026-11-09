@@ -178,7 +178,10 @@ export function SchedulePanel({
               return (
                 <li key={schedule.id} className="whiteboard-entry schedule-entry">
                   <p className="schedule-when">
-                    <time dateTime={schedule.runAt} title={new Date(schedule.runAt).toString()}>
+                    <time
+                      dateTime={schedule.runAt}
+                      title={new Date(schedule.runAt).toLocaleString(getLocale())}
+                    >
                       {formatScheduleTime(schedule)}
                     </time>
                     <span className={`schedule-state ${state.tone}`}>{state.label}</span>

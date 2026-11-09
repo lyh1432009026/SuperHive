@@ -4,6 +4,7 @@
  */
 .invocation-row {
   display: flex;
+  max-width: 100%;
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
@@ -54,6 +55,8 @@
   font: inherit;
   text-align: left;
   white-space: nowrap;
+  /* 窄屏或译文较长时在按钮里截断，不把整条状态挤出消息列 */
+  overflow: hidden;
 }
 
 button.invocation-summary:hover .invocation-agent {
@@ -85,12 +88,15 @@ button.invocation-summary:focus-visible {
 }
 
 .invocation-status {
+  flex-shrink: 0;
   color: var(--text-secondary);
 }
 
+/* 地方不够时先截断进展说明，名字和状态尽量完整 */
 .invocation-progress {
   min-width: 0;
   max-width: 30ch;
+  flex-shrink: 100;
   overflow: hidden;
   color: var(--text-tertiary);
   text-overflow: ellipsis;

@@ -1,4 +1,5 @@
 import type { ChatMessage, Invocation, Participant, RoomSummary } from "@superhive/protocol";
+import { plainPreview } from "./activity";
 import { attentionLabels, type AttentionItem } from "./attention";
 import { t } from "./i18n";
 
@@ -42,7 +43,7 @@ export type GoToItem =
     };
 
 function preview(content: string, length = 80): string {
-  const flat = content.replace(/\s+/g, " ").trim();
+  const flat = plainPreview(content);
   return flat.length > length ? `${flat.slice(0, length)}…` : flat;
 }
 

@@ -81,10 +81,20 @@ export function setLocalePreference(next: LocalePreference): void {
   apply();
 }
 
+/**
+ * 占位符：{0} 原样替换；{0|one|other} 按参数是不是 1 选单复数，
+ * 例如 "{0} {0|task|tasks}"。中文原文不需要复数，只在译文里用。
+ */
 function interpolate(text: string, params?: Params): string {
   if (!params) return text;
-  return text.replace(/\{(\w+)\}/g, (match, name: string) =>
-    name in params ? String(params[name] ?? "") : match,
+  return text.replace(
+    /\{(\w+)(?:\|([^|{}]*)\|([^|{}]*))?\}/g,
+    (match, name: string, one, other) => {
+      if (!(name in params)) return match;
+      const value = params[name];
+      if (one === undefined) return String(value ?? "");
+      return Number(value) === 1 ? one : other;
+    },
   );
 }
 

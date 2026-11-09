@@ -8,6 +8,7 @@
 - [配置环境变量](#配置环境变量)
 - [MCP 和 HTTP API](#mcp-和-http-api)
 - [Agent 规则和协作说明（SKILL.md）](#agent-规则和协作说明skillmd)
+- [界面多语言](#界面多语言)
 - [Agent 防循环和可靠性](#agent-防循环和可靠性)
 - [本机 Agent 管家](#本机-agent-管家)
 - [安全边界](#安全边界)
@@ -198,6 +199,51 @@ Agent 的行为规则有一份权威来源：`apps/server/src/agent-instructions
 - `skills/superhive/SKILL.md` 里「房间规则」一节由它生成（两个 `<!-- BEGIN/END agent-instructions -->` 标记之间）。改了规则后运行 `pnpm --filter @superhive/server skill:sync` 同步；`apps/server/src/agent-skill.test.ts` 在两边不一致时失败。SKILL.md 其余部分（接入方式、工具列表）手写维护。
 - npm 包构建时把 `skills/` 复制进包里，`hive --skill` 打印这一份；仓库公开后也可以用 `npx skills add wangrongding/SuperHive --skill superhive` 安装。
 - Bridge 每轮拼进提示词的规则（`packages/superhive/src/prompt-builder.ts`）是另一份更贴近 Bridge 行为的写法，改规则时两处都要看。
+
+## 界面多语言
+
+网页文案以中文原文作为 key 写在 `t("…")` 里，英文译文在 `apps/web/src/i18n/en.json`，查不到时退回中文。模块顶层的常量表用 `localized(() => …)` 包一层，或者存中文、渲染时再过 `t()`。
+
+- `apps/web/src/i18n/coverage.test.ts` 会扫描源码：`t()` 字面量和常量表里的中文都要有译文，en.json 里不能有没人用的词条，译文里不能夹中文，`{0}` 这类占位符要和原文对应。新增或改动文案后跑一遍 web 测试就能发现漏翻。
+- 服务端发出的文字（错误提示、调用状态说明、回执、定时任务消息、飞书卡片）走另一份共享文案目录，不在 en.json 里。
+
+**英文文案约定**
+
+- 句首大写（sentence case），按钮用动词开头：`Add agent`、`Start a new topic`，不用 `Agent adding`。
+- 产品名和专有名词保持原样：SuperHive、Hive Server、Bridge、MCP、Feishu、WeChat、Claude Code、Codex。
+- 失败提示用 `Couldn't …`（动作没做成）或 `Can't …`（现在做不了），后面跟一句怎么办；不用 `please`。
+- 句子里的 agent 小写，句首大写；@ 提到时写 `@rd-claude`。
+
+**术语表**（中文界面用词 → 英文）
+
+| 中文                        | 英文                                     | 说明                                                 |
+| --------------------------- | ---------------------------------------- | ---------------------------------------------------- |
+| 房间                        | room                                     |                                                      |
+| 房主 / 访客                 | owner / guest                            |                                                      |
+| Agent                       | agent                                    | 句首写 Agent                                         |
+| 主 Agent                    | lead agent                               |                                                      |
+| 运行时                      | runtime                                  | Claude、Codex 这类                                   |
+| 本机 / 这台电脑             | this computer                            | 不用 machine                                         |
+| 目录 / 工作目录             | folder / working directory               | 说明文字里用 folder                                  |
+| 任务 / 调用                 | task                                     | 界面上统一叫 task，不出现 invocation、call           |
+| 一轮 / 执行                 | turn / run                               | 「第 n 次执行」= Run n；Agent 连续对话的「轮」= turn |
+| 执行过程                    | activity                                 | 详情里的完整列表叫 Full activity                     |
+| 思考                        | thinking                                 |                                                      |
+| 进度                        | progress update                          | 标签写 Progress                                      |
+| 插话                        | steer                                    | Steer into current task / Send & steer               |
+| 委派 / 转交 / 回执 / 子任务 | delegation / handoff / receipt / subtask |                                                      |
+| 撤回                        | unsend                                   | 不用 recall                                          |
+| 撤销（邀请链接）            | revoke                                   |                                                      |
+| 话题 / 新话题               | topic / new topic                        |                                                      |
+| 白板                        | whiteboard                               |                                                      |
+| 定时任务 / 周期             | scheduled task / series                  | 面板标题写 Schedule                                  |
+| 批准 / 放行                 | approve / approval                       |                                                      |
+| 结果未知                    | outcome unknown                          |                                                      |
+| 需要你处理                  | needs you                                | 计数里写 need attention                              |
+| 完成未看                    | finished, not viewed                     |                                                      |
+| 邀请链接                    | invite link                              |                                                      |
+| 接入 Agent                  | add an agent                             |                                                      |
+| 用量                        | usage                                    |                                                      |
 
 ## Agent 防循环和可靠性
 
