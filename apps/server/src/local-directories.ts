@@ -42,11 +42,17 @@ export function listDirectories(target?: string): LocalDirectoryListing {
   try {
     resolved = realpathSync(requested);
     if (!statSync(resolved).isDirectory()) {
-      throw new HiveError("LOCAL_DIRECTORY_INVALID", serverText("error.directory.notDirectory", { path: requested }));
+      throw new HiveError(
+        "LOCAL_DIRECTORY_INVALID",
+        serverText("error.directory.notDirectory", { path: requested }),
+      );
     }
   } catch (error) {
     if (error instanceof HiveError) throw error;
-    throw new HiveError("LOCAL_DIRECTORY_NOT_FOUND", serverText("error.directory.missing", { path: requested }));
+    throw new HiveError(
+      "LOCAL_DIRECTORY_NOT_FOUND",
+      serverText("error.directory.missing", { path: requested }),
+    );
   }
 
   let entries: LocalDirectoryListing["entries"] = [];

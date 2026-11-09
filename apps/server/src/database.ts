@@ -8,6 +8,7 @@ import {
   type UsageTotals,
   serverText,
   serverTextSchema,
+  renderServerText,
   zhText,
   type ServerText,
   type WireServerText,
@@ -156,6 +157,7 @@ type InvocationRow = {
   detail: string | null;
   detail_text: string | null;
   progress: string | null;
+  progress_text: string | null;
   runtime: string | null;
   usage: string | null;
   reply_message_id: string | null;
@@ -171,6 +173,7 @@ type InvocationRow = {
   resolved_at: string | null;
   resolved_by: string | null;
   resolution_note: string | null;
+  resolution_note_text: string | null;
 };
 
 type WhiteboardRow = {
@@ -242,7 +245,7 @@ export type InvocationPatch = {
   status?: InvocationStatus;
   blockReason?: InvocationBlockReason | null;
   detail?: DetailInput;
-  progress?: string | null;
+  progress?: DetailInput;
   runtime?: RuntimeObservation | null;
   replyMessageId?: string | null;
   attempts?: number;
@@ -282,12 +285,12 @@ export class HiveError extends Error {
 }
 
 /** 状态说明：结构化文案同时写中文兼容字段与 *_text；只给字符串时清掉旧的结构化文案 */
-export type DetailInput = string | ServerText | null;
+export type DetailInput = string | ServerText | WireServerText | null;
 
-function detailColumns(detail: DetailInput): [string | null, string | null] {
+function detailColumns(detail: DetailInput, limit = 500): [string | null, string | null] {
   if (detail === null) return [null, null];
   if (typeof detail === "string") return [detail, null];
-  return [zhText(detail), JSON.stringify(detail)];
+  return [(renderServerText(detail, "zh-CN") ?? "").slice(0, limit), JSON.stringify(detail)];
 }
 
 function parseText(raw: string | null | undefined): WireServerText | undefined {
@@ -466,8 +469,13 @@ function mapInvocation(row: InvocationRow): Invocation {
     status: row.status,
     ...(row.block_reason ? { blockReason: row.block_reason } : {}),
     ...(row.detail ? { detail: row.detail } : {}),
-    ...(row.detail && parseText(row.detail_text) ? { detailText: parseText(row.detail_text)! } : {}),
+    ...(row.detail && parseText(row.detail_text)
+      ? { detailText: parseText(row.detail_text)! }
+      : {}),
     ...(row.progress ? { progress: row.progress } : {}),
+    ...(row.progress && parseText(row.progress_text)
+      ? { progressText: parseText(row.progress_text)! }
+      : {}),
     ...(row.reply_message_id ? { replyMessageId: row.reply_message_id } : {}),
     attempts: row.attempts,
     createdAt: row.created_at,
@@ -482,6 +490,9 @@ function mapInvocation(row: InvocationRow): Invocation {
             at: row.resolved_at,
             ...(row.resolved_by ? { by: row.resolved_by } : {}),
             ...(row.resolution_note ? { note: row.resolution_note } : {}),
+            ...(row.resolution_note && parseText(row.resolution_note_text)
+              ? { noteText: parseText(row.resolution_note_text)! }
+              : {}),
           },
         }
       : {}),
@@ -507,7 +518,9 @@ function mapSchedule(row: ScheduleRow): Schedule {
     ...(row.occurrence ? { occurrence: row.occurrence } : {}),
     status: row.status,
     ...(row.detail ? { detail: row.detail } : {}),
-    ...(row.detail && parseText(row.detail_text) ? { detailText: parseText(row.detail_text)! } : {}),
+    ...(row.detail && parseText(row.detail_text)
+      ? { detailText: parseText(row.detail_text)! }
+      : {}),
     ...(row.trigger_message_id ? { triggerMessageId: row.trigger_message_id } : {}),
     ...(row.invocation_id ? { invocationId: row.invocation_id } : {}),
     ...(row.fired_at ? { firedAt: row.fired_at } : {}),
@@ -780,6 +793,12 @@ export class HiveDatabase {
     if (!invocationColumns.some((column) => column.name === "detail_text")) {
       // detail 的结构化文案（JSON，见 protocol 的 server-text.ts），网页按用户语言渲染
       this.db.exec("ALTER TABLE invocations ADD COLUMN detail_text TEXT");
+    }
+    if (!invocationColumns.some((column) => column.name === "resolution_note_text")) {
+      this.db.exec("ALTER TABLE invocations ADD COLUMN resolution_note_text TEXT");
+    }
+    if (!invocationColumns.some((column) => column.name === "progress_text")) {
+      this.db.exec("ALTER TABLE invocations ADD COLUMN progress_text TEXT");
     }
     if (!invocationColumns.some((column) => column.name === "usage")) {
       this.db.exec("ALTER TABLE invocations ADD COLUMN usage TEXT");
@@ -1066,7 +1085,8 @@ export class HiveDatabase {
       .prepare("UPDATE participants SET status = ?, last_seen_at = ? WHERE id = ?")
       .run(status, now, id);
     const participant = this.getParticipant(id);
-    if (!participant) throw new HiveError("PARTICIPANT_NOT_FOUND", serverText("error.member.notFound"));
+    if (!participant)
+      throw new HiveError("PARTICIPANT_NOT_FOUND", serverText("error.member.notFound"));
     return participant;
   }
 
@@ -1351,7 +1371,7 @@ export class HiveDatabase {
     agent: Participant;
     status: "queued" | "blocked";
     blockReason?: InvocationBlockReason;
-    detail?: string | ServerText;
+    detail?: DetailInput;
     parentInvocationId?: string;
     continuation?: "pending";
   }): { invocation: Invocation; created: boolean } {
@@ -1556,9 +1576,9 @@ export class HiveDatabase {
     }
     for (const [key, column] of Object.entries(columns) as Array<[keyof InvocationPatch, string]>) {
       if (patch[key] === undefined) continue;
-      if (key === "detail") {
-        assignments.push("detail = ?", "detail_text = ?");
-        values.push(...detailColumns(patch.detail ?? null));
+      if (key === "detail" || key === "progress") {
+        assignments.push(`${column} = ?`, `${column}_text = ?`);
+        values.push(...detailColumns(patch[key] ?? null, key === "progress" ? 200 : 500));
         continue;
       }
       assignments.push(`${column} = ?`);
@@ -1568,7 +1588,8 @@ export class HiveDatabase {
       .prepare(`UPDATE invocations SET ${assignments.join(", ")} WHERE id = ?`)
       .run(...values, id);
     const invocation = this.getInvocation(id);
-    if (!invocation) throw new HiveError("INVOCATION_NOT_FOUND", serverText("error.invocation.notFound"));
+    if (!invocation)
+      throw new HiveError("INVOCATION_NOT_FOUND", serverText("error.invocation.notFound"));
     return invocation;
   }
 
@@ -1755,14 +1776,19 @@ export class HiveDatabase {
     if (rows.length === 0) return [];
     const now = new Date().toISOString();
     const statement = this.db.prepare(
-      `UPDATE invocations SET resolution_kind = 'superseded', resolved_at = ?, resolution_note = ?
-       WHERE id = ? AND resolved_at IS NULL`,
+      `UPDATE invocations SET resolution_kind = 'superseded', resolved_at = ?, resolution_note = ?,
+         resolution_note_text = ? WHERE id = ? AND resolved_at IS NULL`,
     );
     this.db.transaction(() => {
       for (const row of rows) {
         statement.run(
           now,
-          row.later_completed ? `${row.agent_name} 之后的任务已正常完成` : "之后开启了新话题",
+          ...detailColumns(
+            row.later_completed
+              ? serverText("invocation.supersededCompleted", { agent: row.agent_name })
+              : serverText("invocation.supersededTopic"),
+            200,
+          ),
           row.id,
         );
       }
@@ -2113,7 +2139,10 @@ export class HiveDatabase {
       .prepare("SELECT id FROM local_agents WHERE name_key = ?")
       .get(input.name.toLocaleLowerCase());
     if (existing)
-      throw new HiveError("LOCAL_AGENT_NAME_TAKEN", serverText("error.localAgent.nameExists", { name: input.name }));
+      throw new HiveError(
+        "LOCAL_AGENT_NAME_TAKEN",
+        serverText("error.localAgent.nameExists", { name: input.name }),
+      );
     const config: LocalAgentConfig = {
       ...input,
       id: randomUUID(),

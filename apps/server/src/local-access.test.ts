@@ -46,7 +46,7 @@ describe("checkLocalRequest", () => {
     for (const header of ["x-forwarded-for", "forwarded", "x-real-ip", "x-forwarded-host"]) {
       expect(checkLocalRequest(request("127.0.0.1", { [header]: "203.0.113.5" }), lan)).toEqual({
         local: false,
-        reason: "经过代理转发的请求不能使用本机 Agent",
+        reason: { key: "error.local.proxied" },
       });
     }
   });

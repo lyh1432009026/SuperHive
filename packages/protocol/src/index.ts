@@ -508,6 +508,8 @@ export const invocationSchema = z.object({
   /** detail 的结构化版本：网页按用户语言渲染；没有时显示 detail 原文 */
   detailText: serverTextSchema.optional(),
   progress: z.string().max(200).optional(),
+  /** progress 的结构化版本（服务端写的进度，例如等你批准） */
+  progressText: serverTextSchema.optional(),
   runtime: runtimeObservationSchema.optional(),
   usage: agentUsageSchema.optional(),
   replyMessageId: z.string().uuid().optional(),
@@ -528,6 +530,7 @@ export const invocationSchema = z.object({
       at: z.string().datetime(),
       by: z.string().max(64).optional(),
       note: z.string().max(200).optional(),
+      noteText: serverTextSchema.optional(),
     })
     .optional(),
 });
@@ -625,6 +628,8 @@ export const invocationReportEventSchema = z.object({
   messageId: z.string().uuid(),
   status: z.enum(["received", "running", "completed", "failed", "cancelled", "uncertain"]),
   detail: z.string().trim().max(500).optional(),
+  /** detail 的结构化版本（Bridge 写的说明，例如上游出错、连续失败），网页按语言渲染 */
+  detailText: serverTextSchema.optional(),
   progress: z.string().trim().max(200).optional(),
   runtimeEvent: runtimeEventSchema.optional(),
   /** 本轮真实用量；同一轮合并处理多条消息时只随其中一条上报，避免重复计费 */
@@ -1172,7 +1177,11 @@ export const localSessionResponseSchema = z.union([
     /** 申请在哪里批准：im=推到可批准的 IM 账号（也可在本机批准）；local=只能到本机批准 */
     approval: z.enum(["im", "local"]),
   }),
-  z.object({ enabled: z.literal(false), reason: z.string() }),
+  z.object({
+    enabled: z.literal(false),
+    reason: z.string(),
+    reasonText: serverTextSchema.optional(),
+  }),
 ]);
 
 export const localProviderInfoSchema = z.object({

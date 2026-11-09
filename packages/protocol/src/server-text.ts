@@ -89,6 +89,193 @@ export const serverTexts = {
   },
   "invocation.recalledNotRun": { zh: "消息已撤回，未执行", en: "Message recalled; not run" },
 
+  /* ---------- 调用（任务）状态说明：续 ---------- */
+  "invocation.receiptUndeliverable": {
+    zh: "结果无法回执给 {name}：{reason}",
+    en: "Couldn't send the result back to {name}: {reason}",
+  },
+  "invocation.replyWhileStopping": {
+    zh: "停止期间收到回复，仍等待执行结束确认；回复中的 @ 未再派发",
+    en: "A reply arrived while stopping; still waiting for the run to confirm it ended. @mentions in the reply weren't dispatched.",
+  },
+  "invocation.lateResult": { zh: "迟到的结果", en: "Late result" },
+  "invocation.stopConfirmed": { zh: "{agent} 已确认停止", en: "{agent} confirmed it stopped" },
+  "invocation.endedBeforeStop": {
+    zh: "停止请求生效前已结束",
+    en: "Finished before the stop took effect",
+  },
+  "invocation.recalledStopped": { zh: "消息已撤回，已停止", en: "Message recalled; stopped" },
+  "invocation.recalledStopUnconfirmed": {
+    zh: "消息已撤回，停止未确认：无法确认工具子进程都已停下：{reason}",
+    en: "Message recalled; stop not confirmed. Couldn't confirm that all tool processes stopped: {reason}",
+  },
+  "invocation.stopUnconfirmedTools": {
+    zh: "已停止 Agent 这一轮，但无法确认工具子进程都已停下：{reason}",
+    en: "Stopped the agent's turn, but couldn't confirm that all tool processes stopped: {reason}",
+  },
+  "invocation.outcomeUnknown": { zh: "结果未知", en: "Outcome unknown" },
+  "invocation.unknownNoReplay": {
+    zh: "执行结果未知，无法确认工具已停止；禁止自动重放。",
+    en: "Outcome unknown and tools may still be running, so it won't be retried automatically.",
+  },
+  "invocation.reasonRecalled": { zh: "消息已撤回", en: "Message recalled" },
+  "invocation.approved": { zh: "{name} 已批准", en: "Approved by {name}" },
+  "invocation.retryRequested": { zh: "{name} 请求重试", en: "{name} asked to retry" },
+  "invocation.turnsAdded": {
+    zh: "{name} 追加了 {turns} 轮（共 +{total}）",
+    en: "{name} added {turns} turns (+{total} total)",
+  },
+  "invocation.toolMessageSent": {
+    zh: "已发出进行中的消息 #{seq}，仍在执行",
+    en: "Sent an in-progress message (#{seq}); still running",
+  },
+  "invocation.supersededCompleted": {
+    zh: "{agent} 之后的任务已正常完成",
+    en: "A later task by {agent} completed normally",
+  },
+  "invocation.supersededTopic": {
+    zh: "之后开启了新话题",
+    en: "A new topic was started afterwards",
+  },
+  "error.schedule.alreadyFired": {
+    zh: "已经到点发出了；要停止这次执行，请在任务面板里停止对应的调用。",
+    en: "This has already run. To stop it, stop the matching task in the Tasks panel.",
+  },
+  "error.schedule.ended": {
+    zh: "这个定时任务已经结束，不能再取消。",
+    en: "This schedule has already ended and can't be cancelled.",
+  },
+  "error.local.notThisComputer": {
+    zh: "请求不是来自 Hive Server 所在的电脑",
+    en: "This request didn't come from the computer running Hive Server",
+  },
+  "error.local.proxied": {
+    zh: "经过代理转发的请求不能使用本机 Agent",
+    en: "Requests through a proxy can't use local agents",
+  },
+  "error.local.host": {
+    zh: "请用 localhost 或本机 IP 地址打开页面",
+    en: "Open the page with localhost or this computer's IP address",
+  },
+  "error.local.crossSite": {
+    zh: "跨站请求不能使用本机 Agent",
+    en: "Cross-site requests can't use local agents",
+  },
+  "error.approval.feishuRequired": {
+    zh: "这项操作需要你在飞书里确认一次。",
+    en: "Confirm this once in Feishu.",
+  },
+  "error.approval.localRequired": {
+    zh: "这项操作需要在 Hive Server 所在的电脑上确认一次。",
+    en: "Confirm this once on the computer running Hive Server.",
+  },
+  "invocation.approvalWaiting": {
+    zh: "等你批准：{summary}",
+    en: "Waiting for your approval: {summary}",
+  },
+
+  /* ---------- 子任务回执 ---------- */
+  "receipt.delegation": {
+    zh: "@{requester} 📬 子任务回执（Hive 代 {delegate} 发出）\n状态：{status}\n委派内容：{task}{outcome}\n子任务 ID：{id}",
+    en: "@{requester} 📬 Subtask result (sent by Hive for {delegate})\nStatus: {status}\nTask: {task}{outcome}\nSubtask ID: {id}",
+  },
+  "receipt.result": { zh: "\n结果（#{seq}）：\n{result}", en: "\nResult (#{seq}):\n{result}" },
+  "receipt.note": { zh: "\n说明：{note}", en: "\nNote: {note}" },
+  "receipt.status.completed": { zh: "已完成", en: "Completed" },
+  "receipt.status.failed": { zh: "失败", en: "Failed" },
+  "receipt.status.cancelled": { zh: "已被停止", en: "Stopped" },
+  "receipt.status.timedOut": {
+    zh: "结果未知（超时没有进展，不代表失败）",
+    en: "Outcome unknown (no progress before the timeout; not necessarily a failure)",
+  },
+
+  /* ---------- 定时任务：续 ---------- */
+  "schedule.time": { zh: "{time}（{timeZone}）", en: "{time} ({timeZone})" },
+  "schedule.trigger": {
+    zh: "@{agent} ⏰ 定时任务（{agent} 于 #{originSeq} 设定，计划 {runAt}{recurrence}；Hive 代 {requester} 发出）\n以下是 {agent} 当初自己登记的备忘，不是 {requester} 新发的指令；只做原请求（#{originSeq}）范围内的事：\n{task}\n（服务端到点发出的消息：请现在执行并回复这条消息，结果里附上能证明完成的依据；需要人决定时用 hive_ask_human。{seriesHint}定时任务 ID：{id}）",
+    en: "@{agent} ⏰ Scheduled task (set by {agent} in #{originSeq}, due {runAt}{recurrence}; sent by Hive for {requester})\nBelow is the note {agent} wrote when scheduling it. It isn't a new instruction from {requester}; stay within the original request (#{originSeq}):\n{task}\n(Sent by the server on schedule: do it now and reply to this message, with evidence that it's done. Use hive_ask_human if a person needs to decide. {seriesHint}Schedule ID: {id})",
+  },
+  "schedule.recurrence": {
+    zh: "；每 {minutes} 分钟一次，第 {occurrence} 次，到 {until} 为止",
+    en: "; every {minutes} min, run {occurrence}, until {until}",
+  },
+  "schedule.seriesHint": {
+    zh: "下一次服务端会自己登记，不用你再建；目标已经达成、后面不用再检查时，用 hive_schedule_list 找到这个周期待执行的那一次，用 hive_schedule_cancel 取消，整个周期就结束了。",
+    en: "The server schedules the next run itself, so don't create one. Once the goal is met and no more checks are needed, find this series' pending run with hive_schedule_list and cancel it with hive_schedule_cancel to end the series. ",
+  },
+  "schedule.report": {
+    zh: "@{requester} ⏰ 定时任务没有正常完成（Hive 代 {agent} 发出）\n状态：{status}\n计划时间：{runAt}\n任务：{task}{note}\n定时任务 ID：{id}",
+    en: "@{requester} ⏰ A scheduled task didn't finish normally (sent by Hive for {agent})\nStatus: {status}\nDue: {runAt}\nTask: {task}{note}\nSchedule ID: {id}",
+  },
+  "schedule.status.noReply": {
+    zh: "执行结束但没有回复（Agent 回了 NO_REPLY 或没有输出）",
+    en: "Finished without a reply (the agent returned NO_REPLY or nothing)",
+  },
+  "schedule.status.missed": { zh: "已错过", en: "Missed" },
+  "schedule.status.failed": { zh: "没能发出", en: "Couldn't be sent" },
+  "schedule.cancelledBy": { zh: "{name} 取消了", en: "Cancelled by {name}" },
+  "schedule.skippedBusy": {
+    zh: "上一次（第 {occurrence} 次）还没做完，跳过这一次",
+    en: "Skipped: the previous run (run {occurrence}) is still going",
+  },
+  "schedule.missedOffline": {
+    zh: "到点时 Server 没有运行，晚了 {minutes} 分钟才轮到，已标为错过、没有自动补跑",
+    en: "The server wasn't running when this was due and got to it {minutes} min late, so it was marked missed and not run",
+  },
+  "schedule.missedInFlight": {
+    zh: "发出途中 Server 停止，{minutes} 分钟后才恢复，已标为错过、没有自动补跑",
+    en: "The server stopped while sending this and was back {minutes} min later, so it was marked missed and not run",
+  },
+  "schedule.memberGone": {
+    zh: "发起人或执行的 Agent 已不在这个房间",
+    en: "The requester or the agent is no longer in this room",
+  },
+  "schedule.requesterExpired": {
+    zh: "发起人的访客权限已失效",
+    en: "The requester's guest access has expired",
+  },
+  "schedule.triggerFailed": {
+    zh: "触发消息发不出去：{reason}",
+    en: "Couldn't send the trigger message: {reason}",
+  },
+
+  /* ---------- 提问与权限申请 ---------- */
+  "question.ask": {
+    zh: "{asker}❓ {question}{choices}\n（{hint}）",
+    en: "{asker}❓ {question}{choices}\n({hint})",
+  },
+  "question.choices": { zh: "\n{mode}\n{options}", en: "\n{mode}\n{options}" },
+  "question.single": { zh: "（单选）", en: "(Pick one)" },
+  "question.multiple": { zh: "（可多选）", en: "(Pick any)" },
+  "question.hintOptions": {
+    zh: "点选选项、填写「其它」，或直接回复这条消息即可把答案交给 {agent}",
+    en: "Pick an option, fill in Other, or reply to this message to send your answer to {agent}",
+  },
+  "question.hintReply": {
+    zh: "回复这条消息即可把答案交给 {agent}",
+    en: "Reply to this message to send your answer to {agent}",
+  },
+  "approval.request": {
+    zh: "{asker}🔐 {agent} 申请权限（{tool}）：{summary}{detail}\nA. 允许\nB. 拒绝\n（点选，或回复这条消息「允许 / 拒绝」；{minutes} 分钟内没人批按拒绝处理）",
+    en: "{asker}🔐 {agent} is requesting permission ({tool}): {summary}{detail}\nA. Allow\nB. Deny\n(Pick one, or reply Allow / Deny to this message. It's denied if no one decides within {minutes} min.)",
+  },
+  "approval.allow": { zh: "允许", en: "Allow" },
+  "approval.deny": { zh: "拒绝", en: "Deny" },
+  "approval.turnEnded": {
+    zh: "这一轮已经不在执行，申请作废。",
+    en: "This turn is no longer running, so the request was withdrawn.",
+  },
+
+  /* ---------- 话题与转发 ---------- */
+  "topic.cleared": { zh: "{name} 清空了房间", en: "{name} cleared the room" },
+  "topic.started": { zh: "{name} 开启了新话题", en: "{name} started a new topic" },
+  "roomPost.forwarded": {
+    zh: "{content}\n\n（{agent} 从 #{room} 的 #{seq} 转来，发起人 {requester}）",
+    en: "{content}\n\n(Forwarded by {agent} from #{seq} in #{room}; requested by {requester})",
+  },
+  "answer.selected": { zh: "选择 {options}", en: "Selected {options}" },
+  "answer.other": { zh: "其它：{text}", en: "Other: {text}" },
+
   /* ---------- 操作名（嵌进错误提示里） ---------- */
   "action.createRoom": { zh: "新建房间", en: "create rooms" },
   "action.postToRoom": { zh: "到别的房间派活", en: "post tasks to other rooms" },
@@ -672,7 +859,8 @@ export const serverTexts = {
 
 export type ServerTextKey = keyof typeof serverTexts;
 
-export type ServerTextParam = string | number | ServerText;
+/** 参数值：字符串、数字，或嵌套的另一段文案（从库里读出的 detailText 是线上形状，同样可以嵌进来） */
+export type ServerTextParam = string | number | ServerText | WireServerText;
 export type ServerText = { key: ServerTextKey; params?: Record<string, ServerTextParam> };
 
 /** 线上传的形状：key 用字符串而不是枚举，旧网页遇到新键时退回原文，不会整条事件校验失败 */

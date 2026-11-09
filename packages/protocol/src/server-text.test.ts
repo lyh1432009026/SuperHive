@@ -28,7 +28,7 @@ describe("serverTexts", () => {
   });
 
   it("groups keys by domain", () => {
-    for (const [key] of entries) expect(key, key).toMatch(/^[a-z]+\.[A-Za-z0-9.]+$/);
+    for (const [key] of entries) expect(key, key).toMatch(/^[a-z][A-Za-z]*\.[A-Za-z0-9.]+$/);
   });
 });
 

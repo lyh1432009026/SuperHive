@@ -36,6 +36,9 @@ import {
   type Schedule,
   type ServerEvent,
   type ServerText,
+  type ServerTextParam,
+  type WireServerText,
+  isServerTextKey,
   zhText,
   type TraceStep,
   DEFAULT_CACHE_WRITE_ALERT_TOKENS,
@@ -428,7 +431,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
    * 只经本机房主接口调用（见 local-routes.ts），操作人必须是该房间里的人类成员。
    */
   function clearRoom(roomId: string, username: string) {
-    if (!database.getRoom(roomId)) throw new HiveError("ROOM_NOT_FOUND", serverText("error.room.notFound"));
+    if (!database.getRoom(roomId))
+      throw new HiveError("ROOM_NOT_FOUND", serverText("error.room.notFound"));
     const actor = database.findParticipant(roomId, username);
     if (!actor || actor.type !== "human") {
       throw new HiveError("NOT_A_MEMBER", serverText("error.room.clearMembersOnly"));
@@ -437,8 +441,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     for (const [invocationId, trace] of traces)
       if (trace.roomId === roomId) traces.delete(invocationId);
     forgetAgentSessions(roomId);
+    const cleared = serverText("topic.cleared", { name: actor.username });
     const message = database.createMessage(actor, {
-      content: `${actor.username} 清空了房间`,
+      content: zhText(cleared),
+      text: cleared,
       clientMessageId: `room-clear-${randomUUID()}`,
       kind: "topic",
     }).message;
@@ -560,11 +566,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   ): Principal | undefined {
     const principal = requestPrincipal(request);
     if (!principal) {
-      reply.code(401).send({ ...errorText(serverText("error.auth.unauthorized")), code: "UNAUTHORIZED" });
+      reply
+        .code(401)
+        .send({ ...errorText(serverText("error.auth.unauthorized")), code: "UNAUTHORIZED" });
       return undefined;
     }
     if (roomId !== undefined && !canAccessRoom(principal, roomId)) {
-      reply.code(403).send({ ...errorText(serverText("error.auth.roomForbidden")), code: "ROOM_FORBIDDEN" });
+      reply
+        .code(403)
+        .send({ ...errorText(serverText("error.auth.roomForbidden")), code: "ROOM_FORBIDDEN" });
       return undefined;
     }
     return principal;
@@ -577,7 +587,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const principal = guard(request, reply);
     if (!principal) return false;
     if (principal.kind !== "admin") {
-      reply.code(403).send({ ...errorText(serverText("error.auth.ownerOnly")), code: "OWNER_ONLY" });
+      reply
+        .code(403)
+        .send({ ...errorText(serverText("error.auth.ownerOnly")), code: "OWNER_ONLY" });
       return false;
     }
     return true;
@@ -844,11 +856,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   /** 正被委派方 hive_wait 的子任务 ID 及等待者数量 */
   const activeWaits = new Map<string, number>();
 
-  const continuationOutcome: Partial<Record<Invocation["status"], string>> = {
-    completed: "已完成",
-    failed: "失败",
-    cancelled: "已被停止",
-    timed_out: "结果未知（超时没有进展，不代表失败）",
+  const continuationOutcome: Partial<Record<Invocation["status"], ServerText>> = {
+    completed: serverText("receipt.status.completed"),
+    failed: serverText("receipt.status.failed"),
+    cancelled: serverText("receipt.status.cancelled"),
+    timed_out: serverText("receipt.status.timedOut"),
   };
 
   /** 引用的正文里的 @ 换成全角，避免回执把原文中提到的成员再唤醒一遍 */
@@ -890,22 +902,28 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     }
     if (!database.claimContinuation(child.id, "delivered")) return;
     const reply = child.replyMessageId ? database.getMessage(child.replyMessageId) : undefined;
-    const lines = [
-      `@${requester.username} 📬 子任务回执（Hive 代 ${delegate.username} 发出）`,
-      `状态：${continuationOutcome[child.status] ?? child.status}`,
-      `委派内容：${quoteWithoutMentions(delegation.content, 300)}`,
-    ];
-    if (reply && !reply.deletedAt) {
-      lines.push(`结果（#${reply.seq}）：\n${quoteWithoutMentions(reply.content, 4000)}`);
-    } else if (child.detail) {
-      lines.push(`说明：${quoteWithoutMentions(child.detail, 500)}`);
-    }
-    lines.push(`子任务 ID：${child.id}`);
+    const text = serverText("receipt.delegation", {
+      requester: requester.username,
+      delegate: delegate.username,
+      status: continuationOutcome[child.status] ?? child.status,
+      task: quoteWithoutMentions(delegation.content, 300),
+      outcome:
+        reply && !reply.deletedAt
+          ? serverText("receipt.result", {
+              seq: reply.seq,
+              result: quoteWithoutMentions(reply.content, 4000),
+            })
+          : child.detail
+            ? serverText("receipt.note", { note: quotedDetail(child, 500) })
+            : "",
+      id: child.id,
+    });
     try {
       createAndDispatchMessage(
         delegate,
         {
-          content: lines.join("\n"),
+          content: zhText(text),
+          text,
           clientMessageId: `receipt-${child.id}`,
           parentMessageId: delegation.id,
           kind: "receipt",
@@ -922,8 +940,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       emitInvocation(
         database.updateInvocation(child.id, {
           detail: permanent
-            ? `结果无法回执给 ${requester.username}：${error instanceof Error ? error.message : String(error)}`
-            : (child.detail ?? null),
+            ? serverText("invocation.receiptUndeliverable", {
+                name: requester.username,
+                reason: errorReason(error),
+              })
+            : (child.detailText ?? child.detail ?? null),
         }),
       );
     }
@@ -994,7 +1015,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const { invocation, message, agent } = steerableInvocation(actor, invocationId);
     emitInvocation(
       database.updateInvocation(invocation.id, {
-        detail: `${actor.username} 请求插入当前任务`,
+        detail: serverText("invocation.steerRequested", { name: actor.username }),
       }),
     );
     deliverMention(message, agent, false, true);
@@ -1011,7 +1032,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     for (const item of running) cancelInvocation(actor, item.id);
     emitInvocation(
       database.updateInvocation(invocation.id, {
-        detail: `${actor.username} 已请求停下当前任务，停下后先做这一条`,
+        detail: serverText("invocation.preemptRequested", { name: actor.username }),
       }),
     );
   }
@@ -1029,12 +1050,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     sender: Participant,
     message: ChatMessage,
     agent: Participant,
-  ): { reason: InvocationBlockReason; detail: string } | undefined {
+  ): { reason: InvocationBlockReason; detail: ServerText } | undefined {
     const hopLimit = LIMITS.maxHopCount + database.turnAllowance(message.roomId);
     if (message.hopCount >= hopLimit) {
       return {
         reason: "hop_limit",
-        detail: `Agent 之间的转交已达 ${hopLimit} 跳上限，点「继续」或由人重新 @ 即可续上。`,
+        detail: serverText("invocation.blockedHop", { limit: hopLimit }),
       };
     }
     if (sender.type !== "agent") return undefined;
@@ -1044,7 +1065,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (budget.used > budget.limit) {
       return {
         reason: "consecutive_limit",
-        detail: `自上次有人发言以来 Agent 已连续对话 ${budget.used - 1} 轮（上限 ${budget.limit}），等待人确认后继续。`,
+        detail: serverText("invocation.blockedTurns", {
+          used: budget.used - 1,
+          limit: budget.limit,
+        }),
       };
     }
     const extra = budget.limit - LIMITS.maxConsecutiveAgentTurns;
@@ -1052,7 +1076,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (database.pairTurnsToday(message.roomId, sender.id, agent.id) >= pairLimit) {
       return {
         reason: "pair_limit",
-        detail: `${sender.username} 今天已唤醒 ${agent.username} ${pairLimit} 次，达到上限。`,
+        detail: serverText("invocation.blockedPair", {
+          sender: sender.username,
+          agent: agent.username,
+          limit: pairLimit,
+        }),
       };
     }
     return undefined;
@@ -1107,7 +1135,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (options.fromTool && invocation.status === "running" && invocation.runtime) {
       emitInvocation(
         database.updateInvocation(invocation.id, {
-          progress: `已发出进行中的消息 #${reply.seq}，仍在执行`,
+          progress: serverText("invocation.toolMessageSent", { seq: reply.seq }),
         }),
       );
       return true;
@@ -1120,9 +1148,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         ...(stopping ? {} : { finishedAt: new Date().toISOString() }),
         progress: null,
         detail: stopping
-          ? "停止期间收到回复，仍等待执行结束确认；回复中的 @ 未再派发"
+          ? serverText("invocation.replyWhileStopping")
           : invocation.status === "timed_out"
-            ? "迟到的结果"
+            ? serverText("invocation.lateResult")
             : null,
       }),
     );
@@ -1216,7 +1244,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       const blocked = needsApproval
         ? {
             reason: "guest_approval" as const,
-            detail: `${participant.username} 是访客，@ 房主的 Agent 需要房主批准后才会派发。`,
+            detail: serverText("invocation.blockedGuest", { name: participant.username }),
           }
         : budgetBlock(participant, message, agent);
       const { invocation: createdInvocation, created } = database.createInvocation({
@@ -1245,7 +1273,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             status: "completed",
             finishedAt: answered.finishedAt ?? new Date().toISOString(),
             progress: null,
-            detail: `${participant.username} 已回答（#${message.seq}），已续到新的调用`,
+            detail: serverText("invocation.answered", {
+              name: participant.username,
+              seq: message.seq,
+            }),
           }),
         );
       }
@@ -1261,7 +1292,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       if (steer) {
         emitInvocation(
           database.updateInvocation(invocation.id, {
-            detail: options.steer ? "发送并插话：请求插入当前任务" : "自动插话：请求插入当前任务",
+            detail: serverText(options.steer ? "invocation.steerSend" : "invocation.steerAuto"),
           }),
         );
       }
@@ -1371,7 +1402,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     }
     const labels = new Map(spec.options.map((option) => [option.key, option.label]));
     const unknown = selected.find((key) => !labels.has(key));
-    if (unknown) throw new HiveError("INVALID_ANSWER", serverText("error.answer.unknownOption", { option: unknown }));
+    if (unknown)
+      throw new HiveError(
+        "INVALID_ANSWER",
+        serverText("error.answer.unknownOption", { option: unknown }),
+      );
     const other = input.other?.trim() || undefined;
     const picks = selected.length + (other ? 1 : 0);
     if (picks === 0) throw new HiveError("INVALID_ANSWER", serverText("error.answer.empty"));
@@ -1447,23 +1482,28 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             );
             return root ? `@${root.requesterName} ` : "";
           })();
+    const questionText = serverText("question.ask", {
+      asker,
+      question: quoteWithoutMentions(input.question, LIMITS.maxMessageLength - 2_000),
+      choices: spec
+        ? serverText("question.choices", {
+            mode: serverText(spec.multiple ? "question.multiple" : "question.single"),
+            options: spec.options
+              .map((option) => `${option.key}. ${quoteWithoutMentions(option.label, 100)}`)
+              .join("\n"),
+          })
+        : "",
+      hint: serverText(spec ? "question.hintOptions" : "question.hintReply", {
+        agent: agent.username,
+      }),
+    });
     const { message } = createAndDispatchMessage(
       agent,
       {
         // 问题里的 @ 换成全角：提问只发给人，不能借机唤醒其他 Agent
         // 选项也逐行写进正文：不渲染选项的客户端和 Agent 读正文就能看懂、照样能手打回答
-        content: [
-          `${asker}❓ ${quoteWithoutMentions(input.question, LIMITS.maxMessageLength - 2_000)}`,
-          ...(spec
-            ? [
-                spec.multiple ? "（可多选）" : "（单选）",
-                ...spec.options.map(
-                  (option) => `${option.key}. ${quoteWithoutMentions(option.label, 100)}`,
-                ),
-                `（点选选项、填写「其它」，或直接回复这条消息即可把答案交给 ${agent.username}）`,
-              ]
-            : [`（回复这条消息即可把答案交给 ${agent.username}）`]),
-        ].join("\n"),
+        content: zhText(questionText),
+        text: questionText,
         clientMessageId: input.clientMessageId,
         parentMessageId: parent.id,
         kind: "question",
@@ -1475,7 +1515,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       database.updateInvocation(invocation.id, {
         status: "waiting_human",
         progress: null,
-        detail: `等人回答：${input.question.replace(/\s+/g, " ").slice(0, 480)}`,
+        detail: serverText("invocation.waitingAnswer", {
+          question: input.question.replace(/\s+/g, " ").slice(0, 440),
+        }),
       }),
     );
     return { invocation: updated, message };
@@ -1521,18 +1563,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       (item) => item.requesterType === "human",
     );
     const minutes = Math.round(LIMITS.approvalTimeoutMs / 60_000);
+    const approvalText = serverText("approval.request", {
+      asker: root ? `@${root.requesterName} ` : "",
+      agent: agent.username,
+      tool: quoteWithoutMentions(event.tool, 64),
+      summary: quoteWithoutMentions(event.summary, 1000),
+      detail: event.detail ? `\n${quoteWithoutMentions(event.detail, 4000)}` : "",
+      minutes,
+    });
     let question: ChatMessage;
     try {
       question = createAndDispatchMessage(
         agent,
         {
-          content: [
-            `${root ? `@${root.requesterName} ` : ""}🔐 ${agent.username} 申请权限（${quoteWithoutMentions(event.tool, 64)}）：${quoteWithoutMentions(event.summary, 1000)}`,
-            ...(event.detail ? [quoteWithoutMentions(event.detail, 4000)] : []),
-            "A. 允许",
-            "B. 拒绝",
-            `（点选，或回复这条消息「允许 / 拒绝」；${minutes} 分钟内没人批按拒绝处理）`,
-          ].join("\n"),
+          content: zhText(approvalText),
+          text: approvalText,
           clientMessageId: `approval-${event.requestId}`,
           parentMessageId: event.messageId,
           kind: "question",
@@ -1569,7 +1614,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (!isTerminal(invocation)) {
       emitInvocation(
         database.updateInvocation(invocation.id, {
-          progress: `等你批准：${event.summary.replace(/\s+/g, " ").slice(0, 160)}`,
+          progress: serverText("invocation.approvalWaiting", {
+            summary: event.summary.replace(/\s+/g, " ").slice(0, 160),
+          }),
         }),
       );
     }
@@ -1648,6 +1695,51 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   }
 
   /** 例如「2026-11-04 00:07（Asia/Shanghai）」：绝对时间加时区，人一眼能看出是不是自己要的那天 */
+  /** 计划时间：时间本身和语言无关，时区的括号随语言 */
+  function scheduleTime(iso: string, timeZone: string): ServerText {
+    return serverText("schedule.time", {
+      time: formatScheduleTime(iso, timeZone).replace(/（.*$/, ""),
+      timeZone,
+    });
+  }
+
+  /** 引用到回执里的说明：中文原文照旧去掉 @，结构化文案里的字符串参数也一样 */
+  function quoteParam(value: ServerTextParam, limit: number): ServerTextParam {
+    if (typeof value === "number") return value;
+    if (typeof value === "string") return quoteWithoutMentions(value, limit);
+    return {
+      key: value.key,
+      ...(value.params
+        ? {
+            params: Object.fromEntries(
+              Object.entries(value.params).map(([name, param]) => [name, quoteParam(param, limit)]),
+            ),
+          }
+        : {}),
+    } as ServerTextParam;
+  }
+
+  function quotedDetail(invocation: Invocation, limit: number): ServerTextParam {
+    return quoteParam(invocation.detailText ?? invocation.detail ?? "", limit);
+  }
+
+  /** 错误的原因：HiveError 带结构化文案就用它，其余用原文 */
+  function errorReason(error: unknown): ServerTextParam {
+    if (error instanceof HiveError && error.text) return error.text;
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  /** Bridge 上报的说明：带结构化文案就用它（中文 detail 照旧写进兼容字段） */
+  function reportDetail(
+    report: { detail?: string | undefined; detailText?: WireServerText | undefined },
+    limit = 500,
+  ): ServerText | string | undefined {
+    if (report.detailText && isServerTextKey(report.detailText.key)) {
+      return report.detailText as ServerText;
+    }
+    return report.detail?.slice(0, limit);
+  }
+
   function formatScheduleTime(iso: string, timeZone: string): string {
     const parts = new Intl.DateTimeFormat("en-CA", {
       timeZone,
@@ -1693,18 +1785,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (existing) return { schedule: existing, created: false };
     const chain = [invocation, ...database.invocationAncestors(invocation.id)];
     if (chain.some((item) => database.getMessage(item.messageId)?.kind === "schedule")) {
-      throw new HiveError(
-        "SCHEDULE_NESTED",
-        serverText("error.schedule.nested"),
-      );
+      throw new HiveError("SCHEDULE_NESTED", serverText("error.schedule.nested"));
     }
     const root = chain.find((item) => item.requesterType === "human");
     const requester = root?.requesterId ? database.getParticipant(root.requesterId) : undefined;
     if (!requester || requester.type !== "human" || requester.roomId !== agent.roomId) {
-      throw new HiveError(
-        "NO_HUMAN_REQUESTER",
-        serverText("error.schedule.humanOnly"),
-      );
+      throw new HiveError("NO_HUMAN_REQUESTER", serverText("error.schedule.humanOnly"));
     }
     const guest = guestSessionOf(requester);
     if (guest && guest.state !== "active") {
@@ -1719,10 +1805,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     }
     // 只收带时区偏移的绝对时间：「今晚 00:07」这类说法换算成哪一天，必须由 Agent 明确写出来
     if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/i.test(input.runAt)) {
-      throw new HiveError(
-        "INVALID_RUN_AT",
-        serverText("error.schedule.runAtFormat"),
-      );
+      throw new HiveError("INVALID_RUN_AT", serverText("error.schedule.runAtFormat"));
     }
     const runAtMs = Date.parse(input.runAt);
     const now = clock();
@@ -1732,13 +1815,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (runAtMs < now + 30_000) {
       throw new HiveError(
         "INVALID_RUN_AT",
-        serverText("error.schedule.runAtTooSoon", { now: formatScheduleTime(new Date(now).toISOString(), serverTimeZone) }),
+        serverText("error.schedule.runAtTooSoon", {
+          now: formatScheduleTime(new Date(now).toISOString(), serverTimeZone),
+        }),
       );
     }
     if (runAtMs > now + LIMITS.maxScheduleAheadMs) {
       throw new HiveError(
         "INVALID_RUN_AT",
-        serverText("error.schedule.runAtTooFar", { days: Math.round(LIMITS.maxScheduleAheadMs / 86_400_000) }),
+        serverText("error.schedule.runAtTooFar", {
+          days: Math.round(LIMITS.maxScheduleAheadMs / 86_400_000),
+        }),
       );
     }
     let recurrence:
@@ -1753,14 +1840,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       ) {
         throw new HiveError(
           "INVALID_INTERVAL",
-          serverText("error.schedule.intervalRange", { min: LIMITS.minScheduleIntervalMinutes, max: 7 * 24 * 60 }),
+          serverText("error.schedule.intervalRange", {
+            min: LIMITS.minScheduleIntervalMinutes,
+            max: 7 * 24 * 60,
+          }),
         );
       }
       if (!input.until || !/(Z|[+-]\d{2}:\d{2})$/i.test(input.until)) {
-        throw new HiveError(
-          "INVALID_UNTIL",
-          serverText("error.schedule.untilRequired"),
-        );
+        throw new HiveError("INVALID_UNTIL", serverText("error.schedule.untilRequired"));
       }
       const untilMs = Date.parse(input.until);
       if (!Number.isFinite(untilMs) || untilMs < runAtMs) {
@@ -1769,14 +1856,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       if (untilMs > now + LIMITS.maxScheduleAheadMs) {
         throw new HiveError(
           "INVALID_UNTIL",
-          serverText("error.schedule.untilTooFar", { days: Math.round(LIMITS.maxScheduleAheadMs / 86_400_000) }),
+          serverText("error.schedule.untilTooFar", {
+            days: Math.round(LIMITS.maxScheduleAheadMs / 86_400_000),
+          }),
         );
       }
       const occurrences = Math.floor((untilMs - runAtMs) / (every * 60_000)) + 1;
       if (occurrences > LIMITS.maxScheduleOccurrences) {
         throw new HiveError(
           "TOO_MANY_OCCURRENCES",
-          serverText("error.schedule.tooManyOccurrences", { count: occurrences, max: LIMITS.maxScheduleOccurrences }),
+          serverText("error.schedule.tooManyOccurrences", {
+            count: occurrences,
+            max: LIMITS.maxScheduleOccurrences,
+          }),
         );
       }
       recurrence = {
@@ -1788,10 +1880,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     }
     const timeZone = input.timeZone?.trim() || serverTimeZone;
     if (!validTimeZone(timeZone)) {
-      throw new HiveError(
-        "INVALID_TIME_ZONE",
-        serverText("error.schedule.timeZone", { timeZone }),
-      );
+      throw new HiveError("INVALID_TIME_ZONE", serverText("error.schedule.timeZone", { timeZone }));
     }
     if (database.countActiveSchedules(agent.roomId) >= LIMITS.maxActiveSchedulesPerRoom) {
       throw new HiveError(
@@ -1838,10 +1927,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const root = chain.find((item) => item.requesterType === "human");
     const requester = root?.requesterId ? database.getParticipant(root.requesterId) : undefined;
     if (!requester || requester.type !== "human" || guestSessionOf(requester)) {
-      throw new HiveError(
-        "OWNER_ONLY",
-        serverText("error.room.ownerTaskOnly", { action }),
-      );
+      throw new HiveError("OWNER_ONLY", serverText("error.room.ownerTaskOnly", { action }));
     }
     return { parent, requester };
   }
@@ -1883,7 +1969,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const { parent, requester } = ownerTask(agent, serverText("action.postToRoom"));
     const room = database.getRoom(input.roomId);
     if (!room || room.archivedAt) {
-      throw new HiveError("ROOM_NOT_FOUND", serverText("error.room.targetNotFound", { room: input.roomId }));
+      throw new HiveError(
+        "ROOM_NOT_FOUND",
+        serverText("error.room.targetNotFound", { room: input.roomId }),
+      );
     }
     if (room.id === agent.roomId) {
       throw new HiveError("SAME_ROOM", serverText("error.room.samePost"));
@@ -1914,9 +2003,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         serverText("error.room.agentsAbsent", { room: room.id, agents: absent.join("、") }),
       );
     }
-    const origin = `（${agent.username} 从 #${agent.roomId} 的 #${parent.seq} 转来，发起人 ${requester.username}）`;
+    const forwarded = serverText("roomPost.forwarded", {
+      content: input.content.trim(),
+      agent: agent.username,
+      room: agent.roomId,
+      seq: parent.seq,
+      requester: requester.username,
+    });
     const { message } = createAndDispatchMessage(sender, {
-      content: `${input.content.trim()}\n\n${origin}`,
+      content: zhText(forwarded),
+      text: forwarded,
       clientMessageId: input.clientMessageId,
     });
     return message;
@@ -1951,7 +2047,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (agents.length > 0) {
       throw new HiveError(
         "PROGRESS_MENTIONS_AGENT",
-        serverText("error.progress.mentionsAgent", { agents: agents.map((name) => `@${name}`).join("、") }),
+        serverText("error.progress.mentionsAgent", {
+          agents: agents.map((name) => `@${name}`).join("、"),
+        }),
       );
     }
     // 人直接派的任务放宽；Agent 之间委派的子任务只给一条，免得互相刷屏。
@@ -1962,10 +2060,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       .filter((item) => item.roomId === agent.roomId);
     const used = batch.reduce((sum, item) => sum + database.progressCount(item.id), 0);
     if (used >= limit) {
-      throw new HiveError(
-        "PROGRESS_LIMIT",
-        serverText("error.progress.limit", { limit }),
-      );
+      throw new HiveError("PROGRESS_LIMIT", serverText("error.progress.limit", { limit }));
     }
     database.setProgressCount(invocation.id, database.progressCount(invocation.id) + 1);
     return createAndDispatchMessage(
@@ -1997,14 +2092,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     }
     const cancelled = database.transitionSchedule(scheduleId, ["scheduled"], "cancelled", {
       cancelledBy: actor.username,
-      detail: `${actor.username} 取消了`,
+      detail: serverText("schedule.cancelledBy", { name: actor.username }),
     });
     if (!cancelled) {
       throw new HiveError(
         "SCHEDULE_NOT_PENDING",
-        schedule.status === "firing" || schedule.status === "fired"
-          ? "已经到点发出了；要停止这次执行，请在任务面板里停止对应的调用。"
-          : "这个定时任务已经结束，不能再取消。",
+        serverText(
+          schedule.status === "firing" || schedule.status === "fired"
+            ? "error.schedule.alreadyFired"
+            : "error.schedule.ended",
+        ),
       );
     }
     emitSchedule(cancelled);
@@ -2030,7 +2127,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       const busy = schedule.seriesId ? previousOccurrenceRunning(schedule) : undefined;
       if (busy) {
         const skipped = database.transitionSchedule(scheduleId, ["scheduled"], "missed", {
-          detail: `上一次（第 ${busy.occurrence ?? "?"} 次）还没做完，跳过这一次`,
+          detail: serverText("schedule.skippedBusy", { occurrence: busy.occurrence ?? "?" }),
         });
         if (skipped) {
           database.markScheduleReported(scheduleId);
@@ -2040,7 +2137,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       }
       if (late > LIMITS.scheduleGraceMs) {
         const missed = database.transitionSchedule(scheduleId, ["scheduled"], "missed", {
-          detail: `到点时 Server 没有运行，晚了 ${Math.round(late / 60_000)} 分钟才轮到，已标为错过、没有自动补跑`,
+          detail: serverText("schedule.missedOffline", { minutes: Math.round(late / 60_000) }),
         });
         if (missed) {
           emitSchedule(missed);
@@ -2053,7 +2150,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       schedule = emitSchedule(claimed);
     }
     if (schedule.status !== "firing") return;
-    const fail = (detail: string) => {
+    const fail = (detail: ServerText) => {
       const failed = database.transitionSchedule(scheduleId, ["firing"], "failed", { detail });
       if (failed) {
         emitSchedule(failed);
@@ -2063,18 +2160,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const requester = database.getParticipant(schedule.requesterId);
     const agent = database.getParticipant(schedule.agentId);
     if (!requester || !agent || requester.roomId !== schedule.roomId) {
-      return fail("发起人或执行的 Agent 已不在这个房间");
+      return fail(serverText("schedule.memberGone"));
     }
     // 到点重新核对权限：定时触发不能当成人的新授权
     const guest = guestSessionOf(requester);
-    if (guest && guest.state !== "active") return fail("发起人的访客权限已失效");
+    if (guest && guest.state !== "active") return fail(serverText("schedule.requesterExpired"));
     const clientMessageId = `schedule-${schedule.id}`;
     let message = database.findMessageByClientId(requester.id, clientMessageId);
     // 发出途中停机、很久以后才重启：触发消息还没写入就按错过处理，同样不自动补跑
     const late = clock() - Date.parse(schedule.runAt);
     if (!message && late > LIMITS.scheduleGraceMs) {
       const missed = database.transitionSchedule(scheduleId, ["firing"], "missed", {
-        detail: `发出途中 Server 停止，${Math.round(late / 60_000)} 分钟后才恢复，已标为错过、没有自动补跑`,
+        detail: serverText("schedule.missedInFlight", { minutes: Math.round(late / 60_000) }),
       });
       if (missed) {
         emitSchedule(missed);
@@ -2084,15 +2181,28 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     }
     if (!message) {
       const origin = database.getMessage(schedule.originMessageId);
-      const content = [
-        `@${agent.username} ⏰ 定时任务（${agent.username} 于 #${schedule.originSeq} 设定，计划 ${formatScheduleTime(schedule.runAt, schedule.timeZone)}${schedule.everyMinutes && schedule.until ? `；每 ${schedule.everyMinutes} 分钟一次，第 ${schedule.occurrence ?? 1} 次，到 ${formatScheduleTime(schedule.until, schedule.timeZone)} 为止` : ""}；Hive 代 ${requester.username} 发出）`,
-        `以下是 ${agent.username} 当初自己登记的备忘，不是 ${requester.username} 新发的指令；只做原请求（#${schedule.originSeq}）范围内的事：`,
-        quoteWithoutMentions(schedule.task, LIMITS.maxScheduleTaskLength + 200),
-        `（服务端到点发出的消息：请现在执行并回复这条消息，结果里附上能证明完成的依据；需要人决定时用 hive_ask_human。${schedule.everyMinutes ? "下一次服务端会自己登记，不用你再建；目标已经达成、后面不用再检查时，用 hive_schedule_list 找到这个周期待执行的那一次，用 hive_schedule_cancel 取消，整个周期就结束了。" : ""}定时任务 ID：${schedule.id}）`,
-      ].join("\n");
+      const text = serverText("schedule.trigger", {
+        agent: agent.username,
+        originSeq: schedule.originSeq,
+        runAt: scheduleTime(schedule.runAt, schedule.timeZone),
+        recurrence:
+          schedule.everyMinutes && schedule.until
+            ? serverText("schedule.recurrence", {
+                minutes: schedule.everyMinutes,
+                occurrence: schedule.occurrence ?? 1,
+                until: scheduleTime(schedule.until, schedule.timeZone),
+              })
+            : "",
+        requester: requester.username,
+        task: quoteWithoutMentions(schedule.task, LIMITS.maxScheduleTaskLength + 200),
+        seriesHint: schedule.everyMinutes ? serverText("schedule.seriesHint") : "",
+        id: schedule.id,
+      });
+      const content = zhText(text);
       try {
         message = createAndDispatchMessage(requester, {
           content,
+          text,
           clientMessageId,
           kind: "schedule",
           ...(origin && !origin.deletedAt && origin.roomId === schedule.roomId
@@ -2101,7 +2211,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         }).message;
       } catch (error) {
         app.log.warn({ err: error, scheduleId }, "schedule trigger failed");
-        if (error instanceof HiveError) fail(`触发消息发不出去：${error.message}`);
+        if (error instanceof HiveError) {
+          fail(serverText("schedule.triggerFailed", { reason: errorReason(error) }));
+        }
         return;
       }
     }
@@ -2179,8 +2291,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   function reportSchedule(scheduleId: string): void {
     const schedule = database.getSchedule(scheduleId);
     if (!schedule || !database.isScheduleUnreported(scheduleId)) return;
-    let status: string;
-    let detail = schedule.detail;
+    let status: ServerText | string;
+    let detail: ServerTextParam | undefined = schedule.detailText ?? schedule.detail;
     let parentMessageId: string | undefined;
     if (schedule.status === "fired") {
       const invocation = schedule.invocationId
@@ -2197,14 +2309,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       }
       status =
         invocation.status === "completed"
-          ? "执行结束但没有回复（Agent 回了 NO_REPLY 或没有输出）"
+          ? serverText("schedule.status.noReply")
           : (continuationOutcome[invocation.status] ?? invocation.status);
-      detail = invocation.detail;
+      detail = invocation.detailText ?? invocation.detail;
       parentMessageId = schedule.triggerMessageId;
     } else if (schedule.status === "missed") {
-      status = "已错过";
+      status = serverText("schedule.status.missed");
     } else if (schedule.status === "failed") {
-      status = "没能发出";
+      status = serverText("schedule.status.failed");
     } else {
       return;
     }
@@ -2213,19 +2325,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       database.markScheduleReported(scheduleId);
       return;
     }
-    const lines = [
-      `@${schedule.requesterName} ⏰ 定时任务没有正常完成（Hive 代 ${agent.username} 发出）`,
-      `状态：${status}`,
-      `计划时间：${formatScheduleTime(schedule.runAt, schedule.timeZone)}`,
-      `任务：${quoteWithoutMentions(schedule.task, 300)}`,
-      ...(detail ? [`说明：${quoteWithoutMentions(detail, 500)}`] : []),
-      `定时任务 ID：${schedule.id}`,
-    ];
+    const text = serverText("schedule.report", {
+      requester: schedule.requesterName,
+      agent: agent.username,
+      status,
+      runAt: scheduleTime(schedule.runAt, schedule.timeZone),
+      task: quoteWithoutMentions(schedule.task, 300),
+      note: detail ? serverText("receipt.note", { note: quoteParam(detail, 500) }) : "",
+      id: schedule.id,
+    });
     const post = (parent: string | undefined) =>
       createAndDispatchMessage(
         agent,
         {
-          content: lines.join("\n"),
+          content: zhText(text),
+          text,
           clientMessageId: `schedule-report-${schedule.id}`,
           ...(parent ? { parentMessageId: parent } : {}),
           kind: "receipt",
@@ -2297,7 +2411,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     return invocation;
   }
 
-  function resetForRedelivery(invocation: Invocation, detail: string): Invocation {
+  function resetForRedelivery(invocation: Invocation, detail: ServerText): Invocation {
     // 重新执行是新的一次：进度名额重新算
     database.setProgressCount(invocation.id, 0);
     return database.updateInvocation(invocation.id, {
@@ -2318,10 +2432,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const invocation = invocationInRoom(actor, invocationId);
     // 结果未知或停止未确认时，上一次执行可能仍在进行；此时重试会让同一任务并行跑两份
     if (invocation.status === "timed_out" || invocation.status === "cancelling") {
-      throw new HiveError(
-        "INVOCATION_NOT_RETRYABLE",
-        serverText("error.invocation.mayStillRun"),
-      );
+      throw new HiveError("INVOCATION_NOT_RETRYABLE", serverText("error.invocation.mayStillRun"));
     }
     const retryable =
       invocation.status === "failed" ||
@@ -2333,17 +2444,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const message = database.getMessage(invocation.messageId);
     const agent = database.getParticipant(invocation.agentId);
     if (!message || message.deletedAt || !agent) {
-      throw new HiveError(
-        "INVOCATION_NOT_RETRYABLE",
-        serverText("error.invocation.triggerGone"),
-      );
+      throw new HiveError("INVOCATION_NOT_RETRYABLE", serverText("error.invocation.triggerGone"));
     }
     emitInvocation(
       resetForRedelivery(
         invocation,
-        invocation.blockReason === "guest_approval"
-          ? `${actor.username} 已批准`
-          : `${actor.username} 请求重试`,
+        serverText(
+          invocation.blockReason === "guest_approval"
+            ? "invocation.approved"
+            : "invocation.retryRequested",
+          { name: actor.username },
+        ),
       ),
     );
     deliverMention(message, agent, true);
@@ -2379,21 +2490,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           status: "cancelled",
           finishedAt: new Date().toISOString(),
           progress: null,
-          detail: "消息已撤回，未执行",
+          detail: serverText("invocation.recalledNotRun"),
         }),
       );
       const target = onlineAgent(invocation.roomId, invocation.agentName);
       if (target) send(target.socket, { type: "agent.cancel", messageId: message.id });
       return;
     }
-    cancelInvocation(actor, invocation.id, "消息已撤回");
+    cancelInvocation(actor, invocation.id, serverText("invocation.reasonRecalled"));
   }
 
   /**
    * 停止调用。尚未开始执行的直接给出终态；已开始的进入 cancelling，等 Agent 回报结束才算停下，
    * 期间不允许重试。状态落库，服务端重启或 Agent 断线后仍保持，Agent 重连时会再次收到停止请求。
    */
-  function cancelInvocation(actor: Participant, invocationId: string, reason?: string): void {
+  function cancelInvocation(actor: Participant, invocationId: string, reason?: ServerText): void {
     const invocation = invocationInRoom(actor, invocationId);
     if (isTerminal(invocation)) return;
     // 等人回答且这一轮已结束：没有在跑的执行需要确认，直接停下
@@ -2401,7 +2512,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       emitInvocation(
         database.updateInvocation(invocation.id, {
           status: "cancelled",
-          detail: reason ? `${reason}，已停止` : `${actor.username} 不再回答，已停止`,
+          detail: reason
+            ? serverText("invocation.stoppedReason", { reason })
+            : serverText("invocation.stoppedNoAnswer", { name: actor.username }),
         }),
       );
       return;
@@ -2411,7 +2524,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       emitInvocation(
         database.updateInvocation(invocation.id, {
           status: "cancelling",
-          detail: `${reason ? `${reason}，` : ""}${actor.username} 已请求停止，等待 ${invocation.agentName} 确认`,
+          detail: reason
+            ? serverText("invocation.stopRequestedReason", {
+                reason,
+                name: actor.username,
+                agent: invocation.agentName,
+              })
+            : serverText("invocation.stopRequested", {
+                name: actor.username,
+                agent: invocation.agentName,
+              }),
           progress: null,
         }),
       );
@@ -2428,7 +2550,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       const agent = database.getParticipant(invocation.agentId);
       if (!message || message.deletedAt || !agent) continue;
       emitInvocation(
-        resetForRedelivery(invocation, `${actor.username} 追加了 ${turns} 轮（共 +${allowance}）`),
+        resetForRedelivery(
+          invocation,
+          serverText("invocation.turnsAdded", { name: actor.username, turns, total: allowance }),
+        ),
       );
       deliverMention(message, agent, true);
     }
@@ -2465,7 +2590,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (report.status === "received") {
       if (invocation.status !== "queued" || invocation.receivedAt) return;
       emitInvocation(
-        database.updateInvocation(invocation.id, { receivedAt: now, detail: "已送达，排队中" }),
+        database.updateInvocation(invocation.id, {
+          receivedAt: now,
+          detail: serverText("invocation.delivered"),
+        }),
       );
       return;
     }
@@ -2481,11 +2609,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         database.updateInvocation(invocation.id, {
           status: "timed_out",
           detail: stopping
-            ? `${recalled ? "消息已撤回，停止未确认：" : "已停止 Agent 这一轮，但"}无法确认工具子进程都已停下：${report.detail ?? "结果未知"}`.slice(
-                0,
-                500,
+            ? serverText(
+                recalled ? "invocation.recalledStopUnconfirmed" : "invocation.stopUnconfirmedTools",
+                {
+                  reason: reportDetail(report, 380) ?? serverText("invocation.outcomeUnknown"),
+                },
               )
-            : (report.detail ?? "执行结果未知，无法确认工具已停止；禁止自动重放。"),
+            : (reportDetail(report) ?? serverText("invocation.unknownNoReplay")),
           progress: null,
         }),
       );
@@ -2516,9 +2646,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           status: "running",
           receivedAt: invocation.receivedAt ?? now,
           startedAt: invocation.startedAt ?? now,
-          progress: report.progress ?? invocation.progress ?? null,
+          progress: report.progress ?? invocation.progressText ?? invocation.progress ?? null,
           runtime: observeRuntime(invocation.runtime, report.runtimeEvent, now),
-          detail: report.detail ?? null,
+          detail: reportDetail(report) ?? null,
         }),
       );
       return;
@@ -2541,7 +2671,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         progress: null,
         detail:
           recalledDetail(invocation, report.status) ??
-          report.detail ??
+          reportDetail(report) ??
           terminalDetail(invocation, report.status),
         ...(report.replyMessageId ? { replyMessageId: report.replyMessageId } : {}),
       }),
@@ -2552,21 +2682,23 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   function recalledDetail(
     invocation: Invocation,
     status: Invocation["status"],
-  ): string | undefined {
+  ): ServerText | undefined {
     if (
       invocation.status !== "cancelling" ||
       !database.getMessage(invocation.messageId)?.deletedAt
     ) {
       return undefined;
     }
-    return status === "cancelled" ? "消息已撤回，已停止" : undefined;
+    return status === "cancelled" ? serverText("invocation.recalledStopped") : undefined;
   }
 
-  function terminalDetail(invocation: Invocation, status: Invocation["status"]): string | null {
+  function terminalDetail(invocation: Invocation, status: Invocation["status"]): ServerText | null {
     if (invocation.status === "cancelling") {
-      return status === "cancelled" ? `${invocation.agentName} 已确认停止` : "停止请求生效前已结束";
+      return status === "cancelled"
+        ? serverText("invocation.stopConfirmed", { agent: invocation.agentName })
+        : serverText("invocation.endedBeforeStop");
     }
-    return invocation.status === "timed_out" ? "迟到的结果" : null;
+    return invocation.status === "timed_out" ? serverText("invocation.lateResult") : null;
   }
 
   function sweepStaleInvocations(): void {
@@ -2580,7 +2712,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       emitInvocation(
         database.updateInvocation(invocation.id, {
           status: "timed_out",
-          detail: `停止请求超过 ${Math.round(LIMITS.invocationStaleMs / 60_000)} 分钟没有得到确认，结果未知`,
+          detail: serverText("invocation.stopUnconfirmed", {
+            minutes: Math.round(LIMITS.invocationStaleMs / 60_000),
+          }),
           progress: null,
         }),
       );
@@ -2591,7 +2725,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         emitInvocation(
           database.updateInvocation(invocation.id, {
             status: "timed_out",
-            detail: `超过 ${Math.round(LIMITS.invocationStaleMs / 60_000)} 分钟没有任何进展，结果未知`,
+            detail: serverText("invocation.stale", {
+              minutes: Math.round(LIMITS.invocationStaleMs / 60_000),
+            }),
           }),
         );
         continue;
@@ -2601,7 +2737,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       emitInvocation(
         database.updateInvocation(invocation.id, {
           status: "timed_out",
-          detail: "Agent 在线但没有确认收到（可能是不支持回报状态的旧版 superhive）",
+          detail: serverText("invocation.unacknowledged"),
         }),
       );
     }
@@ -2662,7 +2798,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   ) {
     const target = database.findParticipant(requester.roomId, input.agent.replace(/^@/, ""));
     if (!target || target.type !== "agent") {
-      throw new HiveError("AGENT_NOT_FOUND", serverText("error.delegation.agentNotFound", { agent: input.agent }));
+      throw new HiveError(
+        "AGENT_NOT_FOUND",
+        serverText("error.delegation.agentNotFound", { agent: input.agent }),
+      );
     }
     if (target.id === requester.id) {
       throw new HiveError("SELF_DELEGATION", serverText("error.delegation.self"));
@@ -2975,9 +3114,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     error: unknown,
   ) {
     if (error instanceof HiveError && imErrorStatus[error.code]) {
-      return reply
-        .code(imErrorStatus[error.code]!)
-        .send(hiveErrorBody(error));
+      return reply.code(imErrorStatus[error.code]!).send(hiveErrorBody(error));
     }
     throw error;
   }
@@ -2989,7 +3126,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   app.get<{ Params: { roomId: string } }>("/api/rooms/:roomId/im", async (request, reply) => {
     const params = roomParamsSchema.safeParse(request.params);
-    if (!params.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+    if (!params.success)
+      return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
     if (!adminOnly(request, reply)) return reply;
     return { connections: imHub.list(params.data.roomId) };
   });
@@ -2998,13 +3136,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     "/api/rooms/:roomId/im/login",
     async (request, reply) => {
       const params = roomParamsSchema.safeParse(request.params);
-      if (!params.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      if (!params.success)
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
       if (!adminOnly(request, reply)) return reply;
       const body = startImLoginRequestSchema.safeParse(request.body);
-      if (!body.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      if (!body.success)
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
       const room = database.getRoom(params.data.roomId);
       if (!room || room.archivedAt) {
-        return reply.code(404).send({ ...errorText(serverText("error.room.notFoundOrArchived")), code: "ROOM_NOT_FOUND" });
+        return reply
+          .code(404)
+          .send({
+            ...errorText(serverText("error.room.notFoundOrArchived")),
+            code: "ROOM_NOT_FOUND",
+          });
       }
       if (body.data.channel === "wechat" && !body.data.acceptRisk) {
         return reply
@@ -3034,18 +3179,23 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (!adminOnly(request, reply)) return reply;
     const view = imHub.getLogin(request.params.id);
     if (!view)
-      return reply.code(404).send({ ...errorText(serverText("error.im.loginNotFound")), code: "IM_NOT_FOUND" });
+      return reply
+        .code(404)
+        .send({ ...errorText(serverText("error.im.loginNotFound")), code: "IM_NOT_FOUND" });
     return view;
   });
 
   app.post<{ Params: { id: string } }>("/api/im/logins/:id/code", async (request, reply) => {
     if (!adminOnly(request, reply)) return reply;
     const body = submitImLoginCodeRequestSchema.safeParse(request.body);
-    if (!body.success) return reply.code(400).send({ ...errorText(serverText("error.im.pairingCode")) });
+    if (!body.success)
+      return reply.code(400).send({ ...errorText(serverText("error.im.pairingCode")) });
     try {
       const view = imHub.submitCode(request.params.id, body.data.code);
       if (!view)
-        return reply.code(404).send({ ...errorText(serverText("error.im.loginNotFound")), code: "IM_NOT_FOUND" });
+        return reply
+          .code(404)
+          .send({ ...errorText(serverText("error.im.loginNotFound")), code: "IM_NOT_FOUND" });
       return view;
     } catch (error) {
       return imError(reply, error);
@@ -3056,7 +3206,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (!adminOnly(request, reply)) return reply;
     const view = imHub.cancelLogin(request.params.id);
     if (!view)
-      return reply.code(404).send({ ...errorText(serverText("error.im.loginNotFound")), code: "IM_NOT_FOUND" });
+      return reply
+        .code(404)
+        .send({ ...errorText(serverText("error.im.loginNotFound")), code: "IM_NOT_FOUND" });
     return view;
   });
 
@@ -3069,7 +3221,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         if (request.params.action === "resume") return await imHub.resume(request.params.id);
         if (request.params.action === "level") {
           const body = setImDeliveryLevelRequestSchema.safeParse(request.body);
-          if (!body.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+          if (!body.success)
+            return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
           return imHub.setLevel(request.params.id, body.data.level);
         }
         return reply.code(404).send({ ...errorText(serverText("error.request.invalid")) });
@@ -3217,7 +3370,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   app.get<{ Querystring: { token?: string } }>("/api/invites/preview", async (request, reply) => {
     const token = request.query.token;
     const invite = token ? access.peekInvite(token) : undefined;
-    if (!invite) return reply.code(404).send({ ...errorText(serverText("error.invite.invalid")), code: "INVITE_INVALID" });
+    if (!invite)
+      return reply
+        .code(404)
+        .send({ ...errorText(serverText("error.invite.invalid")), code: "INVITE_INVALID" });
     const state = invite.revokedAt
       ? "revoked"
       : invite.expiresAt && Date.parse(invite.expiresAt) <= clock()
@@ -3236,7 +3392,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   app.post("/api/invites/redeem", async (request, reply) => {
     const body = redeemInviteRequestSchema.safeParse(request.body);
-    if (!body.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+    if (!body.success)
+      return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
     if (!/^[\p{L}\p{N}_.-]+$/u.test(body.data.username)) {
       return reply.code(400).send({
         ...errorText(serverText("error.name.format")),
@@ -3253,9 +3410,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       return { token, ...sessionView(access.resolve(session, clock())) };
     } catch (error) {
       if (error instanceof HiveError && inviteErrorStatus[error.code]) {
-        return reply
-          .code(inviteErrorStatus[error.code]!)
-          .send(hiveErrorBody(error));
+        return reply.code(inviteErrorStatus[error.code]!).send(hiveErrorBody(error));
       }
       throw error;
     }
@@ -3263,13 +3418,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   app.post<{ Params: { roomId: string } }>("/api/rooms/:roomId/invites", async (request, reply) => {
     const params = roomParamsSchema.safeParse(request.params);
-    if (!params.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+    if (!params.success)
+      return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
     if (!adminOnly(request, reply)) return reply;
     const body = createInviteRequestSchema.safeParse(request.body);
-    if (!body.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+    if (!body.success)
+      return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
     const room = database.getRoom(params.data.roomId);
     if (!room || room.archivedAt) {
-      return reply.code(404).send({ ...errorText(serverText("error.room.notFoundOrArchived")), code: "ROOM_NOT_FOUND" });
+      return reply
+        .code(404)
+        .send({
+          ...errorText(serverText("error.room.notFoundOrArchived")),
+          code: "ROOM_NOT_FOUND",
+        });
     }
     const created = access.createInvite({
       roomId: room.id,
@@ -3282,7 +3444,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   app.get<{ Params: { roomId: string } }>("/api/rooms/:roomId/invites", async (request, reply) => {
     const params = roomParamsSchema.safeParse(request.params);
-    if (!params.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+    if (!params.success)
+      return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
     if (!adminOnly(request, reply)) return reply;
     return { invites: access.listInvites(params.data.roomId) };
   });
@@ -3308,7 +3471,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     async (request, reply) => {
       if (!adminOnly(request, reply)) return reply;
       const body = renewAccessRequestSchema.safeParse(request.body);
-      if (!body.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      if (!body.success)
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
       try {
         const invite = access.renewInvite(
           request.params.inviteId,
@@ -3333,7 +3497,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     async (request, reply) => {
       if (!adminOnly(request, reply)) return reply;
       const body = renewAccessRequestSchema.safeParse(request.body);
-      if (!body.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      if (!body.success)
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
       try {
         const session = access.renew(
           request.params.sessionId,
@@ -3519,16 +3684,33 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     id: string,
   ): { item: StoredAttachment } | { status: number; code: string; error: string } {
     const item = attachments.get(id);
-    if (!item) return { status: 404, code: "ATTACHMENT_NOT_FOUND", ...errorText(serverText("error.attachment.notFound")) };
+    if (!item)
+      return {
+        status: 404,
+        code: "ATTACHMENT_NOT_FOUND",
+        ...errorText(serverText("error.attachment.notFound")),
+      };
     if (!canAccessRoom(principal, item.roomId)) {
-      return { status: 403, code: "ROOM_FORBIDDEN", ...errorText(serverText("error.auth.roomForbidden")) };
+      return {
+        status: 403,
+        code: "ROOM_FORBIDDEN",
+        ...errorText(serverText("error.auth.roomForbidden")),
+      };
     }
     if (item.revokedAt) {
-      return { status: 410, code: "ATTACHMENT_REVOKED", ...errorText(serverText("error.attachment.messageRecalled")) };
+      return {
+        status: 410,
+        code: "ATTACHMENT_REVOKED",
+        ...errorText(serverText("error.attachment.messageRecalled")),
+      };
     }
     if (!item.messageId) {
       if (item.uploader !== uploaderOf(principal)) {
-        return { status: 404, code: "ATTACHMENT_NOT_FOUND", ...errorText(serverText("error.attachment.notFound")) };
+        return {
+          status: 404,
+          code: "ATTACHMENT_NOT_FOUND",
+          ...errorText(serverText("error.attachment.notFound")),
+        };
       }
       if (Date.parse(item.expiresAt) <= clock()) {
         return {
@@ -3548,12 +3730,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       const principal = guard(request, reply, roomId);
       if (!principal) return;
       if (!database.getRoom(roomId)) {
-        return reply.code(404).send({ ...errorText(serverText("error.room.notFound")), code: "ROOM_NOT_FOUND" });
+        return reply
+          .code(404)
+          .send({ ...errorText(serverText("error.room.notFound")), code: "ROOM_NOT_FOUND" });
       }
       if (!request.isMultipart()) {
         return reply
           .code(415)
-          .send({ ...errorText(serverText("error.attachment.multipartRequired")), code: "MULTIPART_REQUIRED" });
+          .send({
+            ...errorText(serverText("error.attachment.multipartRequired")),
+            code: "MULTIPART_REQUIRED",
+          });
       }
       const uploader = uploaderOf(principal);
       try {
@@ -3563,7 +3750,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         attachments.checkQuota(roomId, uploader, Number.isFinite(declared) ? declared : 0);
         const file = await request.file();
         if (!file) {
-          return reply.code(400).send({ ...errorText(serverText("error.attachment.fileRequired")), code: "FILE_REQUIRED" });
+          return reply
+            .code(400)
+            .send({
+              ...errorText(serverText("error.attachment.fileRequired")),
+              code: "FILE_REQUIRED",
+            });
         }
         const stored = await attachments.save({
           roomId,
@@ -3598,7 +3790,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (!principal) return;
     const id = z.string().uuid().safeParse(request.params.id);
     if (!id.success || !attachments.discardPending(id.data, uploaderOf(principal))) {
-      return reply.code(404).send({ ...errorText(serverText("error.attachment.pendingNotFound")), code: "ATTACHMENT_NOT_FOUND" });
+      return reply
+        .code(404)
+        .send({
+          ...errorText(serverText("error.attachment.pendingNotFound")),
+          code: "ATTACHMENT_NOT_FOUND",
+        });
     }
     return reply.code(204).send();
   });
@@ -3612,7 +3809,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (!principal) return;
     const id = z.string().uuid().safeParse(request.params.id);
     if (!id.success) {
-      return reply.code(404).send({ ...errorText(serverText("error.attachment.notFound")), code: "ATTACHMENT_NOT_FOUND" });
+      return reply
+        .code(404)
+        .send({
+          ...errorText(serverText("error.attachment.notFound")),
+          code: "ATTACHMENT_NOT_FOUND",
+        });
     }
     const result = readableAttachment(principal, id.data);
     if (!("item" in result)) {
@@ -3620,7 +3822,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     }
     const { item } = result;
     if (!existsSync(item.filePath)) {
-      return reply.code(410).send({ ...errorText(serverText("error.attachment.gone")), code: "ATTACHMENT_GONE" });
+      return reply
+        .code(410)
+        .send({ ...errorText(serverText("error.attachment.gone")), code: "ATTACHMENT_GONE" });
     }
     const inline = item.kind === "image";
     reply
@@ -3645,17 +3849,28 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const principal = guard(request, reply);
     if (!principal) return;
     if (principal.kind !== "admin" || !isLocal(request).local) {
-      return reply.code(403).send({ ...errorText(serverText("error.attachment.localOnly")), code: "LOCAL_ONLY" });
+      return reply
+        .code(403)
+        .send({ ...errorText(serverText("error.attachment.localOnly")), code: "LOCAL_ONLY" });
     }
     const id = z.string().uuid().safeParse(request.params.id);
     const result = id.success
       ? readableAttachment(principal, id.data)
-      : { status: 404, code: "ATTACHMENT_NOT_FOUND", ...errorText(serverText("error.attachment.notFound")) };
+      : {
+          status: 404,
+          code: "ATTACHMENT_NOT_FOUND",
+          ...errorText(serverText("error.attachment.notFound")),
+        };
     if (!("item" in result)) {
       return reply.code(result.status).send({ error: result.error, code: result.code });
     }
     if (!result.item.messageId || !existsSync(result.item.filePath)) {
-      return reply.code(404).send({ ...errorText(serverText("error.attachment.notFound")), code: "ATTACHMENT_NOT_FOUND" });
+      return reply
+        .code(404)
+        .send({
+          ...errorText(serverText("error.attachment.notFound")),
+          code: "ATTACHMENT_NOT_FOUND",
+        });
     }
     return { path: result.item.filePath, sha256: result.item.sha256 };
   });
@@ -3695,10 +3910,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           message.deletedAt ||
           message.seq < database.currentTopicSeq(participant.roomId)
         ) {
-          throw new HiveError(
-            "MESSAGE_NOT_FOUND",
-            serverText("error.message.unreadable"),
-          );
+          throw new HiveError("MESSAGE_NOT_FOUND", serverText("error.message.unreadable"));
         }
         return message;
       },
@@ -3807,7 +4019,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     "/api/search",
     async (request, reply) => {
       const query = searchQuerySchema.safeParse(request.query);
-      if (!query.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      if (!query.success)
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
       const principal = guard(request, reply);
       if (!principal) return reply;
       return {
@@ -3822,7 +4035,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     "/api/mentions",
     async (request, reply) => {
       const query = mentionsQuerySchema.safeParse(request.query);
-      if (!query.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      if (!query.success)
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
       const principal = guard(request, reply);
       if (!principal) return reply;
       return {
@@ -3863,7 +4077,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         by: z.string().trim().min(1).max(32).optional(),
       })
       .safeParse(request.body);
-    if (!body.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+    if (!body.success)
+      return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
     let ids = body.data.invocationIds;
     let by = body.data.by ?? "房主";
     if (principal.kind === "guest") {
@@ -3884,7 +4099,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     "/api/rooms/:roomId/whiteboard",
     async (request, reply) => {
       const params = roomParamsSchema.safeParse(request.params);
-      if (!params.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      if (!params.success)
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
       if (!guard(request, reply, params.data.roomId)) return reply;
       return { entries: database.listWhiteboard(params.data.roomId) };
     },
@@ -3894,7 +4110,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     "/api/rooms/:roomId/invocations",
     async (request, reply) => {
       const params = roomParamsSchema.safeParse(request.params);
-      if (!params.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      if (!params.success)
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
       if (!guard(request, reply, params.data.roomId)) return reply;
       return { invocations: database.listInvocations(params.data.roomId) };
     },
@@ -3904,7 +4121,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     "/api/rooms/:roomId/usage",
     async (request, reply) => {
       const params = roomParamsSchema.safeParse(request.params);
-      if (!params.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      if (!params.success)
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
       if (!guard(request, reply, params.data.roomId)) return reply;
       const days = Math.min(90, Math.max(1, Number.parseInt(request.query.days ?? "7", 10) || 7));
       const since = new Date((options.now?.() ?? Date.now()) - days * 86_400_000).toISOString();
@@ -3924,7 +4142,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     "/api/rooms/:roomId/participants",
     async (request, reply) => {
       const params = roomParamsSchema.safeParse(request.params);
-      if (!params.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      if (!params.success)
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
       if (!guard(request, reply, params.data.roomId)) return reply;
       return { participants: participantsOf(params.data.roomId) };
     },
@@ -3951,7 +4170,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   app.get<{ Querystring: { includeArchived?: string } }>("/api/rooms", async (request, reply) => {
     const query = roomsQuerySchema.safeParse(request.query);
-    if (!query.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+    if (!query.success)
+      return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
     const principal = guard(request, reply);
     if (!principal) return reply;
     return {
@@ -3970,7 +4190,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   app.post("/api/rooms", async (request, reply) => {
     if (!adminOnly(request, reply)) return reply;
     const body = createRoomRequestSchema.safeParse(request.body);
-    if (!body.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+    if (!body.success)
+      return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
     try {
       const room = database.createRoom({
         ...body.data,
@@ -3991,7 +4212,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   app.patch<{ Params: { roomId: string } }>("/api/rooms/:roomId", async (request, reply) => {
     const params = roomParamsSchema.safeParse(request.params);
-    if (!params.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+    if (!params.success)
+      return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
     if (!adminOnly(request, reply)) return reply;
     const body = updateRoomRequestSchema.safeParse(request.body);
     if (
@@ -4010,7 +4232,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       if (!agent || agent.type !== "agent") {
         return reply
           .code(400)
-          .send({ ...errorText(serverText("error.room.leadInvalid", { agent: leadAgent })), code: "ROOM_LEAD_INVALID" });
+          .send({
+            ...errorText(serverText("error.room.leadInvalid", { agent: leadAgent })),
+            code: "ROOM_LEAD_INVALID",
+          });
       }
       leadAgent = agent.username;
     }
@@ -4057,7 +4282,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       try {
         json = JSON.parse(raw.toString());
       } catch {
-        send(socket, { type: "error", code: "INVALID_JSON", ...wsText(serverText("error.ws.invalidJson")) });
+        send(socket, {
+          type: "error",
+          code: "INVALID_JSON",
+          ...wsText(serverText("error.ws.invalidJson")),
+        });
         return;
       }
       const parsed = clientEventSchema.safeParse(json);
@@ -4080,7 +4309,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
       if (event.type === "participant.join") {
         if (connection.participant) {
-          send(socket, { type: "error", code: "ALREADY_JOINED", ...wsText(serverText("error.ws.alreadyJoined")) });
+          send(socket, {
+            type: "error",
+            code: "ALREADY_JOINED",
+            ...wsText(serverText("error.ws.alreadyJoined")),
+          });
           return;
         }
         const principal = principalForToken(event.token);
@@ -4093,7 +4326,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             socket,
             ended && ended.state !== "active"
               ? { type: "error", ...endedMessages[ended.state] }
-              : { type: "error", code: "UNAUTHORIZED", ...wsText(serverText("error.ws.invalidToken")) },
+              : {
+                  type: "error",
+                  code: "UNAUTHORIZED",
+                  ...wsText(serverText("error.ws.invalidToken")),
+                },
           );
           socket.close(1008, "Unauthorized");
           return;
@@ -4109,14 +4346,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
               type: "error",
               code: "ROOM_FORBIDDEN",
               ...wsText(
-                serverText("error.invite.identity", { name: session.username, room: session.roomId }),
+                serverText("error.invite.identity", {
+                  name: session.username,
+                  room: session.roomId,
+                }),
               ),
             });
             socket.close(1008, "Forbidden");
             return;
           }
           if (!database.getRoom(session.roomId)) {
-            send(socket, { type: "error", code: "ROOM_NOT_FOUND", ...wsText(serverText("error.room.notFound")) });
+            send(socket, {
+              type: "error",
+              code: "ROOM_NOT_FOUND",
+              ...wsText(serverText("error.room.notFound")),
+            });
             socket.close(1008, "Room not found");
             return;
           }
@@ -4214,7 +4458,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           send(socket, {
             type: "error",
             code: hiveError?.code ?? "JOIN_FAILED",
-            ...wsText(hiveError?.text ?? (hiveError ? hiveError.message : serverText("error.ws.joinFailed"))),
+            ...wsText(
+              hiveError?.text ??
+                (hiveError ? hiveError.message : serverText("error.ws.joinFailed")),
+            ),
           });
         }
         return;
@@ -4222,7 +4469,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
       const participant = connection.participant;
       if (!participant) {
-        send(socket, { type: "error", code: "NOT_JOINED", ...wsText(serverText("error.ws.notJoined")) });
+        send(socket, {
+          type: "error",
+          code: "NOT_JOINED",
+          ...wsText(serverText("error.ws.notJoined")),
+        });
         return;
       }
       // 访客每次操作前都复核期限：到期或被移除后，已建立的连接也不能再收发
@@ -4373,7 +4624,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           send(socket, {
             type: "error",
             code: hiveError?.code ?? "REQUEST_FAILED",
-            ...wsText(hiveError?.text ?? (hiveError ? hiveError.message : serverText("error.ws.requestFailed"))),
+            ...wsText(
+              hiveError?.text ??
+                (hiveError ? hiveError.message : serverText("error.ws.requestFailed")),
+            ),
           });
         }
         return;
@@ -4388,8 +4642,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           });
           return;
         }
+        const started = serverText("topic.started", { name: participant.username });
         createAndDispatchMessage(participant, {
-          content: `${participant.username} 开启了新话题`,
+          content: zhText(started),
+          text: started,
           clientMessageId: `topic-${randomUUID()}`,
           kind: "topic",
         });
@@ -4406,7 +4662,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           send(socket, {
             type: "error",
             code: hiveError?.code ?? "DELETE_FAILED",
-            ...wsText(hiveError?.text ?? (hiveError ? hiveError.message : serverText("error.ws.recallFailed"))),
+            ...wsText(
+              hiveError?.text ??
+                (hiveError ? hiveError.message : serverText("error.ws.recallFailed")),
+            ),
           });
         }
         return;
@@ -4424,7 +4683,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           send(socket, {
             type: "error",
             code: hiveError?.code ?? "ANSWER_FAILED",
-            ...wsText(hiveError?.text ?? (hiveError ? hiveError.message : serverText("error.ws.answerFailed"))),
+            ...wsText(
+              hiveError?.text ??
+                (hiveError ? hiveError.message : serverText("error.ws.answerFailed")),
+            ),
           });
         }
         return;
@@ -4470,7 +4732,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         send(socket, {
           type: "error",
           code: hiveError?.code ?? "MESSAGE_FAILED",
-          ...wsText(hiveError?.text ?? (hiveError ? hiveError.message : serverText("error.ws.sendFailed"))),
+          ...wsText(
+            hiveError?.text ?? (hiveError ? hiveError.message : serverText("error.ws.sendFailed")),
+          ),
         });
       }
     });

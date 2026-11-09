@@ -247,7 +247,8 @@ export class AccessStore {
   renewInvite(id: string, expiresAt: string | null): Invite {
     const invite = this.getInvite(id);
     if (!invite) throw new HiveError("INVITE_NOT_FOUND", serverText("error.invite.notFound"));
-    if (invite.revokedAt) throw new HiveError("INVITE_REVOKED", serverText("error.invite.revokedReinvite"));
+    if (invite.revokedAt)
+      throw new HiveError("INVITE_REVOKED", serverText("error.invite.revokedReinvite"));
     this.db.transaction(() => {
       this.db.prepare("UPDATE invites SET expires_at = ? WHERE id = ?").run(expiresAt, id);
       this.db
@@ -425,12 +426,10 @@ export class AccessStore {
     const session = this.getSession(sessionId);
     if (!session) throw new HiveError("SESSION_NOT_FOUND", serverText("error.guest.notFound"));
     if (session.kind !== "human") {
-      throw new HiveError(
-        "SESSION_NOT_RENEWABLE",
-        serverText("error.guest.agentNotRenewable"),
-      );
+      throw new HiveError("SESSION_NOT_RENEWABLE", serverText("error.guest.agentNotRenewable"));
     }
-    if (session.revokedAt) throw new HiveError("SESSION_REVOKED", serverText("error.guest.removed"));
+    if (session.revokedAt)
+      throw new HiveError("SESSION_REVOKED", serverText("error.guest.removed"));
     this.db
       .prepare("UPDATE access_sessions SET expires_at = ? WHERE id = ?")
       .run(expiresAt, sessionId);

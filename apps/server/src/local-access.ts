@@ -1,3 +1,4 @@
+import { serverText, type ServerText } from "@superhive/protocol";
 import { networkInterfaces } from "node:os";
 
 /**
@@ -15,7 +16,7 @@ export type LocalRequestLike = {
   headers: Record<string, string | string[] | undefined>;
 };
 
-export type LocalCheck = { local: true } | { local: false; reason: string };
+export type LocalCheck = { local: true } | { local: false; reason: ServerText };
 
 const PROXY_HEADERS = ["forwarded", "x-forwarded-for", "x-forwarded-host", "x-real-ip"];
 const LOOPBACK_NAMES = new Set(["localhost", "127.0.0.1", "::1"]);
@@ -63,15 +64,15 @@ export function checkLocalRequest(
 
   const remote = request.socket.remoteAddress ? normalizeAddress(request.socket.remoteAddress) : "";
   if (!remote || !isSelf(remote))
-    return { local: false, reason: "请求不是来自 Hive Server 所在的电脑" };
+    return { local: false, reason: serverText("error.local.notThisComputer") };
   if (PROXY_HEADERS.some((name) => request.headers[name] !== undefined)) {
-    return { local: false, reason: "经过代理转发的请求不能使用本机 Agent" };
+    return { local: false, reason: serverText("error.local.proxied") };
   }
 
   const hostHeader = request.headers.host;
   const host = typeof hostHeader === "string" ? hostnameOf(hostHeader, false) : undefined;
   if (!host || !isSelf(host)) {
-    return { local: false, reason: "请用 localhost 或本机 IP 地址打开页面" };
+    return { local: false, reason: serverText("error.local.host") };
   }
 
   const originHeader = request.headers.origin;
@@ -83,7 +84,7 @@ export function checkLocalRequest(
       !isSelf(origin.hostname) ||
       (origin.port !== hostPort && !options.originPorts?.includes(origin.port))
     ) {
-      return { local: false, reason: "跨站请求不能使用本机 Agent" };
+      return { local: false, reason: serverText("error.local.crossSite") };
     }
   }
   return { local: true };

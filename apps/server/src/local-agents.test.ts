@@ -474,6 +474,7 @@ describe("local agent routes", () => {
     expect(proxied.json()).toEqual({
       enabled: false,
       reason: "经过代理转发的请求不能使用本机 Agent",
+      reasonText: { key: "error.local.proxied" },
     });
     const remote = await app.inject({
       method: "GET",
@@ -488,7 +489,8 @@ describe("local agent routes", () => {
     closeApp = () => app.close();
     expect((await app.inject({ method: "GET", url: "/api/local/session" })).json()).toEqual({
       enabled: false,
-      reason: "本机 Agent 已在服务端关闭",
+      reason: "本机 Agent 已在服务端关闭。",
+      reasonText: { key: "error.localAgent.disabled" },
     });
     expect((await app.inject({ method: "GET", url: "/api/local/agents" })).statusCode).toBe(404);
   });

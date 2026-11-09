@@ -1,4 +1,4 @@
-import { serverText } from "@superhive/protocol";
+import { serverText, zhText, type ServerText } from "@superhive/protocol";
 import { errorText, hiveErrorBody } from "./texts.js";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { hostname } from "node:os";
@@ -142,12 +142,16 @@ export function registerLocalAgentRoutes(
     return rooms.ownerDevices?.resolve(header.slice(7));
   }
 
+  function disabledSession(reason: ServerText): LocalSessionResponse {
+    return { enabled: false, reason: zhText(reason), reasonText: reason };
+  }
+
   app.get("/api/local/session", async (request): Promise<LocalSessionResponse> => {
-    if (!supervisor) return { enabled: false, reason: "本机 Agent 已在服务端关闭" };
+    if (!supervisor) return disabledSession(serverText("error.localAgent.disabled"));
     // 带着设备令牌来的按设备对待，即使页面开在这台电脑上：只下发和它身份相符的能力
     const device = deviceOf(request);
     if (staleDevice(request, device)) {
-      return { enabled: false, reason: "这台设备的登录已失效，请重新扫码或在飞书里发 /web。" };
+      return disabledSession(serverText("error.device.sessionInvalid"));
     }
     if (device) {
       return {
@@ -160,7 +164,7 @@ export function registerLocalAgentRoutes(
       };
     }
     const check = isLocal(request);
-    if (!check.local) return { enabled: false, reason: check.reason };
+    if (!check.local) return disabledSession(check.reason);
     return { enabled: true, mode: "local", ownerToken, hostLabel };
   });
 
@@ -208,7 +212,7 @@ export function registerLocalAgentRoutes(
     }
     const check = isLocal(request);
     if (!check.local) {
-      void reply.code(403).send({ error: check.reason });
+      void reply.code(403).send(errorText(check.reason));
       return undefined;
     }
     const buffer = Buffer.from(typeof provided === "string" ? provided : "");
@@ -252,9 +256,9 @@ export function registerLocalAgentRoutes(
     });
     const delivered = approvals.send(approval);
     void reply.code(403).send({
-      error: delivered
-        ? "这项操作需要你在飞书里确认一次。"
-        : "这项操作需要在 Hive Server 所在的电脑上确认一次。",
+      ...errorText(
+        serverText(delivered ? "error.approval.feishuRequired" : "error.approval.localRequired"),
+      ),
       code: "APPROVAL_REQUIRED",
       approval,
       delivered,
@@ -284,7 +288,8 @@ export function registerLocalAgentRoutes(
 
   app.get("/api/local/owner-devices", async (request, reply) => {
     if (!authorize(request, reply, "read")) return reply;
-    if (!rooms.ownerDevices) return reply.code(404).send({ ...errorText(serverText("error.feature.disabled")) });
+    if (!rooms.ownerDevices)
+      return reply.code(404).send({ ...errorText(serverText("error.feature.disabled")) });
     return { devices: rooms.ownerDevices.list() };
   });
 
@@ -324,7 +329,8 @@ export function registerLocalAgentRoutes(
     }
     if (!authorize(request, reply, "read")) return reply;
     const approvals = rooms.approvals;
-    if (!approvals) return reply.code(404).send({ ...errorText(serverText("error.feature.disabled")) });
+    if (!approvals)
+      return reply.code(404).send({ ...errorText(serverText("error.feature.disabled")) });
     const approval = approvals.store.create({
       kind: "manage",
       deviceId: device.id,
@@ -359,7 +365,8 @@ export function registerLocalAgentRoutes(
         return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
       }
       const approval = rooms.approvals?.decide(request.params.id, request.body.allow, "local");
-      if (!approval) return reply.code(404).send({ ...errorText(serverText("error.approval.requestHandled")) });
+      if (!approval)
+        return reply.code(404).send({ ...errorText(serverText("error.approval.requestHandled")) });
       return { approval };
     },
   );
@@ -390,7 +397,8 @@ export function registerLocalAgentRoutes(
     async (request, reply) => {
       if (!authorize(request, reply, "local")) return reply;
       const owner = rooms.ownerDevices;
-      if (!owner) return reply.code(404).send({ ...errorText(serverText("error.feature.disabled")) });
+      if (!owner)
+        return reply.code(404).send({ ...errorText(serverText("error.feature.disabled")) });
       const { ticket, expiresAt } = owner.pair();
       // 页面自己的地址（开发时是 Vite 端口）优先；页面开在 localhost 上时换成服务公布的地址
       const origin = typeof request.body?.origin === "string" ? request.body.origin : "";
@@ -406,14 +414,16 @@ export function registerLocalAgentRoutes(
   /** 显示总令牌：只给本机房主，用于手动在其他设备上填入或接入远程 Agent */
   app.get("/api/local/owner-token", async (request, reply) => {
     if (!authorize(request, reply, "local")) return reply;
-    if (!rooms.ownerDevices) return reply.code(404).send({ ...errorText(serverText("error.feature.disabled")) });
+    if (!rooms.ownerDevices)
+      return reply.code(404).send({ ...errorText(serverText("error.feature.disabled")) });
     return { token: rooms.ownerDevices.joinToken() };
   });
 
   app.get("/api/local/keep-awake", async (request, reply) => {
     if (!authorize(request, reply, "read")) return reply;
     const state = rooms.keepAwake?.state();
-    if (!state) return reply.code(404).send({ ...errorText(serverText("error.keepAwake.disabled")) });
+    if (!state)
+      return reply.code(404).send({ ...errorText(serverText("error.keepAwake.disabled")) });
     return state;
   });
 
@@ -421,12 +431,14 @@ export function registerLocalAgentRoutes(
     const caller = authorize(request, reply, "manage");
     if (!caller) return reply;
     const parsed = keepAwakeSettingsSchema.partial().safeParse(request.body);
-    if (!parsed.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+    if (!parsed.success)
+      return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
     const patch = Object.fromEntries(
       Object.entries(parsed.data).filter(([, value]) => value !== undefined),
     ) as Partial<KeepAwakeSettings>;
     const state = rooms.keepAwake?.update(patch);
-    if (!state) return reply.code(404).send({ ...errorText(serverText("error.keepAwake.disabled")) });
+    if (!state)
+      return reply.code(404).send({ ...errorText(serverText("error.keepAwake.disabled")) });
     audit(request, caller, "修改了熄屏后保持在线的设置", true);
     return state;
   });
@@ -454,7 +466,8 @@ export function registerLocalAgentRoutes(
     const caller = authorize(request, reply, "manage");
     if (!caller) return reply;
     const parsed = createLocalAgentRequestSchema.safeParse(request.body);
-    if (!parsed.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+    if (!parsed.success)
+      return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
     if (
       parsed.data.access === "full" &&
       !stepUp(
@@ -541,7 +554,8 @@ export function registerLocalAgentRoutes(
     const caller = authorize(request, reply, measure ? "manage" : "read");
     if (!caller) return reply;
     const provider = localAgentProviderSchema.safeParse(input.provider);
-    if (!provider.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+    if (!provider.success)
+      return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
     if (measure) audit(request, caller, "测量了本机 MCP");
     try {
       return await supervisor!.mcpCandidates(
@@ -664,7 +678,8 @@ export function registerLocalAgentRoutes(
     const caller = authorize(request, reply, "manage");
     if (!caller) return reply;
     const parsed = updateLocalAgentSettingsRequestSchema.safeParse(request.body);
-    if (!parsed.success) return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+    if (!parsed.success)
+      return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
     try {
       const agent = supervisor!.updateSettings(request.params.id, parsed.data);
       audit(

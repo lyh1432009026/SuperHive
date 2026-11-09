@@ -540,7 +540,10 @@ export class LocalAgentSupervisor {
     try {
       servers = (JSON.parse(line) as { servers: LocalAgentMcpResponse["servers"] }).servers;
     } catch {
-      throw new HiveError("LOCAL_AGENT_MCP_LIST_FAILED", serverText("error.localAgent.mcpListFailed"));
+      throw new HiveError(
+        "LOCAL_AGENT_MCP_LIST_FAILED",
+        serverText("error.localAgent.mcpListFailed"),
+      );
     }
     // 没要求重新估算时沿用 10 分钟内的估算结果，启用状态以刚读到的为准
     if (!measure && cached) {
@@ -593,7 +596,10 @@ export class LocalAgentSupervisor {
   create(request: CreateLocalAgentRequest): LocalAgent {
     const name = request.name.trim();
     if (this.options.isNameInUse(name)) {
-      throw new HiveError("LOCAL_AGENT_NAME_TAKEN", serverText("error.localAgent.nameInUse", { name }));
+      throw new HiveError(
+        "LOCAL_AGENT_NAME_TAKEN",
+        serverText("error.localAgent.nameInUse", { name }),
+      );
     }
     // 与 `hive join` 一致：可写的档位必须明确工作目录，避免授权到错误目录
     const cwd = request.access === "read-only" ? null : resolveWorkspace(request.cwd);
@@ -676,7 +682,8 @@ export class LocalAgentSupervisor {
 
   private require(id: string): Runtime {
     const runtime = this.runtimes.get(id);
-    if (!runtime) throw new HiveError("LOCAL_AGENT_NOT_FOUND", serverText("error.localAgent.notFound"));
+    if (!runtime)
+      throw new HiveError("LOCAL_AGENT_NOT_FOUND", serverText("error.localAgent.notFound"));
     return runtime;
   }
 
@@ -918,19 +925,22 @@ export function resolveWorkspace(input: string | undefined): string {
     throw new HiveError("LOCAL_AGENT_CWD_REQUIRED", serverText("error.localAgent.cwdRequired"));
   const cwd = expandHome(input);
   if (!path.isAbsolute(cwd)) {
-    throw new HiveError(
-      "LOCAL_AGENT_CWD_INVALID",
-      serverText("error.localAgent.cwdAbsolute"),
-    );
+    throw new HiveError("LOCAL_AGENT_CWD_INVALID", serverText("error.localAgent.cwdAbsolute"));
   }
   let resolved: string;
   try {
     resolved = realpathSync(cwd);
   } catch {
-    throw new HiveError("LOCAL_AGENT_CWD_INVALID", serverText("error.localAgent.cwdMissing", { path: cwd }));
+    throw new HiveError(
+      "LOCAL_AGENT_CWD_INVALID",
+      serverText("error.localAgent.cwdMissing", { path: cwd }),
+    );
   }
   if (!statSync(resolved).isDirectory()) {
-    throw new HiveError("LOCAL_AGENT_CWD_INVALID", serverText("error.localAgent.cwdNotDirectory", { path: cwd }));
+    throw new HiveError(
+      "LOCAL_AGENT_CWD_INVALID",
+      serverText("error.localAgent.cwdNotDirectory", { path: cwd }),
+    );
   }
   if (path.parse(resolved).root === resolved) {
     throw new HiveError("LOCAL_AGENT_CWD_INVALID", serverText("error.localAgent.cwdRoot"));
