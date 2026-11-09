@@ -1183,5 +1183,10 @@
   "收起输入框，回到普通高度": "Collapse the composer back to normal height",
   "把输入框拉高到约半屏，写长内容更方便；发送后自动收回": "Make the composer about half the screen tall for long messages; it collapses after sending",
   "这几条消息在同一轮里一起处理": "These messages are being handled together in one turn",
-  "一起处理 {0}": "handling {0} together"
+  "一起处理 {0}": "handling {0} together",
+  "每 {0} 小时": "Every {0} h",
+  "每 {0} 分钟": "Every {0} min",
+  "{0} · 第 {1} 次 · 到 {2}": "{0} · run {1} · until {2}",
+  "取消后整个周期结束，后面的不再执行": "Cancelling ends the whole series; later runs won't happen",
+  "结束周期": "End series"
 }

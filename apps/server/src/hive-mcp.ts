@@ -100,6 +100,8 @@ export type HiveMcpContext = {
     task: string;
     timeZone?: string;
     clientMessageId: string;
+    everyMinutes?: number;
+    until?: string;
   }) => { schedule: Schedule; created: boolean };
   listSchedules: () => Schedule[];
   /** 替房主新建房间（只能在房主本人发起的任务里用）；本机 Agent 会自动加入新房间 */
@@ -448,6 +450,12 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
     runAt: schedule.runAt,
     runAtLocal: context.formatScheduleTime(schedule.runAt, schedule.timeZone),
     task: schedule.task,
+    ...(schedule.everyMinutes && schedule.until
+      ? {
+          repeat: `每 ${schedule.everyMinutes} 分钟一次，第 ${schedule.occurrence ?? 1} 次，到 ${context.formatScheduleTime(schedule.until, schedule.timeZone)} 为止`,
+          seriesId: schedule.seriesId,
+        }
+      : {}),
     ...(schedule.detail ? { detail: schedule.detail } : {}),
     ...(schedule.invocationId ? { invocationId: schedule.invocationId } : {}),
     ...(schedule.triggerMessageId ? { triggerMessageId: schedule.triggerMessageId } : {}),
@@ -456,8 +464,8 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
   server.registerTool(
     "hive_schedule_create",
     {
-      title: "Schedule a one-off task for yourself",
-      description: `登记一个一次性定时任务：到点后服务端以发起人名义在房间里发一条「⏰ 定时任务」消息 @ 你，你照常执行并回复；状态在网页的「定时」面板里可见，Server 重启后仍在。凡是「X 点提醒/推送/检查/执行」这类需求一律用它，不要用运行时自带的定时、sleep 或系统 cron（进程一结束就没了，也没人看得到）。只能在处理消息的过程中调用，只会唤醒你自己；task 要写成到点时单看它就能执行的完整说明（做什么、产出什么、发给谁），因为那时你的会话可能已重置。当前服务端时间：${nowText}。runAt 必须是带时区偏移的绝对时间；「今晚 00:07」指的是哪一天要按当前时间换算清楚。登记后在回复里写明执行时间（绝对时间+时区），让人能核对。到点时 Server 没运行、晚于 ${Math.round(LIMITS.scheduleGraceMs / 60_000)} 分钟才轮到的会标为已错过，不自动补跑。周期任务暂不支持。`,
+      title: "Schedule a one-off or recurring task for yourself",
+      description: `登记一个定时任务（一次性或周期）：到点后服务端以发起人名义在房间里发一条「⏰ 定时任务」消息 @ 你，你照常执行并回复；状态在网页的「定时」面板里可见，Server 重启后仍在。凡是「X 点提醒/推送/检查/执行」这类需求一律用它，不要用运行时自带的定时、sleep 或系统 cron（进程一结束就没了，也没人看得到）。只能在处理消息的过程中调用，只会唤醒你自己；task 要写成到点时单看它就能执行的完整说明（做什么、产出什么、发给谁），因为那时你的会话可能已重置。当前服务端时间：${nowText}。runAt 必须是带时区偏移的绝对时间；「今晚 00:07」指的是哪一天要按当前时间换算清楚。登记后在回复里写明执行时间（绝对时间+时区），让人能核对。到点时 Server 没运行、晚于 ${Math.round(LIMITS.scheduleGraceMs / 60_000)} 分钟才轮到的会标为已错过，不自动补跑。要每隔一段时间重复（比如每 5 分钟检查一次），一次登记就够：给 everyMinutes（最短 ${LIMITS.minScheduleIntervalMinutes} 分钟）和 until（结束时间），服务端到点后自己登记下一次，最多 ${LIMITS.maxScheduleOccurrences} 次；上一次还没做完时这一次自动跳过；不要在定时任务执行时再登记（会被拒绝）。目标提前达成时，用 hive_schedule_cancel 取消这个周期待执行的那一次，整个周期就结束了。`,
       inputSchema: {
         runAt: z
           .string()
@@ -484,14 +492,30 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
           .max(100)
           .optional()
           .describe("可选幂等键；重试同一次创建时复用，避免建出两个"),
+        everyMinutes: z
+          .number()
+          .int()
+          .min(LIMITS.minScheduleIntervalMinutes)
+          .max(7 * 24 * 60)
+          .optional()
+          .describe("周期任务：每隔多少分钟一次（第一次在 runAt），和 until 一起给"),
+        until: z
+          .string()
+          .trim()
+          .min(16)
+          .max(40)
+          .optional()
+          .describe("周期任务的结束时间，带时区偏移的 ISO 8601；晚于它的不再执行"),
       },
     },
-    async ({ runAt, task, timeZone, clientMessageId }) => {
+    async ({ runAt, task, timeZone, clientMessageId, everyMinutes, until }) => {
       try {
         const { schedule, created } = context.createSchedule({
           runAt,
           task,
           ...(timeZone ? { timeZone } : {}),
+          ...(everyMinutes !== undefined ? { everyMinutes } : {}),
+          ...(until ? { until } : {}),
           clientMessageId: clientMessageId ?? randomUUID(),
         });
         return toolResult(

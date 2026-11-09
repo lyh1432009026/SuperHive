@@ -196,6 +196,10 @@ type ScheduleRow = {
   task: string;
   run_at: string;
   time_zone: string;
+  every_minutes: number | null;
+  until_at: string | null;
+  series_id: string | null;
+  occurrence: number | null;
   status: ScheduleStatus;
   detail: string | null;
   trigger_message_id: string | null;
@@ -462,6 +466,10 @@ function mapSchedule(row: ScheduleRow): Schedule {
     task: row.task,
     runAt: row.run_at,
     timeZone: row.time_zone,
+    ...(row.every_minutes ? { everyMinutes: row.every_minutes } : {}),
+    ...(row.until_at ? { until: row.until_at } : {}),
+    ...(row.series_id ? { seriesId: row.series_id } : {}),
+    ...(row.occurrence ? { occurrence: row.occurrence } : {}),
     status: row.status,
     ...(row.detail ? { detail: row.detail } : {}),
     ...(row.trigger_message_id ? { triggerMessageId: row.trigger_message_id } : {}),
@@ -751,6 +759,16 @@ export class HiveDatabase {
     if (!messageColumns.some((column) => column.name === "meta")) {
       // 提问的题目定义 / 点选答案（JSON，见 ChatMessage.question / answer）
       this.db.exec("ALTER TABLE messages ADD COLUMN meta TEXT");
+    }
+    const scheduleColumns = this.db.pragma("table_info(schedules)") as Array<{ name: string }>;
+    if (!scheduleColumns.some((column) => column.name === "every_minutes")) {
+      // 周期任务：同一个周期的每一次各占一行，到点时登记下一次
+      this.db.exec(`
+        ALTER TABLE schedules ADD COLUMN every_minutes INTEGER;
+        ALTER TABLE schedules ADD COLUMN until_at TEXT;
+        ALTER TABLE schedules ADD COLUMN series_id TEXT;
+        ALTER TABLE schedules ADD COLUMN occurrence INTEGER;
+      `);
     }
     const roomColumns = this.db.pragma("table_info(rooms)") as Array<{ name: string }>;
     if (!roomColumns.some((column) => column.name === "workspace")) {
@@ -1736,6 +1754,7 @@ export class HiveDatabase {
     task: string;
     runAt: string;
     timeZone: string;
+    recurrence?: { everyMinutes: number; until: string; seriesId: string; occurrence: number };
   }): { schedule: Schedule; created: boolean } {
     const existing = this.db
       .prepare("SELECT * FROM schedules WHERE agent_id = ? AND client_id = ?")
@@ -1747,8 +1766,9 @@ export class HiveDatabase {
       .prepare(
         `INSERT INTO schedules(
           id, room_id, agent_id, agent_name, requester_id, requester_name, origin_message_id,
-          origin_seq, client_id, task, run_at, time_zone, status, created_at, updated_at
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?)`,
+          origin_seq, client_id, task, run_at, time_zone, every_minutes, until_at, series_id,
+          occurrence, status, created_at, updated_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?)`,
       )
       .run(
         id,
@@ -1763,10 +1783,22 @@ export class HiveDatabase {
         input.task,
         input.runAt,
         input.timeZone,
+        input.recurrence?.everyMinutes ?? null,
+        input.recurrence?.until ?? null,
+        input.recurrence?.seriesId ?? null,
+        input.recurrence?.occurrence ?? null,
         now,
         now,
       );
     return { schedule: this.getSchedule(id)!, created: true };
+  }
+
+  /** 同一个周期任务的每一次 */
+  listSeriesSchedules(seriesId: string): Schedule[] {
+    const rows = this.db
+      .prepare("SELECT * FROM schedules WHERE series_id = ? ORDER BY occurrence ASC")
+      .all(seriesId) as ScheduleRow[];
+    return rows.map(mapSchedule);
   }
 
   createScheduleLookup(agentId: string, clientId: string): Schedule | undefined {

@@ -87,6 +87,17 @@ export function formatScheduleTime(schedule: Schedule): string {
   return `${text} · ${schedule.timeZone}`;
 }
 
+/** 周期任务：「每 5 分钟 · 第 3 次 · 到 11月10日 20:00」；一次性的返回 undefined */
+export function formatRepeat(schedule: Schedule): string | undefined {
+  if (!schedule.everyMinutes || !schedule.until) return undefined;
+  const every =
+    schedule.everyMinutes % 60 === 0
+      ? t("每 {0} 小时", { 0: schedule.everyMinutes / 60 })
+      : t("每 {0} 分钟", { 0: schedule.everyMinutes });
+  const until = formatScheduleTime({ ...schedule, runAt: schedule.until }).split(" · ")[0];
+  return t("{0} · 第 {1} 次 · 到 {2}", { 0: every, 1: schedule.occurrence ?? 1, 2: until });
+}
+
 export function formatCountdown(iso: string, now: number): string {
   const minutes = Math.round((new Date(iso).getTime() - now) / 60_000);
   if (minutes <= 0) return t("即将执行");
@@ -172,6 +183,9 @@ export function SchedulePanel({
                     </time>
                     <span className={`schedule-state ${state.tone}`}>{state.label}</span>
                   </p>
+                  {formatRepeat(schedule) && (
+                    <p className="schedule-repeat">{formatRepeat(schedule)}</p>
+                  )}
                   <p className="whiteboard-summary schedule-task">{schedule.task}</p>
                   {(schedule.detail || (invocation?.detail && state.tone === "attention")) && (
                     <p className="whiteboard-unblocks">{schedule.detail ?? invocation?.detail}</p>
@@ -198,9 +212,14 @@ export function SchedulePanel({
                         type="button"
                         className="danger"
                         aria-label={t("取消定时任务：{0}", { 0: schedule.task })}
+                        title={
+                          schedule.everyMinutes
+                            ? t("取消后整个周期结束，后面的不再执行")
+                            : undefined
+                        }
                         onClick={() => onCancel(schedule)}
                       >
-                        {t("取消")}
+                        {schedule.everyMinutes ? t("结束周期") : t("取消")}
                       </button>
                     )}
                   </p>

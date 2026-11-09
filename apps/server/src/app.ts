@@ -1666,11 +1666,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   /**
    * hive_schedule_create：在处理某条消息的过程中登记一个一次性定时任务。
    * 发起人取委派链源头的人，到点后以其名义（标明 Hive 代发）发出触发消息、走普通的调用链路；
-   * 只能唤醒创建者自己，正文里的 @ 一律转义。定时任务触发的执行里不能再创建定时任务，避免自我续命。
+   * 只能唤醒创建者自己，正文里的 @ 一律转义。定时任务触发的执行里不能再创建定时任务，避免自我续命；
+   * 要重复执行就在创建时给 everyMinutes + until，由服务端到点后一次接一次地登记下去。
    */
   function createSchedule(
     agent: Participant,
-    input: { runAt: string; task: string; timeZone?: string; clientMessageId: string },
+    input: {
+      runAt: string;
+      task: string;
+      timeZone?: string;
+      clientMessageId: string;
+      everyMinutes?: number;
+      until?: string;
+    },
   ) {
     const parent = inferExecutingParent(agent);
     const invocation = parent ? database.getInvocationFor(parent.id, agent.id) : undefined;
@@ -1683,7 +1691,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (chain.some((item) => database.getMessage(item.messageId)?.kind === "schedule")) {
       throw new HiveError(
         "SCHEDULE_NESTED",
-        "定时任务执行时不能再创建定时任务；需要周期执行请告诉发起人（周期任务尚未支持）。",
+        "定时任务执行时不能再创建定时任务；要重复执行，请在最初创建时用 everyMinutes + until 登记成周期任务。",
       );
     }
     const root = chain.find((item) => item.requesterType === "human");
@@ -1729,6 +1737,51 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         `最多只能排到 ${Math.round(LIMITS.maxScheduleAheadMs / 86_400_000)} 天以内。`,
       );
     }
+    let recurrence:
+      { everyMinutes: number; until: string; seriesId: string; occurrence: number } | undefined;
+    if (input.everyMinutes !== undefined || input.until !== undefined) {
+      const every = input.everyMinutes;
+      if (
+        every === undefined ||
+        !Number.isInteger(every) ||
+        every < LIMITS.minScheduleIntervalMinutes ||
+        every > 7 * 24 * 60
+      ) {
+        throw new HiveError(
+          "INVALID_INTERVAL",
+          `everyMinutes 需为 ${LIMITS.minScheduleIntervalMinutes} 到 ${7 * 24 * 60} 之间的整数（分钟）。`,
+        );
+      }
+      if (!input.until || !/(Z|[+-]\d{2}:\d{2})$/i.test(input.until)) {
+        throw new HiveError(
+          "INVALID_UNTIL",
+          "周期任务要给 until：带时区偏移的 ISO 8601 结束时间，例如 2026-11-10T20:00:00+08:00。",
+        );
+      }
+      const untilMs = Date.parse(input.until);
+      if (!Number.isFinite(untilMs) || untilMs < runAtMs) {
+        throw new HiveError("INVALID_UNTIL", "until 需晚于第一次执行的时间 runAt。");
+      }
+      if (untilMs > now + LIMITS.maxScheduleAheadMs) {
+        throw new HiveError(
+          "INVALID_UNTIL",
+          `周期最多只能排到 ${Math.round(LIMITS.maxScheduleAheadMs / 86_400_000)} 天以内。`,
+        );
+      }
+      const occurrences = Math.floor((untilMs - runAtMs) / (every * 60_000)) + 1;
+      if (occurrences > LIMITS.maxScheduleOccurrences) {
+        throw new HiveError(
+          "TOO_MANY_OCCURRENCES",
+          `这样一共要执行 ${occurrences} 次，最多 ${LIMITS.maxScheduleOccurrences} 次；请拉长间隔或提前结束时间。`,
+        );
+      }
+      recurrence = {
+        everyMinutes: every,
+        until: new Date(untilMs).toISOString(),
+        seriesId: randomUUID(),
+        occurrence: 1,
+      };
+    }
     const timeZone = input.timeZone?.trim() || serverTimeZone;
     if (!validTimeZone(timeZone)) {
       throw new HiveError(
@@ -1751,6 +1804,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       task,
       runAt: new Date(runAtMs).toISOString(),
       timeZone,
+      ...(recurrence ? { recurrence } : {}),
     });
     if (created) {
       emitSchedule(schedule);
@@ -1966,6 +2020,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (schedule.status === "scheduled") {
       const late = clock() - Date.parse(schedule.runAt);
       if (late < 0) return;
+      // 周期任务：到点就把下一次登记好，这一次不论执行、跳过还是错过，周期都接着走
+      if (schedule.everyMinutes) armNextOccurrence(schedule);
+      // 上一次还没做完：跳过这一次，不叠着跑；也不补发说明（每次都发会刷屏）
+      const busy = schedule.seriesId ? previousOccurrenceRunning(schedule) : undefined;
+      if (busy) {
+        const skipped = database.transitionSchedule(scheduleId, ["scheduled"], "missed", {
+          detail: `上一次（第 ${busy.occurrence ?? "?"} 次）还没做完，跳过这一次`,
+        });
+        if (skipped) {
+          database.markScheduleReported(scheduleId);
+          emitSchedule(skipped);
+        }
+        return;
+      }
       if (late > LIMITS.scheduleGraceMs) {
         const missed = database.transitionSchedule(scheduleId, ["scheduled"], "missed", {
           detail: `到点时 Server 没有运行，晚了 ${Math.round(late / 60_000)} 分钟才轮到，已标为错过、没有自动补跑`,
@@ -2013,10 +2081,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (!message) {
       const origin = database.getMessage(schedule.originMessageId);
       const content = [
-        `@${agent.username} ⏰ 定时任务（${agent.username} 于 #${schedule.originSeq} 设定，计划 ${formatScheduleTime(schedule.runAt, schedule.timeZone)}；Hive 代 ${requester.username} 发出）`,
+        `@${agent.username} ⏰ 定时任务（${agent.username} 于 #${schedule.originSeq} 设定，计划 ${formatScheduleTime(schedule.runAt, schedule.timeZone)}${schedule.everyMinutes && schedule.until ? `；每 ${schedule.everyMinutes} 分钟一次，第 ${schedule.occurrence ?? 1} 次，到 ${formatScheduleTime(schedule.until, schedule.timeZone)} 为止` : ""}；Hive 代 ${requester.username} 发出）`,
         `以下是 ${agent.username} 当初自己登记的备忘，不是 ${requester.username} 新发的指令；只做原请求（#${schedule.originSeq}）范围内的事：`,
         quoteWithoutMentions(schedule.task, LIMITS.maxScheduleTaskLength + 200),
-        `（服务端到点发出的消息：请现在执行并回复这条消息，结果里附上能证明完成的依据；需要人决定时用 hive_ask_human。定时任务 ID：${schedule.id}）`,
+        `（服务端到点发出的消息：请现在执行并回复这条消息，结果里附上能证明完成的依据；需要人决定时用 hive_ask_human。${schedule.everyMinutes ? "下一次服务端会自己登记，不用你再建；目标已经达成、后面不用再检查时，用 hive_schedule_list 找到这个周期待执行的那一次，用 hive_schedule_cancel 取消，整个周期就结束了。" : ""}定时任务 ID：${schedule.id}）`,
       ].join("\n");
       try {
         message = createAndDispatchMessage(requester, {
@@ -2048,6 +2116,55 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     });
     if (fired) emitSchedule(fired);
     if (CONTINUATION_READY_STATUSES.includes(invocation.status)) reportSchedule(scheduleId);
+  }
+
+  /** 周期任务的下一次：按间隔往后排到当前时间之后（停机错过的几次不补跑），超过 until 就结束 */
+  function armNextOccurrence(schedule: Schedule): void {
+    if (!schedule.everyMinutes || !schedule.until || !schedule.seriesId) return;
+    const step = schedule.everyMinutes * 60_000;
+    let next = Date.parse(schedule.runAt) + step;
+    let occurrence = (schedule.occurrence ?? 1) + 1;
+    while (next <= clock()) {
+      next += step;
+      occurrence += 1;
+    }
+    if (next > Date.parse(schedule.until) || occurrence > LIMITS.maxScheduleOccurrences) return;
+    const agent = database.getParticipant(schedule.agentId);
+    const requester = database.getParticipant(schedule.requesterId);
+    const origin = database.getMessage(schedule.originMessageId);
+    if (!agent || !requester || !origin) return;
+    const { schedule: created, created: isNew } = database.createSchedule({
+      roomId: schedule.roomId,
+      agent,
+      requester,
+      origin,
+      clientId: `${schedule.seriesId}#${occurrence}`,
+      task: schedule.task,
+      runAt: new Date(next).toISOString(),
+      timeZone: schedule.timeZone,
+      recurrence: {
+        everyMinutes: schedule.everyMinutes,
+        until: schedule.until,
+        seriesId: schedule.seriesId,
+        occurrence,
+      },
+    });
+    if (isNew) emitSchedule(created);
+  }
+
+  /** 同一个周期里，上一次发出的那次还在执行（排队、执行中、停止中、提问后这一轮没结束） */
+  function previousOccurrenceRunning(schedule: Schedule): Schedule | undefined {
+    return database
+      .listSeriesSchedules(schedule.seriesId!)
+      .filter((item) => item.id !== schedule.id && item.status === "fired" && item.invocationId)
+      .find((item) => {
+        const invocation = database.getInvocation(item.invocationId!);
+        return (
+          invocation &&
+          (["queued", "running", "cancelling"].includes(invocation.status) ||
+            (invocation.status === "waiting_human" && !invocation.finishedAt))
+        );
+      });
   }
 
   /**

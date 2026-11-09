@@ -48,6 +48,9 @@ export const LIMITS = {
   maxScheduleAheadMs: 30 * 24 * 60 * 60_000,
   scheduleGraceMs: 10 * 60_000,
   maxScheduleTaskLength: 4000,
+  /** 周期定时任务：最短间隔（分钟）、一个周期最多执行几次 */
+  minScheduleIntervalMinutes: 5,
+  maxScheduleOccurrences: 288,
   /** 执行中途发给人看的进度消息：人发起的任务每个最多几条（Agent 之间的委派只允许一条，防止刷屏） */
   maxProgressPerTask: 3,
   /** Agent 执行中申请权限（运行时的审批请求）等人批的最长时间，过时按拒绝 */
@@ -567,6 +570,11 @@ export const scheduleSchema = z.object({
   runAt: z.string().datetime(),
   /** 显示用的 IANA 时区 */
   timeZone: z.string().min(1).max(64),
+  /** 周期任务：每隔多少分钟一次、到什么时候为止；同一个周期的每一次共用 seriesId，occurrence 从 1 开始 */
+  everyMinutes: z.number().int().positive().optional(),
+  until: z.string().datetime().optional(),
+  seriesId: z.string().uuid().optional(),
+  occurrence: z.number().int().positive().optional(),
   status: scheduleStatusSchema,
   detail: z.string().max(500).optional(),
   triggerMessageId: z.string().uuid().optional(),

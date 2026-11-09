@@ -310,3 +310,10 @@
 .schedule-entry .whiteboard-meta span {
   white-space: normal;
 }
+
+/* 周期任务：每隔多久、第几次、到什么时候 */
+.schedule-repeat {
+  margin: 0 0 4px !important;
+  color: var(--accent);
+  font-size: var(--text-xs);
+}

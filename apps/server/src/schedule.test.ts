@@ -211,6 +211,86 @@ describe("hive_schedule", () => {
     ).toBe(false);
   });
 
+  it("repeats a recurring schedule on its own, skips while the last run is still going, and stops when cancelled", async () => {
+    const { alice, helper, trigger, create, advance, client } = await executingRoom();
+    const bad = await create({ runAt: utc(5), task: "x", everyMinutes: 5 });
+    expect(bad.isError).toBe(true);
+    const tooMany = await create({
+      runAt: utc(5),
+      task: "x",
+      everyMinutes: 5,
+      until: utc(5 * 400),
+    });
+    expect(tooMany.isError).toBe(true);
+    const created = await create({
+      runAt: utc(5),
+      task: "看一下构建好了没",
+      everyMinutes: 5,
+      until: utc(20),
+      clientMessageId: "every5",
+    });
+    expect(created.isError).toBeFalsy();
+    expect(created.structuredContent!.schedule).toMatchObject({
+      repeat: expect.stringContaining("每 5 分钟一次"),
+    });
+    helper.send({ type: "invocation.report", messageId: trigger.id, status: "completed" });
+
+    // 第 1 次：到点发出，同时登记好第 2 次（不用 Agent 自己再建）
+    advance(5 * 60_000 + 1_000);
+    const first = (
+      (await helper.next(
+        (event) => event.type === "agent.mentioned" && event.message.kind === "schedule",
+        3_000,
+      )) as Extract<ServerEvent, { type: "agent.mentioned" }>
+    ).message;
+    expect(first.content).toContain("每 5 分钟一次，第 1 次");
+    const second = scheduleOf(
+      await alice.next(
+        (event) =>
+          event.type === "schedule.updated" &&
+          event.schedule.occurrence === 2 &&
+          event.schedule.status === "scheduled",
+      ),
+    );
+    expect(Date.parse(second.runAt)).toBe(Date.parse(utc(10)));
+
+    // 第 1 次还在跑：第 2 次跳过，第 3 次照常登记
+    helper.send({ type: "invocation.report", messageId: first.id, status: "running" });
+    advance(5 * 60_000);
+    const skipped = scheduleOf(
+      await alice.next(
+        (event) =>
+          event.type === "schedule.updated" &&
+          event.schedule.occurrence === 2 &&
+          event.schedule.status === "missed",
+      ),
+    );
+    expect(skipped.detail).toContain("还没做完");
+    const third = scheduleOf(
+      await alice.next(
+        (event) =>
+          event.type === "schedule.updated" &&
+          event.schedule.occurrence === 3 &&
+          event.schedule.status === "scheduled",
+      ),
+    );
+
+    // 目标达成：在执行中取消待执行的那一次，整个周期就结束了
+    const cancelled = await client.callTool({
+      name: "hive_schedule_cancel",
+      arguments: { scheduleId: third.id },
+    });
+    expect((cancelled as { isError?: boolean }).isError).toBeFalsy();
+    helper.send({ type: "invocation.report", messageId: first.id, status: "completed" });
+    advance(15 * 60_000);
+    await expect(
+      helper.next(
+        (event) => event.type === "agent.mentioned" && event.message.kind === "schedule",
+        300,
+      ),
+    ).rejects.toThrow();
+  });
+
   it("posts one note to the requester when the run ends without a reply", async () => {
     const { alice, helper, trigger, create, advance } = await executingRoom();
     await create({ runAt: utc(5), task: "推送日报", clientMessageId: "s" });
