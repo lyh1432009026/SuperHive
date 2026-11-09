@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { serverError } from "./server-text";
 import { App, serverBase } from "./App";
 import {
   GUEST_TOKEN_KEY,
@@ -81,7 +82,7 @@ async function ownerLogin(base: string, ticket: string, name: string): Promise<s
     body: JSON.stringify({ ticket, deviceName: name }),
   });
   const body = (await response.json().catch(() => ({}))) as { token?: string; error?: string };
-  if (!response.ok || !body.token) throw new Error(body.error ?? t("登录链接无效或已过期。"));
+  if (!response.ok || !body.token) throw new Error(serverError(body) ?? t("登录链接无效或已过期。"));
   return body.token;
 }
 

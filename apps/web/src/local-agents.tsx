@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { localizeServerPayload, serverError } from "./server-text";
 import type {
   CreateLocalAgentRequest,
   KeepAwakeSettings,
@@ -138,8 +139,7 @@ async function readError(response: Response): Promise<LocalApiError> {
   } catch {
     // 非 JSON 响应
   }
-  const message =
-    typeof body.error === "string" ? body.error : t("请求失败（{0}）", { 0: response.status });
+  const message = serverError(body) ?? t("请求失败（{0}）", { 0: response.status });
   return new LocalApiError(
     message,
     response.status,
@@ -173,7 +173,9 @@ export function useLocalAgents(
       const response = await fetch(`${base}/api/local/session`, {
         ...(deviceToken ? { headers: { Authorization: `Bearer ${deviceToken}` } } : {}),
       });
-      const value = response.ok ? ((await response.json()) as LocalSessionResponse) : null;
+      const value = response.ok
+        ? localizeServerPayload((await response.json()) as LocalSessionResponse)
+        : null;
       const resolved = value ?? { enabled: false as const, reason: t("无法确认是否在本机") };
       tokenRef.current =
         resolved.enabled && resolved.mode !== "device" ? resolved.ownerToken : undefined;

@@ -16,9 +16,6 @@ export type ServerLocale = "zh-CN" | "en";
 type Entry = { zh: string; en: string };
 
 export const serverTexts = {
-  /* ---------- 通用 ---------- */
-  "common.unknown": { zh: "未知", en: "unknown" },
-
   /* ---------- 调用（任务）状态说明 ---------- */
   "invocation.delivered": { zh: "已送达，排队中", en: "Delivered, waiting in queue" },
   "invocation.steerRequested": {
@@ -45,7 +42,6 @@ export const serverTexts = {
     zh: "等人回答：{question}",
     en: "Waiting for an answer: {question}",
   },
-  "invocation.cancelledBy": { zh: "{name} 取消了", en: "Cancelled by {name}" },
   "invocation.stoppedNoAnswer": {
     zh: "{name} 不再回答，已停止",
     en: "Stopped: {name} won't answer",
@@ -261,10 +257,6 @@ export const serverTexts = {
   },
   "approval.allow": { zh: "允许", en: "Allow" },
   "approval.deny": { zh: "拒绝", en: "Deny" },
-  "approval.turnEnded": {
-    zh: "这一轮已经不在执行，申请作废。",
-    en: "This turn is no longer running, so the request was withdrawn.",
-  },
 
   /* ---------- 话题与转发 ---------- */
   "topic.cleared": { zh: "{name} 清空了房间", en: "{name} cleared the room" },
@@ -273,8 +265,6 @@ export const serverTexts = {
     zh: "{content}\n\n（{agent} 从 #{room} 的 #{seq} 转来，发起人 {requester}）",
     en: "{content}\n\n(Forwarded by {agent} from #{seq} in #{room}; requested by {requester})",
   },
-  "answer.selected": { zh: "选择 {options}", en: "Selected {options}" },
-  "answer.other": { zh: "其它：{text}", en: "Other: {text}" },
 
   /* ---------- Bridge 上报的调用说明（中文模板与 superhive 的 bridge-text.ts 一致） ---------- */
   "bridge.crashedMidTurn": {

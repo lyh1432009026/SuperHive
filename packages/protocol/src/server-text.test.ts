@@ -9,7 +9,7 @@ import {
 } from "./server-text.js";
 
 /** 汉字、全角标点：英文文案里不该出现 */
-const CJK = /[㐀-鿿　-〿＀-￯]/;
+const CJK = /[\u3400-\u9fff\u3000-\u303f\uff00-\uffef]/;
 
 describe("serverTexts", () => {
   const entries = Object.entries(serverTexts) as Array<[string, { zh: string; en: string }]>;

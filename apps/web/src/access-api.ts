@@ -1,4 +1,5 @@
 import type { AccessResponse, Invite } from "@superhive/protocol";
+import { localizeServerPayload, serverError } from "./server-text";
 import { localized, t } from "./i18n";
 
 /** 访客会话令牌：兑换邀请后保存在本机，之后刷新、重连都靠它 */
@@ -64,8 +65,10 @@ async function call<T>(
   if (rest.body !== undefined) headers["Content-Type"] = "application/json";
   const response = await fetch(url, { ...rest, headers });
   const payload = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok) throw new Error(payload.error ?? t("请求失败 ({0})", { 0: response.status }));
-  return payload;
+  if (!response.ok) {
+    throw new Error(serverError(payload) ?? t("请求失败 ({0})", { 0: response.status }));
+  }
+  return localizeServerPayload(payload);
 }
 
 export function fetchAccess(base: string, token?: string): Promise<AccessResponse> {

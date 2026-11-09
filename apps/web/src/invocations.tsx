@@ -48,7 +48,10 @@ export const UPSTREAM_FAILURE_PREFIX = "上游模型服务出错";
 export function isUpstreamInterrupted(invocation: Invocation): boolean {
   return (
     invocation.status === "failed" &&
-    Boolean(invocation.detail?.startsWith(UPSTREAM_FAILURE_PREFIX))
+    // 新版 Bridge 带结构化文案，按键判断；旧版只有中文说明，按前缀判断
+    (invocation.detailText
+      ? invocation.detailText.key === "bridge.upstreamFailed"
+      : Boolean(invocation.detail?.startsWith(UPSTREAM_FAILURE_PREFIX)))
   );
 }
 

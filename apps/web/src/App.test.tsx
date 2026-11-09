@@ -11,6 +11,7 @@ import type {
   ServerEvent,
 } from "@superhive/protocol";
 import { App } from "./App";
+import { setLocalePreference } from "./i18n";
 
 type RoomSnapshotEvent = Extract<ServerEvent, { type: "room.snapshot" }>;
 // 与 zod 输入类型一致：快照里的 invocations / whiteboard / schedules 有默认值，可以省略
@@ -1404,6 +1405,89 @@ describe("App mention autocomplete", () => {
     });
     await waitFor(() => expect(window.location.hash).toBe("#design"));
     expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it("shows server-written texts in the selected language", async () => {
+    setLocalePreference("en");
+    try {
+      localStorage.setItem("superhive.username", "Alice");
+      localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+      render(<App />);
+      await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+      const socket = FakeWebSocket.instances[0]!;
+      act(() => socket.open());
+      const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+      const agent = participant("00000000-0000-4000-8000-000000000002", "backend-agent", "agent");
+      const now = new Date().toISOString();
+      const trigger = {
+        id: "00000000-0000-4000-8000-000000000010",
+        roomId: "general",
+        seq: 1,
+        senderId: self.id,
+        senderName: "Alice",
+        senderType: "human" as const,
+        mentions: ["backend-agent"],
+        content: "@backend-agent 看看",
+        traceId: "00000000-0000-4000-8000-000000000011",
+        hopCount: 0,
+        createdAt: now,
+      };
+      const cleared = {
+        ...trigger,
+        id: "00000000-0000-4000-8000-000000000012",
+        seq: 2,
+        mentions: [],
+        kind: "topic" as const,
+        content: "Alice 开启了新话题",
+        text: { key: "topic.started", params: { name: "Alice" } },
+      };
+      act(() =>
+        socket.serverEvent({
+          type: "room.snapshot",
+          self,
+          participants: [self, agent],
+          messages: [trigger, cleared],
+          latestSeq: 2,
+          invocations: [
+            {
+              id: "00000000-0000-4000-8000-0000000000a1",
+              roomId: "general",
+              messageId: trigger.id,
+              agentId: agent.id,
+              agentName: "backend-agent",
+              requesterName: "Alice",
+              requesterType: "human",
+              status: "queued",
+              detail: "已送达，排队中",
+              detailText: { key: "invocation.delivered" },
+              attempts: 1,
+              createdAt: now,
+              updatedAt: now,
+              receivedAt: now,
+            },
+          ],
+          whiteboard: [],
+        }),
+      );
+      const shadow = () =>
+        document.querySelector(".message-list")!.shadowRoot as unknown as HTMLElement;
+      await waitFor(() => expect(shadow().textContent).toContain("Alice started a new topic"));
+      expect(shadow().textContent).not.toContain("开启了新话题");
+
+      act(() =>
+        socket.serverEvent({
+          type: "error",
+          code: "OWNER_ONLY",
+          message: "访客只能忽略自己发起的调用。",
+          text: { key: "error.guest.dismissOwn" },
+        }),
+      );
+      expect(screen.getByRole("alert").textContent).toContain(
+        "Guests can only dismiss tasks they started.",
+      );
+    } finally {
+      setLocalePreference("zh-CN");
+    }
   });
 
   it("shows per-message invocation chips and sends retry, cancel, and budget actions", async () => {

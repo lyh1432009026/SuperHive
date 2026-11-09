@@ -6,14 +6,17 @@ import type {
   ImLoginView,
 } from "@superhive/protocol";
 import { localized, t } from "./i18n";
+import { localizeServerPayload, serverError } from "./server-text";
 
 async function call<T>(url: string, token: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
   if (init.body !== undefined) headers["Content-Type"] = "application/json";
   const response = await fetch(url, { ...init, headers });
   const payload = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok) throw new Error(payload.error ?? t("请求失败 ({0})", { 0: response.status }));
-  return payload;
+  if (!response.ok) {
+    throw new Error(serverError(payload) ?? t("请求失败 ({0})", { 0: response.status }));
+  }
+  return localizeServerPayload(payload);
 }
 
 export const IM_CHANNEL_LABELS: Record<ImChannel, string> = localized(() => ({

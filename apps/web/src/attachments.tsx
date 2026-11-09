@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { serverError } from "./server-text";
 import { createPortal } from "react-dom";
 import type { Attachment, UploadedAttachment } from "@superhive/protocol";
 import { t } from "./i18n";
@@ -43,8 +44,8 @@ export function nameForPastedFile(file: File, index: number): string {
 
 function uploadError(status: number, body: string): string {
   try {
-    const parsed = JSON.parse(body) as { error?: string };
-    if (parsed.error) return parsed.error;
+    const message = serverError(JSON.parse(body));
+    if (message) return message;
   } catch {
     // 非 JSON 响应按状态码说明
   }

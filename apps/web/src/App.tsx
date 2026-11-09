@@ -39,6 +39,7 @@ import {
   type MentionContext,
 } from "./mention-autocomplete";
 import { createClientMessageId } from "./client-id";
+import { localizeServerPayload, serverError } from "./server-text";
 import { composerHistory, stepComposerHistory } from "./composer-history";
 import {
   InvocationChips,
@@ -1280,7 +1281,7 @@ export function App({
   onAccessLost?: (reason: "expired" | "revoked") => void;
 } = {}) {
   // 语言切换后整棵界面重新渲染，t() 取到新语言
-  useLocale();
+  const locale = useLocale();
   const localePreference = getLocalePreference();
   const [meta, setMeta] = useState<MetaResponse>();
   // 第一次打开（本机还没有昵称）的标成待引导；必须在读昵称之前判断
@@ -1370,6 +1371,16 @@ export function App({
   const [invocationMessages, setInvocationMessages] = useState<ReadonlyMap<string, ChatMessage>>(
     new Map(),
   );
+  // 切换语言：已经收到的消息、任务、定时按新语言重新显示服务端写的文字
+  useEffect(() => {
+    const relocalize = <T,>(map: ReadonlyMap<string, T>) =>
+      new Map([...map].map(([id, value]) => [id, localizeServerPayload(value)]));
+    setMessages((current) => localizeServerPayload(current));
+    setInvocations(relocalize);
+    setActiveInvocations(relocalize);
+    setSchedules(relocalize);
+    setInvocationMessages(relocalize);
+  }, [locale]);
   // 切换房间后待定位的消息（在新房间快照到达后再滚动过去）
   const [crossRoomJumpId, setCrossRoomJumpId] = useState<string>();
   const [onlineInvocationIds, setOnlineInvocationIds] = useState<ReadonlySet<string>>(new Set());
@@ -2238,7 +2249,7 @@ export function App({
         { headers: { Authorization: `Bearer ${authToken}` } },
       );
       if (!response.ok) throw new Error(t("增量消息拉取失败 ({0})", { 0: response.status }));
-      const payload = (await response.json()) as MessagesResponse;
+      const payload = localizeServerPayload((await response.json()) as MessagesResponse);
       setMessages((current) => mergeMessages(current, payload.messages));
       latestSeqRef.current = Math.max(latestSeqRef.current, payload.latestSeq);
     },
@@ -2273,7 +2284,7 @@ export function App({
         );
       });
       socket.addEventListener("message", (rawEvent) => {
-        const event = JSON.parse(String(rawEvent.data)) as ServerEvent;
+        const event = localizeServerPayload(JSON.parse(String(rawEvent.data)) as ServerEvent);
         if (event.type === "room.snapshot") {
           const beforeReconnect = latestSeqRef.current;
           participantStatusRef.current = new Map(
@@ -2453,7 +2464,19 @@ export function App({
             setError(t("房间 # {0} 已归档，无法加入，已切换回默认房间。", { 0: currentRoomId }));
             socket.close();
             switchRoom("general");
+          } else if (event.text) {
+            // 新服务端：说明已经是结构化文案、按当前语言显示，比按错误码猜更准确
+            if (
+              event.code === "INVALID_ANSWER" ||
+              event.code === "QUESTION_CLOSED" ||
+              event.code === "QUESTION_NOT_FOUND" ||
+              event.code === "ANSWER_FAILED"
+            ) {
+              setPendingAnswers(new Map());
+            }
+            setError(event.message);
           } else if (event.code === "FORBIDDEN") {
+            // 旧服务端只发英文说明，按错误码给出中文提示
             setError(t("只能撤回自己发送的消息。"));
           } else if (event.code === "MESSAGE_NOT_FOUND" || event.code === "DELETE_FAILED") {
             setError(t("撤回失败：消息不存在或已被处理。"));
@@ -2530,7 +2553,7 @@ export function App({
         headers: { Authorization: `Bearer ${authToken}` },
       });
       if (!response.ok) throw new Error(t("请求失败 ({0})", { 0: response.status }));
-      return (await response.json()) as T;
+      return localizeServerPayload((await response.json()) as T);
     },
     [base, meta],
   );
@@ -3291,8 +3314,8 @@ export function App({
     });
     if (response.status === 409) throw new Error(t("房间 ID 已存在，请换一个。"));
     if (!response.ok) {
-      const failure = (await response.json().catch(() => ({}))) as { error?: string };
-      throw new Error(failure.error ?? t("房间操作失败 ({0})", { 0: response.status }));
+      const failure: unknown = await response.json().catch(() => ({}));
+      throw new Error(serverError(failure) ?? t("房间操作失败 ({0})", { 0: response.status }));
     }
     const payload = (await response.json()) as { room: RoomSummary };
     return payload.room;
