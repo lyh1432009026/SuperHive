@@ -207,9 +207,14 @@ export function ThinkingCard({
   traceAllowed = true,
   defaultCollapsed = false,
   batchSeqs = [],
+  trigger,
+  onJumpToTrigger,
 }: {
   /** 这一轮合在一起处理的几条消息的序号（两条以上才显示） */
   batchSeqs?: number[];
+  /** 触发这一轮的那条消息：卡片上写明在处理哪个问题，点了跳过去 */
+  trigger?: { seq: number; preview: string };
+  onJumpToTrigger?: () => void;
   invocation: Invocation;
   steps: readonly TraceStep[] | undefined;
   avatar: ReactNode;
@@ -246,11 +251,11 @@ export function ThinkingCard({
       <div className="thinking-card-content">
         <header>
           <strong>{invocation.agentName}</strong>
-          {batchSeqs.length > 1 && (
+          {batchSeqs.length > 1 ? (
             <span className="thinking-card-batch" title={t("这几条消息在同一轮里一起处理")}>
               {t("一起处理 {0}", { 0: batchSeqs.map((seq) => `#${seq}`).join("、") })}
             </span>
-          )}
+          ) : null}
           <span className={`thinking-card-state ${invocation.status}`}>
             <span className="thinking-card-dot" aria-hidden="true" />
             {stateLabel(invocation, list)}
@@ -271,6 +276,34 @@ export function ThinkingCard({
             </button>
           )}
         </header>
+        {trigger && (
+          // 在处理哪个问题：引用触发消息的开头，点了跳到那条消息
+          <button
+            type="button"
+            className="thinking-card-trigger"
+            disabled={!onJumpToTrigger}
+            title={onJumpToTrigger ? t("跳到 #{0}", { 0: trigger.seq }) : undefined}
+            onClick={onJumpToTrigger}
+          >
+            <span className="thinking-card-trigger-seq">{t("回应 #{0}", { 0: trigger.seq })}</span>
+            <span className="thinking-card-trigger-text">{trigger.preview}</span>
+          </button>
+        )}
+        {collapsed && observable && (
+          // 收起时整块都能点开，不用去找右上角的小按钮
+          <button
+            type="button"
+            className="thinking-card-expand"
+            onClick={() => setUserCollapsed(false)}
+          >
+            {narrativeSteps(list).length
+              ? t("展开看过程（{0} 段话 · {1}）", {
+                  0: narrativeSteps(list).length,
+                  1: traceSummary(list, now) || t("暂无步骤"),
+                })
+              : t("展开看过程（{0}）", { 0: traceSummary(list, now) || t("暂无步骤") })}
+          </button>
+        )}
         {!collapsed && observable && (
           <>
             <CardBody invocation={invocation} steps={list} expanded={expanded} now={now} />

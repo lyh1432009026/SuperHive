@@ -1189,5 +1189,10 @@
   "{0} · 第 {1} 次 · 到 {2}": "{0} · run {1} · until {2}",
   "取消后整个周期结束，后面的不再执行": "Cancelling ends the whole series; later runs won't happen",
   "结束周期": "End series",
-  "跳到这条任务": "Go to this task"
+  "跳到这条任务": "Go to this task",
+  "跳到 #{0}": "Go to #{0}",
+  "回应 #{0}": "Re #{0}",
+  "展开看过程（{0} 段话 · {1}）": "Show process ({0} notes · {1})",
+  "展开看过程（{0}）": "Show process ({0})",
+  "暂无步骤": "no steps yet"
 }

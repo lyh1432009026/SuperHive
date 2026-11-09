@@ -61,7 +61,13 @@ import {
   useRoomReorder,
 } from "./room-reorder";
 import { isLiveInvocation, mergeTraceSteps } from "./live-trace";
-import { ActivityPanel, isInFlight, needsAttention, type ActivityView } from "./activity";
+import {
+  ActivityPanel,
+  isInFlight,
+  needsAttention,
+  plainPreview,
+  type ActivityView,
+} from "./activity";
 import { ThinkingCard, TraceRecap, groupLiveCards, showsLiveCard } from "./thinking-card";
 import { buildGoToItems } from "./goto";
 import { GoToPalette } from "./goto-palette";
@@ -4690,6 +4696,7 @@ export function App({
                       );
                     const cards = groupLiveCards(live);
                     const seqOf = new Map(messages.map((message) => [message.id, message.seq]));
+                    const messageById = new Map(messages.map((message) => [message.id, message]));
                     return cards.map(({ invocation, batch }, index) => (
                       <ThinkingCard
                         key={`card-${invocation.id}`}
@@ -4704,6 +4711,21 @@ export function App({
                           .sort((a, b) => a - b)}
                         traceAllowed={!guest || guest.showTrace !== false}
                         defaultCollapsed={cards.length > 3 && index < cards.length - 1}
+                        {...(() => {
+                          // 卡片上写明在处理哪条消息；合批时引用最早的一条
+                          const first = [...batch]
+                            .map((item) => messageById.get(item.messageId))
+                            .filter((message): message is ChatMessage => Boolean(message))
+                            .sort((a, b) => a.seq - b.seq)[0];
+                          if (!first) return {};
+                          return {
+                            trigger: {
+                              seq: first.seq,
+                              preview: plainPreview(first.content).slice(0, 120),
+                            },
+                            onJumpToTrigger: () => jumpToMessage(first.id),
+                          };
+                        })()}
                         avatar={
                           <AvatarGlyph
                             type="agent"

@@ -346,3 +346,64 @@
   color: var(--text-tertiary);
   font-size: var(--text-xs);
 }
+
+/* 在处理哪个问题：引用触发消息的开头，点了跳过去 */
+.thinking-card-trigger {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  margin: 4px 0 0;
+  padding: 2px 0;
+  border: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.thinking-card-trigger:disabled {
+  cursor: default;
+}
+
+.thinking-card-trigger:not(:disabled):hover .thinking-card-trigger-text {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.thinking-card-trigger-seq {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.thinking-card-trigger-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 收起时整行可点开 */
+.thinking-card-expand {
+  display: block;
+  width: 100%;
+  margin: 4px 0 0;
+  padding: 4px 8px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-tertiary);
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.thinking-card-expand:hover {
+  border-style: solid;
+  color: var(--text);
+  background: var(--bg-hover);
+}

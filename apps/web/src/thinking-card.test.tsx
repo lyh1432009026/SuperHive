@@ -231,4 +231,25 @@ describe("groupLiveCards", () => {
     );
     expect(screen.getByText("一起处理 #1825、#1828、#1830")).toBeTruthy();
   });
+
+  it("写明在处理哪条消息，点了跳过去；收起时整行可点开", () => {
+    const jumps: number[] = [];
+    render(
+      <ThinkingCard
+        invocation={invocation()}
+        steps={[step("a", { kind: "text", text: "先看看" })]}
+        avatar="AI"
+        defaultCollapsed
+        trigger={{ seq: 1899, preview: "为什么不能每 5 分钟定时一次" }}
+        onJumpToTrigger={() => jumps.push(1899)}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /回应 #1899.*为什么不能每 5 分钟定时一次/ }),
+    );
+    expect(jumps).toEqual([1899]);
+    expect(screen.queryByText("先看看")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /展开看过程（1 段话/ }));
+    expect(screen.getByText("先看看")).toBeTruthy();
+  });
 });
