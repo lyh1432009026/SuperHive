@@ -7,9 +7,10 @@ import "./styles/goto.css";
 const filters: { value: GoToFilter; label: string }[] = [
   { value: "all", label: "全部" },
   { value: "attention", label: "要处理" },
-  { value: "task", label: "任务" },
-  { value: "room", label: "房间" },
-  { value: "agent", label: "Agent" },
+  // 筛选标签说的是「一类东西」，英文要复数；和下面每行的类型标签分开写
+  { value: "task", label: "只看任务" },
+  { value: "room", label: "只看房间" },
+  { value: "agent", label: "只看 Agent" },
 ];
 
 const kindLabels: Record<GoToItem["kind"], string> = {

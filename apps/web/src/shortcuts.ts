@@ -47,6 +47,16 @@ export function keyLabel(key: string, mac = isMacPlatform()): string {
   return key;
 }
 
+/**
+ * 一组按键写成一个标签：macOS 用符号连写（⌘↵、⇧↵），其它系统用 + 连接（Ctrl+Enter）。
+ * 输入框底部的发送提示和设置里的发送方式都用它，两处写法一致。
+ */
+export function keyCombo(keys: string[], mac = isMacPlatform()): string {
+  if (!mac) return keys.map((key) => keyLabel(key, false)).join("+");
+  const symbols: Record<string, string> = { Mod: "⌘", Shift: "⇧", Alt: "⌥", Enter: "↵" };
+  return keys.map((key) => symbols[key] ?? key).join("");
+}
+
 /** 焦点在可输入的地方：单键快捷键（比如 ?）不能抢用户在打的字 */
 export function isTypingTarget(target: EventTarget | null): boolean {
   let element = target instanceof Element ? target : null;

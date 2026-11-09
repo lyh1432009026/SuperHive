@@ -5,7 +5,7 @@ import { getLocale, localized, t } from "./i18n";
 /** 阻塞最需要人关注，排在最前；里程碑是历史记录，放最后 */
 export const whiteboardSlots: Array<{ slot: WhiteboardSlot; label: string }> = localized(() => [
   { slot: "blocked", label: t("阻塞") },
-  { slot: "in_progress", label: t("进行中") },
+  { slot: "in_progress", label: t("进行中的工作") },
   { slot: "ready", label: t("已就绪") },
   { slot: "milestone", label: t("里程碑") },
 ]);

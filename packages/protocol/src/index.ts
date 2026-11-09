@@ -1311,3 +1311,4 @@ export function stripUnsafeCharacters(value: string): string {
 
 export * from "./invocation-state.js";
 export * from "./agent-session.js";
+export * from "./plural.js";

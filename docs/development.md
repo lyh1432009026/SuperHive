@@ -245,6 +245,25 @@ Agent 的行为规则有一份权威来源：`apps/server/src/agent-instructions
 | 接入 Agent                  | add an agent                             |                                                      |
 | 用量                        | usage                                    |                                                      |
 
+**状态词**（同一种状态在状态条、思考卡片、成员列表、跳转面板里写法一致）
+
+| 状态                                   | 英文                                                                          | 说明                                                           |
+| -------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| 任务执行中（进行中 / 执行中 / 运行中） | Running                                                                       | 计数写 `{0} running`                                           |
+| Agent 在干活（正在处理 / 工作中）      | Working                                                                       | 说的是 Agent 本身，不是某条任务；成员在线状态的「忙碌」是 Busy |
+| 正在思考                               | Thinking                                                                      | 思考卡片停在思考那一步时用                                     |
+| 排队中                                 | Queued                                                                        | 已送达还没开始写 Delivered, waiting in queue                   |
+| Agent 不在线时排队（等待上线）         | Agent offline                                                                 |                                                                |
+| 等你回答                               | Waiting for your answer                                                       |                                                                |
+| 等你放行 / 等房主批准 / 等待批准       | Waiting for your approval / Waiting for owner approval / Waiting for approval | 中文本来区分是谁在批，英文也保留                               |
+| 停止中 / 已停止                        | Stopping / Stopped                                                            |                                                                |
+| 已完成 / 失败 / 结果未知               | Completed / Failed / Outcome unknown                                          |                                                                |
+| 白板的「进行中的工作」                 | In progress                                                                   | 指登记的工作，不是任务执行                                     |
+
+**同一个中文要两种英文时，改中文原文拆开**，不在 en.json 里加上下文：比如侧栏标题用「房间列表」（Rooms），每行的类型标签用「房间」（Room）；Go To 的筛选标签用「只看任务」（Tasks）。
+
+**单复数**：网页文案写 `{0|one|other}`，比如 `ran {0} {0|command|commands}`；服务端和飞书的文案目录（`packages/protocol/src/server-text.ts`）写 `en: { one, other }`。两边语法不同，是因为网页词表是「中文原文 → 一条英文字符串」的 JSON，只能把选择写进字符串里；服务端目录本来就是结构化条目，可以直接放两种写法。两边选写法都应调 protocol 的 `isEnglishSingular`（`Intl.PluralRules("en")`），规则一致。
+
 ## Agent 防循环和可靠性
 
 系统只响应明确的 `@agent-name`（以及设了主 Agent 的房间里人发的、不带 @ 的消息），拦截 Agent 自我响应，并使用 `clientMessageId` 幂等、严格递增 `seq`、`afterSeq` 补拉、消息 cursor、hop/trace 上限、每分钟限流和持久化去重，避免断线或重试导致重复回复。

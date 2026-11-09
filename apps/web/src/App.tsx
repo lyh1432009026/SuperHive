@@ -71,7 +71,7 @@ import {
 import { ThinkingCard, TraceRecap, groupLiveCards, showsLiveCard } from "./thinking-card";
 import { buildGoToItems } from "./goto";
 import { GoToPalette } from "./goto-palette";
-import { matchShortcut, type ShortcutId } from "./shortcuts";
+import { keyCombo, matchShortcut, type ShortcutId } from "./shortcuts";
 import { ShortcutsHelp } from "./shortcuts-help";
 import { ContextMenu, contextMenuPoint, type ContextMenuState } from "./context-menu";
 import { isMachineMessage, machinePreview, splitMentions } from "./machine-message";
@@ -3816,7 +3816,7 @@ export function App({
             />
           )}
           <div className="sidebar-section-label">
-            <span>{t("房间")}</span>
+            <span>{t("房间列表")}</span>
             <span className="panel-meta">{activeRoomCount}</span>
           </div>
           <div
@@ -5142,16 +5142,20 @@ export function App({
                   <span>{composerExpanded ? t("收起") : t("展开")}</span>
                 </button>
                 <span className="composer-hint">
-                  {sendShortcut === "modifier-enter" ? (
-                    <>
-                      <kbd>{modifierKeyLabel} + Enter</kbd> {t("发送 ·")} <kbd>Enter</kbd>{" "}
-                      {t("换行")}
-                    </>
-                  ) : (
-                    <>
-                      <kbd>Enter</kbd> {t("发送 ·")} <kbd>Shift + Enter</kbd> {t("换行")}
-                    </>
-                  )}
+                  {/* 按当前发送方式显示：⌘↵ 发送 · ↵ 换行，或 ↵ 发送 · ⇧↵ 换行 */}
+                  {t("{0} 发送 · {1} 换行")
+                    .split(/(\{[01]\})/)
+                    .map((part, index) => {
+                      const keys =
+                        sendShortcut === "modifier-enter"
+                          ? { "{0}": ["Mod", "Enter"], "{1}": ["Enter"] }
+                          : { "{0}": ["Enter"], "{1}": ["Shift", "Enter"] };
+                      return part === "{0}" || part === "{1}" ? (
+                        <kbd key={index}>{keyCombo(keys[part])}</kbd>
+                      ) : (
+                        part
+                      );
+                    })}
                 </span>
                 <div className="composer-actions">
                   {draftTooLong ? (
@@ -6189,7 +6193,7 @@ export function App({
                             <strong>{t("组合键发送")}</strong>
                             <small>{t("推荐，Enter 可以安心换行")}</small>
                           </span>
-                          <kbd>{modifierKeyLabel} + Enter</kbd>
+                          <kbd>{keyCombo(["Mod", "Enter"])}</kbd>
                           <i aria-hidden="true">
                             <Icon name="check" size={14} />
                           </i>
@@ -6206,9 +6210,9 @@ export function App({
                         >
                           <span>
                             <strong>{t("Enter 发送")}</strong>
-                            <small>{t("使用 Shift + Enter 换行")}</small>
+                            <small>{t("{0} 换行", { 0: keyCombo(["Shift", "Enter"]) })}</small>
                           </span>
-                          <kbd>Enter</kbd>
+                          <kbd>{keyCombo(["Enter"])}</kbd>
                           <i aria-hidden="true">
                             <Icon name="check" size={14} />
                           </i>

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { isEnglishSingular } from "@superhive/protocol";
 import en from "./en.json";
 
 /**
@@ -82,7 +83,7 @@ export function setLocalePreference(next: LocalePreference): void {
 }
 
 /**
- * 占位符：{0} 原样替换；{0|one|other} 按参数是不是 1 选单复数，
+ * 占位符：{0} 原样替换；{0|one|other} 按参数选英文单复数（规则和服务端文案目录一致，见 protocol 的 plural.ts），
  * 例如 "{0} {0|task|tasks}"。中文原文不需要复数，只在译文里用。
  */
 function interpolate(text: string, params?: Params): string {
@@ -93,7 +94,7 @@ function interpolate(text: string, params?: Params): string {
       if (!(name in params)) return match;
       const value = params[name];
       if (one === undefined) return String(value ?? "");
-      return Number(value) === 1 ? one : other;
+      return isEnglishSingular(value) ? one : other;
     },
   );
 }

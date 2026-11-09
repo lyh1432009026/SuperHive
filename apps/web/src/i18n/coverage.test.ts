@@ -103,6 +103,7 @@ describe("plural placeholders", () => {
     try {
       expect(t("运行 {0} 条命令", { 0: 1 })).toBe("ran 1 command");
       expect(t("运行 {0} 条命令", { 0: 3 })).toBe("ran 3 commands");
+      expect(t("运行 {0} 条命令", { 0: 0 })).toBe("ran 0 commands");
       expect(t("# {0}：{1} 个任务需要处理", { 0: "build", 1: 1 })).toBe(
         "# build: 1 task needs attention",
       );

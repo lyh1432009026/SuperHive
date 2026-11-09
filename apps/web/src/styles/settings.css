@@ -44,7 +44,8 @@
   padding: 16px 16px 16px 24px;
 }
 
-.settings-dialog-header > div:nth-child(2) {
+/* 标题占满剩余宽度，关闭按钮靠右 */
+.settings-dialog-header > div:first-child {
   min-width: 0;
   flex: 1;
 }

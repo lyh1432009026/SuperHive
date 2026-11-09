@@ -1778,7 +1778,7 @@ describe("App mention autocomplete", () => {
       within(board)
         .getAllByRole("heading")
         .map((heading) => heading.textContent),
-    ).toEqual(["阻塞1", "进行中1", "已就绪1"]);
+    ).toEqual(["阻塞1", "进行中的工作1", "已就绪1"]);
 
     await user.click(within(board).getByRole("button", { name: "从白板移除：等待数据库迁移权限" }));
     expect(JSON.parse(socket.sent.at(-1)!)).toEqual({
