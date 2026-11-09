@@ -159,6 +159,8 @@ export type InvocationReport = {
   messageId: string;
   status: "received" | "running" | "completed" | "failed" | "cancelled" | "uncertain";
   detail?: string;
+  /** detail 的结构化文案（键见 bridge-text.ts） */
+  detailText?: import("./bridge-text.js").BridgeText;
   progress?: string;
   replyMessageId?: string;
   contextSeq?: number;

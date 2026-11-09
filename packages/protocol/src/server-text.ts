@@ -276,6 +276,96 @@ export const serverTexts = {
   "answer.selected": { zh: "选择 {options}", en: "Selected {options}" },
   "answer.other": { zh: "其它：{text}", en: "Other: {text}" },
 
+  /* ---------- Bridge 上报的调用说明（中文模板与 superhive 的 bridge-text.ts 一致） ---------- */
+  "bridge.crashedMidTurn": {
+    zh: "Agent 在处理途中意外退出，结果未知；未自动重跑，需先核对原执行与工具进程。",
+    en: "The agent exited unexpectedly mid-task, so the outcome is unknown. It wasn't rerun; check what the previous run and its tools did first.",
+  },
+  "bridge.beyondCatchUp": {
+    zh: "Agent 首次加入时这条提及已超出补拉范围，未处理；可手动重试。",
+    en: "This mention was older than what the agent fetches when it first joins, so it wasn't handled. Retry it manually.",
+  },
+  "bridge.reconnectedGone": {
+    zh: "Agent 重新连接时这次处理已不在进行，结果未知；需先核对原执行与工具进程。",
+    en: "When the agent reconnected, this run was no longer going, so the outcome is unknown. Check what the previous run and its tools did first.",
+  },
+  "bridge.cancelledBeforeRun": { zh: "任务在执行前被取消", en: "Cancelled before it started" },
+  "bridge.notSteeredQueued": {
+    zh: "当前没有正在执行、能插进去的任务，已排队",
+    en: "Nothing is running that this could join, so it's queued",
+  },
+  "bridge.steerUnsupported": {
+    zh: "这个运行时不支持插话，已排队",
+    en: "This runtime doesn't support steering, so it's queued",
+  },
+  "bridge.steering": { zh: "正在插入当前任务", en: "Adding to the current task" },
+  "bridge.steerUnconfirmed": {
+    zh: "消息已尝试注入但未获确认；禁止退回队列或自动重放。",
+    en: "Tried to add the message but got no confirmation. It won't be requeued or retried automatically.",
+  },
+  "bridge.steerRemoved": {
+    zh: "未注入的排队任务已移除",
+    en: "Removed the queued task that wasn't added",
+  },
+  "bridge.steerCancelRace": {
+    zh: "取消与注入并发，执行结果需核对",
+    en: "Cancel and steer happened at the same time; check the outcome",
+  },
+  "bridge.steerEndRace": {
+    zh: "消息注入与回合结束并发，结果待核实；禁止自动重放。",
+    en: "Steer and the end of the turn happened at the same time; outcome unconfirmed. It won't be retried automatically.",
+  },
+  "bridge.steered": { zh: "已并入当前任务（#{seq}）", en: "Added to the current task (#{seq})" },
+  "bridge.steerLate": {
+    zh: "没能插进当前任务（这一轮已经收尾），已排队",
+    en: "Couldn't join the current task (the turn was wrapping up), so it's queued",
+  },
+  "bridge.stoppedWhileWaiting": {
+    zh: "等待自动继续时被停止",
+    en: "Stopped while waiting to continue automatically",
+  },
+  "bridge.cancelNotPersisted": {
+    zh: "无法持久化取消结果，需核对",
+    en: "Couldn't save the cancellation; check the outcome",
+  },
+  "bridge.queuedRemoved": {
+    zh: "尚未执行的排队任务已移除",
+    en: "Removed the queued task before it ran",
+  },
+  "bridge.alreadyEnded": {
+    zh: "这一轮在 Agent 这边早已结束，没有在跑的回合；当初的结果仍未知，请先核对再决定是否重试。",
+    en: "This turn ended on the agent's side long ago and nothing is running. Its outcome is still unknown; check before deciding whether to retry.",
+  },
+  "bridge.stoppedNoReply": {
+    zh: "本轮已结束，已停止的触发消息未发送回复",
+    en: "The turn ended; no reply was sent for the stopped message",
+  },
+  "bridge.noReply": { zh: "无需回复", en: "No reply needed" },
+  "bridge.uncertain": {
+    zh: "{reason} 已禁止自动重放；请先核对已执行操作再决定是否重试。",
+    en: "{reason} It won't be retried automatically; check what was done before deciding whether to retry.",
+  },
+  "bridge.offline": {
+    zh: "Agent 已下线，本轮被中断；可在界面中重试",
+    en: "The agent went offline and this turn was interrupted. You can retry it.",
+  },
+  "bridge.failedRepeatedly": {
+    zh: "连续失败 {attempts} 次：{reason}",
+    en: "Failed {attempts} times in a row: {reason}",
+  },
+  "bridge.upstreamFailed": {
+    zh: "上游模型服务出错：{reason}。{why}；点「继续」会接着原会话从中断处往下做。",
+    en: "The model service had an error: {reason}. {why}. Continue picks up the same session where it stopped.",
+  },
+  "bridge.upstreamMutated": {
+    zh: "这一轮已经做过改动，不自动重跑",
+    en: "This turn already made changes, so it won't rerun automatically",
+  },
+  "bridge.upstreamExhausted": {
+    zh: "已自动继续 {count} 次仍未成功",
+    en: "Still failing after {count} automatic retries",
+  },
+
   /* ---------- 操作名（嵌进错误提示里） ---------- */
   "action.createRoom": { zh: "新建房间", en: "create rooms" },
   "action.postToRoom": { zh: "到别的房间派活", en: "post tasks to other rooms" },

@@ -1,3 +1,4 @@
+import { bridgeText, said } from "./bridge-text.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   isMentioned,
@@ -370,7 +371,7 @@ export class AgentBridge {
       this.room.report({
         messageId,
         status: "uncertain",
-        detail: "Agent 在处理途中意外退出，结果未知；未自动重跑，需先核对原执行与工具进程。",
+        ...said(bridgeText("bridge.crashedMidTurn")),
       });
       this.rememberProcessed(messageId);
     }
@@ -403,7 +404,7 @@ export class AgentBridge {
         this.room.report({
           messageId,
           status: "failed",
-          detail: "Agent 首次加入时这条提及已超出补拉范围，未处理；可手动重试。",
+          ...said(bridgeText("bridge.beyondCatchUp")),
         });
       }
       return;
@@ -425,7 +426,7 @@ export class AgentBridge {
           this.room.report({
             messageId: message.id,
             status: "uncertain",
-            detail: "Agent 重新连接时这次处理已不在进行，结果未知；需先核对原执行与工具进程。",
+            ...said(bridgeText("bridge.reconnectedGone")),
           });
           this.rememberProcessed(message.id);
         }
@@ -498,7 +499,7 @@ export class AgentBridge {
           this.room.report({
             messageId: message.id,
             status: "cancelled",
-            detail: "任务在执行前被取消",
+            ...said(bridgeText("bridge.cancelledBeforeRun")),
           });
         })
         .catch(() => this.room.report({ messageId: message.id, status: "uncertain" }));
@@ -529,16 +530,20 @@ export class AgentBridge {
     this.room.report({
       messageId: message.id,
       status: "received",
-      detail: this.responder.steer
-        ? "当前没有正在执行、能插进去的任务，已排队"
-        : "这个运行时不支持插话，已排队",
+      ...said(
+        bridgeText(this.responder.steer ? "bridge.notSteeredQueued" : "bridge.steerUnsupported"),
+      ),
     });
   }
 
   /** 把新消息插进正在运行的这一轮（Codex turn/steer、Claude 流式输入、ACP steering），插不进去就退回排队 */
   private async steerIntoActive(active: ActiveBatch, message: ChatMessage): Promise<void> {
     this.steering.add(message.id);
-    this.room.report({ messageId: message.id, status: "received", detail: "正在插入当前任务" });
+    this.room.report({
+      messageId: message.id,
+      status: "received",
+      ...said(bridgeText("bridge.steering")),
+    });
     let steered = false;
     try {
       steered = await this.responder.steer!(
@@ -551,7 +556,7 @@ export class AgentBridge {
         this.room.report({
           messageId: message.id,
           status: "uncertain",
-          detail: "消息已尝试注入但未获确认；禁止退回队列或自动重放。",
+          ...said(bridgeText("bridge.steerUnconfirmed")),
         });
         return;
       }
@@ -569,13 +574,13 @@ export class AgentBridge {
         this.room.report({
           messageId: message.id,
           status: "cancelled",
-          detail: "未注入的排队任务已移除",
+          ...said(bridgeText("bridge.steerRemoved")),
         });
       } else {
         this.room.report({
           messageId: message.id,
           status: "uncertain",
-          detail: "取消与注入并发，执行结果需核对",
+          ...said(bridgeText("bridge.steerCancelRace")),
         });
       }
       return;
@@ -587,7 +592,7 @@ export class AgentBridge {
       this.room.report({
         messageId: message.id,
         status: "uncertain",
-        detail: "消息注入与回合结束并发，结果待核实；禁止自动重放。",
+        ...said(bridgeText("bridge.steerEndRace")),
       });
       return;
     }
@@ -598,7 +603,7 @@ export class AgentBridge {
       this.room.report({
         messageId: message.id,
         status: "running",
-        detail: `已并入当前任务（#${host.seq}）`,
+        ...said(bridgeText("bridge.steered", { seq: host.seq })),
       });
       // 执行过程里标出插话的位置，看得出 Agent 从哪一步开始调整
       const at = new Date().toISOString();
@@ -618,7 +623,7 @@ export class AgentBridge {
     this.room.report({
       messageId: message.id,
       status: "received",
-      detail: "没能插进当前任务（这一轮已经收尾），已排队",
+      ...said(bridgeText("bridge.steerLate")),
     });
     this.pending.push(message);
     this.scheduleDrain(this.tuning.batchWindowMs);
@@ -663,13 +668,17 @@ export class AgentBridge {
       void this.store
         .save(this.state)
         .then(() => {
-          this.room.report({ messageId, status: "cancelled", detail: "等待自动继续时被停止" });
+          this.room.report({
+            messageId,
+            status: "cancelled",
+            ...said(bridgeText("bridge.stoppedWhileWaiting")),
+          });
         })
         .catch(() =>
           this.room.report({
             messageId,
             status: "uncertain",
-            detail: "无法持久化取消结果，需核对",
+            ...said(bridgeText("bridge.cancelNotPersisted")),
           }),
         );
       return;
@@ -682,13 +691,17 @@ export class AgentBridge {
       void this.store
         .save(this.state)
         .then(() => {
-          this.room.report({ messageId, status: "cancelled", detail: "尚未执行的排队任务已移除" });
+          this.room.report({
+            messageId,
+            status: "cancelled",
+            ...said(bridgeText("bridge.queuedRemoved")),
+          });
         })
         .catch(() =>
           this.room.report({
             messageId,
             status: "uncertain",
-            detail: "无法持久化取消结果，需核对",
+            ...said(bridgeText("bridge.cancelNotPersisted")),
           }),
         );
       return;
@@ -711,8 +724,7 @@ export class AgentBridge {
       this.room.report({
         messageId,
         status: "uncertain",
-        detail:
-          "这一轮在 Agent 这边早已结束，没有在跑的回合；当初的结果仍未知，请先核对再决定是否重试。",
+        ...said(bridgeText("bridge.alreadyEnded")),
       });
       return;
     }
@@ -1029,7 +1041,7 @@ export class AgentBridge {
         this.room.report({
           messageId: message.id,
           status: "cancelled",
-          detail: "本轮已结束，已停止的触发消息未发送回复",
+          ...said(bridgeText("bridge.stoppedNoReply")),
           // 触发消息全停了也照样花了钱：用量记到第一条上
           ...(usage && live.length === 0 && index === 0 ? this.usageReport(active) : {}),
         });
@@ -1040,13 +1052,13 @@ export class AgentBridge {
         this.room.report({
           messageId: usageCarrier.id,
           status: "completed",
-          ...(replyMessageId ? { replyMessageId } : { detail: "无需回复" }),
+          ...(replyMessageId ? { replyMessageId } : said(bridgeText("bridge.noReply"))),
           ...this.usageReport(active),
         });
       }
       this.reportAll(others, {
         status: "completed",
-        ...(replyMessageId ? { replyMessageId } : { detail: "无需回复" }),
+        ...(replyMessageId ? { replyMessageId } : said(bridgeText("bridge.noReply"))),
       });
       this.log(
         `[hive] ${replyMessageId ? "已回复" : "已处理"} ${active.messages.map((message) => `#${message.seq}`).join("、")}`,
@@ -1228,7 +1240,7 @@ export class AgentBridge {
       withUsage(active.messages, {
         status: "uncertain",
         // 带上 Runtime 给的具体原因（API 限流、流中断、停止未确认……）
-        detail: `${error.message.slice(0, 380)} 已禁止自动重放；请先核对已执行操作再决定是否重试。`,
+        ...said(bridgeText("bridge.uncertain", { reason: error.message.slice(0, 380) })),
       });
       return;
     }
@@ -1245,7 +1257,7 @@ export class AgentBridge {
       await this.store.save(this.state);
       withUsage(active.messages, {
         status: "cancelled",
-        ...(this.stopped ? { detail: "Agent 已下线，本轮被中断；可在界面中重试" } : {}),
+        ...(this.stopped ? said(bridgeText("bridge.offline")) : {}),
       });
       return;
     }
@@ -1269,7 +1281,7 @@ export class AgentBridge {
       this.room.report({
         messageId: message.id,
         status: "failed",
-        detail: `连续失败 ${MAX_ATTEMPTS} 次：${reason}`.slice(0, 500),
+        ...said(bridgeText("bridge.failedRepeatedly", { attempts: MAX_ATTEMPTS, reason })),
         ...this.usageReport(active),
       });
     }
@@ -1348,14 +1360,19 @@ export class AgentBridge {
     }
     await this.store.save(this.state);
     const why = active.mutated
-      ? "这一轮已经做过改动，不自动重跑"
-      : `已自动继续 ${this.tuning.upstreamRetryDelaysMs.length} 次仍未成功`;
-    this.log(`[hive] ${error.message}；${why}，等人点「继续」`);
+      ? bridgeText("bridge.upstreamMutated")
+      : bridgeText("bridge.upstreamExhausted", {
+          count: this.tuning.upstreamRetryDelaysMs.length,
+        });
+    const detail = said(
+      bridgeText("bridge.upstreamFailed", { reason: error.reason.slice(0, 360), why }),
+    );
+    this.log(`[hive] ${detail.detail}，等人点「继续」`);
     for (const message of live) {
       this.room.report({
         messageId: message.id,
         status: "failed",
-        detail: `${error.message.slice(0, 380)}。${why}；点「继续」会接着原会话从中断处往下做。`,
+        ...detail,
         ...this.usageReport(active),
       });
     }
