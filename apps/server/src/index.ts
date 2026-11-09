@@ -1,3 +1,5 @@
+import { serverText } from "@superhive/protocol";
+import { errorText } from "./texts.js";
 import { existsSync, mkdirSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import path from "node:path";
@@ -134,7 +136,7 @@ if (shutdownToken) {
         (entries ?? []).some((entry) => entry.address === remote),
       );
     if (!local || provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
-      return reply.code(403).send({ error: "不允许。" });
+      return reply.code(403).send({ ...errorText(serverText("error.auth.notAllowed")) });
     }
     setImmediate(shutdown);
     return reply.code(202).send({ ok: true });

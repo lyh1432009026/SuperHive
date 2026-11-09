@@ -6,6 +6,11 @@ import {
   type UsageRecord,
   type UsageSummary,
   type UsageTotals,
+  serverText,
+  serverTextSchema,
+  zhText,
+  type ServerText,
+  type WireServerText,
 } from "@superhive/protocol";
 import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
@@ -149,6 +154,7 @@ type InvocationRow = {
   status: InvocationStatus;
   block_reason: InvocationBlockReason | null;
   detail: string | null;
+  detail_text: string | null;
   progress: string | null;
   runtime: string | null;
   usage: string | null;
@@ -202,6 +208,7 @@ type ScheduleRow = {
   occurrence: number | null;
   status: ScheduleStatus;
   detail: string | null;
+  detail_text: string | null;
   trigger_message_id: string | null;
   invocation_id: string | null;
   fired_at: string | null;
@@ -213,7 +220,7 @@ type ScheduleRow = {
 
 export type SchedulePatch = {
   status?: ScheduleStatus;
-  detail?: string | null;
+  detail?: DetailInput;
   triggerMessageId?: string | null;
   invocationId?: string | null;
   firedAt?: string | null;
@@ -234,7 +241,7 @@ export const CONTINUATION_READY_STATUSES: readonly InvocationStatus[] = [
 export type InvocationPatch = {
   status?: InvocationStatus;
   blockReason?: InvocationBlockReason | null;
-  detail?: string | null;
+  detail?: DetailInput;
   progress?: string | null;
   runtime?: RuntimeObservation | null;
   replyMessageId?: string | null;
@@ -262,12 +269,34 @@ export const TERMINAL_INVOCATION_STATUSES: readonly InvocationStatus[] = [
 ];
 
 export class HiveError extends Error {
+  /** 给人看的结构化文案（见 protocol 的 server-text.ts）；message 是它的中文 */
+  readonly text: ServerText | undefined;
   constructor(
     public readonly code: string,
-    message: string,
+    message: string | ServerText,
   ) {
-    super(message);
+    super(typeof message === "string" ? message : zhText(message));
     this.name = "HiveError";
+    this.text = typeof message === "string" ? undefined : message;
+  }
+}
+
+/** 状态说明：结构化文案同时写中文兼容字段与 *_text；只给字符串时清掉旧的结构化文案 */
+export type DetailInput = string | ServerText | null;
+
+function detailColumns(detail: DetailInput): [string | null, string | null] {
+  if (detail === null) return [null, null];
+  if (typeof detail === "string") return [detail, null];
+  return [zhText(detail), JSON.stringify(detail)];
+}
+
+function parseText(raw: string | null | undefined): WireServerText | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = serverTextSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -288,6 +317,8 @@ export type CreateMessageInput = {
   via?: NonNullable<ChatMessage["via"]>;
   /** 已校验过的待发附件；有附件时正文可以为空 */
   attachments?: NonNullable<ChatMessage["attachments"]>;
+  /** 服务端代发的系统消息的结构化正文（网页按语言渲染；content 是中文给 Agent 读） */
+  text?: ServerText;
   /** 与写消息在同一事务里执行（把附件绑定到这条消息）；抛错则整条消息不写入 */
   onInsert?: (messageId: string) => void;
 };
@@ -340,7 +371,7 @@ function mapMessage(row: MessageRow): ChatMessage {
 /** 损坏或不认识的元数据只当作没有：消息正文仍是唯一的语义来源 */
 function parseMessageMeta(
   raw: string | null,
-): Pick<ChatMessage, "question" | "answer" | "approval" | "via" | "attachments"> {
+): Pick<ChatMessage, "question" | "answer" | "approval" | "via" | "attachments" | "text"> {
   if (!raw) return {};
   try {
     const value = JSON.parse(raw) as {
@@ -349,7 +380,9 @@ function parseMessageMeta(
       approval?: unknown;
       via?: unknown;
       attachments?: unknown;
+      text?: unknown;
     };
+    const text = serverTextSchema.safeParse(value.text);
     const question = questionSpecSchema.safeParse(value.question);
     const answer = questionAnswerSchema.safeParse(value.answer);
     const approval = approvalRefSchema.safeParse(value.approval);
@@ -361,6 +394,7 @@ function parseMessageMeta(
       ...(approval.success ? { approval: approval.data } : {}),
       ...(via.success ? { via: via.data } : {}),
       ...(attachments.success ? { attachments: attachments.data } : {}),
+      ...(text.success ? { text: text.data } : {}),
     };
   } catch {
     return {};
@@ -432,6 +466,7 @@ function mapInvocation(row: InvocationRow): Invocation {
     status: row.status,
     ...(row.block_reason ? { blockReason: row.block_reason } : {}),
     ...(row.detail ? { detail: row.detail } : {}),
+    ...(row.detail && parseText(row.detail_text) ? { detailText: parseText(row.detail_text)! } : {}),
     ...(row.progress ? { progress: row.progress } : {}),
     ...(row.reply_message_id ? { replyMessageId: row.reply_message_id } : {}),
     attempts: row.attempts,
@@ -472,6 +507,7 @@ function mapSchedule(row: ScheduleRow): Schedule {
     ...(row.occurrence ? { occurrence: row.occurrence } : {}),
     status: row.status,
     ...(row.detail ? { detail: row.detail } : {}),
+    ...(row.detail && parseText(row.detail_text) ? { detailText: parseText(row.detail_text)! } : {}),
     ...(row.trigger_message_id ? { triggerMessageId: row.trigger_message_id } : {}),
     ...(row.invocation_id ? { invocationId: row.invocation_id } : {}),
     ...(row.fired_at ? { firedAt: row.fired_at } : {}),
@@ -741,6 +777,10 @@ export class HiveDatabase {
         CREATE INDEX agent_usage_room ON agent_usage(room_id, created_at);
       `);
     }
+    if (!invocationColumns.some((column) => column.name === "detail_text")) {
+      // detail 的结构化文案（JSON，见 protocol 的 server-text.ts），网页按用户语言渲染
+      this.db.exec("ALTER TABLE invocations ADD COLUMN detail_text TEXT");
+    }
     if (!invocationColumns.some((column) => column.name === "usage")) {
       this.db.exec("ALTER TABLE invocations ADD COLUMN usage TEXT");
     }
@@ -761,6 +801,9 @@ export class HiveDatabase {
       this.db.exec("ALTER TABLE messages ADD COLUMN meta TEXT");
     }
     const scheduleColumns = this.db.pragma("table_info(schedules)") as Array<{ name: string }>;
+    if (!scheduleColumns.some((column) => column.name === "detail_text")) {
+      this.db.exec("ALTER TABLE schedules ADD COLUMN detail_text TEXT");
+    }
     if (!scheduleColumns.some((column) => column.name === "every_minutes")) {
       // 周期任务：同一个周期的每一次各占一行，到点时登记下一次
       this.db.exec(`
@@ -884,7 +927,7 @@ export class HiveDatabase {
     workspace?: string | undefined;
   }): RoomSummary {
     const existing = this.db.prepare("SELECT id FROM rooms WHERE id = ?").get(input.id);
-    if (existing) throw new HiveError("ROOM_EXISTS", "A room with this id already exists.");
+    if (existing) throw new HiveError("ROOM_EXISTS", serverText("error.room.exists"));
     this.db
       .prepare(
         "INSERT INTO rooms(id, name, created_at, created_by, workspace) VALUES(?, ?, ?, ?, ?)",
@@ -915,9 +958,9 @@ export class HiveDatabase {
     },
   ): RoomSummary {
     const room = this.getRoom(id);
-    if (!room) throw new HiveError("ROOM_NOT_FOUND", "Room not found.");
+    if (!room) throw new HiveError("ROOM_NOT_FOUND", serverText("error.room.notFound"));
     if (patch.archived === true && id === "general") {
-      throw new HiveError("ROOM_PROTECTED", "The default room cannot be archived.");
+      throw new HiveError("ROOM_PROTECTED", serverText("error.room.defaultProtected"));
     }
     if (patch.name !== undefined) {
       this.db.prepare("UPDATE rooms SET name = ? WHERE id = ?").run(patch.name, id);
@@ -961,7 +1004,7 @@ export class HiveDatabase {
     const now = new Date().toISOString();
     if (existing) {
       if (existing.type !== input.type) {
-        throw new HiveError("USERNAME_TAKEN", "This username belongs to another participant type.");
+        throw new HiveError("USERNAME_TAKEN", serverText("error.name.otherType"));
       }
       this.db
         .prepare(
@@ -1023,7 +1066,7 @@ export class HiveDatabase {
       .prepare("UPDATE participants SET status = ?, last_seen_at = ? WHERE id = ?")
       .run(status, now, id);
     const participant = this.getParticipant(id);
-    if (!participant) throw new HiveError("PARTICIPANT_NOT_FOUND", "Participant not found.");
+    if (!participant) throw new HiveError("PARTICIPANT_NOT_FOUND", serverText("error.member.notFound"));
     return participant;
   }
 
@@ -1072,10 +1115,10 @@ export class HiveDatabase {
       const now = new Date().toISOString();
       this.db
         .prepare(
-          `UPDATE schedules SET status = 'cancelled', detail = '房间已清空', cancelled_by = ?,
+          `UPDATE schedules SET status = 'cancelled', detail = ?, detail_text = ?, cancelled_by = ?,
              updated_at = ? WHERE room_id = ? AND status IN ('scheduled', 'firing')`,
         )
-        .run(by ?? null, now, roomId);
+        .run(...detailColumns(serverText("schedule.roomCleared")), by ?? null, now, roomId);
       this.db
         .prepare(
           "UPDATE schedules SET reported_at = ?, updated_at = ? WHERE room_id = ? AND reported_at IS NULL",
@@ -1112,10 +1155,10 @@ export class HiveDatabase {
   deleteMessage(actor: Participant, messageId: string): ChatMessage {
     const message = this.getMessage(messageId);
     if (!message || message.roomId !== actor.roomId) {
-      throw new HiveError("MESSAGE_NOT_FOUND", "Message not found in this room.");
+      throw new HiveError("MESSAGE_NOT_FOUND", serverText("error.message.notInRoom"));
     }
     if (message.senderId !== actor.id) {
-      throw new HiveError("FORBIDDEN", "Only the sender can recall a message.");
+      throw new HiveError("FORBIDDEN", serverText("error.message.recallSenderOnly"));
     }
     if (message.deletedAt) return message;
     const deletedAt = new Date().toISOString();
@@ -1137,13 +1180,13 @@ export class HiveDatabase {
     if (sender.type === "agent" && input.parentMessageId) {
       parent = this.getMessage(input.parentMessageId);
       if (!parent || parent.roomId !== sender.roomId) {
-        throw new HiveError("PARENT_NOT_FOUND", "The parent message does not exist in this room.");
+        throw new HiveError("PARENT_NOT_FOUND", serverText("error.message.parentMissing"));
       }
       if (parent.senderId === sender.id) {
-        throw new HiveError("SELF_RESPONSE", "An agent cannot respond to its own message.");
+        throw new HiveError("SELF_RESPONSE", serverText("error.message.selfResponse"));
       }
       if (parent.hopCount >= LIMITS.maxHopCount + this.turnAllowance(sender.roomId)) {
-        throw new HiveError("HOP_LIMIT", "This agent conversation has reached its hop limit.");
+        throw new HiveError("HOP_LIMIT", serverText("error.message.hopLimit"));
       }
     }
 
@@ -1156,7 +1199,7 @@ export class HiveDatabase {
         )
         .get(traceId) as { count: number };
       if (traceCount.count >= LIMITS.maxAgentMessagesPerTrace + this.turnAllowance(sender.roomId)) {
-        throw new HiveError("TRACE_LIMIT", "This agent conversation has reached its trace limit.");
+        throw new HiveError("TRACE_LIMIT", serverText("error.message.traceLimit"));
       }
       const since = new Date(Date.now() - 60_000).toISOString();
       const recentCount = this.db
@@ -1165,14 +1208,14 @@ export class HiveDatabase {
         )
         .get(sender.id, since) as { count: number };
       if (recentCount.count >= LIMITS.maxAgentRepliesPerMinute) {
-        throw new HiveError("RATE_LIMIT", "This agent has reached its reply rate limit.");
+        throw new HiveError("RATE_LIMIT", serverText("error.message.rateLimit"));
       }
     }
 
     const content = stripUnsafeCharacters(input.content).trim();
     const attachments = input.attachments?.length ? input.attachments : undefined;
     if (!content && !attachments) {
-      throw new HiveError("EMPTY_MESSAGE", "Message content is empty.");
+      throw new HiveError("EMPTY_MESSAGE", serverText("error.message.empty"));
     }
     const id = randomUUID();
     // 话题分隔只是界面上的分界线，不唤醒任何人
@@ -1202,8 +1245,9 @@ export class HiveDatabase {
           input.clientMessageId,
           createdAt,
           input.kind ?? null,
-          input.question || input.answer || input.approval || input.via || attachments
+          input.question || input.answer || input.approval || input.via || attachments || input.text
             ? JSON.stringify({
+                ...(input.text ? { text: input.text } : {}),
                 ...(input.question ? { question: input.question } : {}),
                 ...(input.approval ? { approval: input.approval } : {}),
                 ...(input.answer ? { answer: input.answer } : {}),
@@ -1279,7 +1323,7 @@ export class HiveDatabase {
     const room = this.db
       .prepare("SELECT agent_turn_allowance, allowance_after_seq FROM rooms WHERE id = ?")
       .get(roomId) as { agent_turn_allowance: number; allowance_after_seq: number } | undefined;
-    if (!room) throw new HiveError("ROOM_NOT_FOUND", "Room not found.");
+    if (!room) throw new HiveError("ROOM_NOT_FOUND", serverText("error.room.notFound"));
     const current = room.allowance_after_seq === lastHumanSeq ? room.agent_turn_allowance : 0;
     const next = current + turns;
     this.db
@@ -1307,7 +1351,7 @@ export class HiveDatabase {
     agent: Participant;
     status: "queued" | "blocked";
     blockReason?: InvocationBlockReason;
-    detail?: string;
+    detail?: string | ServerText;
     parentInvocationId?: string;
     continuation?: "pending";
   }): { invocation: Invocation; created: boolean } {
@@ -1319,9 +1363,9 @@ export class HiveDatabase {
       .prepare(
         `INSERT INTO invocations(
           id, room_id, message_id, agent_id, agent_name, requester_id, requester_name,
-          requester_type, status, block_reason, detail, parent_invocation_id, continuation,
-          attempts, created_at, updated_at
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+          requester_type, status, block_reason, detail, detail_text, parent_invocation_id,
+          continuation, attempts, created_at, updated_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
       )
       .run(
         id,
@@ -1334,7 +1378,7 @@ export class HiveDatabase {
         input.message.senderType,
         input.status,
         input.blockReason ?? null,
-        input.detail ?? null,
+        ...detailColumns(input.detail ?? null),
         input.parentInvocationId ?? null,
         input.continuation ?? null,
         now,
@@ -1512,6 +1556,11 @@ export class HiveDatabase {
     }
     for (const [key, column] of Object.entries(columns) as Array<[keyof InvocationPatch, string]>) {
       if (patch[key] === undefined) continue;
+      if (key === "detail") {
+        assignments.push("detail = ?", "detail_text = ?");
+        values.push(...detailColumns(patch.detail ?? null));
+        continue;
+      }
       assignments.push(`${column} = ?`);
       values.push(key === "runtime" && patch.runtime ? JSON.stringify(patch.runtime) : patch[key]);
     }
@@ -1519,7 +1568,7 @@ export class HiveDatabase {
       .prepare(`UPDATE invocations SET ${assignments.join(", ")} WHERE id = ?`)
       .run(...values, id);
     const invocation = this.getInvocation(id);
-    if (!invocation) throw new HiveError("INVOCATION_NOT_FOUND", "Invocation not found.");
+    if (!invocation) throw new HiveError("INVOCATION_NOT_FOUND", serverText("error.invocation.notFound"));
     return invocation;
   }
 
@@ -1909,7 +1958,7 @@ export class HiveDatabase {
     const { sets, values } = this.schedulePatchSql(patch);
     this.db.prepare(`UPDATE schedules SET ${sets} WHERE id = ?`).run(...values, id);
     const schedule = this.getSchedule(id);
-    if (!schedule) throw new HiveError("SCHEDULE_NOT_FOUND", "定时任务不存在。");
+    if (!schedule) throw new HiveError("SCHEDULE_NOT_FOUND", serverText("error.schedule.missing"));
     return schedule;
   }
 
@@ -1939,6 +1988,11 @@ export class HiveDatabase {
     const values: unknown[] = [new Date().toISOString()];
     for (const [key, column] of Object.entries(columns) as Array<[keyof SchedulePatch, string]>) {
       if (patch[key] === undefined) continue;
+      if (key === "detail") {
+        sets.push("detail = ?", "detail_text = ?");
+        values.push(...detailColumns(patch.detail ?? null));
+        continue;
+      }
       sets.push(`${column} = ?`);
       values.push(patch[key]);
     }
@@ -2059,7 +2113,7 @@ export class HiveDatabase {
       .prepare("SELECT id FROM local_agents WHERE name_key = ?")
       .get(input.name.toLocaleLowerCase());
     if (existing)
-      throw new HiveError("LOCAL_AGENT_NAME_TAKEN", `本机已有名为 ${input.name} 的 Agent。`);
+      throw new HiveError("LOCAL_AGENT_NAME_TAKEN", serverText("error.localAgent.nameExists", { name: input.name }));
     const config: LocalAgentConfig = {
       ...input,
       id: randomUUID(),

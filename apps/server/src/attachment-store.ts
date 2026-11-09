@@ -1,3 +1,4 @@
+import { serverText } from "@superhive/protocol";
 import { createHash, randomUUID } from "node:crypto";
 import { createWriteStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
@@ -221,7 +222,7 @@ export class AttachmentStore {
     const now = this.now();
     const recent = (this.uploadsByUploader.get(uploader) ?? []).filter((at) => now - at < 60_000);
     if (recent.length >= LIMITS.maxAttachmentUploadsPerMinute) {
-      throw new HiveError("UPLOAD_RATE_LIMIT", "上传太频繁，请稍后再试。");
+      throw new HiveError("UPLOAD_RATE_LIMIT", serverText("error.attachment.rateLimited"));
     }
     recent.push(now);
     this.uploadsByUploader.set(uploader, recent);
@@ -250,10 +251,10 @@ export class AttachmentStore {
   /** 按声明的大小预检配额，避免明知超限还把整个文件收下来；收完后按实际大小再检查一次 */
   checkQuota(roomId: string, uploader: string, size: number): void {
     if (this.roomUsage(roomId) + size > this.roomQuotaBytes) {
-      throw new HiveError("ROOM_ATTACHMENT_QUOTA", "这个房间的附件空间已满，请撤回不需要的附件。");
+      throw new HiveError("ROOM_ATTACHMENT_QUOTA", serverText("error.attachment.roomQuota"));
     }
     if (this.pendingUsage(uploader) + size > this.pendingQuotaBytes) {
-      throw new HiveError("PENDING_ATTACHMENT_QUOTA", "待发送的附件太多，请先发出或移除一些。");
+      throw new HiveError("PENDING_ATTACHMENT_QUOTA", serverText("error.attachment.pendingQuota"));
     }
   }
 
@@ -278,7 +279,7 @@ export class AttachmentStore {
       transform(chunk: Buffer, _encoding, callback) {
         size += chunk.length;
         if (size > LIMITS.maxAttachmentBytes) {
-          callback(new HiveError("ATTACHMENT_TOO_LARGE", "单个附件不能超过 20 MiB。"));
+          callback(new HiveError("ATTACHMENT_TOO_LARGE", serverText("error.attachment.tooLarge")));
           return;
         }
         hash.update(chunk);
@@ -293,7 +294,7 @@ export class AttachmentStore {
     try {
       await pipeline(input.stream, meter, createWriteStream(tmpPath, { flags: "wx" }));
       if (input.truncated()) {
-        throw new HiveError("ATTACHMENT_TOO_LARGE", "单个附件不能超过 20 MiB。");
+        throw new HiveError("ATTACHMENT_TOO_LARGE", serverText("error.attachment.tooLarge"));
       }
       const name = sanitizeFileName(input.name);
       const head = Buffer.concat(headChunks);
@@ -374,7 +375,7 @@ export class AttachmentStore {
   claim(ids: string[], owner: { roomId: string; uploader: string }): Attachment[] {
     const unique = [...new Set(ids)];
     if (unique.length > LIMITS.maxAttachmentsPerMessage) {
-      throw new HiveError("TOO_MANY_ATTACHMENTS", "一条消息最多带 10 个附件。");
+      throw new HiveError("TOO_MANY_ATTACHMENTS", serverText("error.attachment.tooMany"));
     }
     const now = this.now();
     const attachments = unique.map((id) => {
@@ -386,16 +387,16 @@ export class AttachmentStore {
         item.revokedAt ||
         item.messageId
       ) {
-        throw new HiveError("ATTACHMENT_UNAVAILABLE", "附件不存在、已发出或不属于你，请重新上传。");
+        throw new HiveError("ATTACHMENT_UNAVAILABLE", serverText("error.attachment.unavailable"));
       }
       if (Date.parse(item.expiresAt) <= now) {
-        throw new HiveError("ATTACHMENT_EXPIRED", "附件上传后太久没有发出，已过期，请重新上传。");
+        throw new HiveError("ATTACHMENT_EXPIRED", serverText("error.attachment.expiredReupload"));
       }
       return item;
     });
     const total = attachments.reduce((sum, item) => sum + item.size, 0);
     if (total > LIMITS.maxMessageAttachmentBytes) {
-      throw new HiveError("ATTACHMENTS_TOO_LARGE", "一条消息的附件总量不能超过 50 MiB。");
+      throw new HiveError("ATTACHMENTS_TOO_LARGE", serverText("error.attachment.totalTooLarge"));
     }
     return attachments.map(publicAttachment);
   }
@@ -407,7 +408,7 @@ export class AttachmentStore {
     );
     for (const id of ids) {
       if (statement.run(messageId, id).changes !== 1) {
-        throw new HiveError("ATTACHMENT_UNAVAILABLE", "附件已随另一条消息发出，请重新上传。");
+        throw new HiveError("ATTACHMENT_UNAVAILABLE", serverText("error.attachment.sentElsewhere"));
       }
     }
   }

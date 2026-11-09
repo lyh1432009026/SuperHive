@@ -585,6 +585,7 @@ export const scheduleSchema = z.object({
   occurrence: z.number().int().positive().optional(),
   status: scheduleStatusSchema,
   detail: z.string().max(500).optional(),
+  detailText: serverTextSchema.optional(),
   triggerMessageId: z.string().uuid().optional(),
   invocationId: z.string().uuid().optional(),
   firedAt: z.string().datetime().optional(),

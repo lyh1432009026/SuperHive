@@ -113,7 +113,7 @@ describe("HiveDatabase", () => {
         clientMessageId: "hop-over",
         parentMessageId: tail.id,
       }),
-    ).toThrowError(/hop limit/i);
+    ).toThrowError(/转交深度已到上限/);
     vi.useRealTimers();
   });
 
@@ -131,7 +131,7 @@ describe("HiveDatabase", () => {
     for (let hop = 1; hop <= LIMITS.maxHopCount; hop += 1)
       tail = send(hop % 2 ? agentA : agentB, `grant-${hop}`);
     const next = () => (tail.senderId === agentA.id ? agentB : agentA);
-    expect(() => send(next(), "grant-blocked")).toThrowError(/hop limit/i);
+    expect(() => send(next(), "grant-blocked")).toThrowError(/转交深度已到上限/);
 
     db.extendAgentTurns("general", 1);
     tail = send(next(), "grant-extended");
@@ -139,7 +139,7 @@ describe("HiveDatabase", () => {
 
     // 人一发言，追加额度失效，旧链条恢复默认深度上限
     db.createMessage(human, { content: "ok", clientMessageId: "grant-human" });
-    expect(() => send(next(), "grant-after-human")).toThrowError(/hop limit/i);
+    expect(() => send(next(), "grant-after-human")).toThrowError(/转交深度已到上限/);
     vi.useRealTimers();
   });
 
@@ -311,7 +311,7 @@ describe("HiveDatabase", () => {
         clientMessageId: "rate-over",
         parentMessageId: root.id,
       }),
-    ).toThrowError(/rate limit/i);
+    ).toThrowError(/每分钟上限/);
   });
 
   it("limits the agent messages in one trace", () => {
@@ -342,7 +342,7 @@ describe("HiveDatabase", () => {
         clientMessageId: "trace-over",
         parentMessageId: root.id,
       }),
-    ).toThrowError(/trace limit/i);
+    ).toThrowError(/发言已到上限/);
   });
 
   it("preserves the token and message history across a database restart", () => {
@@ -439,8 +439,8 @@ describe("HiveDatabase", () => {
     expect(restored.archivedAt).toBeUndefined();
     expect(db.listRooms().map((room) => room.id)).toContain("frontend");
 
-    expect(() => db.updateRoom("missing-room", { name: "x" })).toThrowError(/not found/i);
-    expect(() => db.updateRoom("general", { archived: true })).toThrowError(/cannot be archived/i);
+    expect(() => db.updateRoom("missing-room", { name: "x" })).toThrowError(/房间不存在/);
+    expect(() => db.updateRoom("general", { archived: true })).toThrowError(/默认房间不能归档/);
   });
 
   it("tracks online counts and latest seq per room", () => {

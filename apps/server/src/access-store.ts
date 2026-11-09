@@ -1,3 +1,4 @@
+import { serverText } from "@superhive/protocol";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { Invite } from "@superhive/protocol";
@@ -238,15 +239,15 @@ export class AccessStore {
         .run(now, id);
     })();
     const invite = this.getInvite(id);
-    if (!invite) throw new HiveError("INVITE_NOT_FOUND", "邀请不存在。");
+    if (!invite) throw new HiveError("INVITE_NOT_FOUND", serverText("error.invite.notFound"));
     return invite;
   }
 
   /** 续期邀请：链接与凭它进来的所有人一起延到新的截止时间 */
   renewInvite(id: string, expiresAt: string | null): Invite {
     const invite = this.getInvite(id);
-    if (!invite) throw new HiveError("INVITE_NOT_FOUND", "邀请不存在。");
-    if (invite.revokedAt) throw new HiveError("INVITE_REVOKED", "这个邀请已被撤销，请重新邀请。");
+    if (!invite) throw new HiveError("INVITE_NOT_FOUND", serverText("error.invite.notFound"));
+    if (invite.revokedAt) throw new HiveError("INVITE_REVOKED", serverText("error.invite.revokedReinvite"));
     this.db.transaction(() => {
       this.db.prepare("UPDATE invites SET expires_at = ? WHERE id = ?").run(expiresAt, id);
       this.db
@@ -291,13 +292,13 @@ export class AccessStore {
       const row = this.db
         .prepare("SELECT * FROM invites WHERE token_hash = ?")
         .get(digest(token)) as InviteRow | undefined;
-      if (!row) throw new HiveError("INVITE_INVALID", "邀请链接无效。");
-      if (row.revoked_at) throw new HiveError("INVITE_REVOKED", "这个邀请已被房主撤销。");
+      if (!row) throw new HiveError("INVITE_INVALID", serverText("error.invite.invalid"));
+      if (row.revoked_at) throw new HiveError("INVITE_REVOKED", serverText("error.invite.revoked"));
       if (row.expires_at && Date.parse(row.expires_at) <= now) {
-        throw new HiveError("INVITE_EXPIRED", "这个邀请已经过期，请向房主要一个新邀请。");
+        throw new HiveError("INVITE_EXPIRED", serverText("error.invite.expired"));
       }
       if (isNameTaken(row.room_id, username)) {
-        throw new HiveError("USERNAME_TAKEN", "房间里已经有人用这个名字了，请换一个。");
+        throw new HiveError("USERNAME_TAKEN", serverText("error.name.takenInRoom"));
       }
       const created = this.insertSession({
         roomId: row.room_id,
@@ -422,14 +423,14 @@ export class AccessStore {
   /** 续期只改访客本人；其 Agent 自动跟随 */
   renew(sessionId: string, expiresAt: string | null): AccessSession {
     const session = this.getSession(sessionId);
-    if (!session) throw new HiveError("SESSION_NOT_FOUND", "找不到这个访客。");
+    if (!session) throw new HiveError("SESSION_NOT_FOUND", serverText("error.guest.notFound"));
     if (session.kind !== "human") {
       throw new HiveError(
         "SESSION_NOT_RENEWABLE",
-        "访客带入的 Agent 跟随访客的期限，请为访客续期。",
+        serverText("error.guest.agentNotRenewable"),
       );
     }
-    if (session.revokedAt) throw new HiveError("SESSION_REVOKED", "这个访客已被移除，请重新邀请。");
+    if (session.revokedAt) throw new HiveError("SESSION_REVOKED", serverText("error.guest.removed"));
     this.db
       .prepare("UPDATE access_sessions SET expires_at = ? WHERE id = ?")
       .run(expiresAt, sessionId);
@@ -441,7 +442,7 @@ export class AccessStore {
       .prepare("UPDATE access_sessions SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?")
       .run(new Date().toISOString(), sessionId);
     const session = this.getSession(sessionId);
-    if (!session) throw new HiveError("SESSION_NOT_FOUND", "找不到这个访客。");
+    if (!session) throw new HiveError("SESSION_NOT_FOUND", serverText("error.guest.notFound"));
     return session;
   }
 }

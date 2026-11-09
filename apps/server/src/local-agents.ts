@@ -1,3 +1,4 @@
+import { serverText } from "@superhive/protocol";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import {
   closeSync,
@@ -470,12 +471,12 @@ export class LocalAgentSupervisor {
     }
     if (settings.mcpDisabled === undefined) return this.view(runtime);
     if (runtime.transitioning) {
-      throw new HiveError("LOCAL_AGENT_BUSY", "这个 Agent 正在重启，等它启动后再改设置。");
+      throw new HiveError("LOCAL_AGENT_BUSY", serverText("error.localAgent.restartingSettings"));
     }
     if (!MCP_SELECTABLE.has(runtime.config.provider)) {
       throw new HiveError(
         "LOCAL_AGENT_MCP_UNSUPPORTED",
-        "这个 Agent 类型暂不支持在 Hive 里开关 MCP。",
+        serverText("error.localAgent.mcpUnsupported"),
       );
     }
     runtime.config.mcpDisabled = this.options.database.setLocalAgentMcpDisabled(
@@ -539,7 +540,7 @@ export class LocalAgentSupervisor {
     try {
       servers = (JSON.parse(line) as { servers: LocalAgentMcpResponse["servers"] }).servers;
     } catch {
-      throw new HiveError("LOCAL_AGENT_MCP_LIST_FAILED", "没能读取这个 Agent 的 MCP 列表。");
+      throw new HiveError("LOCAL_AGENT_MCP_LIST_FAILED", serverText("error.localAgent.mcpListFailed"));
     }
     // 没要求重新估算时沿用 10 分钟内的估算结果，启用状态以刚读到的为准
     if (!measure && cached) {
@@ -592,7 +593,7 @@ export class LocalAgentSupervisor {
   create(request: CreateLocalAgentRequest): LocalAgent {
     const name = request.name.trim();
     if (this.options.isNameInUse(name)) {
-      throw new HiveError("LOCAL_AGENT_NAME_TAKEN", `名称 ${name} 已被在线成员使用，请换一个。`);
+      throw new HiveError("LOCAL_AGENT_NAME_TAKEN", serverText("error.localAgent.nameInUse", { name }));
     }
     // 与 `hive join` 一致：可写的档位必须明确工作目录，避免授权到错误目录
     const cwd = request.access === "read-only" ? null : resolveWorkspace(request.cwd);
@@ -638,7 +639,7 @@ export class LocalAgentSupervisor {
   async restart(id: string, guard?: (agent: LocalAgent) => boolean): Promise<LocalAgent> {
     const runtime = this.require(id);
     if (runtime.transitioning) {
-      throw new HiveError("LOCAL_AGENT_BUSY", "这个 Agent 正在重启。");
+      throw new HiveError("LOCAL_AGENT_BUSY", serverText("error.localAgent.restarting"));
     }
     runtime.transitioning = true;
     try {
@@ -647,7 +648,7 @@ export class LocalAgentSupervisor {
         runtime.phase = "stopped";
         throw new HiveError(
           "LOCAL_AGENT_CONFIG_CHANGED",
-          "Agent 的配置在批准后变了，已停下没有启动，请重新申请批准。",
+          serverText("error.localAgent.configChanged"),
         );
       }
       runtime.failures = [];
@@ -675,7 +676,7 @@ export class LocalAgentSupervisor {
 
   private require(id: string): Runtime {
     const runtime = this.runtimes.get(id);
-    if (!runtime) throw new HiveError("LOCAL_AGENT_NOT_FOUND", "找不到这个本机 Agent。");
+    if (!runtime) throw new HiveError("LOCAL_AGENT_NOT_FOUND", serverText("error.localAgent.notFound"));
     return runtime;
   }
 
@@ -914,25 +915,25 @@ function killTree(pid: number): void {
 
 export function resolveWorkspace(input: string | undefined): string {
   if (!input?.trim())
-    throw new HiveError("LOCAL_AGENT_CWD_REQUIRED", "工作区和完全访问权限需要指定工作目录。");
+    throw new HiveError("LOCAL_AGENT_CWD_REQUIRED", serverText("error.localAgent.cwdRequired"));
   const cwd = expandHome(input);
   if (!path.isAbsolute(cwd)) {
     throw new HiveError(
       "LOCAL_AGENT_CWD_INVALID",
-      "工作目录需要是绝对路径，例如 /Users/me/project。",
+      serverText("error.localAgent.cwdAbsolute"),
     );
   }
   let resolved: string;
   try {
     resolved = realpathSync(cwd);
   } catch {
-    throw new HiveError("LOCAL_AGENT_CWD_INVALID", `找不到目录 ${cwd}。`);
+    throw new HiveError("LOCAL_AGENT_CWD_INVALID", serverText("error.localAgent.cwdMissing", { path: cwd }));
   }
   if (!statSync(resolved).isDirectory()) {
-    throw new HiveError("LOCAL_AGENT_CWD_INVALID", `${cwd} 不是目录。`);
+    throw new HiveError("LOCAL_AGENT_CWD_INVALID", serverText("error.localAgent.cwdNotDirectory", { path: cwd }));
   }
   if (path.parse(resolved).root === resolved) {
-    throw new HiveError("LOCAL_AGENT_CWD_INVALID", "不能把整个文件系统根目录作为工作目录。");
+    throw new HiveError("LOCAL_AGENT_CWD_INVALID", serverText("error.localAgent.cwdRoot"));
   }
   return resolved;
 }

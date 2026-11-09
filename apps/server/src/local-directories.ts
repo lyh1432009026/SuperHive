@@ -1,3 +1,4 @@
+import { serverText } from "@superhive/protocol";
 import { readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -35,17 +36,17 @@ export function listDirectories(target?: string): LocalDirectoryListing {
   const launch = launchDirectory();
   const requested = target?.trim() ? expandHome(target) : launch;
   if (!path.isAbsolute(requested)) {
-    throw new HiveError("LOCAL_DIRECTORY_INVALID", "目录需要是绝对路径。");
+    throw new HiveError("LOCAL_DIRECTORY_INVALID", serverText("error.directory.absolute"));
   }
   let resolved: string;
   try {
     resolved = realpathSync(requested);
     if (!statSync(resolved).isDirectory()) {
-      throw new HiveError("LOCAL_DIRECTORY_INVALID", `${requested} 不是目录。`);
+      throw new HiveError("LOCAL_DIRECTORY_INVALID", serverText("error.directory.notDirectory", { path: requested }));
     }
   } catch (error) {
     if (error instanceof HiveError) throw error;
-    throw new HiveError("LOCAL_DIRECTORY_NOT_FOUND", `找不到目录 ${requested}。`);
+    throw new HiveError("LOCAL_DIRECTORY_NOT_FOUND", serverText("error.directory.missing", { path: requested }));
   }
 
   let entries: LocalDirectoryListing["entries"] = [];

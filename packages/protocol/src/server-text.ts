@@ -88,6 +88,586 @@ export const serverTexts = {
     en: "{name} is a guest. Tasks for the owner's agents start once the owner approves.",
   },
   "invocation.recalledNotRun": { zh: "消息已撤回，未执行", en: "Message recalled; not run" },
+
+  /* ---------- 操作名（嵌进错误提示里） ---------- */
+  "action.createRoom": { zh: "新建房间", en: "create rooms" },
+  "action.postToRoom": { zh: "到别的房间派活", en: "post tasks to other rooms" },
+
+  /* ---------- 定时任务 ---------- */
+  "schedule.roomCleared": { zh: "房间已清空", en: "The room was cleared" },
+
+  /* ---------- 错误提示（HTTP 错误体与 WebSocket error 事件的 text） ---------- */
+  "error.agent.askOutsideTask": {
+    zh: "只能在处理某条消息的过程中向人提问。",
+    en: "You can only ask a person a question while handling a message.",
+  },
+  "error.answer.duplicateOption": { zh: "选项重复。", en: "You picked the same option twice." },
+  "error.answer.empty": {
+    zh: "请至少选择一项，或填写「其它」。",
+    en: "Pick at least one option, or fill in Other.",
+  },
+  "error.answer.singleChoice": {
+    zh: "单选题只能选一项（或只填写「其它」）。",
+    en: "This question takes one answer: pick one option, or fill in Other only.",
+  },
+  "error.answer.unknownOption": { zh: "没有选项 {option}。", en: "There's no option {option}." },
+  "error.approval.forbidden": {
+    zh: "只有房主（或带入这个 Agent 的访客）能批这个权限申请。",
+    en: "Only the owner (or the guest who brought in this agent) can decide on this permission request.",
+  },
+  "error.approval.invalidAnswer": {
+    zh: "权限申请只能选「允许」或「拒绝」。",
+    en: "A permission request can only be answered with Allow or Deny.",
+  },
+  "error.approval.requestHandled": {
+    zh: "这条申请已经处理过或已过期。",
+    en: "This request was already handled or has expired.",
+  },
+  "error.approval.requestNotFound": {
+    zh: "没有这条申请，或已经过期。",
+    en: "This request doesn't exist or has expired.",
+  },
+  "error.attachment.expired": {
+    zh: "附件上传后太久没有发出，已过期。",
+    en: "This attachment was uploaded too long ago without being sent, so it expired.",
+  },
+  "error.attachment.expiredReupload": {
+    zh: "附件上传后太久没有发出，已过期，请重新上传。",
+    en: "This attachment was uploaded too long ago without being sent, so it expired. Upload it again.",
+  },
+  "error.attachment.failed": { zh: "附件处理失败。", en: "Couldn't process the attachment." },
+  "error.attachment.fileRequired": { zh: "没有收到文件。", en: "No file was received." },
+  "error.attachment.gone": {
+    zh: "附件文件已被清理。",
+    en: "The attachment file has been cleaned up.",
+  },
+  "error.attachment.localOnly": {
+    zh: "只提供给本机的房主 Agent。",
+    en: "Only available to the owner's agents on this computer.",
+  },
+  "error.attachment.messageRecalled": {
+    zh: "附件所在的消息已撤回。",
+    en: "The message with this attachment was recalled.",
+  },
+  "error.attachment.multipartRequired": {
+    zh: "请用 multipart/form-data 上传文件。",
+    en: "Upload files as multipart/form-data.",
+  },
+  "error.attachment.notFound": { zh: "附件不存在。", en: "Attachment not found." },
+  "error.attachment.notInRoom": {
+    zh: "这个房间里没有这个附件（可能已撤回）。",
+    en: "There's no such attachment in this room (it may have been recalled).",
+  },
+  "error.attachment.pendingNotFound": {
+    zh: "没有这个待发附件。",
+    en: "There's no such attachment waiting to be sent.",
+  },
+  "error.attachment.pendingQuota": {
+    zh: "待发送的附件太多，请先发出或移除一些。",
+    en: "Too many attachments are waiting to be sent. Send or remove some first.",
+  },
+  "error.attachment.rateLimited": {
+    zh: "上传太频繁，请稍后再试。",
+    en: "You're uploading too often. Try again in a moment.",
+  },
+  "error.attachment.roomQuota": {
+    zh: "这个房间的附件空间已满，请撤回不需要的附件。",
+    en: "This room's attachment storage is full. Recall attachments you no longer need.",
+  },
+  "error.attachment.sentElsewhere": {
+    zh: "附件已随另一条消息发出，请重新上传。",
+    en: "This attachment was already sent with another message. Upload it again.",
+  },
+  "error.attachment.tooLarge": {
+    zh: "单个附件不能超过 20 MiB。",
+    en: "Each attachment can be at most 20 MiB.",
+  },
+  "error.attachment.tooMany": {
+    zh: "一条消息最多带 10 个附件。",
+    en: "A message can carry at most 10 attachments.",
+  },
+  "error.attachment.totalTooLarge": {
+    zh: "一条消息的附件总量不能超过 50 MiB。",
+    en: "A message's attachments can total at most 50 MiB.",
+  },
+  "error.attachment.unavailable": {
+    zh: "附件不存在、已发出或不属于你，请重新上传。",
+    en: "This attachment doesn't exist, was already sent, or isn't yours. Upload it again.",
+  },
+  "error.auth.agentsReportOnly": {
+    zh: "只有 Agent 能回报任务进度。",
+    en: "Only agents can report task progress.",
+  },
+  "error.auth.humansAnswer": {
+    zh: "只有人能回答 Agent 的提问。",
+    en: "Only people can answer an agent's questions.",
+  },
+  "error.auth.humansManageTasks": { zh: "只有人能管理任务。", en: "Only people can manage tasks." },
+  "error.auth.notAllowed": { zh: "不允许。", en: "Not allowed." },
+  "error.auth.ownerOnly": { zh: "只有房主可以执行这个操作。", en: "Only the owner can do this." },
+  "error.auth.roomForbidden": {
+    zh: "这个凭证不能访问该房间。",
+    en: "These credentials can't access this room.",
+  },
+  "error.auth.unauthorized": {
+    zh: "未授权，请重新登录或刷新页面。",
+    en: "Not authorized. Sign in again or refresh the page.",
+  },
+  "error.delegation.agentNotFound": {
+    zh: "房间里没有名为 {agent} 的 Agent。",
+    en: "There's no agent named {agent} in this room.",
+  },
+  "error.delegation.cycle": {
+    zh: "{agent} 正在等待这条委派链的结果，再委派给它会相互等待；请直接在回复里给出结论。",
+    en: "{agent} is waiting on this delegation chain, so delegating back to it would deadlock. Give your conclusion in your reply instead.",
+  },
+  "error.delegation.noInvocation": {
+    zh: "委派消息已发出，但没有为对方建立调用记录。",
+    en: "The delegation message was sent, but no task was created for the other agent.",
+  },
+  "error.delegation.self": {
+    zh: "不能把子任务委派给自己。",
+    en: "You can't delegate a task to yourself.",
+  },
+  "error.device.localOnly": {
+    zh: "这项操作只能在 Hive Server 所在的电脑上进行。",
+    en: "This can only be done on the computer running Hive Server.",
+  },
+  "error.device.manageRequired": {
+    zh: "这台设备还没有获准管理 Hive Server 所在的电脑，请先申请。",
+    en: "This device isn't approved to manage the computer running Hive Server yet. Request access first.",
+  },
+  "error.device.notADevice": {
+    zh: "只有房主登录的其他设备需要申请。",
+    en: "Only other devices the owner signed in on need to request access.",
+  },
+  "error.device.notFound": {
+    zh: "没有这台设备，或已经退出。",
+    en: "This device doesn't exist or has already signed out.",
+  },
+  "error.device.ownerCredential": {
+    zh: "缺少或错误的房主凭证，请刷新页面。",
+    en: "The owner credential is missing or wrong. Refresh the page.",
+  },
+  "error.device.sessionInvalid": {
+    zh: "这台设备的登录已失效，请重新扫码或在飞书里发 /web。",
+    en: "This device's sign-in is no longer valid. Scan again, or send /web in Feishu.",
+  },
+  "error.device.signedOutByOwner": {
+    zh: "这台设备已被房主退出登录。",
+    en: "The owner signed this device out.",
+  },
+  "error.directory.absolute": {
+    zh: "目录需要是绝对路径。",
+    en: "The directory must be an absolute path.",
+  },
+  "error.directory.missing": { zh: "找不到目录 {path}。", en: "Directory {path} doesn't exist." },
+  "error.directory.notDirectory": { zh: "{path} 不是目录。", en: "{path} isn't a directory." },
+  "error.feature.disabled": { zh: "未启用。", en: "Not enabled." },
+  "error.guest.agentGuestOnly": {
+    zh: "只有访客本人可以为自己带入 Agent。",
+    en: "Only the guest can bring in an agent for themselves.",
+  },
+  "error.guest.agentNotRenewable": {
+    zh: "访客带入的 Agent 跟随访客的期限，请为访客续期。",
+    en: "Agents brought in by a guest expire with the guest. Renew the guest instead.",
+  },
+  "error.guest.cancelScheduleOwn": {
+    zh: "访客只能取消自己发起的定时任务。",
+    en: "Guests can only cancel schedules they created.",
+  },
+  "error.guest.dismissOwn": {
+    zh: "访客只能忽略自己发起的调用。",
+    en: "Guests can only dismiss tasks they started.",
+  },
+  "error.guest.expired": {
+    zh: "你的访问期限已到，请联系房主续期或重新邀请。",
+    en: "Your access has expired. Ask the owner to extend it or invite you again.",
+  },
+  "error.guest.manageOwn": {
+    zh: "访客只能重试或停止自己发起、且无需房主批准的调用。",
+    en: "Guests can only retry or stop tasks they started that don't need the owner's approval.",
+  },
+  "error.guest.notFound": { zh: "找不到这个访客。", en: "Guest not found." },
+  "error.guest.ownerActions": {
+    zh: "访客不能开启新话题、追加轮数或删除白板事项。",
+    en: "Guests can't start a new topic, add turns, or delete whiteboard items.",
+  },
+  "error.guest.preempt": {
+    zh: "访客不能停下 Agent 正在执行的任务。",
+    en: "Guests can't stop a task an agent is running.",
+  },
+  "error.guest.removed": {
+    zh: "这个访客已被移除，请重新邀请。",
+    en: "This guest was removed. Invite them again.",
+  },
+  "error.guest.revoked": {
+    zh: "房主已把你移出这个房间。",
+    en: "The owner removed you from this room.",
+  },
+  "error.im.connectionNotFound": { zh: "没有这个 IM 连接。", en: "There's no such IM connection." },
+  "error.im.loginNotFound": {
+    zh: "扫码会话不存在或已过期。",
+    en: "This sign-in session doesn't exist or has expired.",
+  },
+  "error.im.ownerIdentity": {
+    zh: "需要以房主本人在这个房间里的身份连接。",
+    en: "Connect as the owner's own member in this room.",
+  },
+  "error.im.pairingCode": {
+    zh: "配对码格式不对。",
+    en: "The pairing code isn't in the right format.",
+  },
+  "error.im.wechatRisk": {
+    zh: "连接个人微信前需要确认风险。",
+    en: "Confirm the risks before connecting personal WeChat.",
+  },
+  "error.invite.expired": {
+    zh: "这个邀请已经过期，请向房主要一个新邀请。",
+    en: "This invite has expired. Ask the owner for a new one.",
+  },
+  "error.invite.identity": {
+    zh: "这个邀请只能以 {name} 的身份进入 #{room}。",
+    en: "This invite only lets you join #{room} as {name}.",
+  },
+  "error.invite.invalid": { zh: "邀请链接无效。", en: "This invite link isn't valid." },
+  "error.invite.notFound": { zh: "邀请不存在。", en: "This invite doesn't exist." },
+  "error.invite.revoked": { zh: "这个邀请已被房主撤销。", en: "The owner revoked this invite." },
+  "error.invite.revokedReinvite": {
+    zh: "这个邀请已被撤销，请重新邀请。",
+    en: "This invite was revoked. Ask for a new one.",
+  },
+  "error.invocation.mayStillRun": {
+    zh: "上一次执行可能还在进行。先停止，等 Agent 确认停下后再重试。",
+    en: "The previous run may still be going. Stop it and wait for the agent to confirm before retrying.",
+  },
+  "error.invocation.notFound": { zh: "找不到这个任务。", en: "Task not found." },
+  "error.invocation.notInRoom": {
+    zh: "当前房间没有这个调用。",
+    en: "There's no such task in this room.",
+  },
+  "error.invocation.notRetryable": {
+    zh: "这个任务现在不能重试。",
+    en: "This task can't be retried right now.",
+  },
+  "error.invocation.triggerGone": {
+    zh: "触发这个任务的消息已经不在了。",
+    en: "The message that started this task no longer exists.",
+  },
+  "error.keepAwake.disabled": {
+    zh: "这个服务没有启用熄屏后保持在线。",
+    en: "Keep awake isn't enabled on this server.",
+  },
+  "error.localAgent.configChanged": {
+    zh: "Agent 的配置在批准后变了，已停下没有启动，请重新申请批准。",
+    en: "The agent's configuration changed after approval, so it was stopped instead of started. Request approval again.",
+  },
+  "error.localAgent.cwdAbsolute": {
+    zh: "工作目录需要是绝对路径，例如 /Users/me/project。",
+    en: "The working directory must be an absolute path, such as /Users/me/project.",
+  },
+  "error.localAgent.cwdMissing": {
+    zh: "找不到目录 {path}。",
+    en: "Directory {path} doesn't exist.",
+  },
+  "error.localAgent.cwdNotDirectory": { zh: "{path} 不是目录。", en: "{path} isn't a directory." },
+  "error.localAgent.cwdRequired": {
+    zh: "工作区和完全访问权限需要指定工作目录。",
+    en: "Workspace and full access need a working directory.",
+  },
+  "error.localAgent.cwdRoot": {
+    zh: "不能把整个文件系统根目录作为工作目录。",
+    en: "The file system root can't be the working directory.",
+  },
+  "error.localAgent.disabled": {
+    zh: "本机 Agent 已在服务端关闭。",
+    en: "Local agents are turned off on this server.",
+  },
+  "error.localAgent.mcpListFailed": {
+    zh: "没能读取这个 Agent 的 MCP 列表。",
+    en: "Couldn't read this agent's MCP servers.",
+  },
+  "error.localAgent.mcpUnsupported": {
+    zh: "这个 Agent 类型暂不支持在 Hive 里开关 MCP。",
+    en: "Hive can't turn MCP servers on or off for this kind of agent yet.",
+  },
+  "error.localAgent.nameExists": {
+    zh: "本机已有名为 {name} 的 Agent。",
+    en: "There's already a local agent named {name}.",
+  },
+  "error.localAgent.nameInUse": {
+    zh: "名称 {name} 已被在线成员使用，请换一个。",
+    en: "{name} is already used by an online member. Pick another.",
+  },
+  "error.localAgent.notFound": { zh: "找不到这个本机 Agent。", en: "Local agent not found." },
+  "error.localAgent.restarting": { zh: "这个 Agent 正在重启。", en: "This agent is restarting." },
+  "error.localAgent.restartingSettings": {
+    zh: "这个 Agent 正在重启，等它启动后再改设置。",
+    en: "This agent is restarting. Change its settings once it's up.",
+  },
+  "error.login.invalid": {
+    zh: "登录链接无效、已过期或已经用过。请重新扫码，或在飞书里发 /web 获取新的链接。",
+    en: "This sign-in link is invalid, expired, or already used. Scan again, or send /web in Feishu for a new link.",
+  },
+  "error.login.rateLimited": {
+    zh: "尝试次数太多，请 10 分钟后再试。",
+    en: "Too many attempts. Try again in 10 minutes.",
+  },
+  "error.member.notFound": { zh: "找不到这个成员。", en: "Member not found." },
+  "error.message.empty": { zh: "消息内容为空。", en: "The message is empty." },
+  "error.message.hopLimit": {
+    zh: "这段 Agent 对话的转交深度已到上限。",
+    en: "This agent conversation has been handed off too many times.",
+  },
+  "error.message.notInRoom": {
+    zh: "这个房间里没有这条消息。",
+    en: "There's no such message in this room.",
+  },
+  "error.message.parentMissing": {
+    zh: "这个房间里没有要回复的那条消息。",
+    en: "The message you're replying to isn't in this room.",
+  },
+  "error.message.rateLimit": {
+    zh: "这个 Agent 发言太频繁，已到每分钟上限。",
+    en: "This agent is replying too often and hit its per-minute limit.",
+  },
+  "error.message.recallSenderOnly": {
+    zh: "只有发送者本人能撤回消息。",
+    en: "Only the sender can recall a message.",
+  },
+  "error.message.selfResponse": {
+    zh: "Agent 不能回应自己发的消息。",
+    en: "An agent can't respond to its own message.",
+  },
+  "error.message.tooLong": {
+    zh: "消息超过 {max} 字符保护上限，请缩短正文或拆分发送。",
+    en: "The message is over the {max}-character limit. Shorten it or split it into several messages.",
+  },
+  "error.message.traceLimit": {
+    zh: "这条转交链里 Agent 发言已到上限。",
+    en: "This agent conversation has reached its message limit.",
+  },
+  "error.message.unreadable": {
+    zh: "当前房间/话题中没有这条可读取消息（可能已撤回）。",
+    en: "There's no readable message like that in this room or topic (it may have been recalled).",
+  },
+  "error.name.agentFormat": {
+    zh: "Agent 名字只能包含字母、数字、点、下划线和连字符。",
+    en: "Agent names can only contain letters, numbers, dots, underscores, and hyphens.",
+  },
+  "error.name.format": {
+    zh: "名字只能包含字母、数字、点、下划线和连字符。",
+    en: "Names can only contain letters, numbers, dots, underscores, and hyphens.",
+  },
+  "error.name.online": {
+    zh: "这个名字已经在房间里在线了。",
+    en: "Someone with this name is already online in this room.",
+  },
+  "error.name.otherType": {
+    zh: "这个名字已经被另一类成员（人或 Agent）使用。",
+    en: "This name is already used by a different kind of member (person or agent).",
+  },
+  "error.name.taken": {
+    zh: "房间里已经有这个名字了，请换一个。",
+    en: "That name is already in use in this room. Pick another.",
+  },
+  "error.name.takenInRoom": {
+    zh: "房间里已经有人用这个名字了，请换一个。",
+    en: "Someone in this room already uses that name. Pick another.",
+  },
+  "error.progress.limit": {
+    zh: "这个任务的进度消息已经发了 {limit} 条，到上限了；把剩下的写进最终回复。",
+    en: "This task has already sent {limit} progress messages, the limit. Put the rest in your final reply.",
+  },
+  "error.progress.mentionsAgent": {
+    zh: "进度消息不会唤醒 {agents}；要别的 Agent 干活请用 hive_invoke，进度里提到它时去掉 @。",
+    en: "Progress messages don't wake {agents}. Use hive_invoke to give another agent work, and drop the @ when you mention it in progress.",
+  },
+  "error.progress.outsideTask": {
+    zh: "只能在执行任务的过程中发进度；最终结论请直接回复。",
+    en: "You can only send progress while running a task. Reply directly with your final answer.",
+  },
+  "error.question.closed": {
+    zh: "这个提问已经回答过或已停止等待。",
+    en: "This question has already been answered or is no longer waiting.",
+  },
+  "error.question.duplicateOptions": { zh: "选项不能重复。", en: "Options must be unique." },
+  "error.question.notFound": {
+    zh: "这条提问不存在或没有可选项。",
+    en: "This question doesn't exist or has no options.",
+  },
+  "error.question.optionCount": {
+    zh: "选项需要 2 到 {max} 个；只有一个可选项时直接写在问题里。",
+    en: "Questions need 2 to {max} options. If there's only one choice, put it in the question.",
+  },
+  "error.question.optionLength": {
+    zh: "每个选项需为 1 到 {max} 个字符。",
+    en: "Each option must be 1 to {max} characters.",
+  },
+  "error.request.invalid": { zh: "参数不正确。", en: "Invalid parameters." },
+  "error.request.missingActor": { zh: "缺少操作人。", en: "The acting person is missing." },
+  "error.room.agentsAbsent": {
+    zh: "#{room} 里还没有在线的 {agents}，稍后再试或换一个 Agent。",
+    en: "{agents} isn't online in #{room} yet. Try again shortly or pick another agent.",
+  },
+  "error.room.archivedJoin": {
+    zh: "这个房间已归档，不再接受新成员。",
+    en: "This room is archived and no longer accepts new members.",
+  },
+  "error.room.clearMembersOnly": {
+    zh: "只有房间里的人类成员可以清空房间。",
+    en: "Only human members of this room can clear it.",
+  },
+  "error.room.defaultProtected": {
+    zh: "默认房间不能归档。",
+    en: "The default room can't be archived.",
+  },
+  "error.room.exists": { zh: "已有这个 ID 的房间。", en: "A room with this ID already exists." },
+  "error.room.guestAgentForbidden": {
+    zh: "访客带入的 Agent 不能{action}。",
+    en: "Agents brought in by a guest can't {action}.",
+  },
+  "error.room.leadInvalid": {
+    zh: "{agent} 不是这个房间里的 Agent。",
+    en: "{agent} isn't an agent in this room.",
+  },
+  "error.room.notFound": { zh: "房间不存在。", en: "Room not found." },
+  "error.room.notFoundOrArchived": {
+    zh: "房间不存在或已归档。",
+    en: "The room doesn't exist or is archived.",
+  },
+  "error.room.notJoined": {
+    zh: "你还没进入 #{room}，稍后再试。",
+    en: "You haven't joined #{room} yet. Try again shortly.",
+  },
+  "error.room.outsideTask": {
+    zh: "只能在处理某条消息的过程中{action}。",
+    en: "You can only {action} while handling a message.",
+  },
+  "error.room.ownerTaskOnly": {
+    zh: "只有房主本人发起的任务里才能{action}（访客发起的、Agent 之间的对话都不行）。",
+    en: "You can only {action} in tasks the owner started (not in tasks started by guests or between agents).",
+  },
+  "error.room.postNeedsMention": {
+    zh: "消息里要 @ 那个房间里接活的 Agent。",
+    en: "@ the agent in that room who should take the task.",
+  },
+  "error.room.samePost": {
+    zh: "这就是当前房间，直接回复或用 hive_invoke 即可。",
+    en: "This is the current room. Reply directly or use hive_invoke.",
+  },
+  "error.room.targetNotFound": {
+    zh: "没有房间 #{room}（或已归档）。",
+    en: "There's no room #{room} (or it's archived).",
+  },
+  "error.schedule.humanOnly": {
+    zh: "只有人发起的任务里才能创建定时任务（Agent 之间的对话不能自行排定时）。",
+    en: "Schedules can only be created in tasks a person started (agents can't schedule each other).",
+  },
+  "error.schedule.intervalRange": {
+    zh: "everyMinutes 需为 {min} 到 {max} 之间的整数（分钟）。",
+    en: "everyMinutes must be a whole number from {min} to {max} (minutes).",
+  },
+  "error.schedule.missing": { zh: "定时任务不存在。", en: "Schedule not found." },
+  "error.schedule.nested": {
+    zh: "定时任务执行时不能再创建定时任务；要重复执行，请在最初创建时用 everyMinutes + until 登记成周期任务。",
+    en: "A scheduled run can't create another schedule. To repeat, create a recurring schedule up front with everyMinutes and until.",
+  },
+  "error.schedule.notFound": {
+    zh: "这个房间里没有这个定时任务。",
+    en: "There's no such schedule in this room.",
+  },
+  "error.schedule.outsideTask": {
+    zh: "只能在处理某条消息的过程中创建定时任务。",
+    en: "You can only create a schedule while handling a message.",
+  },
+  "error.schedule.ownOnly": {
+    zh: "Agent 只能取消自己的定时任务。",
+    en: "Agents can only cancel their own schedules.",
+  },
+  "error.schedule.requesterExpired": {
+    zh: "发起人的访客权限已失效，不能再创建定时任务。",
+    en: "The requester's guest access has expired, so no more schedules can be created.",
+  },
+  "error.schedule.roomLimit": {
+    zh: "这个房间已有 {max} 个待执行的定时任务，先取消一些再建。",
+    en: "This room already has {max} pending schedules. Cancel some first.",
+  },
+  "error.schedule.runAtFormat": {
+    zh: "runAt 需为带时区偏移的 ISO 8601 时间，例如 2026-11-04T00:07:00+08:00。",
+    en: "runAt must be an ISO 8601 time with a time zone offset, for example 2026-11-04T00:07:00+08:00.",
+  },
+  "error.schedule.runAtInvalid": { zh: "runAt 不是有效的时间。", en: "runAt isn't a valid time." },
+  "error.schedule.runAtTooFar": {
+    zh: "最多只能排到 {days} 天以内。",
+    en: "Schedules can be at most {days} days ahead.",
+  },
+  "error.schedule.runAtTooSoon": {
+    zh: "runAt 需晚于当前时间至少 30 秒；当前服务端时间 {now}。",
+    en: "runAt must be at least 30 seconds from now. Server time is {now}.",
+  },
+  "error.schedule.taskLength": {
+    zh: "任务说明需为 1 到 {max} 个字符。",
+    en: "The task description must be 1 to {max} characters.",
+  },
+  "error.schedule.timeZone": {
+    zh: "不认识的时区 {timeZone}，请用 IANA 名称，例如 Asia/Shanghai。",
+    en: "Unknown time zone {timeZone}. Use an IANA name such as Asia/Shanghai.",
+  },
+  "error.schedule.tooManyOccurrences": {
+    zh: "这样一共要执行 {count} 次，最多 {max} 次；请拉长间隔或提前结束时间。",
+    en: "This would run {count} times; the maximum is {max}. Use a longer interval or an earlier end time.",
+  },
+  "error.schedule.untilBeforeRunAt": {
+    zh: "until 需晚于第一次执行的时间 runAt。",
+    en: "until must be later than the first run (runAt).",
+  },
+  "error.schedule.untilRequired": {
+    zh: "周期任务要给 until：带时区偏移的 ISO 8601 结束时间，例如 2026-11-10T20:00:00+08:00。",
+    en: "Recurring schedules need until: an ISO 8601 end time with a time zone offset, for example 2026-11-10T20:00:00+08:00.",
+  },
+  "error.schedule.untilTooFar": {
+    zh: "周期最多只能排到 {days} 天以内。",
+    en: "A recurring schedule can run at most {days} days ahead.",
+  },
+  "error.steer.agentIdle": {
+    zh: "{agent} 现在没有正在执行的任务，这条会照常开始。",
+    en: "{agent} isn't running a task right now, so this message will start normally.",
+  },
+  "error.steer.humanOnly": {
+    zh: "只有人直接发的消息可以插进当前任务。",
+    en: "Only messages sent directly by a person can be added to the current task.",
+  },
+  "error.steer.messageGone": { zh: "这条消息已经不在了。", en: "This message no longer exists." },
+  "error.steer.notQueued": {
+    zh: "这条已经不在排队了。",
+    en: "This message is no longer in the queue.",
+  },
+  "error.terminal.agentBusy": {
+    zh: "{agent} 正在执行任务。终端里显示的是打开那一刻为止的会话记录，不会跟着刷新；在终端里发消息会和它同时写这个会话，把上下文搅乱。",
+    en: "{agent} is running a task. The terminal shows the session as of when you open it and won't update; sending messages there writes to the same session at the same time and will scramble its context.",
+  },
+  "error.terminal.noSession": {
+    zh: "{agent} 在这个房间还没有可以接着的会话：可能是它在支持这个功能之前启动的（重启一次就好）、在这个房间还没开始过任务，或这种 Agent 不支持。",
+    en: "{agent} has no session to resume in this room. It may have started before this feature existed (restart it once), hasn't run a task in this room yet, or doesn't support it.",
+  },
+  "error.topic.humansOnly": {
+    zh: "只有人能开启新话题。",
+    en: "Only people can start a new topic.",
+  },
+  "error.ws.alreadyJoined": { zh: "已经加入过了。", en: "Already joined." },
+  "error.ws.answerFailed": { zh: "回答没能提交。", en: "Couldn't submit the answer." },
+  "error.ws.invalidEvent": { zh: "无效的请求。", en: "Invalid request." },
+  "error.ws.invalidJson": {
+    zh: "无法解析的消息格式。",
+    en: "Couldn't read the message (invalid JSON).",
+  },
+  "error.ws.invalidToken": { zh: "接入令牌无效。", en: "The join token isn't valid." },
+  "error.ws.joinFailed": { zh: "没能加入房间。", en: "Couldn't join the room." },
+  "error.ws.notJoined": { zh: "请先加入房间。", en: "Join the room first." },
+  "error.ws.recallFailed": { zh: "消息没能撤回。", en: "Couldn't recall the message." },
+  "error.ws.requestFailed": { zh: "请求没能处理。", en: "Couldn't handle the request." },
+  "error.ws.sendFailed": { zh: "消息没能发出。", en: "Couldn't send the message." },
 } as const satisfies Record<string, Entry>;
 
 export type ServerTextKey = keyof typeof serverTexts;
