@@ -721,7 +721,12 @@ describe("IM 推送档位", () => {
   });
 
   async function setup(
-    options: { richCards?: boolean; webUrl?: string; localAgents?: boolean } = {},
+    options: {
+      richCards?: boolean;
+      webUrl?: string;
+      localAgents?: boolean;
+      locale?: "zh-CN" | "en";
+    } = {},
   ) {
     const fake = new FakeChannel();
     fake.richCards = Boolean(options.richCards);
@@ -781,6 +786,7 @@ describe("IM 推送档位", () => {
     const started = await api("POST", "/api/rooms/general/im/login", {
       channel: "feishu",
       ownerName: "rd",
+      ...(options.locale ? { locale: options.locale } : {}),
     });
     await until(() => fake.login);
     fake.login!.resolve("owner-open-id");
@@ -1366,6 +1372,147 @@ describe("IM 推送档位", () => {
     await until(async () => true);
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(fake.sent.some((item) => item.text.includes("暂停时说的"))).toBe(false);
+  });
+  /** 去掉用户和 Agent 写的内容后，界面文字里不该再有中文 */
+  // 汉字和中文标点；转述正文时 @ 换成的全角 ＠ 不算
+  const CJK = /[\u3400-\u9fff\u3001-\u303f\uff01\uff08\uff09\uff0c\uff1a\uff1b\uff1f]/u;
+  function uiText(rich: ImRich, userContent: string[] = []): string {
+    let text = JSON.stringify({ ...rich, link: rich.link?.label });
+    for (const content of userContent) text = text.split(content).join("");
+    return text;
+  }
+
+  it("English：/lang en 后命令回复、卡片标题按钮提示都是英文，再切回中文；网页也能切", async () => {
+    const { fake, api, id, helper, assign } = await setup({
+      richCards: true,
+      webUrl: "http://10.0.0.8:5188",
+    });
+    fake.emit({ text: "/lang en" });
+    await until(() => fake.sent.find((item) => item.text === "Switched to English."));
+    expect((await api("GET", "/api/rooms/general/im")).body.connections[0]).toMatchObject({
+      id,
+      locale: "en",
+    });
+
+    fake.emit({ text: "/help" });
+    const help = await until(() => fake.sent.find((item) => item.rich?.title === "SuperHive help"));
+    expect(help.rich!.locale).toBe("en");
+    expect(help.rich!.actions!.map((action) => action.label)).toEqual([
+      "Pick agent",
+      "Switch room",
+      "Who's busy",
+      "Notifications",
+    ]);
+    expect(uiText(help.rich!)).not.toMatch(CJK);
+
+    fake.emit({ text: "menu" });
+    const menu = await until(() => fake.sent.find((item) => item.rich?.title === "Control panel"));
+    // 唯一的中文是切换语言的按钮本身
+    expect(uiText(menu.rich!, ["切换到中文"])).not.toMatch(CJK);
+    expect(menu.rich!.actions!.at(-1)).toMatchObject({
+      label: "切换到中文",
+      value: { do: "lang", locale: "zh-CN" },
+    });
+
+    fake.emit({ text: "/who" });
+    const who = await until(() => fake.sent.find((item) => item.rich?.title === "Who's busy"));
+    expect(who.rich!.body).toContain("**helper**\u3000Idle");
+    fake.emit({ text: "/level" });
+    const level = await until(() => fake.sent.find((item) => item.rich?.title === "Notifications"));
+    expect(level.rich!.tag).toBe("Current: Relevant to me");
+    expect(uiText(level.rich!)).not.toMatch(CJK);
+    fake.emit({ text: "/nope" });
+    await until(() => fake.sent.find((item) => item.text.startsWith("Unknown command: /nope")));
+
+    // 失败提醒：标题、按钮、说明是英文，原因是服务端或 Agent 给的原文
+    const trigger = await assign("@helper 部署", "web-en");
+    helper.send({ type: "invocation.report", messageId: trigger.id, status: "running" });
+    helper.send({
+      type: "invocation.report",
+      messageId: trigger.id,
+      status: "failed",
+      detail: "exit 1",
+    });
+    const notice = await until(() => fake.sent.find((item) => item.rich?.tone === "danger"));
+    expect(notice.rich).toMatchObject({ title: "helper failed", tag: "Failed" });
+    expect(notice.rich!.actions!.map((action) => action.label)).toEqual(["Retry", "Dismiss"]);
+    expect(uiText(notice.rich!, ["@helper 部署", "部署"])).not.toMatch(CJK);
+    const retried = fake.events!.onAction!({
+      externalId: fake.sentIds.get(notice)!,
+      chatId: notice.chatId,
+      operatorId: "owner-open-id",
+      value: { hive: "1", do: "retry" },
+    });
+    expect(retried).toMatchObject({
+      toast: { text: "Retried" },
+      rich: { resolved: { text: "Retried" }, note: "Retried by rd in Feishu" },
+    });
+
+    // 控制面板上点「切换到中文」：卡片原地换成中文
+    expect(
+      fake.events!.onAction!({
+        externalId: fake.sentIds.get(menu)!,
+        chatId: menu.chatId,
+        operatorId: "owner-open-id",
+        value: { hive: "1", do: "lang", locale: "zh-CN" },
+      }),
+    ).toMatchObject({ toast: { text: "已切换为中文" }, rich: { title: "控制面板" } });
+
+    // 网页上也能切
+    const switched = await api("POST", `/api/im/connections/${id}/locale`, { locale: "en" });
+    expect(switched.body.locale).toBe("en");
+    expect((await api("POST", `/api/im/connections/${id}/locale`, { locale: "fr" })).status).toBe(
+      400,
+    );
+  });
+
+  it("English：新连接跟随扫码时网页的语言；文字渠道的提问按英文重排，选项原文照旧", async () => {
+    const { fake, api, helper, app } = await setup({ locale: "en" });
+    expect((await api("GET", "/api/rooms/general/im")).body.connections[0].locale).toBe("en");
+    fake.emit({ text: "随便说一句" });
+    await until(() =>
+      fake.sent.find((item) =>
+        item.text.startsWith('Posted to "general". To get an agent on it, @ it in your message.'),
+      ),
+    );
+    fake.emit({ text: "@helper 发布" });
+    const mentioned = await helper.next((event) => event.type === "agent.mentioned");
+    const trigger = (mentioned as { message: ChatMessage }).message;
+    helper.send({ type: "invocation.report", messageId: trigger.id, status: "running" });
+    const port = (app.server.address() as AddressInfo).port;
+    const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+      requestInit: {
+        headers: {
+          Authorization: "Bearer test-token",
+          "X-Hive-Room": "general",
+          "X-Hive-Agent-Name": "helper",
+        },
+      },
+    });
+    const client = new Client({ name: "im-test", version: "0.1.0" });
+    await client.connect(transport as unknown as Transport);
+    await client.callTool({
+      name: "hive_ask_human",
+      arguments: { question: "Which environment?", options: ["staging", "production"] },
+    });
+    const pushed = await until(() =>
+      fake.sent.find((item) => item.text.includes("Which environment?")),
+    );
+    expect(pushed.text.split("\n").slice(1)).toEqual([
+      "❓ Which environment?",
+      "(Choose one)",
+      "A. staging",
+      "B. production",
+      "(Reply with an option letter, e.g. A, or in your own words)",
+    ]);
+    // 命令中英文都认：「菜单」「menu」都打开控制面板（文字渠道回用法）
+    fake.emit({ text: "菜单" });
+    await until(() => fake.sent.find((item) => item.text.startsWith("Using SuperHive:")));
+    fake.emit({ text: "/lang 中文" });
+    await until(() => fake.sent.find((item) => item.text === "已切换为中文。"));
+    fake.emit({ text: "/lang klingon" });
+    await until(() => fake.sent.find((item) => item.text.startsWith("语言只能是")));
+    await client.close();
   });
 });
 

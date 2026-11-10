@@ -131,6 +131,22 @@ describe("飞书卡片", () => {
     expect(JSON.stringify(answered)).toContain("✓ B");
   });
 
+  it("卡片里固定的字按连接的语言画：提交按钮、其它答案、附件标题、空卡片", () => {
+    const card = renderFeishuCard({
+      ...question,
+      choice: { multiple: true },
+      attachments: [{ name: "a.png", size: "1 KB" }],
+      locale: "en",
+    }) as any;
+    const text = JSON.stringify(card);
+    expect(text).toContain("Other answer (optional)");
+    expect(text).toContain('"Submit"');
+    expect(text).toContain("**Attachments: 1**");
+    expect(text).not.toContain("提交");
+    const empty = renderFeishuCard({ title: "x", tone: "reply", summary: "x", locale: "en" });
+    expect(JSON.stringify(empty)).toContain("(empty)");
+  });
+
   it("操作按钮、进度步骤；回调只认我们自己的按钮和表单", () => {
     const card = renderFeishuCard({
       title: "helper 处理失败",

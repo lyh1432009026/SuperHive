@@ -62,6 +62,8 @@ describe("连接 IM 弹窗", () => {
     expect(calls.find((call) => call.url.endsWith("/im/login"))?.body).toEqual({
       channel: "wechat",
       ownerName: "rd",
+      // 机器人先说网页当前的语言
+      locale: "zh-CN",
       acceptRisk: true,
     });
   });

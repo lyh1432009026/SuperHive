@@ -25,6 +25,7 @@ import {
   renewAccessRequestSchema,
   startImLoginRequestSchema,
   setImDeliveryLevelRequestSchema,
+  setImLocaleRequestSchema,
   submitImLoginCodeRequestSchema,
   type ImChannel,
   type ChatMessage,
@@ -504,7 +505,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     },
     approvals: {
       store: hostApprovals,
-      send: (approval) => imHub.requestHostApproval(approval, isHostApprover),
+      send: (approval, summaryText) =>
+        imHub.requestHostApproval(approval, isHostApprover, summaryText),
       remote: () =>
         imStore
           .listConnections()
@@ -1666,9 +1668,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     }
     const text = message.content.trim().toLocaleLowerCase();
     // 拒绝看开头就够（宁可拒）；允许必须整条就是一个「允许」，「可以，但先别删」这种带条件的不当成批准
-    if (/^(?:b|拒绝|不行|不允许|不可以|不同意|不|no|n|deny)(?:$|[\s，。,.!！])/.test(text))
+    if (/^(?:b|拒绝|不行|不允许|不可以|不同意|不|no|n|deny|reject)(?:$|[\s，。,.!！])/.test(text))
       return false;
-    if (/^(?:a|允许|同意|批准|可以|行|好|yes|y|ok|approve)[\s，。,.!！]*$/.test(text)) return true;
+    if (
+      /^(?:a|允许|同意|批准|可以|行|好|yes|y|ok|okay|approve|approved|allow|allowed)[\s，。,.!！]*$/.test(
+        text,
+      )
+    )
+      return true;
     return undefined;
   }
 
@@ -3054,11 +3061,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     onConnectionsChanged: () => scheduleKeepAwake(),
     decideHostApproval: (connectionId, actorId, approvalId, allow) => {
       if (!isHostApprover({ id: connectionId, ownerActorId: actorId })) {
-        return { ok: false, text: "这个账号没有登记为可批准，请到 Hive Server 所在的电脑上处理" };
+        return { ok: false, key: "im.host.notApprover" };
       }
       const decided = decideHostApproval(approvalId, allow, connectionId);
-      if (!decided) return { ok: false, text: "这条申请已经处理过或已过期" };
-      return { ok: true, text: allow ? "已允许" : "已拒绝" };
+      if (!decided) return { ok: false, key: "im.host.expired" };
+      return { ok: true, key: allow ? "im.resolved.allowed" : "im.resolved.denied" };
     },
     markHostApprover: (connectionId, actorId) =>
       ownerDevices.setHostApprover(connectionId, actorId, true),
@@ -3164,9 +3171,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       try {
         // 在 Server 所在电脑上发起的扫码：这个 IM 账号可以批准其他设备管理这台电脑
         const hostApprover = isLocal(request).local && !isOwnerDeviceToken(bearerToken(request));
-        return reply
-          .code(201)
-          .send(imHub.startLogin(room.id, body.data.channel, owner.username, { hostApprover }));
+        return reply.code(201).send(
+          imHub.startLogin(room.id, body.data.channel, owner.username, {
+            hostApprover,
+            ...(body.data.locale ? { locale: body.data.locale } : {}),
+          }),
+        );
       } catch (error) {
         return imError(reply, error);
       }
@@ -3222,6 +3232,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           if (!body.success)
             return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
           return imHub.setLevel(request.params.id, body.data.level);
+        }
+        if (request.params.action === "locale") {
+          const body = setImLocaleRequestSchema.safeParse(request.body);
+          if (!body.success)
+            return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+          return imHub.setLocale(request.params.id, body.data.locale);
         }
         return reply.code(404).send({ ...errorText(serverText("error.request.invalid")) });
       } catch (error) {

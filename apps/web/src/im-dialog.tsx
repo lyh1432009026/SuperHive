@@ -10,10 +10,11 @@ import {
   removeImConnection,
   setImConnectionPaused,
   setImDeliveryLevel,
+  setImLocale,
   startImLogin,
   submitImLoginCode,
 } from "./im-api";
-import { localized, t } from "./i18n";
+import { getLocale, localized, t } from "./i18n";
 
 function CloseGlyph() {
   return (
@@ -165,6 +166,8 @@ export function ImDialog({
       const view = await startImLogin(base, adminToken, roomId, {
         channel,
         ownerName,
+        // 机器人先说和网页一样的语言，之后可以在这里或 IM 里用 /lang 改
+        locale: getLocale(),
         ...(channel === "wechat" ? { acceptRisk } : {}),
       });
       setLogin(view);
@@ -461,6 +464,40 @@ export function ImDialog({
                         </div>
                         <small>
                           {IM_LEVELS.find((item) => item.level === connection.level)?.hint}
+                        </small>
+                      </div>
+                      <div className="im-level">
+                        <div
+                          className="duration-segments"
+                          role="radiogroup"
+                          aria-label={t("机器人语言")}
+                        >
+                          {(
+                            [
+                              ["zh-CN", "中文"],
+                              ["en", "English"],
+                            ] as const
+                          ).map(([locale, label]) => (
+                            <button
+                              key={locale}
+                              type="button"
+                              role="radio"
+                              lang={locale}
+                              aria-checked={(connection.locale ?? "zh-CN") === locale}
+                              className={(connection.locale ?? "zh-CN") === locale ? "on" : ""}
+                              onClick={() =>
+                                void setImLocale(base, adminToken, connection.id, locale).then(
+                                  refresh,
+                                  fail,
+                                )
+                              }
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <small>
+                          {t("机器人的卡片、按钮和提示用这个语言；在 IM 里发 /lang 也能切换")}
                         </small>
                       </div>
                     </li>

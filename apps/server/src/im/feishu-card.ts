@@ -1,3 +1,4 @@
+import { imLocaleOf, imText } from "./im-texts.js";
 import type { ImRich } from "./types.js";
 
 /** 卡片 JSON 上限约 30KB；正文留足余量，超出部分由调用方截断并给网页链接 */
@@ -111,6 +112,7 @@ function buttonRow(buttons: Array<Record<string, unknown>>) {
 
 /** 提问的选项：可作答时是按钮或勾选框（加「其它」输入），已答或不能交互时是只读列表 */
 function choiceElements(rich: ImRich): Array<Record<string, unknown>> {
+  const locale = imLocaleOf(rich.locale);
   const options = rich.options ?? [];
   const selected = new Set(rich.selected ?? []);
   const label = (option: { key: string; label: string }) => `${option.key}. ${option.label}`;
@@ -142,7 +144,7 @@ function choiceElements(rich: ImRich): Array<Record<string, unknown>> {
   const other = {
     tag: "input",
     name: OTHER_FIELD,
-    placeholder: { tag: "plain_text", content: "其它答案（选填）" },
+    placeholder: { tag: "plain_text", content: imText(locale, "im.card.otherAnswer") },
     max_length: 1000,
     width: "fill",
   };
@@ -167,7 +169,7 @@ function choiceElements(rich: ImRich): Array<Record<string, unknown>> {
             text: { tag: "plain_text", content: plainText(label(option), 100) },
           })),
           other,
-          submit("提交"),
+          submit(imText(locale, "im.button.submit")),
         ],
       },
     ];
@@ -188,7 +190,7 @@ function choiceElements(rich: ImRich): Array<Record<string, unknown>> {
       name: "answer_form",
       direction: "horizontal",
       horizontal_spacing: "8px",
-      elements: [other, submit("提交")],
+      elements: [other, submit(imText(locale, "im.button.submit"))],
     },
   ];
 }
@@ -201,6 +203,7 @@ export function cardTitle(rich: Pick<ImRich, "title" | "room">): string {
 
 /** 渲染成飞书消息卡片（JSON 2.0） */
 export function renderFeishuCard(rich: ImRich): Record<string, unknown> {
+  const locale = imLocaleOf(rich.locale);
   const tone = rich.resolved ? (rich.resolved.ok ? RESOLVED_OK : RESOLVED_OTHER) : TONES[rich.tone];
   const elements: Array<Record<string, unknown>> = [];
   if (rich.body?.trim()) elements.push(markdown(escapeCardMarkdown(rich.body)));
@@ -238,7 +241,7 @@ export function renderFeishuCard(rich: ImRich): Record<string, unknown> {
     elements.push(
       markdown(
         [
-          `**附件 ${rich.attachments.length} 个**`,
+          imText(locale, "im.card.attachments", { count: rich.attachments.length }),
           ...rich.attachments.map(
             (item) =>
               `- ${escapeCardMarkdown(plainText(item.name, 120))}\u3000<font color='grey'>${item.size}</font>`,
@@ -315,7 +318,7 @@ export function renderFeishuCard(rich: ImRich): Record<string, unknown> {
       direction: "vertical",
       padding: "12px 12px 16px 12px",
       vertical_spacing: "8px",
-      elements: elements.length ? elements : [markdown("（无内容）")],
+      elements: elements.length ? elements : [markdown(imText(locale, "im.card.empty"))],
     },
   };
 }

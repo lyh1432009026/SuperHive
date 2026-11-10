@@ -1,3 +1,4 @@
+import type { ImLocale } from "./im-texts.js";
 import type { ImChannel } from "@superhive/protocol";
 import type { ImConfig } from "./im-store.js";
 
@@ -95,6 +96,8 @@ export type ImRich = {
   }>;
   /** 会话列表里的一行预览 */
   summary: string;
+  /** 卡片里固定的字（提交按钮、附件标题）用的语言；发送前由中枢按连接的语言填上 */
+  locale?: ImLocale;
 };
 
 /** 一条已建立的 IM 连接：收消息、发文字 */

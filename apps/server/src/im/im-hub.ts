@@ -22,6 +22,16 @@ import {
 import { OPTION_FIELD_PREFIX, OTHER_FIELD } from "./feishu-card.js";
 import { applyChoice, matchAgents, resolveAliases } from "./im-routing.js";
 import {
+  imLocaleOf,
+  imText,
+  parseImLocale,
+  type ImLocale,
+  renderImMessage,
+  type ImMessage,
+  type ImTextKey,
+  type ImTextParams,
+} from "./im-texts.js";
+import {
   USER_TARGET,
   type ImChannelDriver,
   type ImInbound,
@@ -91,7 +101,7 @@ export type ImHubDeps = {
     actorId: string,
     approvalId: string,
     allow: boolean,
-  ): { ok: boolean; text: string };
+  ): { ok: boolean; key: ImTextKey };
   /** 由本机房主发起的扫码：连接建好后登记为可批准其他设备管理这台电脑 */
   markHostApprover?(connectionId: string, actorId: string): void;
   log(message: string, detail?: unknown): void;
@@ -105,41 +115,36 @@ type LoginSession = {
   ownerName: string;
   /** 本机房主发起的扫码 */
   hostApprover?: boolean;
+  /** 新连接的语言：房主发起扫码时网页的语言 */
+  locale?: ImLocale;
 };
 
 const MAX_ATTEMPTS = 8;
 /** 「全部 Agent 消息」档的合并窗口 */
 export const DIGEST_WINDOW_MS = 3 * 60_000;
 const LOGIN_TTL_MS = 10 * 60_000;
-const HELP = [
-  "SuperHive 用法：",
-  "· 直接发文字、图片或文件：以你的身份发进当前房间；要让 Agent 干活，在消息里 @ 它，如「@rd-claude 看下测试为什么挂了」",
-  "· Agent 向你提问时，点卡片上的选项，或回复这条提问打字（选项字母也行，多选用逗号隔开，如 A,C）",
-  "· /to 选对话对象：选好后直接打字就发给它；也可以 /to codex。临时找别人写 @简写，如 @codex",
-  "· 回复某个 Agent 的卡片，就是接着跟它说",
-  "· /room 切换房间（点卡片或回编号），/room 房间ID 直接切",
-  "· /who 看房间里的 Agent 谁在忙",
-  "· /level 查看推送档位，/level mine|im|agents|all 切换",
-  "· /web 获取在手机或其他电脑上打开网页的登录链接",
-  "· /status 查看连接状态",
-  "· /cards on 在飞书后台开通卡片回调后打开卡片按钮（重新扫码会自动开通）",
-  "· 机器人菜单：飞书开发者后台 → 机器人 → 自定义菜单，菜单项选「推送事件」，事件 key 填 to、room、who、level、help",
-].join("\n");
+const LEVELS: readonly ImDeliveryLevel[] = ["mine", "im", "agents", "all"];
 
-const LEVEL_TEXT: Record<ImDeliveryLevel, string> = {
-  mine: "与我相关（默认）：给你的最终结果、提到你、问你的问题、需要你处理的异常",
-  im: "仅 IM 发起：只推从这里发起的任务结果和提到你的消息",
-  agents: "全部 Agent 消息：另外把 Agent 的发言每 3 分钟合并推一次",
-  all: "全部消息：房间里每条消息都推",
-};
+function levelName(locale: ImLocale, level: ImDeliveryLevel): string {
+  return imText(locale, `im.level.${level}.name`);
+}
 
-function describe(error: unknown): string {
+/** 档位的完整说明，如「与我相关（默认）：给你的最终结果……」 */
+function levelText(locale: ImLocale, level: ImDeliveryLevel): string {
+  return imText(locale, "im.level.full", {
+    name: `${levelName(locale, level)}${level === "mine" ? imText(locale, "im.level.default") : ""}`,
+    desc: imText(locale, `im.level.${level}.desc`),
+  });
+}
+
+function describe(error: unknown, locale: ImLocale = "zh-CN"): string {
   if (error instanceof Error) return error.message;
   if (error && typeof error === "object") {
     const value = error as { message?: unknown; msg?: unknown; code?: unknown };
     const text = value.message ?? value.msg;
     if (typeof text === "string" && text) return text;
-    if (value.code !== undefined) return `错误 ${String(value.code)}`;
+    if (value.code !== undefined)
+      return imText(locale, "im.error.code", { code: String(value.code) });
   }
   return String(error);
 }
@@ -175,6 +180,27 @@ export class ImHub {
 
   private now(): number {
     return this.deps.now?.() ?? Date.now();
+  }
+
+  /** 这个连接用的语言：扫码时跟随房主网页的语言，之后用 /lang 或控制面板切换 */
+  private localeOf(connection: StoredConnection): ImLocale {
+    return imLocaleOf(connection.config.locale);
+  }
+
+  private t(connection: StoredConnection, key: ImTextKey, params?: ImTextParams): string {
+    return imText(this.localeOf(connection), key, params);
+  }
+
+  setLocale(id: string, locale: ImLocale): ImConnection {
+    return this.view(this.setLocaleOf(this.require(id), locale));
+  }
+
+  private setLocaleOf(connection: StoredConnection, locale: ImLocale): StoredConnection {
+    const updated =
+      this.deps.store.update(connection.id, { config: { ...connection.config, locale } }) ??
+      connection;
+    this.deps.onConnectionsChanged(connection.roomId);
+    return updated;
   }
 
   channels(): ImChannelsInfo {
@@ -224,7 +250,7 @@ export class ImHub {
     roomId: string,
     channel: ImChannel,
     ownerName: string,
-    options: { hostApprover?: boolean } = {},
+    options: { hostApprover?: boolean; locale?: ImLocale } = {},
   ): ImLoginView {
     const driver = this.deps.drivers[channel];
     if (!driver) throw new HiveError("IM_DISABLED", "这个渠道没有启用。");
@@ -245,6 +271,7 @@ export class ImHub {
       abort: new AbortController(),
       ownerName: owner.username,
       ...(options.hostApprover ? { hostApprover: true } : {}),
+      ...(options.locale ? { locale: options.locale } : {}),
     };
     this.logins.set(id, login);
     void this.runLogin(login, driver);
@@ -385,11 +412,13 @@ export class ImHub {
       void this.disconnectTransport(existing.id);
       this.deps.store.updateSecret(existing.id, result.secret);
       this.deps.store.kvDelete(existing.id);
+      // 重新扫码保留之前选的语言
+      const locale = existing.config.locale ?? login.locale;
       const moved = this.deps.store.update(existing.id, {
         roomId: login.view.roomId,
         ownerName: login.ownerName,
         label: result.label,
-        config: result.config,
+        config: { ...result.config, ...(locale ? { locale } : {}) },
       })!;
       if (moved.roomId !== existing.roomId) this.deps.onConnectionsChanged(existing.roomId);
       return this.deps.store.setStatus(moved.id, "connecting")!;
@@ -400,7 +429,7 @@ export class ImHub {
       ownerName: login.ownerName,
       ownerActorId: result.ownerActorId,
       label: result.label,
-      config: result.config,
+      config: { ...result.config, ...(login.locale ? { locale: login.locale } : {}) },
       secret: result.secret,
     });
   }
@@ -463,7 +492,15 @@ export class ImHub {
             return this.handleAction(connection.id, action);
           } catch (error) {
             this.deps.log("im card action failed", error);
-            return { toast: { type: "error", text: `操作失败：${describe(error)}` } };
+            const current = this.deps.store.getConnection(connection.id) ?? connection;
+            return {
+              toast: {
+                type: "error",
+                text: this.t(current, "im.action.failed", {
+                  error: describe(error, this.localeOf(current)),
+                }),
+              },
+            };
           }
         },
       });
@@ -544,7 +581,7 @@ export class ImHub {
         this.reply(
           connection,
           message.chatId,
-          "这个机器人只转发房主本人的消息。",
+          this.t(connection, "im.inbound.notOwner"),
           message.externalId,
         );
       }
@@ -556,9 +593,12 @@ export class ImHub {
       this.reply(
         connection,
         message.chatId,
-        files.length || message.files?.length
-          ? "目前只支持文字、图片和文件。"
-          : "目前只支持文字消息。",
+        this.t(
+          connection,
+          files.length || message.files?.length
+            ? "im.inbound.unsupportedFiles"
+            : "im.inbound.unsupportedText",
+        ),
         message.externalId,
       );
       return;
@@ -572,7 +612,7 @@ export class ImHub {
       return;
     }
     // 只发「菜单」两个字：弹出控制面板（不当成消息发进房间）
-    if (!files.length && /^(菜单|menu)$/i.test(text)) {
+    if (!files.length && /^(菜单|menu|控制面板)$/i.test(text)) {
       this.handleCommand(connection, message, "/menu");
       return;
     }
@@ -581,7 +621,10 @@ export class ImHub {
       this.reply(
         connection,
         message.chatId,
-        `在房间「${connection.roomId}」里找不到成员 ${connection.ownerName}，请先在网页上进入这个房间。`,
+        this.t(connection, "im.inbound.ownerMissing", {
+          room: connection.roomId,
+          owner: connection.ownerName,
+        }),
         message.externalId,
       );
       return;
@@ -625,7 +668,9 @@ export class ImHub {
       this.reply(
         connection,
         message.chatId,
-        `没能发进房间：${describe(error)}`,
+        this.t(connection, "im.inbound.postFailed", {
+          error: describe(error, this.localeOf(connection)),
+        }),
         message.externalId,
       );
       return;
@@ -652,7 +697,12 @@ export class ImHub {
         downloaded.push(await transport!.download!(message.externalId, file));
       } catch (error) {
         failures.push(
-          `${file.name ?? (file.kind === "image" ? "图片" : "文件")}：${describe(error)}`,
+          this.t(connection, "im.inbound.fileFailure", {
+            name:
+              file.name ??
+              this.t(connection, file.kind === "image" ? "im.file.image" : "im.file.file"),
+            error: describe(error, this.localeOf(connection)),
+          }),
         );
       }
     }
@@ -660,7 +710,9 @@ export class ImHub {
       this.reply(
         connection,
         message.chatId,
-        `没能收下附件（${failures.join("；")}）。如果提示没有权限，请在网页上重新扫码连接飞书。`,
+        this.t(connection, "im.inbound.filesFailed", {
+          failures: failures.join(this.t(connection, "im.sep.clause")),
+        }),
         message.externalId,
       );
       return;
@@ -683,7 +735,9 @@ export class ImHub {
       this.reply(
         connection,
         message.chatId,
-        `没能发进房间：${describe(error)}`,
+        this.t(connection, "im.inbound.postFailed", {
+          error: describe(error, this.localeOf(connection)),
+        }),
         message.externalId,
       );
       return;
@@ -692,7 +746,9 @@ export class ImHub {
       this.reply(
         connection,
         message.chatId,
-        `有附件没能收下：${failures.join("；")}`,
+        this.t(connection, "im.inbound.someFilesFailed", {
+          failures: failures.join(this.t(connection, "im.sep.clause")),
+        }),
         message.externalId,
       );
     }
@@ -738,7 +794,7 @@ export class ImHub {
       this.reply(
         connection,
         message.chatId,
-        `已发到房间「${this.roomName(connection.roomId)}」。要让 Agent 处理，请在消息里 @ 它；回复 /help 查看用法。`,
+        this.t(connection, "im.inbound.posted", { room: this.roomName(connection.roomId) }),
         message.externalId,
       );
     }
@@ -811,6 +867,7 @@ export class ImHub {
     const [command, ...args] = text.split(/\s+/);
     const say = (reply: string) =>
       this.reply(connection, message.chatId, reply, message.externalId);
+    const help = this.t(connection, "im.help.text");
     switch (command?.toLowerCase()) {
       case "/":
       case "/menu":
@@ -825,7 +882,7 @@ export class ImHub {
           );
           return;
         }
-        return say(HELP);
+        return say(help);
       case "/help":
         if (this.richCapable(connection)) {
           this.enqueueCard(
@@ -837,11 +894,25 @@ export class ImHub {
           );
           return;
         }
-        return say(HELP);
+        return say(help);
       case "/status":
         return say(
-          `${connection.label} 已连接到房间「${this.roomName(connection.roomId)}」，以 ${connection.ownerName} 的身份发言。`,
+          this.t(connection, "im.command.status", {
+            label: connection.label,
+            room: this.roomName(connection.roomId),
+            owner: connection.ownerName,
+          }),
         );
+      case "/lang":
+      case "/language":
+      case "/语言": {
+        const arg = args.join(" ").trim();
+        if (!arg) return say(this.t(connection, "im.lang.current"));
+        const locale = parseImLocale(arg);
+        if (!locale) return say(this.t(connection, "im.lang.invalid"));
+        const current = this.setLocaleOf(connection, locale);
+        return say(this.t(current, "im.lang.switched"));
+      }
       case "/room": {
         const target = args[0];
         if (!target) {
@@ -859,12 +930,12 @@ export class ImHub {
           this.saveTextMenu(connection, { kind: "room", items: rooms.map((room) => room.id) });
           return say(
             [
-              `当前房间：${this.roomName(connection.roomId)}`,
+              this.t(connection, "im.room.current", { room: this.roomName(connection.roomId) }),
               ...rooms.map(
                 (room, index) =>
-                  `${index + 1}. ${room.name}${room.id === connection.roomId ? "（当前）" : ""}`,
+                  `${index + 1}. ${room.name}${room.id === connection.roomId ? this.t(connection, "im.room.currentMark") : ""}`,
               ),
-              "回复编号切换，或 /room 房间ID",
+              this.t(connection, "im.room.textHint"),
             ].join("\n"),
           );
         }
@@ -874,9 +945,9 @@ export class ImHub {
       case "/to": {
         const arg = args.join(" ").trim();
         if (arg) {
-          if (["off", "0", "无", "不指定"].includes(arg.toLowerCase())) {
+          if (["off", "none", "nobody", "0", "无", "不指定", "取消"].includes(arg.toLowerCase())) {
             this.setTarget(connection, undefined);
-            return say("已取消指定对话对象。");
+            return say(this.t(connection, "im.to.cleared"));
           }
           const hits = matchAgents(
             arg.replace(/^@/, ""),
@@ -886,12 +957,14 @@ export class ImHub {
           if (hits.length !== 1) {
             return say(
               hits.length
-                ? `对上了多个：${hits.join("、")}，请写得更具体些。`
-                : `房间里没有 ${arg}。`,
+                ? this.t(connection, "im.to.ambiguous", {
+                    names: hits.join(this.t(connection, "im.sep.list")),
+                  })
+                : this.t(connection, "im.to.notFound", { name: arg }),
             );
           }
           this.setTarget(connection, hits[0]);
-          return say(`之后不带 @ 的消息都发给 ${hits[0]}。`);
+          return say(this.t(connection, "im.to.set", { name: hits[0]! }));
         }
         if (this.cardsEnabled(connection)) {
           this.enqueueCard(
@@ -908,32 +981,34 @@ export class ImHub {
         const current = this.targetOf(connection);
         return say(
           [
-            `当前对话对象：${current ?? "未指定"}`,
+            this.t(connection, "im.to.current", {
+              name: current ?? this.t(connection, "im.nobody"),
+            }),
             ...agents.map((agent, index) => `${index + 1}. ${agent}`),
-            "0. 不指定",
-            "回复编号选择，或 /to 名字（可简写）",
+            this.t(connection, "im.to.none"),
+            this.t(connection, "im.to.textHint"),
           ].join("\n"),
         );
       }
       case "/web": {
         if (message.chatType !== "p2p") {
-          return say("登录链接只发到私聊：请在和机器人的私聊里发 /web。");
+          return say(this.t(connection, "im.web.privateOnly"));
         }
         const url = this.cardUrl(connection, connection.roomId);
-        if (!url) return say("这个服务没有配置网页地址。");
+        if (!url) return say(this.t(connection, "im.web.noUrl"));
         if (this.richCapable(connection)) {
           this.enqueueCard(connection, message.chatId, "web", message.externalId, {
-            title: "在网页上打开 Hive",
+            title: this.t(connection, "im.web.title"),
             subtitle: this.roomName(connection.roomId),
             tone: "reply",
-            body: "点下面的按钮，在这台设备上以房主身份进入，不用填令牌。",
-            note: "链接 24 小时内有效，过期后再发 /web 获取，只发给你本人；不要转发给别人。手机要和运行 Hive 的电脑在同一个网络里才能打开。",
-            link: { label: "在网页打开", url },
-            summary: "在网页上打开 Hive",
+            body: this.t(connection, "im.web.body"),
+            note: this.t(connection, "im.web.note"),
+            link: { label: this.t(connection, "im.web.button"), url },
+            summary: this.t(connection, "im.web.title"),
           });
           return;
         }
-        return say(`在网页上打开（24 小时内有效，不要转发）：${url}`);
+        return say(this.t(connection, "im.web.text", { url }));
       }
       case "/who": {
         const agents = this.deps
@@ -949,12 +1024,15 @@ export class ImHub {
           );
           return;
         }
-        if (!agents.length) return say("这个房间里还没有 Agent。");
-        const icon = { online: "🟢 空闲", busy: "🔄 忙碌", offline: "⚪ 离线" } as const;
+        if (!agents.length) return say(this.t(connection, "im.who.none"));
+        const icon = { online: "🟢", busy: "🔄", offline: "⚪" } as const;
         return say(
           [
-            `房间「${this.roomName(connection.roomId)}」里的 Agent：`,
-            ...agents.map((agent) => `${icon[agent.status]}\u3000${agent.username}`),
+            this.t(connection, "im.who.header", { room: this.roomName(connection.roomId) }),
+            ...agents.map(
+              (agent) =>
+                `${icon[agent.status]} ${this.t(connection, `im.status.${agent.status}`)}\u3000${agent.username}`,
+            ),
           ].join("\n"),
         );
       }
@@ -973,32 +1051,36 @@ export class ImHub {
         if (!target) {
           return say(
             [
-              `当前推送档位：${LEVEL_TEXT[connection.level ?? "mine"]}`,
-              "切换：/level mine | im | agents | all",
+              this.t(connection, "im.level.current", {
+                level: levelText(this.localeOf(connection), connection.level ?? "mine"),
+              }),
+              this.t(connection, "im.level.hint"),
             ].join("\n"),
           );
         }
-        if (!(target in LEVEL_TEXT)) return say("档位只能是 mine、im、agents 或 all。");
+        if (!LEVELS.includes(target)) return say(this.t(connection, "im.level.invalid"));
         this.deps.store.setLevel(connection.id, target);
         this.deps.onConnectionsChanged(connection.roomId);
-        return say(`已切换为：${LEVEL_TEXT[target]}`);
+        return say(
+          this.t(connection, "im.level.switched", {
+            level: levelText(this.localeOf(connection), target),
+          }),
+        );
       }
       case "/cards": {
         const on = args[0]?.toLowerCase() !== "off";
         if (!this.deps.drivers[connection.channel]?.richTextLength) {
-          return say("这个渠道不支持卡片。");
+          return say(this.t(connection, "im.cards.unsupported"));
         }
         this.deps.store.update(connection.id, {
           config: { ...connection.config, cardCallbacks: on ? "1" : "0" },
         });
-        return say(
-          on
-            ? "已打开卡片按钮：之后的提问、提醒可以直接在卡片上点。需要飞书应用已开通卡片回调（card.action.trigger）和消息更新权限，否则点了没反应；重新扫码会自动开通。"
-            : "已关闭卡片按钮，提问改回打字作答。",
-        );
+        return say(this.t(connection, on ? "im.cards.on" : "im.cards.off"));
       }
       default:
-        return say(`不认识的命令 ${command}。\n${HELP}`);
+        return say(
+          `${this.t(connection, "im.command.unknown", { command: command ?? "" })}\n${help}`,
+        );
     }
   }
 
@@ -1084,36 +1166,46 @@ export class ImHub {
                 ? "done"
                 : "failed";
       const reply = task.replyMessageId ? this.deps.getMessage(task.replyMessageId) : undefined;
+      const statusKey = TASK_STATUS_TEXT[task.status];
+      const status = statusKey ? this.t(connection, statusKey) : task.status;
       const detail =
         state === "queued"
-          ? task.receivedAt
-            ? "已送达，排队中"
-            : "排队中"
+          ? this.t(connection, task.receivedAt ? "im.task.queuedDelivered" : "im.task.queued")
           : state === "running"
-            ? (task.progress ?? "执行中")
+            ? (task.progress ?? this.t(connection, "im.task.running"))
             : state === "waiting"
-              ? "在等你回答"
+              ? this.t(connection, "im.task.waiting")
               : state === "done"
                 ? reply
-                  ? `已回复 #${reply.seq}`
-                  : "已完成"
-                : (TASK_STATUS_TEXT[task.status] ?? task.status) +
-                  (task.detail ? `：${oneLine(task.detail, 60)}` : "");
+                  ? this.t(connection, "im.task.replied", { seq: reply.seq })
+                  : this.t(connection, "im.task.done")
+                : task.detail
+                  ? this.t(connection, "im.task.withDetail", {
+                      status,
+                      detail: oneLine(task.detail, 60),
+                    })
+                  : status;
       return { label: task.agentName, state, detail };
     });
+    const agents = tasks.map((task) => task.agentName).join(this.t(connection, "im.sep.list"));
     const finished = steps.every((step) => step.state === "done" || step.state === "failed");
     const failed = steps.some((step) => step.state === "failed");
     const url = this.cardUrl(connection, message.roomId);
     return {
-      title: `已派给 ${tasks.map((task) => task.agentName).join("、")}`,
+      title: this.t(connection, "im.task.title", { agents }),
       room: this.roomName(message.roomId),
       subtitle: `#${message.seq}`,
       tone: "reply",
-      tag: finished ? (failed ? "未全部完成" : "已完成") : "进行中",
+      tag: this.t(
+        connection,
+        finished ? (failed ? "im.task.tag.partial" : "im.task.tag.done") : "im.task.tag.running",
+      ),
       body: `> ${plain(oneLine(message.content, 120))}`,
       steps,
-      ...(finished && !failed ? { resolved: { text: "已完成", ok: true } } : {}),
-      note: finished ? "结果已单独发来" : "这张卡片会随进度自动更新",
+      ...(finished && !failed
+        ? { resolved: { text: this.t(connection, "im.resolved.done"), ok: true } }
+        : {}),
+      note: this.t(connection, finished ? "im.task.note.finished" : "im.task.note.running"),
       ...this.footerFor(connection),
       ...(this.cardsEnabled(connection)
         ? {
@@ -1123,18 +1215,26 @@ export class ImHub {
                 ? []
                 : [
                     {
-                      label: "停止",
+                      label: this.t(connection, "im.button.stop"),
                       value: { do: "stop", message: message.id },
                       style: "danger" as const,
                     },
                   ]),
-              { label: "切换对象", value: { do: "to" }, style: "default" as const },
-              { label: "菜单", value: { do: "menu" }, style: "default" as const },
+              {
+                label: this.t(connection, "im.button.switchAgent"),
+                value: { do: "to" },
+                style: "default" as const,
+              },
+              {
+                label: this.t(connection, "im.button.menu"),
+                value: { do: "menu" },
+                style: "default" as const,
+              },
             ],
           }
         : {}),
-      ...(url ? { link: { label: "网页查看", url } } : {}),
-      summary: `已派给 ${tasks.map((task) => task.agentName).join("、")}`,
+      ...(url ? { link: { label: this.t(connection, "im.link.view"), url } } : {}),
+      summary: this.t(connection, "im.task.title", { agents }),
     };
   }
 
@@ -1281,20 +1381,20 @@ export class ImHub {
         senderId: message.senderId,
       }),
     );
-    const prompt = `「${token}」对上了 ${candidates.length} 个 Agent，发给谁？`;
+    const prompt = this.t(connection, "im.pick.prompt", { token, count: candidates.length });
     if (this.cardsEnabled(connection)) {
       this.enqueueCard(connection, message.chatId, `pick:${id}`, message.externalId, {
         title: prompt,
         subtitle: this.roomName(connection.roomId),
         tone: "question",
-        tag: "选一个",
+        tag: this.t(connection, "im.pick.tag"),
         body: `> ${plain(oneLine(text, 120))}`,
         actions: candidates.map((agent, index) => ({
           label: agent,
           value: { do: "pick", agent, id },
           style: index === 0 ? "primary" : "default",
         })),
-        note: "点一下就带着这条消息发出",
+        note: this.t(connection, "im.pick.note"),
         summary: prompt,
       });
       return;
@@ -1306,7 +1406,7 @@ export class ImHub {
       [
         prompt,
         ...candidates.map((agent, index) => `${index + 1}. ${agent}`),
-        "回复编号即可发出",
+        this.t(connection, "im.pick.textHint"),
       ].join("\n"),
       message.externalId,
     );
@@ -1320,9 +1420,9 @@ export class ImHub {
     agent: string,
   ): { ok: true } | { ok: false; reason: string } {
     const raw = this.deps.store.kvGet(connection.id, `pending:${id}`);
-    if (!raw) return { ok: false, reason: "这条消息已经发出过了" };
+    if (!raw) return { ok: false, reason: this.t(connection, "im.pick.alreadySent") };
     if (!this.agentNames(connection.roomId).includes(agent)) {
-      return { ok: false, reason: `房间里没有 ${agent}` };
+      return { ok: false, reason: this.t(connection, "im.pick.notInRoom", { name: agent }) };
     }
     const pending = JSON.parse(raw) as {
       text: string;
@@ -1342,7 +1442,7 @@ export class ImHub {
         via: { channel: connection.channel },
       });
     } catch (error) {
-      return { ok: false, reason: describe(error) };
+      return { ok: false, reason: describe(error, this.localeOf(connection)) };
     } finally {
       this.posting = undefined;
     }
@@ -1363,32 +1463,35 @@ export class ImHub {
 
   /* ---------- 选择卡片：对话对象、房间 ---------- */
 
-  private agentPicker(connection: StoredConnection, title = "选择对话对象"): ImRich {
+  private agentPicker(
+    connection: StoredConnection,
+    title = this.t(connection, "im.agents.title"),
+  ): ImRich {
     const current = this.targetOf(connection);
     const agents = this.deps
       .participants(connection.roomId)
       .filter((participant) => participant.type === "agent");
-    const state = { online: "空闲", busy: "忙碌", offline: "离线" } as const;
+    const currentName = current ?? this.t(connection, "im.nobody");
     return {
       title,
       subtitle: this.roomName(connection.roomId),
       tone: "reply",
-      tag: `当前：${current ?? "未指定"}`,
-      ...(agents.length ? {} : { body: "这个房间里还没有 Agent。" }),
+      tag: this.t(connection, "im.agents.current", { name: currentName }),
+      ...(agents.length ? {} : { body: this.t(connection, "im.who.none") }),
       actions: [
         ...agents.map((agent) => ({
-          label: `${agent.username} · ${state[agent.status]}`,
+          label: `${agent.username} · ${this.t(connection, `im.status.${agent.status}`)}`,
           value: { do: "target", agent: agent.username },
           style: agent.username === current ? ("primary" as const) : ("default" as const),
         })),
         {
-          label: "不指定",
+          label: this.t(connection, "im.agents.nobody"),
           value: { do: "target", agent: "" },
           style: current ? ("default" as const) : ("primary" as const),
         },
       ],
-      note: "选好后直接打字就发给它（每个房间各记一个，一直有效）；临时找别人可以写 @简写，如 @codex",
-      summary: `${title}：当前 ${current ?? "未指定"}`,
+      note: this.t(connection, "im.agents.note"),
+      summary: this.t(connection, "im.agents.summary", { title, name: currentName }),
     };
   }
 
@@ -1402,19 +1505,23 @@ export class ImHub {
   private roomPicker(connection: StoredConnection): ImRich {
     const rooms = this.memberRooms(connection);
     return {
-      title: "切换房间",
-      subtitle: `当前：${this.roomName(connection.roomId)}`,
+      title: this.t(connection, "im.rooms.title"),
+      subtitle: this.t(connection, "im.rooms.current", { room: this.roomName(connection.roomId) }),
       tone: "reply",
-      tag: `${rooms.length} 个房间`,
+      tag: this.t(connection, "im.rooms.count", { count: rooms.length }),
       actions: rooms.map((room) => {
         const online = this.deps
           .participants(room.id)
           .filter((participant) => participant.status !== "offline").length;
         const tasks = this.deps.roomTasks(room.id);
         const extra = [
-          `${online} 人在线`,
-          ...(tasks.running ? [`${tasks.running} 个进行中`] : []),
-          ...(tasks.waiting ? [`${tasks.waiting} 个等你回答`] : []),
+          this.t(connection, "im.rooms.online", { count: online }),
+          ...(tasks.running
+            ? [this.t(connection, "im.rooms.running", { count: tasks.running })]
+            : []),
+          ...(tasks.waiting
+            ? [this.t(connection, "im.rooms.waiting", { count: tasks.waiting })]
+            : []),
         ].join(" · ");
         return {
           label: `${room.id === connection.roomId ? "● " : ""}${room.name} · ${extra}`,
@@ -1422,18 +1529,18 @@ export class ImHub {
           style: room.id === connection.roomId ? ("primary" as const) : ("default" as const),
         };
       }),
-      note: "点一下就切换；切过去会恢复你在那个房间选过的对话对象",
-      summary: `切换房间：当前 ${this.roomName(connection.roomId)}`,
+      note: this.t(connection, "im.rooms.note"),
+      summary: this.t(connection, "im.rooms.summary", { room: this.roomName(connection.roomId) }),
     };
   }
 
   /** 切换房间；返回失败原因 */
   private switchRoom(connection: StoredConnection, roomId: string): string | undefined {
     const room = this.deps.getRoom(roomId);
-    if (!room || room.archivedAt) return `没有房间 ${roomId}。`;
+    if (!room || room.archivedAt) return this.t(connection, "im.room.notFound", { room: roomId });
     const member = this.deps.findParticipant(room.id, connection.ownerName);
     if (!member || member.type !== "human") {
-      return `你还不是房间「${room.name}」的成员，请先在网页上进入一次。`;
+      return this.t(connection, "im.room.notMember", { room: room.name });
     }
     const previous = connection.roomId;
     if (previous === room.id) return undefined;
@@ -1496,7 +1603,11 @@ export class ImHub {
       say(failure ?? this.roomSwitchedText(connection));
     } else if (menu.kind === "target") {
       this.setTarget(connection, item || undefined);
-      say(item ? `之后不带 @ 的消息都发给 ${item}。` : "已取消指定对话对象。");
+      say(
+        item
+          ? this.t(connection, "im.to.set", { name: item })
+          : this.t(connection, "im.to.cleared"),
+      );
     } else {
       const result = this.sendPending(connection, owner, menu.id!, item);
       if (!result.ok) say(result.reason);
@@ -1507,8 +1618,10 @@ export class ImHub {
   private roomSwitchedText(connection: StoredConnection): string {
     const current = this.deps.store.getConnection(connection.id) ?? connection;
     const target = this.targetOf(current);
-    return `已切换到房间「${this.roomName(current.roomId)}」。${
-      target ? `对话对象：${target}。` : "还没选对话对象，发 /to 选一个。"
+    return `${this.t(current, "im.room.switched", { room: this.roomName(current.roomId) })}${
+      target
+        ? this.t(current, "im.room.switchedTarget", { name: target })
+        : this.t(current, "im.room.switchedNoTarget")
     }`;
   }
 
@@ -1521,7 +1634,9 @@ export class ImHub {
   }
 
   /** 发到群里的卡片去掉链接里的房主登录票：群里谁点都会以房主身份进入 */
-  private forChat(connection: StoredConnection, chatId: string, rich: ImRich): ImRich {
+  private forChat(connection: StoredConnection, chatId: string, card: ImRich): ImRich {
+    // 卡片里固定的字（提交按钮、附件标题）按连接的语言画
+    const rich: ImRich = { ...card, locale: this.localeOf(connection) };
     if (!rich.link || this.isPrivateChat(connection, chatId)) return rich;
     try {
       const url = new URL(rich.link.url);
@@ -1544,12 +1659,23 @@ export class ImHub {
   }
 
   /** Agent 回复卡片底部的快捷按钮：接着问它、换对象、换房间、打开控制面板 */
-  private replyActions(agent: string): NonNullable<ImRich["actions"]> {
+  private replyActions(
+    connection: StoredConnection,
+    agent: string,
+  ): NonNullable<ImRich["actions"]> {
     return [
-      { label: "继续问它", value: { do: "follow", agent }, style: "primary" },
-      { label: "切换对象", value: { do: "to" }, style: "default" },
-      { label: "切换房间", value: { do: "room" }, style: "default" },
-      { label: "菜单", value: { do: "menu" }, style: "default" },
+      {
+        label: this.t(connection, "im.button.follow"),
+        value: { do: "follow", agent },
+        style: "primary",
+      },
+      { label: this.t(connection, "im.button.switchAgent"), value: { do: "to" }, style: "default" },
+      {
+        label: this.t(connection, "im.button.switchRoom"),
+        value: { do: "room" },
+        style: "default",
+      },
+      { label: this.t(connection, "im.button.menu"), value: { do: "menu" }, style: "default" },
     ];
   }
 
@@ -1563,46 +1689,57 @@ export class ImHub {
     const tasks = this.deps.roomTasks(connection.roomId);
     const url = this.cardUrl(connection, connection.roomId);
     const buttons = this.cardsEnabled(connection);
+    const t = (key: ImTextKey, params?: ImTextParams) => this.t(connection, key, params);
+    const other = this.localeOf(connection) === "en" ? "zh-CN" : "en";
     return {
-      title: "控制面板",
+      title: t("im.menu.title"),
       room: this.roomName(connection.roomId),
       tone: "reply",
       body: [
-        `**对话对象**：${target ? `${target}（直接打字就发给它）` : "未指定，消息里写 @ 或先选一个"}`,
-        `**推送档位**：${LEVEL_TEXT[connection.level ?? "mine"]}`,
-        `**Agent**：${agents.length} 个，${busy ? `${busy} 个忙碌` : "都空闲"}${
-          tasks.running || tasks.waiting
-            ? `；进行中 ${tasks.running} 个任务${tasks.waiting ? `，${tasks.waiting} 个在等你回答` : ""}`
-            : ""
-        }`,
+        target ? t("im.menu.target", { name: target }) : t("im.menu.noTarget"),
+        t("im.menu.level", {
+          level: levelText(this.localeOf(connection), connection.level ?? "mine"),
+        }),
+        t("im.menu.agents", {
+          count: agents.length,
+          state: busy ? t("im.menu.busy", { count: busy }) : t("im.menu.idle"),
+        }) +
+          (tasks.running || tasks.waiting
+            ? t("im.menu.tasks", { count: tasks.running }) +
+              (tasks.waiting ? t("im.menu.waiting", { count: tasks.waiting }) : "")
+            : ""),
       ].join("\n"),
       ...(buttons
         ? {
             actions: [
-              { label: "选对话对象", value: { do: "to" }, style: "primary" },
-              { label: "切换房间", value: { do: "room" }, style: "default" },
-              { label: "谁在忙", value: { do: "who" }, style: "default" },
-              { label: "推送档位", value: { do: "level" }, style: "default" },
-              { label: "使用说明", value: { do: "help" }, style: "default" },
+              { label: t("im.button.pickAgent"), value: { do: "to" }, style: "primary" },
+              { label: t("im.button.switchRoom"), value: { do: "room" }, style: "default" },
+              { label: t("im.button.who"), value: { do: "who" }, style: "default" },
+              { label: t("im.button.level"), value: { do: "level" }, style: "default" },
+              { label: t("im.button.help"), value: { do: "help" }, style: "default" },
+              {
+                label: t("im.button.otherLanguage"),
+                value: { do: "lang", locale: other },
+                style: "default",
+              },
             ],
           }
-        : {
-            note: "命令：/to 选对象、/room 换房间、/who 谁在忙、/level 推送档位、/help 说明",
-          }),
-      ...(url ? { link: { label: "打开网页", url } } : {}),
-      summary: `控制面板：${this.roomName(connection.roomId)}`,
+        : { note: t("im.menu.commands") }),
+      ...(url ? { link: { label: t("im.link.open"), url } } : {}),
+      summary: t("im.menu.summary", { room: this.roomName(connection.roomId) }),
     };
   }
 
   /** 常用操作按钮（需要卡片回调） */
   private quickActions(connection: StoredConnection): Pick<ImRich, "actions"> {
     if (!this.cardsEnabled(connection)) return {};
+    const t = (key: ImTextKey) => this.t(connection, key);
     return {
       actions: [
-        { label: "选对话对象", value: { do: "to" }, style: "primary" },
-        { label: "切换房间", value: { do: "room" }, style: "default" },
-        { label: "谁在忙", value: { do: "who" }, style: "default" },
-        { label: "推送档位", value: { do: "level" }, style: "default" },
+        { label: t("im.button.pickAgent"), value: { do: "to" }, style: "primary" },
+        { label: t("im.button.switchRoom"), value: { do: "room" }, style: "default" },
+        { label: t("im.button.who"), value: { do: "who" }, style: "default" },
+        { label: t("im.button.level"), value: { do: "level" }, style: "default" },
       ],
     };
   }
@@ -1610,48 +1747,43 @@ export class ImHub {
   private helpCard(connection: StoredConnection): ImRich {
     const target = this.targetOf(connection);
     const buttons = this.cardsEnabled(connection);
+    const t = (key: ImTextKey, params?: ImTextParams) => this.t(connection, key, params);
     return {
-      title: "SuperHive 使用说明",
-      subtitle: `当前：${this.roomName(connection.roomId)} → ${target ?? "未指定对话对象"}`,
+      title: t("im.helpCard.title"),
+      subtitle: t("im.helpCard.subtitle", {
+        room: this.roomName(connection.roomId),
+        name: target ?? t("im.helpCard.noTarget"),
+      }),
       tone: "reply",
-      tag: buttons ? "卡片按钮已开" : "文字模式",
+      tag: t(buttons ? "im.helpCard.tag.buttons" : "im.helpCard.tag.text"),
       sections: [
         {
-          title: "💬 发消息",
+          title: t("im.helpCard.send.title"),
           body: [
-            "- 直接发文字、图片、文件，以你的身份进入当前房间",
-            `- ${target ? `没写 @ 的消息会发给 **${target}**` : "先选一个**对话对象**，之后不用再写 @"}`,
-            "- 临时找别人：写简写，如 `@codex 看下`；对上多个会让你选",
-            "- **引用回复**某个 Agent 的卡片，就是接着跟它说",
+            t("im.helpCard.send.basic"),
+            target
+              ? t("im.helpCard.send.target", { name: target })
+              : t("im.helpCard.send.noTarget"),
+            t("im.helpCard.send.alias"),
+            t("im.helpCard.send.reply"),
           ].join("\n"),
         },
         {
-          title: "🙋 回答 Agent 的提问",
-          body: buttons
-            ? "- 在提问卡片上直接点选项；多选勾选后点「提交」\n- 也可以引用回复提问卡片打字"
-            : "- 引用回复提问，写选项字母（多选用逗号隔开，如 `A,C`）或直接写答案",
+          title: t("im.helpCard.answer.title"),
+          body: t(buttons ? "im.helpCard.answer.buttons" : "im.helpCard.answer.text"),
         },
         {
-          title: "⌨️ 命令",
+          title: t("im.helpCard.commands.title"),
           body: [
-            "- 发「菜单」或 `/` 打开**控制面板**，常用操作都能点",
-            "- `/to` 选对话对象，`/to codex` 直接指定，`/to off` 取消",
-            "- `/room` 切换房间",
-            "- `/who` 谁在忙",
-            "- `/level` 推送档位",
-            "- `/web` 在手机或其他电脑上打开网页（自动登录）",
-            "- `/status` 连接状态",
-            ...(buttons ? [] : ["- `/cards on` 在飞书后台开通卡片回调后打开按钮"]),
+            t("im.helpCard.commands.body"),
+            ...(buttons ? [] : [t("im.helpCard.commands.cards")]),
           ].join("\n"),
         },
-        {
-          title: "📌 机器人菜单（可选）",
-          body: "飞书开发者后台 → 机器人 → 自定义菜单，菜单项选「推送事件」，事件 key 填 `menu`（控制面板）、`to`、`room`、`who`、`level`、`help`",
-        },
+        { title: t("im.helpCard.menu.title"), body: t("im.helpCard.menu.body") },
       ],
-      ...(buttons ? {} : { note: "重新扫码连接飞书后，提问、提醒卡片上会出现可以点的按钮" }),
+      ...(buttons ? {} : { note: t("im.helpCard.note") }),
       ...this.quickActions(connection),
-      summary: "SuperHive 使用说明",
+      summary: t("im.helpCard.title"),
     };
   }
 
@@ -1662,13 +1794,14 @@ export class ImHub {
     const target = this.targetOf(connection);
     const order = { busy: 0, online: 1, offline: 2 } as const;
     const icon = { online: "🟢", busy: "🔄", offline: "⚪" } as const;
-    const label = { online: "空闲", busy: "忙碌", offline: "离线" } as const;
     const busy = agents.filter((agent) => agent.status === "busy").length;
     return {
-      title: "谁在忙",
+      title: this.t(connection, "im.whoCard.title"),
       subtitle: this.roomName(connection.roomId),
       tone: "reply",
-      tag: busy ? `${busy} 个忙碌` : "都空闲",
+      tag: busy
+        ? this.t(connection, "im.whoCard.busy", { count: busy })
+        : this.t(connection, "im.whoCard.idle"),
       body: agents.length
         ? [...agents]
             .sort(
@@ -1677,49 +1810,49 @@ export class ImHub {
             .map(
               (agent) =>
                 // 正文会转义尖括号，这里只用 Markdown，不用 <font>
-                `${icon[agent.status]} **${agent.username}**\u3000${label[agent.status]}${
-                  agent.username === target ? " · 当前对话对象" : ""
+                `${icon[agent.status]} **${agent.username}**\u3000${this.t(connection, `im.status.${agent.status}`)}${
+                  agent.username === target ? this.t(connection, "im.whoCard.target") : ""
                 }`,
             )
             .join("\n")
-        : "这个房间里还没有 Agent。",
+        : this.t(connection, "im.who.none"),
       ...(this.cardsEnabled(connection)
-        ? { actions: [{ label: "选对话对象", value: { do: "to" }, style: "primary" as const }] }
+        ? {
+            actions: [
+              {
+                label: this.t(connection, "im.button.pickAgent"),
+                value: { do: "to" },
+                style: "primary" as const,
+              },
+            ],
+          }
         : {}),
-      summary: `谁在忙：${busy} 个忙碌`,
+      summary: this.t(connection, "im.whoCard.summary", { count: busy }),
     };
   }
 
   private levelCard(connection: StoredConnection): ImRich {
     const current = connection.level ?? "mine";
-    const names: Record<ImDeliveryLevel, string> = {
-      mine: "与我相关",
-      im: "仅 IM 发起",
-      agents: "全部 Agent 消息",
-      all: "全部消息",
-    };
-    const levels = Object.keys(names) as ImDeliveryLevel[];
+    const locale = this.localeOf(connection);
     return {
-      title: "推送档位",
+      title: this.t(connection, "im.levelCard.title"),
       subtitle: this.roomName(connection.roomId),
       tone: "reply",
-      tag: `当前：${names[current]}`,
-      body: levels
-        .map(
-          (level) =>
-            `${level === current ? "✅" : "▫️"} **${names[level]}**\n${LEVEL_TEXT[level].split("：").slice(1).join("：")}`,
-        )
-        .join("\n"),
+      tag: this.t(connection, "im.levelCard.current", { name: levelName(locale, current) }),
+      body: LEVELS.map(
+        (level) =>
+          `${level === current ? "✅" : "▫️"} **${levelName(locale, level)}**\n${imText(locale, `im.level.${level}.desc`)}`,
+      ).join("\n"),
       ...(this.cardsEnabled(connection)
         ? {
-            actions: levels.map((level) => ({
-              label: names[level],
+            actions: LEVELS.map((level) => ({
+              label: levelName(locale, level),
               value: { do: "level", level },
               style: level === current ? ("primary" as const) : ("default" as const),
             })),
           }
-        : { note: "切换：/level mine | im | agents | all" }),
-      summary: `推送档位：${names[current]}`,
+        : { note: this.t(connection, "im.level.hint") }),
+      summary: this.t(connection, "im.levelCard.summary", { name: levelName(locale, current) }),
     };
   }
 
@@ -1727,7 +1860,10 @@ export class ImHub {
   private footerFor(connection: StoredConnection): Pick<ImRich, "footer"> {
     if (!this.cardsEnabled(connection)) return {};
     return {
-      footer: `当前：${this.roomName(connection.roomId)} → ${this.targetOf(connection) ?? "未指定"}`,
+      footer: this.t(connection, "im.footer", {
+        room: this.roomName(connection.roomId),
+        name: this.targetOf(connection) ?? this.t(connection, "im.nobody"),
+      }),
     };
   }
 
@@ -1749,7 +1885,7 @@ export class ImHub {
       }
       const rich: ImRich = {
         ...delivery.rich,
-        resolved: settledLabel(invocation),
+        resolved: settledLabel(this.localeOf(connection), invocation),
       };
       this.deps.store.setRich(delivery.id, rich);
       void transport
@@ -1792,19 +1928,23 @@ export class ImHub {
     const text =
       "selected" in answer
         ? [
-            ...selected.map(
-              (key) =>
-                `${key}：${question.question?.options.find((item) => item.key === key)?.label ?? ""}`,
+            ...selected.map((key) =>
+              this.t(connection, "im.answer.option", {
+                key,
+                label: question.question?.options.find((item) => item.key === key)?.label ?? "",
+              }),
             ),
-            ...(answer.other ? [`其它：${answer.other}`] : []),
-          ].join("；")
+            ...(answer.other
+              ? [this.t(connection, "im.answer.other", { text: answer.other })]
+              : []),
+          ].join(this.t(connection, "im.sep.clause"))
         : plain(oneLine(answer.content, 200));
     const by = "selected" in answer ? answer.by : answer.senderName;
     return {
       ...base,
       selected,
-      resolved: { text: "已回答", ok: true },
-      note: `${by} 的回答：${text}`,
+      resolved: { text: this.t(connection, "im.resolved.answered"), ok: true },
+      note: this.t(connection, "im.answer.note", { by, text }),
     };
   }
 
@@ -1825,15 +1965,20 @@ export class ImHub {
 
   private handleActionInner(connectionId: string, action: ImAction): ImActionResult | undefined {
     const connection = this.deps.store.getConnection(connectionId);
-    if (!connection || connection.status === "paused") {
-      return { toast: { type: "warning", text: "这个连接已暂停" } };
+    if (!connection)
+      return { toast: { type: "warning", text: imText("zh-CN", "im.toast.paused") } };
+    const t = (key: ImTextKey, params?: ImTextParams) => this.t(connection, key, params);
+    if (connection.status === "paused") {
+      return { toast: { type: "warning", text: t("im.toast.paused") } };
     }
     if (action.operatorId !== connection.ownerActorId) {
-      return { toast: { type: "error", text: "只有房主本人可以操作" } };
+      return { toast: { type: "error", text: t("im.toast.notOwner") } };
     }
     const owner = this.ownerOf(connection);
     if (!owner) {
-      return { toast: { type: "error", text: `在房间里找不到成员 ${connection.ownerName}` } };
+      return {
+        toast: { type: "error", text: t("im.toast.ownerMissing", { owner: connection.ownerName }) },
+      };
     }
     const op = action.value.do;
     if (op === "answer" || op === "answer_form")
@@ -1847,57 +1992,77 @@ export class ImHub {
         action.operatorId,
         action.value.id ?? "",
         action.value.decision === "allow",
-      ) ?? { ok: false, text: "这个服务不支持在这里批准" };
+      ) ?? { ok: false, key: "im.host.unsupported" };
+      const text = t(decided.key);
       const delivery = this.deps.store.deliveryByExternal(connection.id, action.externalId);
       const base = delivery?.rich;
       const rich: ImRich | undefined = base
-        ? { ...base, resolved: { text: decided.text, ok: decided.ok } }
+        ? { ...base, resolved: { text, ok: decided.ok } }
         : undefined;
       if (delivery && rich) this.deps.store.setRich(delivery.id, rich);
       return {
-        toast: { type: decided.ok ? "success" : "info", text: decided.text },
+        toast: { type: decided.ok ? "success" : "info", text },
         ...(rich ? { rich } : {}),
       };
     }
     if (op === "target") {
       const agent = action.value.agent ?? "";
       if (agent && !this.agentNames(connection.roomId).includes(agent)) {
-        return { toast: { type: "error", text: `房间里没有 ${agent}` } };
+        return { toast: { type: "error", text: t("im.pick.notInRoom", { name: agent }) } };
       }
       this.setTarget(connection, agent || undefined);
       return {
-        toast: { type: "success", text: agent ? `之后直接打字就发给 ${agent}` : "已取消指定" },
+        toast: {
+          type: "success",
+          text: agent ? t("im.to.setShort", { name: agent }) : t("im.to.clearedShort"),
+        },
         rich: this.agentPicker(connection),
       };
     }
     if (op === "room" && !action.value.room) {
       this.enqueueCard(connection, action.chatId, "room", undefined, this.roomPicker(connection));
-      return { toast: { type: "info", text: "已发来房间卡片" } };
+      return { toast: { type: "info", text: t("im.toast.roomCard") } };
     }
     if (op === "who") {
       this.enqueueCard(connection, action.chatId, "who", undefined, this.whoCard(connection));
-      return { toast: { type: "info", text: "已发来成员状态" } };
+      return { toast: { type: "info", text: t("im.toast.whoCard") } };
     }
     if (op === "level") {
       const level = action.value.level as ImDeliveryLevel | undefined;
       if (!level) {
         this.enqueueCard(connection, action.chatId, "level", undefined, this.levelCard(connection));
-        return { toast: { type: "info", text: "已发来推送档位" } };
+        return { toast: { type: "info", text: t("im.toast.levelCard") } };
       }
-      if (!(level in LEVEL_TEXT)) return { toast: { type: "error", text: "没有这个档位" } };
+      if (!LEVELS.includes(level)) return { toast: { type: "error", text: t("im.toast.noLevel") } };
       this.deps.store.setLevel(connection.id, level);
       this.deps.onConnectionsChanged(connection.roomId);
       const current = this.deps.store.getConnection(connection.id) ?? connection;
-      return { toast: { type: "success", text: "已切换推送档位" }, rich: this.levelCard(current) };
+      return {
+        toast: { type: "success", text: this.t(current, "im.toast.levelSwitched") },
+        rich: this.levelCard(current),
+      };
+    }
+    if (op === "lang") {
+      const locale = parseImLocale(action.value.locale ?? "");
+      if (!locale) return { toast: { type: "error", text: t("im.lang.invalid") } };
+      const current = this.setLocaleOf(connection, locale);
+      // 被点的是控制面板：原地换成新语言的面板
+      return {
+        toast: { type: "success", text: this.t(current, "im.toast.languageSwitched") },
+        rich: this.menuCard(current),
+      };
     }
     if (op === "room") {
       const failure = this.switchRoom(connection, action.value.room ?? "");
       if (failure) return { toast: { type: "error", text: failure } };
       const current = this.deps.store.getConnection(connection.id) ?? connection;
+      const switched = this.t(current, "im.room.switchedShort", {
+        room: this.roomName(current.roomId),
+      });
       return {
-        toast: { type: "success", text: `已切换到 ${this.roomName(current.roomId)}` },
+        toast: { type: "success", text: switched },
         // 卡片原地变成新房间的对象选择
-        rich: this.agentPicker(current, `已切换到 ${this.roomName(current.roomId)}`),
+        rich: this.agentPicker(current, switched),
       };
     }
     if (op === "follow") {
@@ -1906,26 +2071,29 @@ export class ImHub {
         return {
           toast: {
             type: "error",
-            text: `${agent} 不在当前房间「${this.roomName(connection.roomId)}」，先切换房间`,
+            text: t("im.toast.followElsewhere", {
+              agent,
+              room: this.roomName(connection.roomId),
+            }),
           },
         };
       }
       this.setTarget(connection, agent);
-      return { toast: { type: "success", text: `之后直接打字就发给 ${agent}` } };
+      return { toast: { type: "success", text: t("im.to.setShort", { name: agent }) } };
     }
     if (op === "menu") {
       this.enqueueCard(connection, action.chatId, "menu", undefined, this.menuCard(connection));
-      return { toast: { type: "info", text: "已发来控制面板" } };
+      return { toast: { type: "info", text: t("im.toast.menuCard") } };
     }
     if (op === "help") {
       this.enqueueCard(connection, action.chatId, "help", undefined, this.helpCard(connection));
-      return { toast: { type: "info", text: "已发来使用说明" } };
+      return { toast: { type: "info", text: t("im.toast.helpCard") } };
     }
     if (op === "stop") {
       const tasks = this.deps
         .invocationsFor(action.value.message ?? "")
         .filter((task) => ["queued", "running", "waiting_human", "blocked"].includes(task.status));
-      if (!tasks.length) return { toast: { type: "info", text: "已经都结束了" } };
+      if (!tasks.length) return { toast: { type: "info", text: t("im.toast.allFinished") } };
       let failed = 0;
       for (const task of tasks) {
         try {
@@ -1936,13 +2104,16 @@ export class ImHub {
       }
       return {
         toast: failed
-          ? { type: "warning", text: `${tasks.length - failed} 个已请求停止，${failed} 个停不了` }
-          : { type: "success", text: `已请求停止 ${tasks.length} 个任务` },
+          ? {
+              type: "warning",
+              text: t("im.toast.stopPartial", { ok: tasks.length - failed, failed }),
+            }
+          : { type: "success", text: t("im.toast.stopped", { count: tasks.length }) },
       };
     }
     if (op === "to") {
       this.enqueueCard(connection, action.chatId, "to", undefined, this.agentPicker(connection));
-      return { toast: { type: "info", text: "已发来选择卡片" } };
+      return { toast: { type: "info", text: t("im.toast.pickerCard") } };
     }
     if (op === "pick") {
       const delivery = this.deps.store.deliveryByExternal(connection.id, action.externalId);
@@ -1956,14 +2127,19 @@ export class ImHub {
       if (!result.ok) {
         return {
           toast: { type: "info", text: result.reason },
-          ...(base ? { rich: { ...base, resolved: { text: "已处理", ok: false } } } : {}),
+          ...(base
+            ? { rich: { ...base, resolved: { text: t("im.pick.handled"), ok: false } } }
+            : {}),
         };
       }
       const rich: ImRich | undefined = base
-        ? { ...base, resolved: { text: `已发给 ${action.value.agent}`, ok: true } }
+        ? {
+            ...base,
+            resolved: { text: t("im.pick.sentTo", { name: action.value.agent ?? "" }), ok: true },
+          }
         : undefined;
       if (delivery && rich) this.deps.store.setRich(delivery.id, rich);
-      return { toast: { type: "success", text: "已发出" }, ...(rich ? { rich } : {}) };
+      return { toast: { type: "success", text: t("im.pick.sent") }, ...(rich ? { rich } : {}) };
     }
     return undefined;
   }
@@ -1976,15 +2152,15 @@ export class ImHub {
     const questionId = this.deps.store.messageForExternal(connection.id, action.externalId);
     const question = questionId ? this.deps.getMessage(questionId) : undefined;
     if (question?.kind !== "question") {
-      return { toast: { type: "error", text: "找不到这条提问" } };
+      return { toast: { type: "error", text: this.t(connection, "im.toast.noQuestion") } };
     }
     if (!this.deps.isWaiting(question.id)) {
       const driver = this.deps.drivers[connection.channel];
       return {
-        toast: { type: "info", text: "这个问题已经回答过了" },
+        toast: { type: "info", text: this.t(connection, "im.toast.answered") },
         rich: {
           ...this.richMessage(connection, question, driver?.richTextLength ?? 4000),
-          resolved: { text: "已结束", ok: false },
+          resolved: { text: this.t(connection, "im.resolved.closed"), ok: false },
         },
       };
     }
@@ -2001,7 +2177,7 @@ export class ImHub {
     const other = typeof form[OTHER_FIELD] === "string" ? form[OTHER_FIELD].trim() : "";
     const picked = keys.filter(Boolean);
     if (!picked.length && !other) {
-      return { toast: { type: "warning", text: "请先选一个选项，或填写其它答案" } };
+      return { toast: { type: "warning", text: this.t(connection, "im.toast.pickFirst") } };
     }
     const clientMessageId = `im-card-${digest(
       `${connection.id}:${action.externalId}:${picked.join(",")}:${other}`,
@@ -2020,13 +2196,13 @@ export class ImHub {
         });
       }
     } catch (error) {
-      return { toast: { type: "error", text: describe(error) } };
+      return { toast: { type: "error", text: describe(error, this.localeOf(connection)) } };
     } finally {
       this.posting = undefined;
       this.answeringFromCard = undefined;
     }
     return {
-      toast: { type: "success", text: "已提交" },
+      toast: { type: "success", text: this.t(connection, "im.toast.submitted") },
       rich: this.answeredQuestion(connection, question, {
         selected: picked,
         ...(other ? { other } : {}),
@@ -2044,32 +2220,37 @@ export class ImHub {
     const delivery = this.deps.store.deliveryByExternal(connection.id, action.externalId);
     const check = delivery?.check;
     if (!delivery?.rich || check?.kind !== "invocation") {
-      return { toast: { type: "error", text: "找不到这条任务" } };
+      return { toast: { type: "error", text: this.t(connection, "im.toast.noTask") } };
     }
     // 已处理过（重复点击、飞书超时重投同一回调，或已在网页上处理）：不再执行，
     // 尤其「继续」每执行一次都会再追加轮数
     if (delivery.rich.resolved) {
-      return { toast: { type: "info", text: "这条任务已经处理过了" }, rich: delivery.rich };
+      return {
+        toast: { type: "info", text: this.t(connection, "im.toast.taskHandled") },
+        rich: delivery.rich,
+      };
     }
-    const label =
+    const kind =
       op === "dismiss"
-        ? "已忽略"
+        ? "dismiss"
         : op === "continue"
-          ? `已追加 ${BUDGET_EXTEND_TURNS} 轮`
+          ? "continue"
           : delivery.rich.tone === "approval"
-            ? "已批准"
-            : "已重试";
+            ? "approve"
+            : "retry";
+    const params = { turns: BUDGET_EXTEND_TURNS, owner: owner.username };
+    const label = this.t(connection, RESOLVED_LABEL[kind], params);
     try {
       if (op === "retry") this.deps.retry(owner, check.id);
       else if (op === "dismiss") this.deps.dismiss(owner, check.id);
       else this.deps.extendBudget(owner, BUDGET_EXTEND_TURNS);
     } catch (error) {
-      return { toast: { type: "error", text: describe(error) } };
+      return { toast: { type: "error", text: describe(error, this.localeOf(connection)) } };
     }
     const rich: ImRich = {
       ...delivery.rich,
       resolved: { text: label, ok: op !== "dismiss" },
-      note: `${owner.username} 在飞书上${label.replace(/^已/, "")}`,
+      note: this.t(connection, `im.byOwner.${kind}`, params),
     };
     this.deps.store.setRich(delivery.id, rich);
     return { toast: { type: "success", text: label }, rich };
@@ -2127,7 +2308,7 @@ export class ImHub {
       eventKey,
       messageId: message.id,
       ...this.target(connection, origin),
-      text: this.format(message, driver?.maxTextLength ?? 1800),
+      text: this.format(connection, message, driver?.maxTextLength ?? 1800),
       ...(driver?.richTextLength
         ? { rich: this.richMessage(connection, message, driver.richTextLength) }
         : {}),
@@ -2152,15 +2333,18 @@ export class ImHub {
     });
   }
 
-  /** 推一条文字到房主私聊（安全提醒等，不挂在任何房间消息上） */
-  notifyOwner(text: string, filter?: (connection: StoredConnection) => boolean): number {
+  /** 推一条文字到房主私聊（安全提醒等，不挂在任何房间消息上）；按每个连接的语言渲染 */
+  notifyOwner(
+    text: ImMessage | string,
+    filter?: (connection: StoredConnection) => boolean,
+  ): number {
     const targets = this.ownerConnections(filter);
     for (const connection of targets) {
       this.deps.store.enqueue({
         connectionId: connection.id,
         eventKey: `notice:${randomUUID()}`,
         chatId: `${USER_TARGET}${connection.ownerActorId}`,
-        text: plain(text),
+        text: plain(renderImMessage(this.localeOf(connection), text)),
       });
     }
     if (targets.length) this.schedulePump();
@@ -2174,30 +2358,36 @@ export class ImHub {
   requestHostApproval(
     approval: { id: string; summary: string; expiresAt: string },
     approvers: (connection: StoredConnection) => boolean,
+    /** 按连接语言渲染的申请说明；没有时用 summary 原文 */
+    summaryText?: ImMessage,
   ): number {
     const targets = this.ownerConnections(
       (connection) => approvers(connection) && this.cardsEnabled(connection),
     );
     for (const connection of targets) {
+      const t = (key: ImTextKey, params?: ImTextParams) => this.t(connection, key, params);
+      const summary = plain(
+        summaryText ? renderImMessage(this.localeOf(connection), summaryText) : approval.summary,
+      );
       const rich: ImRich = {
-        title: "需要你批准",
+        title: t("im.host.title"),
         tone: "approval",
-        tag: "待批准",
-        body: plain(approval.summary),
-        note: "5 分钟内有效。不是你本人在操作就点「拒绝」，并在设置 → 已登录设备里全部退出。",
+        tag: t("im.host.tag"),
+        body: summary,
+        note: t("im.host.note"),
         actions: [
           {
-            label: "允许",
+            label: t("im.button.allow"),
             value: { do: "host_approval", id: approval.id, decision: "allow" },
             style: "primary",
           },
           {
-            label: "拒绝",
+            label: t("im.button.deny"),
             value: { do: "host_approval", id: approval.id, decision: "deny" },
             style: "danger",
           },
         ],
-        summary: `需要你批准：${plain(approval.summary)}`,
+        summary: t("im.host.summary", { summary }),
       };
       this.deps.store.enqueue({
         connectionId: connection.id,
@@ -2300,7 +2490,7 @@ export class ImHub {
       const approval =
         invocation.status === "blocked" && invocation.blockReason === "guest_approval";
       if (!approval && !ownTask) continue;
-      const notice = this.statusNotice(invocation);
+      const notice = this.statusNotice(connection, invocation);
       if (!notice) continue;
       const trigger = this.deps.getMessage(invocation.messageId);
       const origin = trigger ? this.originOf(trigger, connection.id) : undefined;
@@ -2314,6 +2504,7 @@ export class ImHub {
         ...this.target(connection, origin),
         ...(rich ? { rich } : {}),
         text: this.clip(
+          connection,
           `${this.roomName(invocation.roomId)} - ${invocation.agentName}\n${notice}`,
           invocation.roomId,
           driver?.maxTextLength ?? 1800,
@@ -2329,19 +2520,27 @@ export class ImHub {
     this.schedulePump();
   }
 
-  private statusNotice(invocation: Invocation): string | undefined {
+  private statusNotice(connection: StoredConnection, invocation: Invocation): string | undefined {
+    const t = (key: ImTextKey, params?: ImTextParams) => this.t(connection, key, params);
     const trigger = this.deps.getMessage(invocation.messageId);
-    const ref = trigger ? `#${trigger.seq}` : "这条任务";
+    const ref = trigger ? `#${trigger.seq}` : t("im.notice.thisTask");
     const detail = invocation.detail ? plain(invocation.detail.replace(/\s+/g, " ")) : "";
     switch (invocation.status) {
       case "failed":
-        return `⚠️ 处理 ${ref} 失败${detail ? `：${detail}` : ""}\n到网页查看或重试 ${ref}`;
+        return t("im.notice.failed", {
+          ref,
+          detail: detail ? t("im.notice.detail", { detail }) : "",
+        });
       case "timed_out":
-        return `⚠️ 处理 ${ref} 结果未知（长时间没有进展，不代表失败）\n到网页查看 ${ref}`;
+        return t("im.notice.timedOut", { ref });
       case "blocked":
         return invocation.blockReason === "guest_approval"
-          ? `🔒 ${plain(invocation.requesterName)} 是访客，请 ${invocation.agentName} 处理 ${ref}，等你批准\n到网页点「批准」`
-          : `⏸️ ${ref} 已暂停：${detail || "Agent 对话轮数到了上限"}\n到网页点「继续」`;
+          ? t("im.notice.guest", {
+              guest: plain(invocation.requesterName),
+              agent: invocation.agentName,
+              ref,
+            })
+          : t("im.notice.paused", { ref, reason: detail || t("im.notice.turnLimit") });
       default:
         return undefined;
     }
@@ -2354,7 +2553,8 @@ export class ImHub {
     trigger: ChatMessage | undefined,
     interactive: boolean,
   ): ImRich | undefined {
-    const ref = trigger ? `#${trigger.seq}` : "这条任务";
+    const t = (key: ImTextKey, params?: ImTextParams) => this.t(connection, key, params);
+    const ref = trigger ? `#${trigger.seq}` : t("im.notice.thisTask");
     const detail = invocation.detail ? invocation.detail.replace(/\s+/g, " ").trim() : "";
     const agent = invocation.agentName;
     const url = this.cardUrl(connection, invocation.roomId);
@@ -2362,59 +2562,75 @@ export class ImHub {
     const room = this.roomName(invocation.roomId);
     const quote = trigger ? `> ${plain(oneLine(trigger.content, 120))}` : "";
     const act = (
-      ...items: Array<[string, string, "primary" | "default" | "danger"]>
+      ...items: Array<[ImTextKey, string, "primary" | "default" | "danger"]>
     ): Pick<ImRich, "actions"> =>
       interactive
-        ? { actions: items.map(([label, op, style]) => ({ label, value: { do: op }, style })) }
+        ? {
+            actions: items.map(([label, op, style]) => ({
+              label: t(label),
+              value: { do: op },
+              style,
+            })),
+          }
         : {};
-    const ignore: [string, string, "default"] = ["忽略", "dismiss", "default"];
+    const ignore: [ImTextKey, string, "default"] = ["im.button.dismiss", "dismiss", "default"];
     const base = (rich: Omit<ImRich, "subtitle" | "link" | "summary">): ImRich => ({
       ...rich,
       room,
       ...(subtitle ? { subtitle } : {}),
-      summary: `${rich.title}${detail ? `：${detail}` : ""}`,
-      ...(url ? { link: { label: `到网页处理 ${ref}`, url } } : {}),
+      summary: `${rich.title}${detail ? t("im.notice.detail", { detail }) : ""}`,
+      ...(url ? { link: { label: t("im.link.handle", { ref }), url } } : {}),
     });
     switch (invocation.status) {
       case "failed":
         return base({
-          title: `${agent} 处理失败`,
+          title: t("im.notice.failedTitle", { agent }),
           tone: "danger",
-          tag: "失败",
-          body: [quote, detail ? `**原因**：${plain(detail)}` : ""].filter(Boolean).join("\n\n"),
-          note: interactive ? "可以直接重试，或到网页看详情" : `可以到网页查看详情，或重试 ${ref}`,
-          ...act(["重试", "retry", "primary"], ignore),
+          tag: t("im.task.failed"),
+          body: [quote, detail ? t("im.notice.reason", { detail: plain(detail) }) : ""]
+            .filter(Boolean)
+            .join("\n\n"),
+          note: interactive ? t("im.notice.failedNote") : t("im.notice.failedNoteText", { ref }),
+          ...act(["im.button.retry", "retry", "primary"], ignore),
         });
       case "timed_out":
         return base({
-          title: `${agent} 结果未知`,
+          title: t("im.notice.timedOutTitle", { agent }),
           tone: "warning",
-          tag: "结果未知",
+          tag: t("im.task.timedOut"),
           body: quote,
-          note: "长时间没有进展，不代表失败；到网页确认后再决定是否重试",
+          note: t("im.notice.timedOutNote"),
           ...act(ignore),
         });
       case "blocked":
         return invocation.blockReason === "guest_approval"
           ? base({
-              title: `访客的任务等你批准`,
+              title: t("im.notice.guestTitle"),
               tone: "approval",
-              tag: "待批准",
-              body: [`**${plain(invocation.requesterName)}**（访客）请 **${agent}** 处理：`, quote]
+              tag: t("im.host.tag"),
+              body: [
+                t("im.notice.guestBody", { guest: plain(invocation.requesterName), agent }),
+                quote,
+              ]
                 .filter(Boolean)
                 .join("\n\n"),
-              note: interactive ? "批准后才会派发" : "到网页点「批准」后才会派发",
-              ...act(["批准", "retry", "primary"], ignore),
+              note: t(interactive ? "im.notice.guestNote" : "im.notice.guestNoteText"),
+              ...act(["im.button.approve", "retry", "primary"], ignore),
             })
           : base({
-              title: `${agent} 已暂停`,
+              title: t("im.notice.pausedTitle", { agent }),
               tone: "warning",
-              tag: "已暂停",
-              body: [quote, `**原因**：${plain(detail || "Agent 对话轮数到了上限")}`]
+              tag: t("im.task.blocked"),
+              body: [
+                quote,
+                t("im.notice.reason", { detail: plain(detail || t("im.notice.turnLimit")) }),
+              ]
                 .filter(Boolean)
                 .join("\n\n"),
-              note: interactive ? `点「继续」再给 ${BUDGET_EXTEND_TURNS} 轮` : "到网页点「继续」",
-              ...act(["继续", "continue", "primary"], ignore),
+              note: interactive
+                ? t("im.notice.pausedNote", { turns: BUDGET_EXTEND_TURNS })
+                : t("im.notice.pausedNoteText"),
+              ...act(["im.button.continue", "continue", "primary"], ignore),
             });
       default:
         return undefined;
@@ -2423,6 +2639,7 @@ export class ImHub {
 
   /** 房间消息的卡片：Agent 回复、@ 房主、提问（选项单独列出） */
   private richMessage(connection: StoredConnection, message: ChatMessage, limit: number): ImRich {
+    const t = (key: ImTextKey, params?: ImTextParams) => this.t(connection, key, params);
     const sender = message.senderName;
     const url = this.cardUrl(connection, message.roomId);
     let body = plain(message.content);
@@ -2430,44 +2647,45 @@ export class ImHub {
     let note: string | undefined;
     if (message.kind === "question") {
       // 正文开头是「@提问对象 ❓ 问题」，后面跟（单选）和逐行选项、作答提示：卡片里分开展示
-      const lines = body.split("\n");
-      const marker = lines.findIndex((line) => /^（(单选|可多选)）$/u.test(line.trim()));
-      body = (marker >= 0 ? lines.slice(0, marker) : lines)
-        .join("\n")
-        .replace(/^(＠\S+\s+)?❓\s*/u, "")
-        .replace(/\s*（(点选选项|回复这条消息)[^）]*）\s*$/u, "")
-        .trim();
+      body = questionText(body);
       if (message.question) {
         options = message.question.options.map((option) => ({
           key: option.key,
           label: plain(option.label),
         }));
       }
-      note = this.cardsEnabled(connection)
-        ? "直接点选作答；也可以回复这张卡片打字"
-        : message.question
-          ? message.question.multiple
-            ? "回复这张卡片作答：选项字母，多选用逗号隔开（如 A,C）；也可以直接回复文字"
-            : "回复这张卡片作答：选项字母（如 A）；也可以直接回复文字"
-          : "回复这张卡片作答";
+      note = t(
+        this.cardsEnabled(connection)
+          ? "im.question.cards"
+          : message.question
+            ? message.question.multiple
+              ? "im.question.multiple"
+              : "im.question.single"
+            : "im.question.open",
+      );
     }
     if (body.length > limit) {
       body = `${body.slice(0, limit)}…`;
-      note = [note, `正文太长已截断，全文见网页 #${message.seq}`].filter(Boolean).join("；");
+      note = [note, t("im.message.truncated", { seq: message.seq })]
+        .filter(Boolean)
+        .join(t("im.sep.clause"));
     }
     const mentioned = this.mentionsOwner(message, connection);
     const question = message.kind === "question";
-    const title = question
-      ? message.approval
-        ? `${sender} 申请权限，等你批准`
-        : `${sender} 有问题问你`
-      : message.kind === "progress"
-        ? `${sender} 的进度`
-        : message.senderType === "human"
-          ? `${sender} 的消息`
-          : mentioned
-            ? `${sender} 提到了你`
-            : `${sender} 的回复`;
+    const title = t(
+      question
+        ? message.approval
+          ? "im.message.approval"
+          : "im.message.question"
+        : message.kind === "progress"
+          ? "im.message.progress"
+          : message.senderType === "human"
+            ? "im.message.human"
+            : mentioned
+              ? "im.message.mention"
+              : "im.message.reply",
+      { sender },
+    );
     const attachments = (message.attachments ?? []).map((item) => ({
       name: item.name,
       size: formatSize(item.size),
@@ -2478,9 +2696,17 @@ export class ImHub {
       subtitle: `#${message.seq} · ${clock(message.createdAt)}`,
       tone: question ? "question" : mentioned ? "mention" : "reply",
       ...(question
-        ? { tag: message.question ? (message.question.multiple ? "多选" : "单选") : "待回答" }
+        ? {
+            tag: t(
+              message.question
+                ? message.question.multiple
+                  ? "im.message.tag.multiple"
+                  : "im.message.tag.single"
+                : "im.message.tag.open",
+            ),
+          }
         : message.kind === "progress"
-          ? { tag: "进度" }
+          ? { tag: t("im.message.tag.progress") }
           : {}),
       ...(body ? { body } : {}),
       ...(options ? { options } : {}),
@@ -2488,49 +2714,74 @@ export class ImHub {
         ? { choice: { multiple: Boolean(message.question?.multiple) } }
         : {}),
       ...(!question && message.senderType === "agent" && this.cardsEnabled(connection)
-        ? { ...this.footerFor(connection), actions: this.replyActions(sender) }
+        ? { ...this.footerFor(connection), actions: this.replyActions(connection, sender) }
         : {}),
       ...(note ? { note } : {}),
       ...(attachments.length ? { attachments } : {}),
-      ...(url ? { link: { label: "网页查看", url } } : {}),
-      summary: `${sender}：${oneLine(body || attachments[0]?.name || "", 60)}`,
+      ...(url ? { link: { label: t("im.link.view"), url } } : {}),
+      summary: t("im.message.summary", {
+        sender,
+        text: oneLine(body || attachments[0]?.name || "", 60),
+      }),
     };
   }
 
-  private formatAttachments(message: ChatMessage): string[] {
+  private formatAttachments(connection: StoredConnection, message: ChatMessage): string[] {
+    const t = (key: ImTextKey, params?: ImTextParams) => this.t(connection, key, params);
     const attachments = message.attachments ?? [];
     if (!attachments.length) return [];
+    const url = this.deps.webUrl(message.roomId);
     return [
-      `📎 附件 ${attachments.length} 个：`,
-      ...attachments.map((item) => `· ${item.name}（${formatSize(item.size)}）`),
-      `到网页查看 #${message.seq}${this.deps.webUrl(message.roomId) ? `：${this.deps.webUrl(message.roomId)}` : ""}`,
+      t("im.message.attachments", { count: attachments.length }),
+      ...attachments.map((item) =>
+        t("im.message.attachment", { name: item.name, size: formatSize(item.size) }),
+      ),
+      t("im.message.attachmentsLink", { seq: message.seq }) +
+        (url ? `${t("im.sep.label")}${url}` : ""),
     ];
   }
 
   /** 消息顶部统一标注「房间名 - 发送者」 */
-  private format(message: ChatMessage, limit: number): string {
+  private format(connection: StoredConnection, message: ChatMessage, limit: number): string {
+    const t = (key: ImTextKey) => this.t(connection, key);
     const header = `${this.roomName(message.roomId)} - ${message.senderName}`;
     let body = plain(message.content);
     if (message.kind === "question") {
-      body = body.replace(
-        /（(点选选项|回复这条消息)[^）]*）\s*$/u,
+      const hint = t(
         message.question
           ? message.question.multiple
-            ? "（回复选项字母作答，多选用逗号隔开，如 A,C；也可以直接回复文字）"
-            : "（回复选项字母作答，如 A；也可以直接回复文字）"
-          : "（直接回复这条消息作答）",
+            ? "im.question.hintMultiple"
+            : "im.question.hintSingle"
+          : "im.question.hintOpen",
       );
+      body =
+        message.question && this.localeOf(connection) !== "zh-CN"
+          ? // 正文里的「（单选）」、作答提示是中文：按连接的语言重新排一遍，只保留问题和选项原文
+            [
+              `❓ ${questionText(body)}`,
+              t(message.question.multiple ? "im.question.textMultiple" : "im.question.textSingle"),
+              ...message.question.options.map((option) => `${option.key}. ${plain(option.label)}`),
+              hint,
+            ].join("\n")
+          : body.replace(/（(点选选项|回复这条消息)[^）]*）\s*$/u, hint);
     }
-    const extra = this.formatAttachments(message);
+    const extra = this.formatAttachments(connection, message);
     const tail = extra.length ? `\n\n${extra.join("\n")}` : "";
     const head = body ? `${header}\n${body}` : header;
-    return this.clip(head, message.roomId, limit - tail.length, message.seq) + tail;
+    return this.clip(connection, head, message.roomId, limit - tail.length, message.seq) + tail;
   }
 
-  private clip(text: string, roomId: string, limit: number, seq?: number): string {
+  private clip(
+    connection: StoredConnection,
+    text: string,
+    roomId: string,
+    limit: number,
+    seq?: number,
+  ): string {
     if (text.length <= limit) return text;
     const url = this.deps.webUrl(roomId);
-    const suffix = `\n…（太长已截断，全文见网页${seq ? ` #${seq}` : ""}${url ? `：${url}` : ""}）`;
+    const where = `${seq ? ` #${seq}` : ""}${url ? `${this.t(connection, "im.sep.label")}${url}` : ""}`;
+    const suffix = `\n${this.t(connection, "im.message.clipped", { where })}`;
     return text.slice(0, Math.max(0, limit - suffix.length)) + suffix;
   }
 
@@ -2634,7 +2885,14 @@ export class ImHub {
     if (!live.length) return;
     const text = live.map((item) => item.text).join("\n\n———\n\n");
     const rich = live.every((item) => item.rich)
-      ? this.forChat(connection, first.chatId, combineRich(live.map((item) => item.rich!)))
+      ? this.forChat(
+          connection,
+          first.chatId,
+          combineRich(
+            this.localeOf(connection),
+            live.map((item) => item.rich!),
+          ),
+        )
       : undefined;
     try {
       const externalId =
@@ -2689,28 +2947,47 @@ const TEXT_MENU_TTL_MS = 10 * 60_000;
 const TASK_CARD_THROTTLE_MS = 2_000;
 /** 卡片上「继续」追加的对话轮数（与网页一致） */
 const BUDGET_EXTEND_TURNS = 10;
-const TASK_STATUS_TEXT: Record<string, string> = {
-  failed: "失败",
-  timed_out: "结果未知",
-  cancelled: "已停止",
-  blocked: "已暂停",
+const TASK_STATUS_TEXT: Partial<Record<Invocation["status"], ImTextKey>> = {
+  failed: "im.task.failed",
+  timed_out: "im.task.timedOut",
+  cancelled: "im.task.cancelled",
+  blocked: "im.task.blocked",
 };
+/** 卡片上点了重试 / 忽略 / 继续 / 批准之后的结论 */
+const RESOLVED_LABEL = {
+  dismiss: "im.resolved.dismissed",
+  continue: "im.resolved.extended",
+  approve: "im.resolved.approved",
+  retry: "im.resolved.retried",
+} as const satisfies Record<string, ImTextKey>;
+
+/** 提问正文开头是「@提问对象 ❓ 问题」，后面跟（单选）和逐行选项、作答提示：只取问题本身 */
+function questionText(body: string): string {
+  const lines = body.split("\n");
+  const marker = lines.findIndex((line) => /^（(单选|可多选)）$/u.test(line.trim()));
+  return (marker >= 0 ? lines.slice(0, marker) : lines)
+    .join("\n")
+    .replace(/^(＠\S+\s+)?❓\s*/u, "")
+    .replace(/\s*（(点选选项|回复这条消息)[^）]*）\s*$/u, "")
+    .trim();
+}
 
 /** 提醒卡片被别处处理后的结论 */
-function settledLabel(invocation: Invocation): { text: string; ok: boolean } {
-  if (invocation.resolution) return { text: "已忽略", ok: false };
+function settledLabel(locale: ImLocale, invocation: Invocation): { text: string; ok: boolean } {
+  const label = (key: ImTextKey, ok: boolean) => ({ text: imText(locale, key), ok });
+  if (invocation.resolution) return label("im.resolved.dismissed", false);
   switch (invocation.status) {
     case "queued":
     case "running":
-      return { text: "已重新开始", ok: true };
+      return label("im.resolved.restarted", true);
     case "completed":
-      return { text: "已完成", ok: true };
+      return label("im.resolved.done", true);
     case "cancelled":
-      return { text: "已停止", ok: false };
+      return label("im.resolved.stopped", false);
     case "waiting_human":
-      return { text: "在等你回答", ok: true };
+      return label("im.resolved.waiting", true);
     default:
-      return { text: "状态已变化", ok: false };
+      return label("im.resolved.changed", false);
   }
 }
 
@@ -2731,13 +3008,13 @@ function oneLine(text: string, max: number): string {
 }
 
 /** 合并推送：多条卡片合成一张，每条一节 */
-function combineRich(items: ImRich[]): ImRich {
+function combineRich(locale: ImLocale, items: ImRich[]): ImRich {
   if (items.length === 1) return items[0]!;
   const rooms = [...new Set(items.map((item) => item.room).filter(Boolean))] as string[];
   const link = items.find((item) => item.link)?.link;
   return {
-    title: `${items.length} 条新消息`,
-    ...(rooms.length ? { room: rooms.join("、") } : {}),
+    title: imText(locale, "im.digest.title", { count: items.length }),
+    ...(rooms.length ? { room: rooms.join(imText(locale, "im.sep.list")) } : {}),
     tone: "digest",
     sections: items.map((item) => ({
       title: rooms.length > 1 && item.room ? `${item.room}｜${item.title}` : item.title,
@@ -2745,13 +3022,16 @@ function combineRich(items: ImRich[]): ImRich {
       body: [
         item.body ?? "",
         ...(item.options ?? []).map((option) => `**${option.key}**\u3000${option.label}`),
-        ...(item.attachments ?? []).map((file) => `📎 ${file.name}（${file.size}）`),
+        ...(item.attachments ?? []).map(
+          (file) =>
+            `📎 ${imText(locale, "im.message.attachment", { name: file.name, size: file.size }).replace(/^· /, "")}`,
+        ),
       ]
         .filter(Boolean)
         .join("\n"),
     })),
-    ...(link ? { link: { label: "在网页查看", url: link.url } } : {}),
-    summary: items.map((item) => item.summary).join("；"),
+    ...(link ? { link: { label: imText(locale, "im.link.viewAll"), url: link.url } } : {}),
+    summary: items.map((item) => item.summary).join(imText(locale, "im.sep.clause")),
   };
 }
 

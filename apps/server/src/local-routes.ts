@@ -20,6 +20,7 @@ import type { HostApproval, HostApprovals } from "./host-approvals.js";
 import type { OwnerDevice } from "./owner-devices.js";
 import { checkLocalRequest, type LocalCheck } from "./local-access.js";
 import { listDirectories } from "./local-directories.js";
+import { renderImMessage, type ImMessage } from "./im/im-texts.js";
 import { openTerminal } from "./open-terminal.js";
 import type { LocalAgentSupervisor } from "./local-agents.js";
 
@@ -96,7 +97,7 @@ export type LocalRoomActions = {
   approvals?: {
     store: HostApprovals;
     /** 把批准卡推到可批准的 IM 账号，返回推出去的数量（0 表示只能回本机批准） */
-    send(approval: HostApproval): number;
+    send(approval: HostApproval, summaryText?: ImMessage): number;
     /** 有没有可批准的 IM 账号 */
     remote(): boolean;
     /** 批准或拒绝（本机网页和 IM 卡片共用）：manage 获批时给设备授予管理权 */
@@ -106,7 +107,7 @@ export type LocalRoomActions = {
     setApprover(connectionId: string, allowed: boolean): boolean;
   };
   /** 房主设备上做了会在这台电脑上起进程、改设置的操作：推到房主 IM，便于发现设备被盗用 */
-  notifyOwner?: (text: string) => void;
+  notifyOwner?: (text: ImMessage) => void;
   /** Agent 在某个房间当前的 Provider 会话（Bridge 上报）；busy：这一轮还在执行 */
   agentSession?: (
     roomId: string,
@@ -232,8 +233,9 @@ export function registerLocalAgentRoutes(
     reply: FastifyReply,
     caller: LocalCaller,
     fingerprint: string,
-    summary: string,
+    summaryText: ImMessage,
   ): boolean {
+    const summary = renderImMessage("zh-CN", summaryText);
     if (caller.kind === "local") return true;
     const approvals = rooms.approvals;
     if (!approvals) {
@@ -254,7 +256,7 @@ export function registerLocalAgentRoutes(
       summary,
       fingerprint,
     });
-    const delivered = approvals.send(approval);
+    const delivered = approvals.send(approval, summaryText);
     void reply.code(403).send({
       ...errorText(
         serverText(delivered ? "error.approval.feishuRequired" : "error.approval.localRequired"),
@@ -267,16 +269,21 @@ export function registerLocalAgentRoutes(
   }
 
   /** 房主设备上的操作：记审计日志；notify 时再推一条到房主 IM */
-  function audit(request: FastifyRequest, caller: LocalCaller, action: string, notify = false) {
+  function audit(request: FastifyRequest, caller: LocalCaller, action: ImMessage, notify = false) {
     if (caller.kind !== "device") return;
     request.log.info(
-      { ownerDevice: { id: caller.id, name: caller.name }, action },
+      {
+        ownerDevice: { id: caller.id, name: caller.name },
+        action: renderImMessage("zh-CN", action),
+      },
       "owner device action",
     );
+    // 推到房主 IM 时按每个连接的语言渲染
     if (notify)
-      rooms.notifyOwner?.(
-        `已登录的设备「${caller.name}」在 ${hostLabel} 上${action}。如果不是你本人操作，请立即在设置 → 已登录设备里全部退出。`,
-      );
+      rooms.notifyOwner?.({
+        key: "im.audit.notice",
+        params: { device: caller.name, host: hostLabel, action },
+      });
   }
 
   function fail(reply: FastifyReply, error: unknown) {
@@ -302,7 +309,7 @@ export function registerLocalAgentRoutes(
       return reply.code(404).send({ ...errorText(serverText("error.device.notFound")) });
     }
     rooms.approvals?.store.dropDevice(request.params.id);
-    if (!self) audit(request, caller, "退出了另一台已登录的设备", true);
+    if (!self) audit(request, caller, { key: "im.audit.revokeOne" }, true);
     return { ok: true };
   });
 
@@ -314,7 +321,12 @@ export function registerLocalAgentRoutes(
     if (!owner) return reply.code(404).send({ ...errorText(serverText("error.feature.disabled")) });
     const revoked = owner.revokeAll(caller.kind === "device" ? caller.id : undefined);
     for (const id of revoked) rooms.approvals?.store.dropDevice(id);
-    audit(request, caller, `退出了其他 ${revoked.length} 台已登录的设备`, true);
+    audit(
+      request,
+      caller,
+      { key: "im.audit.revokeOthers", params: { count: revoked.length } },
+      true,
+    );
     return { revoked: revoked.length };
   });
 
@@ -331,13 +343,17 @@ export function registerLocalAgentRoutes(
     const approvals = rooms.approvals;
     if (!approvals)
       return reply.code(404).send({ ...errorText(serverText("error.feature.disabled")) });
+    const summaryText: ImMessage = {
+      key: "im.host.request.manage",
+      params: { device: device.name, host: hostLabel },
+    };
     const approval = approvals.store.create({
       kind: "manage",
       deviceId: device.id,
       deviceName: device.name,
-      summary: `设备「${device.name}」申请在 12 小时内管理 ${hostLabel}（启动、停止本机 Agent，修改设置）。获批后它能启动的 Agent 和 MCP 可能在没有沙箱的情况下执行命令；只有用完全权限启动时会再逐次确认。`,
+      summary: renderImMessage("zh-CN", summaryText),
     });
-    return { approval, delivered: approvals.send(approval) };
+    return { approval, delivered: approvals.send(approval, summaryText) };
   });
 
   /** 设备查自己的申请批了没有；本机能查全部 */
@@ -439,7 +455,7 @@ export function registerLocalAgentRoutes(
     const state = rooms.keepAwake?.update(patch);
     if (!state)
       return reply.code(404).send({ ...errorText(serverText("error.keepAwake.disabled")) });
-    audit(request, caller, "修改了熄屏后保持在线的设置", true);
+    audit(request, caller, { key: "im.audit.keepAwake" }, true);
     return state;
   });
 
@@ -475,7 +491,19 @@ export function registerLocalAgentRoutes(
         reply,
         caller,
         `create:${JSON.stringify(parsed.data)}`,
-        `用完全权限启动本机 Agent ${parsed.data.name}（${parsed.data.provider}${parsed.data.cwd ? `，目录 ${parsed.data.cwd}` : ""}）`,
+        parsed.data.cwd
+          ? {
+              key: "im.host.request.createFullIn",
+              params: {
+                name: parsed.data.name,
+                provider: parsed.data.provider,
+                cwd: parsed.data.cwd,
+              },
+            }
+          : {
+              key: "im.host.request.createFull",
+              params: { name: parsed.data.name, provider: parsed.data.provider },
+            },
       )
     ) {
       return reply;
@@ -485,7 +513,10 @@ export function registerLocalAgentRoutes(
       audit(
         request,
         caller,
-        `启动了本机 Agent ${agent.name}（${agent.provider}，${agent.access}）`,
+        {
+          key: "im.audit.agentCreated",
+          params: { name: agent.name, provider: agent.provider, access: agent.access },
+        },
         true,
       );
       return reply.code(201).send({ agent });
@@ -511,7 +542,10 @@ export function registerLocalAgentRoutes(
             caller,
             // 绑定这次要执行的配置：获批后改了权限、目录、MCP，旧批准单就不算数
             `${action}:${id}:${configFingerprint(target)}`,
-            `${action === "start" ? "启动" : "重启"}完全权限的本机 Agent ${target.name}`,
+            {
+              key: action === "start" ? "im.host.request.start" : "im.host.request.restart",
+              params: { name: target.name },
+            },
           )
         ) {
           return reply;
@@ -531,8 +565,17 @@ export function registerLocalAgentRoutes(
                     id,
                     approved ? (current) => configFingerprint(current) === approved : undefined,
                   );
-          const verb = { start: "启动", stop: "停止", restart: "重启" }[action];
-          audit(request, caller, `${verb}了本机 Agent ${agent.name}`, action !== "stop");
+          const key = {
+            start: "im.audit.agentStarted",
+            stop: "im.audit.agentStopped",
+            restart: "im.audit.agentRestarted",
+          } as const;
+          audit(
+            request,
+            caller,
+            { key: key[action], params: { name: agent.name } },
+            action !== "stop",
+          );
           return { agent };
         } catch (error) {
           return fail(reply, error);
@@ -556,7 +599,7 @@ export function registerLocalAgentRoutes(
     const provider = localAgentProviderSchema.safeParse(input.provider);
     if (!provider.success)
       return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
-    if (measure) audit(request, caller, "测量了本机 MCP");
+    if (measure) audit(request, caller, { key: "im.audit.mcpMeasured" });
     try {
       return await supervisor!.mcpCandidates(
         provider.data,
@@ -585,7 +628,7 @@ export function registerLocalAgentRoutes(
   ) {
     const caller = authorize(request, reply, measure ? "manage" : "read");
     if (!caller) return reply;
-    if (measure) audit(request, caller, "测量了本机 MCP");
+    if (measure) audit(request, caller, { key: "im.audit.mcpMeasured" });
     try {
       return await supervisor!.mcpServers(request.params.id, measure);
     } catch (error) {
@@ -663,7 +706,7 @@ export function registerLocalAgentRoutes(
           });
         }
         await (rooms.openTerminal ?? openTerminal)(command);
-        audit(request, caller, `在终端里打开了本机 Agent ${agent.name} 的会话`);
+        audit(request, caller, { key: "im.audit.terminalOpened", params: { name: agent.name } });
         return { opened: true, command };
       } catch (error) {
         if (error instanceof Error && !(error instanceof HiveError)) {
@@ -685,9 +728,15 @@ export function registerLocalAgentRoutes(
       audit(
         request,
         caller,
-        parsed.data.mcpDisabled !== undefined
-          ? `修改了本机 Agent ${agent.name} 加载的 MCP`
-          : `${parsed.data.autoSteer ? "打开" : "关闭"}了本机 Agent ${agent.name} 的自动插话`,
+        {
+          key:
+            parsed.data.mcpDisabled !== undefined
+              ? "im.audit.mcpChanged"
+              : parsed.data.autoSteer
+                ? "im.audit.autoSteerOn"
+                : "im.audit.autoSteerOff",
+          params: { name: agent.name },
+        },
         true,
       );
       return { agent };
@@ -702,7 +751,12 @@ export function registerLocalAgentRoutes(
     try {
       const name = supervisor!.list().find((agent) => agent.id === request.params.id)?.name;
       await supervisor!.remove(request.params.id);
-      audit(request, caller, `删除了本机 Agent ${name ?? request.params.id}`, true);
+      audit(
+        request,
+        caller,
+        { key: "im.audit.agentDeleted", params: { name: name ?? request.params.id } },
+        true,
+      );
       return reply.code(204).send();
     } catch (error) {
       return fail(reply, error);
@@ -721,7 +775,12 @@ export function registerLocalAgentRoutes(
       }
       try {
         const removed = rooms.clearRoom(request.params.roomId, username.trim());
-        audit(request, caller, `清空了房间 ${request.params.roomId}`, true);
+        audit(
+          request,
+          caller,
+          { key: "im.audit.roomCleared", params: { room: request.params.roomId } },
+          true,
+        );
         return { removed };
       } catch (error) {
         return fail(reply, error);
@@ -733,7 +792,7 @@ export function registerLocalAgentRoutes(
     // 日志里可能有路径或密钥片段：设备上查看也记审计日志
     const caller = authorize(request, reply, "read");
     if (!caller) return reply;
-    audit(request, caller, "查看了本机 Agent 日志");
+    audit(request, caller, { key: "im.audit.logsViewed" });
     try {
       return { lines: supervisor!.logs(request.params.id) };
     } catch (error) {

@@ -970,6 +970,8 @@ export const imDeliveryStatsSchema = z.object({
   /** 按当前档位没有推送的消息条数（自连接起累计） */
   filtered: z.number().int().nonnegative(),
 });
+/** IM 机器人说话用的语言（卡片、按钮、提示）；用户和 Agent 写的内容不翻译 */
+export const imLocaleSchema = z.enum(["zh-CN", "en"]);
 export const imConnectionSchema = z.object({
   id: z.string().uuid(),
   roomId: z.string(),
@@ -981,6 +983,7 @@ export const imConnectionSchema = z.object({
   status: imConnectionStatusSchema,
   detail: z.string().optional(),
   level: imDeliveryLevelSchema,
+  locale: imLocaleSchema.optional(),
   delivery: imDeliveryStatsSchema,
   createdAt: z.string().datetime(),
   /** 最近一次从 IM 收到房主消息的时间 */
@@ -1019,8 +1022,11 @@ export const startImLoginRequestSchema = z.object({
   ownerName: z.string().trim().min(1).max(32),
   /** 个人微信必须显式确认风险 */
   acceptRisk: z.boolean().optional(),
+  /** 机器人的语言，默认跟随房主当前网页的语言 */
+  locale: imLocaleSchema.optional(),
 });
 export const setImDeliveryLevelRequestSchema = z.object({ level: imDeliveryLevelSchema });
+export const setImLocaleRequestSchema = z.object({ locale: imLocaleSchema });
 export const submitImLoginCodeRequestSchema = z.object({
   code: z
     .string()
@@ -1219,6 +1225,7 @@ export type Participant = z.infer<typeof participantSchema>;
 export type ImChannel = z.infer<typeof imChannelSchema>;
 export type ImConnection = z.infer<typeof imConnectionSchema>;
 export type ImDeliveryLevel = z.infer<typeof imDeliveryLevelSchema>;
+export type ImLocale = z.infer<typeof imLocaleSchema>;
 export type ImLoginView = z.infer<typeof imLoginViewSchema>;
 export type ImChannelsInfo = z.infer<typeof imChannelsInfoSchema>;
 export type ChatMessage = z.infer<typeof chatMessageSchema>;

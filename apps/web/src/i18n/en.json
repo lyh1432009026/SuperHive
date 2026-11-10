@@ -1146,5 +1146,7 @@
   "只看 Agent": "Agents",
   "进行中的工作": "In progress",
   "{0} 发送 · {1} 换行": "{0} to send · {1} for a new line",
-  "{0} 换行": "{0} for a new line"
+  "{0} 换行": "{0} for a new line",
+  "机器人语言": "Bot language",
+  "机器人的卡片、按钮和提示用这个语言；在 IM 里发 /lang 也能切换": "Cards, buttons and replies from the bot use this language. You can also send /lang in the chat to switch."
 }

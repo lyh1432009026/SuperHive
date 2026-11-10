@@ -114,6 +114,7 @@ export function publicConnection(
 ): ImConnection {
   return {
     level: connection.level,
+    locale: connection.config.locale === "en" ? "en" : "zh-CN",
     delivery,
     id: connection.id,
     roomId: connection.roomId,

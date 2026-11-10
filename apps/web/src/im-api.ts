@@ -3,6 +3,7 @@ import type {
   ImChannelsInfo,
   ImConnection,
   ImDeliveryLevel,
+  ImLocale,
   ImLoginView,
 } from "@superhive/protocol";
 import { localized, t } from "./i18n";
@@ -44,7 +45,7 @@ export function startImLogin(
   base: string,
   token: string,
   roomId: string,
-  input: { channel: ImChannel; ownerName: string; acceptRisk?: boolean },
+  input: { channel: ImChannel; ownerName: string; acceptRisk?: boolean; locale?: ImLocale },
 ): Promise<ImLoginView> {
   return call(`${base}/api/rooms/${encodeURIComponent(roomId)}/im/login`, token, {
     method: "POST",
@@ -104,6 +105,19 @@ export const IM_LEVELS: Array<{ level: ImDeliveryLevel; label: string; hint: str
     { level: "all", label: t("全部消息"), hint: t("房间里所有人和 Agent 的消息逐条推送，不合并") },
   ],
 );
+
+/** 机器人在 IM 里说话用的语言；在 IM 里发 /lang 也能切 */
+export function setImLocale(
+  base: string,
+  token: string,
+  id: string,
+  locale: ImLocale,
+): Promise<ImConnection> {
+  return call(`${base}/api/im/connections/${id}/locale`, token, {
+    method: "POST",
+    body: JSON.stringify({ locale }),
+  });
+}
 
 export function setImDeliveryLevel(
   base: string,
