@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isEnglishSingular } from "./plural.js";
 
 /**
  * 服务端发给人看的文字（错误提示、调用状态说明、代发的系统消息）的唯一来源。
@@ -13,7 +14,14 @@ import { z } from "zod";
  */
 export type ServerLocale = "zh-CN" | "en";
 
-type Entry = { zh: string; en: string };
+/** 英文单复数：按参数的数量选（one=1 条，other=其余），中文不分 */
+export type PluralTemplate = { one: string; other: string };
+/**
+ * 一条文案。en 可以按数量分单复数，默认看参数 count，plural 指定别的参数（如 turns）。
+ * 别逐条写 if：数量相关的英文都写成 { one, other }。
+ */
+export type ServerTextEntry = { zh: string; en: string | PluralTemplate; plural?: string };
+type Entry = ServerTextEntry;
 
 export const serverTexts = {
   /* ---------- 调用（任务）状态说明 ---------- */
@@ -40,7 +48,7 @@ export const serverTexts = {
   },
   "invocation.waitingAnswer": {
     zh: "等人回答：{question}",
-    en: "Waiting for an answer: {question}",
+    en: "Waiting for your answer: {question}",
   },
   "invocation.stoppedNoAnswer": {
     zh: "{name} 不再回答，已停止",
@@ -83,7 +91,7 @@ export const serverTexts = {
     zh: "{name} 是访客，@ 房主的 Agent 需要房主批准后才会派发。",
     en: "{name} is a guest. Tasks for the owner's agents start once the owner approves.",
   },
-  "invocation.recalledNotRun": { zh: "消息已撤回，未执行", en: "Message recalled; not run" },
+  "invocation.recalledNotRun": { zh: "消息已撤回，未执行", en: "Message unsent; not run" },
 
   /* ---------- 调用（任务）状态说明：续 ---------- */
   "invocation.receiptUndeliverable": {
@@ -100,10 +108,10 @@ export const serverTexts = {
     zh: "停止请求生效前已结束",
     en: "Finished before the stop took effect",
   },
-  "invocation.recalledStopped": { zh: "消息已撤回，已停止", en: "Message recalled; stopped" },
+  "invocation.recalledStopped": { zh: "消息已撤回，已停止", en: "Message unsent; stopped" },
   "invocation.recalledStopUnconfirmed": {
     zh: "消息已撤回，停止未确认：无法确认工具子进程都已停下：{reason}",
-    en: "Message recalled; stop not confirmed. Couldn't confirm that all tool processes stopped: {reason}",
+    en: "Message unsent; stop not confirmed. Couldn't confirm that all tool processes stopped: {reason}",
   },
   "invocation.stopUnconfirmedTools": {
     zh: "已停止 Agent 这一轮，但无法确认工具子进程都已停下：{reason}",
@@ -114,12 +122,16 @@ export const serverTexts = {
     zh: "执行结果未知，无法确认工具已停止；禁止自动重放。",
     en: "Outcome unknown and tools may still be running, so it won't be retried automatically.",
   },
-  "invocation.reasonRecalled": { zh: "消息已撤回", en: "Message recalled" },
+  "invocation.reasonRecalled": { zh: "消息已撤回", en: "Message unsent" },
   "invocation.approved": { zh: "{name} 已批准", en: "Approved by {name}" },
   "invocation.retryRequested": { zh: "{name} 请求重试", en: "{name} asked to retry" },
   "invocation.turnsAdded": {
+    plural: "turns",
     zh: "{name} 追加了 {turns} 轮（共 +{total}）",
-    en: "{name} added {turns} turns (+{total} total)",
+    en: {
+      one: "{name} added {turns} turn (+{total} total)",
+      other: "{name} added {turns} turns (+{total} total)",
+    },
   },
   "invocation.toolMessageSent": {
     zh: "已发出进行中的消息 #{seq}，仍在执行",
@@ -135,11 +147,11 @@ export const serverTexts = {
   },
   "error.schedule.alreadyFired": {
     zh: "已经到点发出了；要停止这次执行，请在任务面板里停止对应的调用。",
-    en: "This has already run. To stop it, stop the matching task in the Tasks panel.",
+    en: "This has already run. To stop it, stop the matching task in Agent tasks.",
   },
   "error.schedule.ended": {
     zh: "这个定时任务已经结束，不能再取消。",
-    en: "This schedule has already ended and can't be cancelled.",
+    en: "This scheduled task has already ended and can't be cancelled.",
   },
   "error.local.notThisComputer": {
     zh: "请求不是来自 Hive Server 所在的电脑",
@@ -173,7 +185,7 @@ export const serverTexts = {
   /* ---------- 子任务回执 ---------- */
   "receipt.delegation": {
     zh: "@{requester} 📬 子任务回执（Hive 代 {delegate} 发出）\n状态：{status}\n委派内容：{task}{outcome}\n子任务 ID：{id}",
-    en: "@{requester} 📬 Subtask result (sent by Hive for {delegate})\nStatus: {status}\nTask: {task}{outcome}\nSubtask ID: {id}",
+    en: "@{requester} 📬 Subtask receipt (sent by Hive for {delegate})\nStatus: {status}\nTask: {task}{outcome}\nSubtask ID: {id}",
   },
   "receipt.result": { zh: "\n结果（#{seq}）：\n{result}", en: "\nResult (#{seq}):\n{result}" },
   "receipt.note": { zh: "\n说明：{note}", en: "\nNote: {note}" },
@@ -242,7 +254,7 @@ export const serverTexts = {
   },
   "question.choices": { zh: "\n{mode}\n{options}", en: "\n{mode}\n{options}" },
   "question.single": { zh: "（单选）", en: "(Pick one)" },
-  "question.multiple": { zh: "（可多选）", en: "(Pick any)" },
+  "question.multiple": { zh: "（可多选）", en: "(Pick one or more)" },
   "question.hintOptions": {
     zh: "点选选项、填写「其它」，或直接回复这条消息即可把答案交给 {agent}",
     en: "Pick an option, fill in Other, or reply to this message to send your answer to {agent}",
@@ -353,7 +365,10 @@ export const serverTexts = {
   },
   "bridge.upstreamExhausted": {
     zh: "已自动继续 {count} 次仍未成功",
-    en: "Still failing after {count} automatic retries",
+    en: {
+      one: "Still failing after {count} automatic retry",
+      other: "Still failing after {count} automatic retries",
+    },
   },
 
   /* ---------- 操作名（嵌进错误提示里） ---------- */
@@ -414,7 +429,7 @@ export const serverTexts = {
   },
   "error.attachment.messageRecalled": {
     zh: "附件所在的消息已撤回。",
-    en: "The message with this attachment was recalled.",
+    en: "The message with this attachment was unsent.",
   },
   "error.attachment.multipartRequired": {
     zh: "请用 multipart/form-data 上传文件。",
@@ -423,7 +438,7 @@ export const serverTexts = {
   "error.attachment.notFound": { zh: "附件不存在。", en: "Attachment not found." },
   "error.attachment.notInRoom": {
     zh: "这个房间里没有这个附件（可能已撤回）。",
-    en: "There's no such attachment in this room (it may have been recalled).",
+    en: "There's no such attachment in this room (it may have been unsent).",
   },
   "error.attachment.pendingNotFound": {
     zh: "没有这个待发附件。",
@@ -439,7 +454,7 @@ export const serverTexts = {
   },
   "error.attachment.roomQuota": {
     zh: "这个房间的附件空间已满，请撤回不需要的附件。",
-    en: "This room's attachment storage is full. Recall attachments you no longer need.",
+    en: "This room's attachment storage is full. Unsend attachments you no longer need.",
   },
   "error.attachment.sentElsewhere": {
     zh: "附件已随另一条消息发出，请重新上传。",
@@ -541,7 +556,7 @@ export const serverTexts = {
   },
   "error.guest.cancelScheduleOwn": {
     zh: "访客只能取消自己发起的定时任务。",
-    en: "Guests can only cancel schedules they created.",
+    en: "Guests can only cancel scheduled tasks they created.",
   },
   "error.guest.dismissOwn": {
     zh: "访客只能忽略自己发起的调用。",
@@ -700,7 +715,7 @@ export const serverTexts = {
   },
   "error.message.recallSenderOnly": {
     zh: "只有发送者本人能撤回消息。",
-    en: "Only the sender can recall a message.",
+    en: "Only the sender can unsend a message.",
   },
   "error.message.selfResponse": {
     zh: "Agent 不能回应自己发的消息。",
@@ -716,7 +731,7 @@ export const serverTexts = {
   },
   "error.message.unreadable": {
     zh: "当前房间/话题中没有这条可读取消息（可能已撤回）。",
-    en: "There's no readable message like that in this room or topic (it may have been recalled).",
+    en: "There's no readable message like that in this room or topic (it may have been unsent).",
   },
   "error.name.agentFormat": {
     zh: "Agent 名字只能包含字母、数字、点、下划线和连字符。",
@@ -743,8 +758,13 @@ export const serverTexts = {
     en: "Someone in this room already uses that name. Pick another.",
   },
   "error.progress.limit": {
+    plural: "limit",
     zh: "这个任务的进度消息已经发了 {limit} 条，到上限了；把剩下的写进最终回复。",
-    en: "This task has already sent {limit} progress messages, the limit. Put the rest in your final reply.",
+    en: {
+      one: "This task has already sent its {limit} progress update, the limit. Put the rest in your final reply.",
+      other:
+        "This task has already sent {limit} progress updates, the limit. Put the rest in your final reply.",
+    },
   },
   "error.progress.mentionsAgent": {
     zh: "进度消息不会唤醒 {agents}；要别的 Agent 干活请用 hive_invoke，进度里提到它时去掉 @。",
@@ -829,36 +849,36 @@ export const serverTexts = {
   },
   "error.schedule.humanOnly": {
     zh: "只有人发起的任务里才能创建定时任务（Agent 之间的对话不能自行排定时）。",
-    en: "Schedules can only be created in tasks a person started (agents can't schedule each other).",
+    en: "Scheduled tasks can only be created in tasks a person started (agents can't schedule each other).",
   },
   "error.schedule.intervalRange": {
     zh: "everyMinutes 需为 {min} 到 {max} 之间的整数（分钟）。",
     en: "everyMinutes must be a whole number from {min} to {max} (minutes).",
   },
-  "error.schedule.missing": { zh: "定时任务不存在。", en: "Schedule not found." },
+  "error.schedule.missing": { zh: "定时任务不存在。", en: "Scheduled task not found." },
   "error.schedule.nested": {
     zh: "定时任务执行时不能再创建定时任务；要重复执行，请在最初创建时用 everyMinutes + until 登记成周期任务。",
-    en: "A scheduled run can't create another schedule. To repeat, create a recurring schedule up front with everyMinutes and until.",
+    en: "A scheduled run can't create another scheduled task. To repeat, create a series up front with everyMinutes and until.",
   },
   "error.schedule.notFound": {
     zh: "这个房间里没有这个定时任务。",
-    en: "There's no such schedule in this room.",
+    en: "There's no such scheduled task in this room.",
   },
   "error.schedule.outsideTask": {
     zh: "只能在处理某条消息的过程中创建定时任务。",
-    en: "You can only create a schedule while handling a message.",
+    en: "You can only create a scheduled task while handling a message.",
   },
   "error.schedule.ownOnly": {
     zh: "Agent 只能取消自己的定时任务。",
-    en: "Agents can only cancel their own schedules.",
+    en: "Agents can only cancel their own scheduled tasks.",
   },
   "error.schedule.requesterExpired": {
     zh: "发起人的访客权限已失效，不能再创建定时任务。",
-    en: "The requester's guest access has expired, so no more schedules can be created.",
+    en: "The requester's guest access has expired, so no more scheduled tasks can be created.",
   },
   "error.schedule.roomLimit": {
     zh: "这个房间已有 {max} 个待执行的定时任务，先取消一些再建。",
-    en: "This room already has {max} pending schedules. Cancel some first.",
+    en: "This room already has {max} pending scheduled tasks. Cancel some first.",
   },
   "error.schedule.runAtFormat": {
     zh: "runAt 需为带时区偏移的 ISO 8601 时间，例如 2026-11-04T00:07:00+08:00。",
@@ -867,7 +887,7 @@ export const serverTexts = {
   "error.schedule.runAtInvalid": { zh: "runAt 不是有效的时间。", en: "runAt isn't a valid time." },
   "error.schedule.runAtTooFar": {
     zh: "最多只能排到 {days} 天以内。",
-    en: "Schedules can be at most {days} days ahead.",
+    en: "Scheduled tasks can be at most {days} days ahead.",
   },
   "error.schedule.runAtTooSoon": {
     zh: "runAt 需晚于当前时间至少 30 秒；当前服务端时间 {now}。",
@@ -891,11 +911,11 @@ export const serverTexts = {
   },
   "error.schedule.untilRequired": {
     zh: "周期任务要给 until：带时区偏移的 ISO 8601 结束时间，例如 2026-11-10T20:00:00+08:00。",
-    en: "Recurring schedules need until: an ISO 8601 end time with a time zone offset, for example 2026-11-10T20:00:00+08:00.",
+    en: "A series needs until: an ISO 8601 end time with a time zone offset, for example 2026-11-10T20:00:00+08:00.",
   },
   "error.schedule.untilTooFar": {
     zh: "周期最多只能排到 {days} 天以内。",
-    en: "A recurring schedule can run at most {days} days ahead.",
+    en: "A series can run at most {days} days ahead.",
   },
   "error.steer.agentIdle": {
     zh: "{agent} 现在没有正在执行的任务，这条会照常开始。",
@@ -932,7 +952,7 @@ export const serverTexts = {
   "error.ws.invalidToken": { zh: "接入令牌无效。", en: "The join token isn't valid." },
   "error.ws.joinFailed": { zh: "没能加入房间。", en: "Couldn't join the room." },
   "error.ws.notJoined": { zh: "请先加入房间。", en: "Join the room first." },
-  "error.ws.recallFailed": { zh: "消息没能撤回。", en: "Couldn't recall the message." },
+  "error.ws.recallFailed": { zh: "消息没能撤回。", en: "Couldn't unsend the message." },
   "error.ws.requestFailed": { zh: "请求没能处理。", en: "Couldn't handle the request." },
   "error.ws.sendFailed": { zh: "消息没能发出。", en: "Couldn't send the message." },
 } as const satisfies Record<string, Entry>;
@@ -980,13 +1000,33 @@ export function renderServerText(
 ): string | undefined {
   if (!text || !isServerTextKey(text.key)) return undefined;
   const entry: Entry = serverTexts[text.key];
-  const template = locale === "en" ? entry.en || entry.zh : entry.zh;
-  return template.replace(/\{(\w+)\}/g, (_match, name: string) => {
+  return fillTemplate(serverTextTemplate(entry, locale, text.params), (name) => {
     const value = text.params?.[name];
     if (value === undefined) return "";
     if (typeof value === "object") return renderServerText(value, locale) ?? "";
     return String(value);
   });
+}
+
+/** 按语言（英文再按数量）挑模板；IM 的文案目录也用它，保证三边单复数规则一致 */
+export function serverTextTemplate(
+  entry: ServerTextEntry,
+  locale: ServerLocale,
+  params?: Record<string, unknown>,
+): string {
+  if (locale !== "en" || !entry.en) return entry.zh;
+  if (typeof entry.en === "string") return entry.en;
+  return isEnglishSingular(params?.[entry.plural ?? "count"]) ? entry.en.one : entry.en.other;
+}
+
+/** 填占位符 {name} */
+export function fillTemplate(template: string, value: (name: string) => string): string {
+  return template.replace(/\{(\w+)\}/g, (_match, name: string) => value(name));
+}
+
+/** 英文的所有写法（测试用：每种写法都要和中文占位符一致、不夹中文） */
+export function englishForms(entry: ServerTextEntry): string[] {
+  return typeof entry.en === "string" ? [entry.en] : [entry.en.one, entry.en.other];
 }
 
 /** 服务端写中文兼容字段用 */

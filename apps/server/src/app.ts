@@ -3144,12 +3144,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
       const room = database.getRoom(params.data.roomId);
       if (!room || room.archivedAt) {
-        return reply
-          .code(404)
-          .send({
-            ...errorText(serverText("error.room.notFoundOrArchived")),
-            code: "ROOM_NOT_FOUND",
-          });
+        return reply.code(404).send({
+          ...errorText(serverText("error.room.notFoundOrArchived")),
+          code: "ROOM_NOT_FOUND",
+        });
       }
       if (body.data.channel === "wechat" && !body.data.acceptRisk) {
         return reply
@@ -3426,12 +3424,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
     const room = database.getRoom(params.data.roomId);
     if (!room || room.archivedAt) {
-      return reply
-        .code(404)
-        .send({
-          ...errorText(serverText("error.room.notFoundOrArchived")),
-          code: "ROOM_NOT_FOUND",
-        });
+      return reply.code(404).send({
+        ...errorText(serverText("error.room.notFoundOrArchived")),
+        code: "ROOM_NOT_FOUND",
+      });
     }
     const created = access.createInvite({
       roomId: room.id,
@@ -3735,12 +3731,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           .send({ ...errorText(serverText("error.room.notFound")), code: "ROOM_NOT_FOUND" });
       }
       if (!request.isMultipart()) {
-        return reply
-          .code(415)
-          .send({
-            ...errorText(serverText("error.attachment.multipartRequired")),
-            code: "MULTIPART_REQUIRED",
-          });
+        return reply.code(415).send({
+          ...errorText(serverText("error.attachment.multipartRequired")),
+          code: "MULTIPART_REQUIRED",
+        });
       }
       const uploader = uploaderOf(principal);
       try {
@@ -3750,12 +3744,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         attachments.checkQuota(roomId, uploader, Number.isFinite(declared) ? declared : 0);
         const file = await request.file();
         if (!file) {
-          return reply
-            .code(400)
-            .send({
-              ...errorText(serverText("error.attachment.fileRequired")),
-              code: "FILE_REQUIRED",
-            });
+          return reply.code(400).send({
+            ...errorText(serverText("error.attachment.fileRequired")),
+            code: "FILE_REQUIRED",
+          });
         }
         const stored = await attachments.save({
           roomId,
@@ -3790,12 +3782,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (!principal) return;
     const id = z.string().uuid().safeParse(request.params.id);
     if (!id.success || !attachments.discardPending(id.data, uploaderOf(principal))) {
-      return reply
-        .code(404)
-        .send({
-          ...errorText(serverText("error.attachment.pendingNotFound")),
-          code: "ATTACHMENT_NOT_FOUND",
-        });
+      return reply.code(404).send({
+        ...errorText(serverText("error.attachment.pendingNotFound")),
+        code: "ATTACHMENT_NOT_FOUND",
+      });
     }
     return reply.code(204).send();
   });
@@ -3809,12 +3799,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (!principal) return;
     const id = z.string().uuid().safeParse(request.params.id);
     if (!id.success) {
-      return reply
-        .code(404)
-        .send({
-          ...errorText(serverText("error.attachment.notFound")),
-          code: "ATTACHMENT_NOT_FOUND",
-        });
+      return reply.code(404).send({
+        ...errorText(serverText("error.attachment.notFound")),
+        code: "ATTACHMENT_NOT_FOUND",
+      });
     }
     const result = readableAttachment(principal, id.data);
     if (!("item" in result)) {
@@ -3865,12 +3853,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       return reply.code(result.status).send({ error: result.error, code: result.code });
     }
     if (!result.item.messageId || !existsSync(result.item.filePath)) {
-      return reply
-        .code(404)
-        .send({
-          ...errorText(serverText("error.attachment.notFound")),
-          code: "ATTACHMENT_NOT_FOUND",
-        });
+      return reply.code(404).send({
+        ...errorText(serverText("error.attachment.notFound")),
+        code: "ATTACHMENT_NOT_FOUND",
+      });
     }
     return { path: result.item.filePath, sha256: result.item.sha256 };
   });
@@ -4230,12 +4216,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (leadAgent) {
       const agent = database.findParticipant(params.data.roomId, leadAgent);
       if (!agent || agent.type !== "agent") {
-        return reply
-          .code(400)
-          .send({
-            ...errorText(serverText("error.room.leadInvalid", { agent: leadAgent })),
-            code: "ROOM_LEAD_INVALID",
-          });
+        return reply.code(400).send({
+          ...errorText(serverText("error.room.leadInvalid", { agent: leadAgent })),
+          code: "ROOM_LEAD_INVALID",
+        });
       }
       leadAgent = agent.username;
     }

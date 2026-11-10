@@ -20,7 +20,7 @@ describe("server texts in the web UI", () => {
       progress: "等你批准：写文件",
       progressText: serverText("invocation.approvalWaiting", { summary: "写文件" }),
     } as unknown as Invocation);
-    expect(invocation.detail).toBe("Message recalled; stopped");
+    expect(invocation.detail).toBe("Message unsent; stopped");
     // 用户原文作为参数原样保留
     expect(invocation.progress).toBe("Waiting for your approval: 写文件");
     expect(invocation.detailText).toEqual(recalled);
