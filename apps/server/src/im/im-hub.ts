@@ -10,7 +10,9 @@ import type {
   Invocation,
   Participant,
   QuestionSpec,
+  WireServerText,
 } from "@superhive/protocol";
+import { renderServerText } from "@superhive/protocol";
 import { HiveError, type CreateMessageInput } from "../database.js";
 import {
   publicConnection,
@@ -189,6 +191,24 @@ export class ImHub {
 
   private t(connection: StoredConnection, key: ImTextKey, params?: ImTextParams): string {
     return imText(this.localeOf(connection), key, params);
+  }
+
+  /** 服务端给的结构化文案（调用状态说明、代发的系统消息）按连接的语言渲染；没有或不认识时用中文原文 */
+  private serverText(
+    connection: StoredConnection,
+    text: WireServerText | undefined,
+    fallback: string,
+  ): string {
+    return renderServerText(text, this.localeOf(connection)) ?? fallback;
+  }
+
+  /**
+   * 推到 IM 的正文：服务端代发的消息（回执、定时任务……）有结构化文案时按连接语言渲染；
+   * 提问的问题和选项是 Agent 写的，仍从原文里取（再按连接语言重排提示），人和 Agent 写的照原文
+   */
+  private messageText(connection: StoredConnection, message: ChatMessage): string {
+    if (message.kind === "question") return message.content;
+    return this.serverText(connection, message.text, message.content);
   }
 
   setLocale(id: string, locale: ImLocale): ImConnection {
@@ -1182,7 +1202,10 @@ export class ImHub {
                 : task.detail
                   ? this.t(connection, "im.task.withDetail", {
                       status,
-                      detail: oneLine(task.detail, 60),
+                      detail: oneLine(
+                        this.serverText(connection, task.detailText, task.detail),
+                        60,
+                      ),
                     })
                   : status;
       return { label: task.agentName, state, detail };
@@ -2524,7 +2547,14 @@ export class ImHub {
     const t = (key: ImTextKey, params?: ImTextParams) => this.t(connection, key, params);
     const trigger = this.deps.getMessage(invocation.messageId);
     const ref = trigger ? `#${trigger.seq}` : t("im.notice.thisTask");
-    const detail = invocation.detail ? plain(invocation.detail.replace(/\s+/g, " ")) : "";
+    const detail = invocation.detail
+      ? plain(
+          this.serverText(connection, invocation.detailText, invocation.detail).replace(
+            /\s+/g,
+            " ",
+          ),
+        )
+      : "";
     switch (invocation.status) {
       case "failed":
         return t("im.notice.failed", {
@@ -2555,7 +2585,11 @@ export class ImHub {
   ): ImRich | undefined {
     const t = (key: ImTextKey, params?: ImTextParams) => this.t(connection, key, params);
     const ref = trigger ? `#${trigger.seq}` : t("im.notice.thisTask");
-    const detail = invocation.detail ? invocation.detail.replace(/\s+/g, " ").trim() : "";
+    const detail = invocation.detail
+      ? this.serverText(connection, invocation.detailText, invocation.detail)
+          .replace(/\s+/g, " ")
+          .trim()
+      : "";
     const agent = invocation.agentName;
     const url = this.cardUrl(connection, invocation.roomId);
     const subtitle = trigger ? `#${trigger.seq}` : "";
@@ -2642,7 +2676,7 @@ export class ImHub {
     const t = (key: ImTextKey, params?: ImTextParams) => this.t(connection, key, params);
     const sender = message.senderName;
     const url = this.cardUrl(connection, message.roomId);
-    let body = plain(message.content);
+    let body = plain(this.messageText(connection, message));
     let options: ImRich["options"];
     let note: string | undefined;
     if (message.kind === "question") {
@@ -2745,7 +2779,7 @@ export class ImHub {
   private format(connection: StoredConnection, message: ChatMessage, limit: number): string {
     const t = (key: ImTextKey) => this.t(connection, key);
     const header = `${this.roomName(message.roomId)} - ${message.senderName}`;
-    let body = plain(message.content);
+    let body = plain(this.messageText(connection, message));
     if (message.kind === "question") {
       const hint = t(
         message.question
