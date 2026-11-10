@@ -962,8 +962,14 @@ export const serverTexts = {
     zh: "需要以房间里的人类成员身份连接。",
     en: "Connect as a person who's a member of this room.",
   },
-  "error.im.loginTimeout": { zh: "扫码超时，请重新开始。", en: "The QR code timed out. Start again." },
-  "error.im.noCodeNeeded": { zh: "当前不需要输入配对码。", en: "No pairing code is needed right now." },
+  "error.im.loginTimeout": {
+    zh: "扫码超时，请重新开始。",
+    en: "The QR code timed out. Start again.",
+  },
+  "error.im.noCodeNeeded": {
+    zh: "当前不需要输入配对码。",
+    en: "No pairing code is needed right now.",
+  },
   "error.im.cancelled": { zh: "已取消", en: "Cancelled" },
   "error.im.wrongCode": {
     zh: "配对码不对，请重新输入。",
@@ -981,7 +987,10 @@ export const serverTexts = {
     zh: "这个渠道已被关闭（HIVE_IM_WECHAT=0）。",
     en: "This channel has been turned off (HIVE_IM_WECHAT=0).",
   },
-  "error.im.wechatBadAddress": { zh: "微信服务地址无效", en: "The WeChat service address isn't valid" },
+  "error.im.wechatBadAddress": {
+    zh: "微信服务地址无效",
+    en: "The WeChat service address isn't valid",
+  },
   "error.im.wechatUnknownHost": {
     zh: "拒绝未知的微信服务地址：{host}",
     en: "Refused an unknown WeChat service address: {host}",

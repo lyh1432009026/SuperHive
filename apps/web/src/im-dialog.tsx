@@ -15,7 +15,7 @@ import {
   startImLogin,
   submitImLoginCode,
 } from "./im-api";
-import { getLocale, localized, t } from "./i18n";
+import { LOCALE_OPTIONS, getLocale, localized, t } from "./i18n";
 
 function CloseGlyph() {
   return (
@@ -479,12 +479,9 @@ export function ImDialog({
                           role="radiogroup"
                           aria-label={t("机器人语言")}
                         >
-                          {(
-                            [
-                              ["zh-CN", "中文"],
-                              ["en", "English"],
-                            ] as const
-                          ).map(([locale, label]) => (
+                          {LOCALE_OPTIONS.flatMap(({ value: locale, label }) =>
+                            locale === "system" ? [] : [{ locale, label }],
+                          ).map(({ locale, label }) => (
                             <button
                               key={locale}
                               type="button"
