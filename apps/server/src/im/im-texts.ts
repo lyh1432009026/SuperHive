@@ -3,6 +3,8 @@
  * 只有界面文字走这里；用户和 Agent 写的正文、房间名、成员名原样转述，不翻译。
  * 占位符写成 {name}，中英两边的占位符必须一致（im-texts.test.ts 会检查）。
  */
+import { fillTemplate, serverTextTemplate, type ServerTextEntry } from "@superhive/protocol";
+
 export const IM_LOCALES = ["zh-CN", "en"] as const;
 export type ImLocale = (typeof IM_LOCALES)[number];
 
@@ -271,7 +273,10 @@ export const imTexts = {
   /* ---------- 简写对上多个 ---------- */
   "im.pick.prompt": {
     zh: "「{token}」对上了 {count} 个 Agent，发给谁？",
-    en: '"{token}" matches {count} agents. Who should get it?',
+    en: {
+      one: '"{token}" matches {count} agent. Who should get it?',
+      other: '"{token}" matches {count} agents. Who should get it?',
+    },
   },
   "im.pick.tag": { zh: "选一个", en: "Pick one" },
   "im.pick.note": { zh: "点一下就带着这条消息发出", en: "Tap a name to send your message" },
@@ -431,9 +436,16 @@ export const imTexts = {
   "im.toast.allFinished": { zh: "已经都结束了", en: "Everything has already finished" },
   "im.toast.stopPartial": {
     zh: "{ok} 个已请求停止，{failed} 个停不了",
-    en: "Asked {ok} to stop; {failed} couldn't be stopped",
+    en: {
+      one: "Asked {ok} of them to stop; {failed} task couldn't be stopped",
+      other: "Asked {ok} of them to stop; {failed} tasks couldn't be stopped",
+    },
+    plural: "failed",
   },
-  "im.toast.stopped": { zh: "已请求停止 {count} 个任务", en: "Asked {count} to stop" },
+  "im.toast.stopped": {
+    zh: "已请求停止 {count} 个任务",
+    en: { one: "Asked {count} task to stop", other: "Asked {count} tasks to stop" },
+  },
   "im.toast.noQuestion": { zh: "找不到这条提问", en: "Can't find this question" },
   "im.toast.answered": {
     zh: "这个问题已经回答过了",
@@ -452,7 +464,11 @@ export const imTexts = {
   "im.resolved.answered": { zh: "已回答", en: "Answered" },
   "im.resolved.closed": { zh: "已结束", en: "Closed" },
   "im.resolved.dismissed": { zh: "已忽略", en: "Dismissed" },
-  "im.resolved.extended": { zh: "已追加 {turns} 轮", en: "Added {turns} turns" },
+  "im.resolved.extended": {
+    zh: "已追加 {turns} 轮",
+    en: { one: "Added {turns} turn", other: "Added {turns} turns" },
+    plural: "turns",
+  },
   "im.resolved.approved": { zh: "已批准", en: "Approved" },
   "im.resolved.retried": { zh: "已重试", en: "Retried" },
   "im.resolved.restarted": { zh: "已重新开始", en: "Restarted" },
@@ -465,7 +481,11 @@ export const imTexts = {
   "im.byOwner.dismiss": { zh: "{owner} 在飞书上忽略了", en: "Dismissed by {owner} in Feishu" },
   "im.byOwner.continue": {
     zh: "{owner} 在飞书上追加了 {turns} 轮",
-    en: "{owner} added {turns} turns in Feishu",
+    en: {
+      one: "{owner} added {turns} turn in Feishu",
+      other: "{owner} added {turns} turns in Feishu",
+    },
+    plural: "turns",
   },
   "im.byOwner.approve": { zh: "{owner} 在飞书上批准了", en: "Approved by {owner} in Feishu" },
   "im.byOwner.retry": { zh: "{owner} 在飞书上重试了", en: "Retried by {owner} in Feishu" },
@@ -522,7 +542,7 @@ export const imTexts = {
   "im.audit.revokeOne": { zh: "退出了另一台已登录的设备", en: "signed out another device" },
   "im.audit.revokeOthers": {
     zh: "退出了其他 {count} 台已登录的设备",
-    en: "signed out {count} other devices",
+    en: { one: "signed out {count} other device", other: "signed out {count} other devices" },
   },
   "im.audit.keepAwake": {
     zh: "修改了熄屏后保持在线的设置",
@@ -604,7 +624,11 @@ export const imTexts = {
   "im.notice.pausedTitle": { zh: "{agent} 已暂停", en: "{agent} is paused" },
   "im.notice.pausedNote": {
     zh: "点「继续」再给 {turns} 轮",
-    en: "Tap Continue to allow {turns} more turns",
+    en: {
+      one: "Tap Continue to allow {turns} more turn",
+      other: "Tap Continue to allow {turns} more turns",
+    },
+    plural: "turns",
   },
   "im.notice.pausedNoteText": { zh: "到网页点「继续」", en: "Tap Continue on the web" },
 
@@ -664,17 +688,20 @@ export const imTexts = {
     zh: "…（太长已截断，全文见网页{where}）",
     en: "… (too long, so it was cut off; full text on the web{where})",
   },
-  "im.digest.title": { zh: "{count} 条新消息", en: "{count} new messages" },
-} as const satisfies Record<string, { zh: string; en: string }>;
+  "im.digest.title": {
+    zh: "{count} 条新消息",
+    en: { one: "{count} new message", other: "{count} new messages" },
+  },
+} as const satisfies Record<string, ServerTextEntry>;
 
 export type ImTextKey = keyof typeof imTexts;
 export type ImTextParams = Record<string, string | number>;
 
+/** 单复数和服务端文案目录同一套规则（protocol 的 serverTextTemplate） */
 export function imText(locale: ImLocale, key: ImTextKey, params: ImTextParams = {}): string {
-  const entry: { zh: string; en: string } = imTexts[key];
-  const template = locale === "en" ? entry.en : entry.zh;
-  return template.replace(/\{(\w+)\}/g, (match, name: string) =>
-    name in params ? String(params[name]) : match,
+  const entry: ServerTextEntry = imTexts[key];
+  return fillTemplate(serverTextTemplate(entry, locale, params), (name) =>
+    name in params ? String(params[name]) : `{${name}}`,
   );
 }
 
