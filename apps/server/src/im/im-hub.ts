@@ -10,9 +10,10 @@ import type {
   Invocation,
   Participant,
   QuestionSpec,
+  ServerText,
   WireServerText,
 } from "@superhive/protocol";
-import { renderServerText } from "@superhive/protocol";
+import { renderServerText, serverText, zhText } from "@superhive/protocol";
 import { HiveError, type CreateMessageInput } from "../database.js";
 import {
   publicConnection,
@@ -42,6 +43,7 @@ import {
   type ImKeyValue,
   type ImRich,
   type ImTransport,
+  ImTextError,
 } from "./types.js";
 
 export type ImHubDeps = {
@@ -151,6 +153,19 @@ function describe(error: unknown, locale: ImLocale = "zh-CN"): string {
   return String(error);
 }
 
+/** 错误的结构化文案（服务端自己的提示）；平台、网络原样返回的错误没有 */
+function errorTextOf(error: unknown): ServerText | undefined {
+  if (error instanceof ImTextError) return error.text;
+  if (error instanceof HiveError) return error.text;
+  return undefined;
+}
+
+/** 扫码会话的失败原因：中文给旧网页，errorText 给网页按语言显示 */
+function loginError(error: unknown): Pick<ImLoginView, "error" | "errorText"> {
+  const text = errorTextOf(error);
+  return { error: describe(error), ...(text ? { errorText: text } : {}) };
+}
+
 function digest(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 40);
 }
@@ -234,8 +249,13 @@ export class ImHub {
     return this.deps.store.listConnections(roomId).map((connection) => this.view(connection));
   }
 
+  /** 连接状态说明的结构化文案：只在内存里（状态说明本来就是暂时的，重启后会重新连接、重新报） */
+  private readonly detailTexts = new Map<string, ServerText>();
+
   private view(connection: StoredConnection): ImConnection {
-    return publicConnection(connection, this.deps.store.deliveryStats(connection.id));
+    const view = publicConnection(connection, this.deps.store.deliveryStats(connection.id));
+    const text = this.detailTexts.get(connection.id);
+    return text && connection.detail === zhText(text) ? { ...view, detailText: text } : view;
   }
 
   setLevel(id: string, level: ImDeliveryLevel): ImConnection {
@@ -273,10 +293,10 @@ export class ImHub {
     options: { hostApprover?: boolean; locale?: ImLocale } = {},
   ): ImLoginView {
     const driver = this.deps.drivers[channel];
-    if (!driver) throw new HiveError("IM_DISABLED", "这个渠道没有启用。");
+    if (!driver) throw new HiveError("IM_DISABLED", serverText("error.im.channelDisabled"));
     const owner = this.deps.findParticipant(roomId, ownerName);
     if (!owner || owner.type !== "human") {
-      throw new HiveError("NOT_A_MEMBER", "需要以房间里的人类成员身份连接。");
+      throw new HiveError("NOT_A_MEMBER", serverText("error.im.notMember"));
     }
     // 同一个房间同一渠道同时只跑一个扫码流程
     for (const [id, login] of this.logins) {
@@ -297,7 +317,10 @@ export class ImHub {
     void this.runLogin(login, driver);
     const timer = setTimeout(() => {
       if (this.isOpen(login))
-        this.finishLogin(login, { status: "failed", error: "扫码超时，请重新开始。" });
+        this.finishLogin(login, {
+          status: "failed",
+          ...loginError(new ImTextError(serverText("error.im.loginTimeout"))),
+        });
       login.abort.abort();
       setTimeout(() => this.logins.delete(id), 60_000).unref();
     }, LOGIN_TTL_MS);
@@ -323,7 +346,7 @@ export class ImHub {
     const login = this.logins.get(id);
     if (!login) return undefined;
     if (login.view.status !== "need_code" || !login.codeWaiter) {
-      throw new HiveError("IM_NO_CODE", "当前不需要输入配对码。");
+      throw new HiveError("IM_NO_CODE", serverText("error.im.noCodeNeeded"));
     }
     const resolve = login.codeWaiter;
     login.codeWaiter = undefined;
@@ -364,6 +387,7 @@ export class ImHub {
       const result = await driver.login({
         signal: login.abort.signal,
         kv: this.loginKv(login.view.id),
+        ...(login.locale ? { locale: login.locale } : {}),
         onQr: (url, expiresIn) => {
           if (!this.isOpen(login)) return;
           void QRCode.toDataURL(url, { margin: 1, width: 240 }).then((qrDataUrl) => {
@@ -383,15 +407,20 @@ export class ImHub {
         },
         requestCode: (isRetry) =>
           new Promise<string>((resolve, reject) => {
-            if (!this.isOpen(login)) return reject(new Error("已取消"));
+            if (!this.isOpen(login))
+              return reject(new ImTextError(serverText("error.im.cancelled")));
             login.codeWaiter = resolve;
             this.updateLogin(login, {
               status: "need_code",
-              ...(isRetry ? { error: "配对码不对，请重新输入。" } : {}),
+              ...(isRetry ? loginError(new ImTextError(serverText("error.im.wrongCode"))) : {}),
             });
-            login.abort.signal.addEventListener("abort", () => reject(new Error("已取消")), {
-              once: true,
-            });
+            login.abort.signal.addEventListener(
+              "abort",
+              () => reject(new ImTextError(serverText("error.im.cancelled"))),
+              {
+                once: true,
+              },
+            );
           }),
       });
       if (!this.isOpen(login)) {
@@ -410,7 +439,7 @@ export class ImHub {
       if (!this.isOpen(login)) return;
       this.finishLogin(login, {
         status: login.abort.signal.aborted ? "cancelled" : "failed",
-        error: describe(error),
+        ...loginError(error),
       });
     }
   }
@@ -427,7 +456,7 @@ export class ImHub {
     if (existing) {
       // 已经连过的同一个机器人 / 账号：换了扫码人就拒绝，避免别人顶替房主身份
       if (existing.ownerActorId !== result.ownerActorId) {
-        throw new Error("这个机器人已由另一个人连接，需要原来的人扫码，或先在原房间断开。");
+        throw new ImTextError(serverText("error.im.takenByOther"));
       }
       void this.disconnectTransport(existing.id);
       this.deps.store.updateSecret(existing.id, result.secret);
@@ -464,7 +493,14 @@ export class ImHub {
     };
   }
 
-  private setStatus(id: string, status: ImConnection["status"], detail?: string): void {
+  private setStatus(
+    id: string,
+    status: ImConnection["status"],
+    detailInput?: string | ServerText,
+  ): void {
+    const detail = typeof detailInput === "object" ? zhText(detailInput) : detailInput;
+    if (typeof detailInput === "object") this.detailTexts.set(id, detailInput);
+    else this.detailTexts.delete(id);
     const current = this.deps.store.getConnection(id);
     if (!current || (current.status === status && current.detail === detail)) return;
     // 暂停是房主的决定，传输层迟到的状态不能把它改回来
@@ -477,7 +513,7 @@ export class ImHub {
     if (this.closed) return;
     const driver = this.deps.drivers[connection.channel];
     if (!driver) {
-      this.setStatus(connection.id, "error", "这个渠道已被关闭（HIVE_IM_WECHAT=0）。");
+      this.setStatus(connection.id, "error", serverText("error.im.channelOff"));
       return;
     }
     await this.disconnectTransport(connection.id);
@@ -489,7 +525,7 @@ export class ImHub {
         kv: this.kvOf(connection.id),
       });
     } catch (error) {
-      this.setStatus(connection.id, "error", describe(error));
+      this.setStatus(connection.id, "error", errorTextOf(error) ?? describe(error));
       return;
     }
     this.transports.set(connection.id, transport);
@@ -531,7 +567,7 @@ export class ImHub {
     } catch (error) {
       if (this.transports.get(connection.id) === transport) {
         this.transports.delete(connection.id);
-        this.setStatus(connection.id, "error", describe(error));
+        this.setStatus(connection.id, "error", errorTextOf(error) ?? describe(error));
       }
     }
   }
@@ -573,7 +609,7 @@ export class ImHub {
 
   private require(id: string): StoredConnection {
     const connection = this.deps.store.getConnection(id);
-    if (!connection) throw new HiveError("IM_NOT_FOUND", "这个 IM 连接不存在。");
+    if (!connection) throw new HiveError("IM_NOT_FOUND", serverText("error.im.connectionNotFound"));
     return connection;
   }
 

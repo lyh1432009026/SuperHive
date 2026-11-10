@@ -955,6 +955,67 @@ export const serverTexts = {
   "error.ws.recallFailed": { zh: "消息没能撤回。", en: "Couldn't unsend the message." },
   "error.ws.requestFailed": { zh: "请求没能处理。", en: "Couldn't handle the request." },
   "error.ws.sendFailed": { zh: "消息没能发出。", en: "Couldn't send the message." },
+
+  /* ---------- IM 扫码与连接状态（网页 IM 弹窗显示；rd-claude2 维护） ---------- */
+  "error.im.channelDisabled": { zh: "这个渠道没有启用。", en: "This channel isn't enabled." },
+  "error.im.notMember": {
+    zh: "需要以房间里的人类成员身份连接。",
+    en: "Connect as a person who's a member of this room.",
+  },
+  "error.im.loginTimeout": { zh: "扫码超时，请重新开始。", en: "The QR code timed out. Start again." },
+  "error.im.noCodeNeeded": { zh: "当前不需要输入配对码。", en: "No pairing code is needed right now." },
+  "error.im.cancelled": { zh: "已取消", en: "Cancelled" },
+  "error.im.wrongCode": {
+    zh: "配对码不对，请重新输入。",
+    en: "That pairing code is wrong. Enter it again.",
+  },
+  "error.im.takenByOther": {
+    zh: "这个机器人已由另一个人连接，需要原来的人扫码，或先在原房间断开。",
+    en: "Someone else already connected this bot. They need to scan the code, or disconnect it from its current room first.",
+  },
+  "error.im.noIdentity": {
+    zh: "没有拿到扫码人的身份，请重试。",
+    en: "Couldn't tell who scanned the code. Try again.",
+  },
+  "error.im.channelOff": {
+    zh: "这个渠道已被关闭（HIVE_IM_WECHAT=0）。",
+    en: "This channel has been turned off (HIVE_IM_WECHAT=0).",
+  },
+  "error.im.wechatBadAddress": { zh: "微信服务地址无效", en: "The WeChat service address isn't valid" },
+  "error.im.wechatUnknownHost": {
+    zh: "拒绝未知的微信服务地址：{host}",
+    en: "Refused an unknown WeChat service address: {host}",
+  },
+  "error.im.wechatUnknownRedirect": {
+    zh: "拒绝未知的微信跳转地址",
+    en: "Refused an unknown WeChat redirect address",
+  },
+  "error.im.wechatSdkMismatch": {
+    zh: "微信 SDK 版本不匹配",
+    en: "The WeChat SDK version doesn't match",
+  },
+  "error.im.wechatSignedOut": {
+    zh: "微信登录已失效，请重新扫码。",
+    en: "Your WeChat sign-in is no longer valid. Scan the QR code again.",
+  },
+  "error.im.wechatExpired": {
+    zh: "微信登录已过期，请重新扫码连接。",
+    en: "Your WeChat sign-in expired. Scan the QR code again to reconnect.",
+  },
+  "error.im.wechatPollingStopped": {
+    zh: "微信消息轮询已停止。",
+    en: "Stopped checking WeChat for new messages.",
+  },
+  "error.im.feishuCode": { zh: "飞书返回错误 {code}", en: "Feishu returned error {code}" },
+  "error.im.feishuNoImageKey": {
+    zh: "飞书图片上传没有返回 image_key",
+    en: "Feishu didn't return an image_key for the uploaded image",
+  },
+  "error.im.feishuNoFileKey": {
+    zh: "飞书文件上传没有返回 file_key",
+    en: "Feishu didn't return a file_key for the uploaded file",
+  },
+  "error.im.fileTooLarge": { zh: "文件超过 20 MiB", en: "The file is larger than 20 MiB" },
 } as const satisfies Record<string, Entry>;
 
 export type ServerTextKey = keyof typeof serverTexts;

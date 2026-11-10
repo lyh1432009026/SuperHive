@@ -1,6 +1,9 @@
 import { WeChatBot, type Credentials, type IncomingMessage } from "@wechatbot/wechatbot";
 import type { ImConfig } from "./im-store.js";
+import { serverText } from "@superhive/protocol";
+import { imLocaleOf, imText } from "./im-texts.js";
 import {
+  ImTextError,
   USER_TARGET,
   type ImChannelDriver,
   type ImInbound,
@@ -20,7 +23,7 @@ import {
 export const WECHAT_AUTHORITY_HOSTS = ["ilinkai.weixin.qq.com"];
 
 function checkAuthority(value: unknown): void {
-  if (typeof value !== "string") throw new Error("微信服务地址无效");
+  if (typeof value !== "string") throw new ImTextError(serverText("error.im.wechatBadAddress"));
   const url = new URL(value);
   if (
     url.protocol !== "https:" ||
@@ -29,7 +32,7 @@ function checkAuthority(value: unknown): void {
     url.port ||
     !WECHAT_AUTHORITY_HOSTS.includes(url.hostname)
   ) {
-    throw new Error(`拒绝未知的微信服务地址：${url.hostname}`);
+    throw new ImTextError(serverText("error.im.wechatUnknownHost", { host: url.hostname }));
   }
 }
 
@@ -72,12 +75,13 @@ function guardQrLogin(bot: WeChatBot, signal: AbortSignal): void {
   const api = (bot as unknown as PrivateApi).api;
   for (const method of ["getQrCode", "pollQrStatus"]) {
     const original = api?.[method];
-    if (!api || typeof original !== "function") throw new Error("微信 SDK 版本不匹配");
+    if (!api || typeof original !== "function")
+      throw new ImTextError(serverText("error.im.wechatSdkMismatch"));
     api[method] = async (...args: unknown[]) => {
       checkAuthority(args[0]);
-      if (signal.aborted) throw new Error("已取消");
+      if (signal.aborted) throw new ImTextError(serverText("error.im.cancelled"));
       const result = await new Promise<unknown>((resolve, reject) => {
-        const abort = () => reject(new Error("已取消"));
+        const abort = () => reject(new ImTextError(serverText("error.im.cancelled")));
         signal.addEventListener("abort", abort, { once: true });
         original
           .apply(api, args)
@@ -88,7 +92,7 @@ function guardQrLogin(bot: WeChatBot, signal: AbortSignal): void {
       });
       const redirect = (result as { redirect_host?: unknown } | undefined)?.redirect_host;
       if (redirect !== undefined && !WECHAT_AUTHORITY_HOSTS.includes(String(redirect))) {
-        throw new Error("拒绝未知的微信跳转地址");
+        throw new ImTextError(serverText("error.im.wechatUnknownRedirect"));
       }
       return result;
     };
@@ -137,13 +141,13 @@ class WeChatTransport implements ImTransport {
 
   async start(events: ImTransportEvents): Promise<void> {
     if (!(await this.bot.storage.has("credentials"))) {
-      throw new Error("微信登录已失效，请重新扫码。");
+      throw new ImTextError(serverText("error.im.wechatSignedOut"));
     }
     // 只恢复已保存的登录，不在后台自己弹二维码
     const credentials = await this.bot.login({
       callbacks: {
         onVerifyCode: async () => {
-          throw new Error("微信登录已失效，请重新扫码。");
+          throw new ImTextError(serverText("error.im.wechatSignedOut"));
         },
       },
     });
@@ -155,12 +159,12 @@ class WeChatTransport implements ImTransport {
     // SDK 默认在会话过期时清掉登录并自动重新扫码；改成直接停下，由房主在网页上重新连接
     const poller = (this.bot as unknown as PrivateApi).poller;
     if (!poller || poller.listenerCount("session:expired") !== 1) {
-      throw new Error("微信 SDK 版本不匹配");
+      throw new ImTextError(serverText("error.im.wechatSdkMismatch"));
     }
     poller.removeAllListeners("session:expired");
     poller.on("session:expired", () => {
       this.bot.stop();
-      events.onStatus("error", "微信登录已过期，请重新扫码连接。");
+      events.onStatus("error", serverText("error.im.wechatExpired"));
     });
     await new Promise<void>((resolve, reject) => {
       let settled = false;
@@ -176,12 +180,19 @@ class WeChatTransport implements ImTransport {
       );
       this.bot.start().then(
         () => {
-          if (!this.stopped) events.onStatus("error", "微信消息轮询已停止。");
+          if (!this.stopped) events.onStatus("error", serverText("error.im.wechatPollingStopped"));
           finish(resolve);
         },
         (error: unknown) => {
           if (!this.stopped)
-            events.onStatus("error", error instanceof Error ? error.message : String(error));
+            events.onStatus(
+              "error",
+              error instanceof ImTextError
+                ? error.text
+                : error instanceof Error
+                  ? error.message
+                  : String(error),
+            );
           finish(() => reject(error instanceof Error ? error : new Error(String(error))));
         },
       );
@@ -221,10 +232,10 @@ export const wechatDriver: ImChannelDriver = {
       },
     });
     checkAuthority(credentials.baseUrl);
-    if (!credentials.userId) throw new Error("没有拿到扫码人的身份，请重试。");
+    if (!credentials.userId) throw new ImTextError(serverText("error.im.noIdentity"));
     return {
       ownerActorId: credentials.userId,
-      label: "个人微信",
+      label: imText(imLocaleOf(callbacks.locale), "im.wechat.label"),
       config: { accountId: credentials.accountId } satisfies ImConfig,
       secret: "",
       identityKey: "accountId",

@@ -10,6 +10,7 @@ import {
   removeImConnection,
   setImConnectionPaused,
   setImDeliveryLevel,
+  serverMessage,
   setImLocale,
   startImLogin,
   submitImLoginCode,
@@ -277,7 +278,9 @@ export function ImDialog({
                   {login.status === "succeeded" ? (
                     <strong className="im-ok">{t("已连接")}</strong>
                   ) : login.status === "failed" ? (
-                    <strong className="im-failed">{t("连接失败：{0}", { 0: login.error })}</strong>
+                    <strong className="im-failed">
+                      {t("连接失败：{0}", { 0: serverMessage(login.errorText, login.error ?? "") })}
+                    </strong>
                   ) : (
                     <>
                       <strong>
@@ -293,7 +296,11 @@ export function ImDialog({
                           </a>
                         </small>
                       )}
-                      {login.error && <small className="im-failed">{login.error}</small>}
+                      {login.error && (
+                        <small className="im-failed">
+                          {serverMessage(login.errorText, login.error)}
+                        </small>
+                      )}
                     </>
                   )}
                   {login.status === "need_code" && (
@@ -383,7 +390,7 @@ export function ImDialog({
                                 : t(" · 还没收到消息"),
                               3:
                                 connection.detail && connection.status !== "connected"
-                                  ? ` · ${connection.detail}`
+                                  ? ` · ${serverMessage(connection.detailText, connection.detail)}`
                                   : "",
                             })}
                           </small>

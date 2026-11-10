@@ -60,6 +60,15 @@ export const imTexts = {
   "im.card.attachments": { zh: "**附件 {count} 个**", en: "**Attachments: {count}**" },
   "im.card.empty": { zh: "（无内容）", en: "(empty)" },
 
+  /* ---------- 新连接的名字 ---------- */
+  "im.feishu.appName": { zh: "SuperHive 助手", en: "SuperHive Assistant" },
+  "im.feishu.appDesc": {
+    zh: "把飞书消息转进 SuperHive 房间",
+    en: "Brings your Feishu messages into SuperHive rooms",
+  },
+  "im.feishu.label": { zh: "飞书机器人", en: "Feishu bot" },
+  "im.wechat.label": { zh: "个人微信", en: "Personal WeChat" },
+
   /* ---------- 用法 ---------- */
   "im.help.text": {
     zh: [

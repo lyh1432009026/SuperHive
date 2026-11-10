@@ -2,7 +2,10 @@ import * as lark from "@larksuiteoapi/node-sdk";
 import type { ImConfig } from "./im-store.js";
 import { CARD_ACTION_KEY, FEISHU_CARD_BODY_LIMIT, renderFeishuCard } from "./feishu-card.js";
 import { Readable } from "node:stream";
+import { serverText } from "@superhive/protocol";
+import { imLocaleOf, imText } from "./im-texts.js";
 import {
+  ImTextError,
   USER_TARGET,
   type ImChannelDriver,
   type ImAction,
@@ -301,7 +304,10 @@ class FeishuTransport implements ImTransport {
         content,
       },
     });
-    if (result.code !== 0) throw new Error(result.msg || `飞书返回错误 ${result.code}`);
+    if (result.code !== 0)
+      throw result.msg
+        ? new Error(result.msg)
+        : new ImTextError(serverText("error.im.feishuCode", { code: String(result.code) }));
     return result.data?.message_id;
   }
 
@@ -310,7 +316,10 @@ class FeishuTransport implements ImTransport {
       path: { message_id: externalId },
       data: { content: JSON.stringify(renderFeishuCard(rich)) },
     });
-    if (result.code !== 0) throw new Error(result.msg || `飞书返回错误 ${result.code}`);
+    if (result.code !== 0)
+      throw result.msg
+        ? new Error(result.msg)
+        : new ImTextError(serverText("error.im.feishuCode", { code: String(result.code) }));
   }
 
   async react(externalId: string, emoji: string): Promise<string | undefined> {
@@ -318,7 +327,10 @@ class FeishuTransport implements ImTransport {
       path: { message_id: externalId },
       data: { reaction_type: { emoji_type: emoji } },
     });
-    if (result.code !== 0) throw new Error(result.msg || `飞书返回错误 ${result.code}`);
+    if (result.code !== 0)
+      throw result.msg
+        ? new Error(result.msg)
+        : new ImTextError(serverText("error.im.feishuCode", { code: String(result.code) }));
     return result.data?.reaction_id;
   }
 
@@ -338,7 +350,7 @@ class FeishuTransport implements ImTransport {
         data: { image_type: "message", image: file.data },
       })) as { image_key?: string; data?: { image_key?: string } } | null;
       const key = uploaded?.image_key ?? uploaded?.data?.image_key;
-      if (!key) throw new Error("飞书图片上传没有返回 image_key");
+      if (!key) throw new ImTextError(serverText("error.im.feishuNoImageKey"));
       return this.send(chatId, "image", JSON.stringify({ image_key: key }), replyTo);
     }
     const uploaded = (await this.client.im.file.create({
@@ -350,7 +362,7 @@ class FeishuTransport implements ImTransport {
       },
     })) as { file_key?: string; data?: { file_key?: string } } | null;
     const key = uploaded?.file_key ?? uploaded?.data?.file_key;
-    if (!key) throw new Error("飞书文件上传没有返回 file_key");
+    if (!key) throw new ImTextError(serverText("error.im.feishuNoFileKey"));
     return this.send(chatId, "file", JSON.stringify({ file_key: key }), replyTo);
   }
 
@@ -364,7 +376,7 @@ class FeishuTransport implements ImTransport {
     for await (const chunk of resource.getReadableStream()) {
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
       size += buffer.length;
-      if (size > 20 * 1024 * 1024) throw new Error("文件超过 20 MiB");
+      if (size > 20 * 1024 * 1024) throw new ImTextError(serverText("error.im.fileTooLarge"));
       chunks.push(buffer);
     }
     return {
@@ -422,19 +434,22 @@ export const feishuDriver: ImChannelDriver = {
       source: "superhive",
       signal: callbacks.signal,
       addons: ADDONS,
-      appPreset: { name: "SuperHive 助手", desc: "把飞书消息转进 SuperHive 房间" },
+      appPreset: {
+        name: imText(imLocaleOf(callbacks.locale), "im.feishu.appName"),
+        desc: imText(imLocaleOf(callbacks.locale), "im.feishu.appDesc"),
+      },
       onQRCodeReady: (info) => callbacks.onQr(info.url, info.expireIn),
       onStatusChange: (info) => {
         if (info.status === "domain_switched") domain = "lark";
       },
     });
     const ownerActorId = result.user_info?.open_id;
-    if (!ownerActorId) throw new Error("没有拿到扫码人的身份，请重试。");
+    if (!ownerActorId) throw new ImTextError(serverText("error.im.noIdentity"));
     if (result.user_info?.tenant_brand === "lark") domain = "lark";
     const name = await botName(result.client_id, result.client_secret, domain);
     return {
       ownerActorId,
-      label: name ?? "飞书机器人",
+      label: name ?? imText(imLocaleOf(callbacks.locale), "im.feishu.label"),
       config: { appId: result.client_id, domain, [CARD_CALLBACKS_CONFIG]: "1" },
       secret: result.client_secret,
       identityKey: "appId",

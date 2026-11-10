@@ -1,5 +1,5 @@
 import type { ImLocale } from "./im-texts.js";
-import type { ImChannel } from "@superhive/protocol";
+import { zhText, type ImChannel, type ServerText } from "@superhive/protocol";
 import type { ImConfig } from "./im-store.js";
 
 /** 发送目标以它开头时表示「发到这个人的私聊」，后面跟平台上的用户 ID */
@@ -45,7 +45,8 @@ export type ImTransportEvents = {
   onMessage(message: ImInbound): void;
   /** 卡片交互回调；平台要求几秒内应答，处理必须是同步的轻量操作 */
   onAction?(action: ImAction): ImActionResult | undefined;
-  onStatus(status: "connected" | "error", detail?: string): void;
+  /** detail 给结构化文案时网页按语言显示；平台原样返回的错误照旧是字符串 */
+  onStatus(status: "connected" | "error", detail?: string | ServerText): void;
 };
 
 /**
@@ -143,6 +144,8 @@ export type ImLoginCallbacks = {
   requestCode(isRetry: boolean): Promise<string>;
   /** 扫码登录期间的临时 SDK 状态；成功后整体迁到正式连接下 */
   kv: ImKeyValue;
+  /** 新连接的语言：新建的飞书应用名、连接的显示名按它写 */
+  locale?: ImLocale;
 };
 
 export type ImLoginResult = {
@@ -163,4 +166,12 @@ export interface ImChannelDriver {
   readonly richTextLength?: number;
   login(callbacks: ImLoginCallbacks): Promise<ImLoginResult>;
   createTransport(input: { config: ImConfig; secret: string; kv: ImKeyValue }): ImTransport;
+}
+
+/** 带结构化文案的错误：message 是中文（日志、旧客户端），text 给网页按语言显示 */
+export class ImTextError extends Error {
+  constructor(readonly text: ServerText) {
+    super(zhText(text));
+    this.name = "ImTextError";
+  }
 }

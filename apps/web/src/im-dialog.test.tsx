@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ImDialog } from "./im-dialog";
+import { getLocalePreference, setLocalePreference } from "./i18n";
 
 type Route = { method: string; url: string; body?: unknown };
 
@@ -141,6 +142,59 @@ describe("连接 IM 弹窗", () => {
     fireEvent.click(await screen.findByRole("radio", { name: "全部消息" }));
     await waitFor(() =>
       expect(calls.find((call) => call.url.endsWith("/level"))?.body).toEqual({ level: "all" }),
+    );
+  });
+});
+
+describe("连接 IM 弹窗的语言", () => {
+  const original = getLocalePreference();
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    setLocalePreference(original);
+  });
+
+  it("服务端的结构化文案按网页语言显示，没有时用原文；可以切机器人的语言", async () => {
+    setLocalePreference("en");
+    const connection = {
+      id: "22222222-2222-4222-8222-222222222222",
+      roomId: "build",
+      channel: "wechat",
+      ownerName: "rd",
+      label: "Personal WeChat",
+      status: "error",
+      detail: "微信登录已过期，请重新扫码连接。",
+      detailText: { key: "error.im.wechatExpired" },
+      level: "mine",
+      locale: "zh-CN",
+      delivery: { pending: 0, failed: 0, sent: 0, filtered: 0 },
+      createdAt: "2026-11-10T00:00:00.000Z",
+    };
+    const calls = mockServer((route) => {
+      if (route.url === "/api/im/channels")
+        return { feishu: { enabled: true }, wechat: { enabled: true } };
+      if (route.url === "/api/rooms/build/im") return { connections: [connection] };
+      if (route.url.endsWith("/locale")) return { ...connection, locale: "en" };
+      return {};
+    });
+    render(
+      <ImDialog
+        base="http://hive"
+        adminToken="t"
+        roomId="build"
+        ownerName="rd"
+        onClose={() => undefined}
+      />,
+    );
+    expect(
+      await screen.findByText(
+        /Your WeChat sign-in expired\. Scan the QR code again to reconnect\./,
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/微信登录已过期/)).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "English" }));
+    await waitFor(() =>
+      expect(calls.find((call) => call.url.endsWith("/locale"))?.body).toEqual({ locale: "en" }),
     );
   });
 });

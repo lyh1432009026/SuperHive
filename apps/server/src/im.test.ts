@@ -687,6 +687,55 @@ describe("IM 连接", () => {
     expect(file.replyTo).toBe(fake.sentIds.get(cardItem));
   });
 
+  it("扫码和连接状态的错误带结构化文案，网页可以按语言显示（中文原文照旧）", async () => {
+    const { api, connect, fake } = await start();
+    const { connections } = await connect();
+    // 不需要配对码时提交配对码：HTTP 错误体带 text
+    const started = await api("POST", "/api/rooms/general/im/login", {
+      channel: "feishu",
+      ownerName: "rd",
+    });
+    await until(() => fake.login);
+    const code = await api("POST", `/api/im/logins/${started.body.id}/code`, { code: "1234" });
+    expect(code.status).toBe(409);
+    expect(code.body).toMatchObject({
+      error: "当前不需要输入配对码。",
+      code: "IM_NO_CODE",
+      text: { key: "error.im.noCodeNeeded" },
+    });
+    // 同一个机器人换了个人扫码：扫码会话失败，带 errorText
+    fake.login!.resolve("someone-else");
+    let view: Record<string, any> = {};
+    for (let i = 0; i < 50 && view.status !== "failed"; i += 1) {
+      view = (await api("GET", `/api/im/logins/${started.body.id}`)).body;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(view).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining("这个机器人已由另一个人连接"),
+      errorText: { key: "error.im.takenByOther" },
+    });
+    // 驱动报的连接状态
+    fake.events!.onStatus("error", { key: "error.im.wechatExpired" });
+    let connection: Record<string, any> = {};
+    for (let i = 0; i < 50 && connection.status !== "error"; i += 1) {
+      connection = (await api("GET", "/api/rooms/general/im")).body.connections[0];
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(connection).toMatchObject({
+      id: connections[0]!.id,
+      detail: "微信登录已过期，请重新扫码连接。",
+      detailText: { key: "error.im.wechatExpired" },
+    });
+    // 平台原样返回的错误只有原文
+    fake.events!.onStatus("error", "socket hang up");
+    for (let i = 0; i < 50 && connection.detail !== "socket hang up"; i += 1) {
+      connection = (await api("GET", "/api/rooms/general/im")).body.connections[0];
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(connection.detailText).toBeUndefined();
+  });
+
   it("个人微信必须确认风险；访客身份不能作为发言人", async () => {
     const { api, join } = await start();
     await join("rd", "human");

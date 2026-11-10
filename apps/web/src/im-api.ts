@@ -5,9 +5,23 @@ import type {
   ImDeliveryLevel,
   ImLocale,
   ImLoginView,
+  WireServerText,
 } from "@superhive/protocol";
 import { localized, t } from "./i18n";
-import { localizeServerPayload, serverError } from "./server-text";
+import { localizeServerPayload, serverError, serverString } from "./server-text";
+
+/** 服务端的结构化文案按网页当前语言显示；没有或不认识时用中文原文 */
+export function serverMessage(text: WireServerText | undefined, fallback: string): string;
+export function serverMessage(
+  text: WireServerText | undefined,
+  fallback: string | undefined,
+): string | undefined;
+export function serverMessage(
+  text: WireServerText | undefined,
+  fallback: string | undefined,
+): string | undefined {
+  return serverString(text, fallback);
+}
 
 async function call<T>(url: string, token: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = { Authorization: `Bearer ${token}` };

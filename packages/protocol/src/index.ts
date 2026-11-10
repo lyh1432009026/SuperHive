@@ -982,6 +982,8 @@ export const imConnectionSchema = z.object({
   label: z.string(),
   status: imConnectionStatusSchema,
   detail: z.string().optional(),
+  /** detail 的结构化版本：网页按语言显示（见 server-text.ts） */
+  detailText: serverTextSchema.optional(),
   level: imDeliveryLevelSchema,
   locale: imLocaleSchema.optional(),
   delivery: imDeliveryStatsSchema,
@@ -1009,6 +1011,8 @@ export const imLoginViewSchema = z.object({
   qrUrl: z.string().optional(),
   expiresAt: z.string().datetime().optional(),
   error: z.string().optional(),
+  /** error 的结构化版本 */
+  errorText: serverTextSchema.optional(),
   connectionId: z.string().uuid().optional(),
 });
 export const imChannelsInfoSchema = z.object({
