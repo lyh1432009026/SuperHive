@@ -259,7 +259,7 @@ export const imTexts = {
 
   /* ---------- 进度卡片 ---------- */
   "im.task.title": { zh: "已派给 {agents}", en: "Sent to {agents}" },
-  "im.task.tag.running": { zh: "进行中", en: "In progress" },
+  "im.task.tag.running": { zh: "进行中", en: "Running" },
   "im.task.tag.done": { zh: "已完成", en: "Done" },
   "im.task.tag.partial": { zh: "未全部完成", en: "Not all done" },
   "im.task.note.running": {
@@ -268,8 +268,8 @@ export const imTexts = {
   },
   "im.task.note.finished": { zh: "结果已单独发来", en: "Results were sent separately" },
   "im.task.queuedDelivered": { zh: "已送达，排队中", en: "Delivered, waiting in queue" },
-  "im.task.queued": { zh: "排队中", en: "Waiting in queue" },
-  "im.task.running": { zh: "执行中", en: "Working" },
+  "im.task.queued": { zh: "排队中", en: "Queued" },
+  "im.task.running": { zh: "执行中", en: "Running" },
   "im.task.waiting": { zh: "在等你回答", en: "Waiting for your answer" },
   "im.task.replied": { zh: "已回复 #{seq}", en: "Replied in #{seq}" },
   "im.task.done": { zh: "已完成", en: "Done" },
@@ -309,7 +309,7 @@ export const imTexts = {
   "im.rooms.current": { zh: "当前：{room}", en: "Current: {room}" },
   "im.rooms.count": { zh: "{count} 个房间", en: "Rooms: {count}" },
   "im.rooms.online": { zh: "{count} 人在线", en: "{count} online" },
-  "im.rooms.running": { zh: "{count} 个进行中", en: "{count} in progress" },
+  "im.rooms.running": { zh: "{count} 个进行中", en: "{count} running" },
   "im.rooms.waiting": { zh: "{count} 个等你回答", en: "{count} waiting for you" },
   "im.rooms.note": {
     zh: "点一下就切换；切过去会恢复你在那个房间选过的对话对象",
@@ -331,7 +331,7 @@ export const imTexts = {
   "im.menu.agents": { zh: "**Agent**：{count} 个，{state}", en: "**Agents**: {count}, {state}" },
   "im.menu.busy": { zh: "{count} 个忙碌", en: "{count} busy" },
   "im.menu.idle": { zh: "都空闲", en: "all idle" },
-  "im.menu.tasks": { zh: "；进行中 {count} 个任务", en: "; tasks in progress: {count}" },
+  "im.menu.tasks": { zh: "；进行中 {count} 个任务", en: "; running tasks: {count}" },
   "im.menu.waiting": { zh: "，{count} 个在等你回答", en: ", waiting for you: {count}" },
   "im.menu.commands": {
     zh: "命令：/to 选对象、/room 换房间、/who 谁在忙、/level 推送档位、/lang 语言、/help 说明",
