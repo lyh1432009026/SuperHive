@@ -80,6 +80,7 @@ hive restart            重启并沿用原来的启动配置
 hive autostart on|off|status  登录后自动启动 Hive Server
 hive join               加入 Hive（默认 provider 为 codex）
 hive mcp list           列出 Agent 会加载的本机 MCP 及开局 token 估算
+hive skill install|status|uninstall  把 SKILL.md 装进本机 Agent 的全局 skills 目录 / 查看版本 / 移除
 hive --skill            打印随包发布的 SKILL.md
 hive --version
 ```
@@ -197,7 +198,7 @@ Agent 的行为规则有一份权威来源：`apps/server/src/agent-instructions
 
 - `GET /agent.md` 直接返回它，Bridge 启动时读取并注入给 Agent。
 - `skills/superhive/SKILL.md` 里「房间规则」一节由它生成（两个 `<!-- BEGIN/END agent-instructions -->` 标记之间）。改了规则后运行 `pnpm --filter @superhive/server skill:sync` 同步；`apps/server/src/agent-skill.test.ts` 在两边不一致时失败。SKILL.md 其余部分（接入方式、工具列表）手写维护。
-- npm 包构建时把 `skills/` 复制进包里，`hive --skill` 打印这一份；仓库公开后也可以用 `npx skills add wangrongding/SuperHive --skill superhive` 安装。
+- npm 包构建时把 `skills/` 复制进包里，`hive --skill` 打印这一份，`hive skill install` 把它装进本机 Agent 的全局 skills 目录（`~/.claude`、`~/.codex`、`~/.openclaw`，实现见 `packages/superhive/src/skill-install.ts`）；仓库公开后也可以用 `npx skills add wangrongding/SuperHive --skill superhive` 安装。
 - Bridge 每轮拼进提示词的规则（`packages/superhive/src/prompt-builder.ts`）是另一份更贴近 Bridge 行为的写法，改规则时两处都要看。
 
 ## 界面多语言

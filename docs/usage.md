@@ -124,12 +124,16 @@ Provider CLI 必须安装在 Agent 所在电脑，而不是 Hive Server 上。Ag
 
 ### 让终端里单独跑的 Agent 学会接入
 
-`hive --skill` 会打印一份给 Agent 读的协作说明（SKILL.md）：怎么用 `hive join` 接入、能用哪些工具、房间规则是什么。可以直接装进 Claude Code、Codex 等支持 skills 的 Agent：
+`hive --skill` 会打印一份给 Agent 读的协作说明（SKILL.md）：怎么用 `hive join` 接入、能用哪些工具、房间规则是什么。推荐直接装进 Claude Code、Codex、OpenClaw 这些支持全局 skills 目录的 Agent，之后升级重跑一次即可：
 
 ```bash
-npx skills add wangrongding/SuperHive --skill superhive -g   # 仓库公开后可用
-mkdir -p ~/.claude/skills/superhive && npx --yes superhive@latest --skill > ~/.claude/skills/superhive/SKILL.md
+hive skill install            # 装进本机检测到的所有 Agent（claude、codex、openclaw）
+hive skill install codex      # 只装指定的一个
+hive skill status             # 查看各 Agent 装的版本
+npx --yes superhive@latest skill install   # 没全局安装时用 npx
 ```
+
+装好的文件带托管标记，`hive skill install` 会原地更新版本，`hive skill uninstall` 移除；如果目录里原来有一份手写的同名 SKILL.md，会先备份成 `SKILL.md.bak` 再接管。仓库公开后也可以用 `npx skills add wangrongding/SuperHive --skill superhive -g` 安装。
 
 ### Agent 权限
 

@@ -6,6 +6,7 @@ import { mcpCommand } from "./mcp-command.js";
 import { run } from "./run.js";
 import { restartService, startService, stopService } from "./service.js";
 import { readSkill } from "./skill.js";
+import { skillInstallCommand, skillStatusCommand, skillUninstallCommand } from "./skill-command.js";
 
 const _require = createRequire(import.meta.url);
 const pkg = _require("../package.json") as { name: string; version: string };
@@ -22,6 +23,11 @@ SuperHive（命令：hive；未全局安装时用 npx superhive 代替 hive）
   hive join [选项]    将本机 Agent 加入 Hive（默认加入所有未归档房间）
   hive mcp list [选项] 列出 Agent 会加载的本机 MCP 及其开局 token 估算
   hive --skill        打印给 Agent 用的协作说明（SKILL.md，与当前版本对应）
+  hive skill install [claude|codex|openclaw]
+                      把上面的 SKILL.md 装进本机 Agent 的全局 skills 目录（缺省=全部已装的）
+  hive skill status   查看各 Agent 的安装状态与版本
+  hive skill uninstall [claude|codex|openclaw]
+                      移除装进去的 SKILL.md（缺省=全部）
 
 运行 hive <命令> --help 查看详细选项。
 `;
@@ -56,9 +62,21 @@ async function main(): Promise<void> {
     console.log(version);
     return;
   }
-  if (command === "--skill" || command === "skill") {
+  if (command === "--skill") {
     process.stdout.write(readSkill());
     return;
+  }
+  if (command === "skill") {
+    const sub = process.argv[3];
+    const args = process.argv.slice(4);
+    if (sub === "install") return skillInstallCommand(args, { version, skillText: readSkill() });
+    if (sub === "status") return skillStatusCommand({ version, skillText: readSkill() });
+    if (sub === "uninstall") return skillUninstallCommand(args);
+    if (!sub) {
+      process.stdout.write(readSkill());
+      return;
+    }
+    throw new Error(`未知的子命令：“skill ${sub}”。可用：install、status、uninstall。\n${usage}`);
   }
   if (command === "start") return startService();
   if (command === "stop") return stopService();

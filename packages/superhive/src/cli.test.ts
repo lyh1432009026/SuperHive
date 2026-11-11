@@ -18,6 +18,10 @@ describe("service CLI", { timeout: 60_000 }, () => {
     await expect(runCli("--help")).resolves.toContain("hive restart [选项]");
   });
 
+  it("lists the skill subcommands in the top-level help", async () => {
+    await expect(runCli("--help")).resolves.toContain("hive skill install [claude|codex|openclaw]");
+  });
+
   it("documents restart configuration reuse and overrides", async () => {
     const output = await runCli("restart", "--help");
     expect(output).toContain("默认沿用上次启动时的 host、port 和 public-url");
