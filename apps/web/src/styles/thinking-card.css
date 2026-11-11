@@ -13,8 +13,10 @@
   margin-top: 1px;
 }
 
+/* 和 Agent 的回复气泡一样右侧留白（最宽 88%），回复完成换成气泡时宽度不跳 */
 .thinking-card-content {
   min-width: 0;
+  max-width: 88%;
   padding: 8px 12px 10px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
