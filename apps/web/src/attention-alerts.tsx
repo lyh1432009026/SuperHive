@@ -49,7 +49,9 @@ export type AttentionToast = {
 
 const unseenLimit = 30;
 const unseenMaxAgeMs = 3 * 24 * 60 * 60 * 1000;
-const toastLimit = 3;
+/** 页面内提示不自己消失，只按条数封顶：最多留这么多条，同时只摆出最新的几条 */
+const toastLimit = 20;
+const visibleToasts = 3;
 
 function unseenStorageKey(username: string): string {
   return `superhive.attention-unseen.${username.toLocaleLowerCase()}`;
@@ -184,11 +186,19 @@ export function useAttention({
       if (![...current.values()].some((item) => item.roomId === currentRoomId)) return current;
       return new Map([...current].filter(([, item]) => item.roomId !== currentRoomId));
     });
+    // 已经回到那个房间：它的提示也算看过了，不用再手动关
+    setToasts((current) =>
+      current.some((toast) => toast.invocation.roomId === currentRoomId)
+        ? current.filter((toast) => toast.invocation.roomId !== currentRoomId)
+        : current,
+    );
   }, [currentRoomId, visible]);
 
   const dismissToast = useCallback((id: string) => {
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
+
+  const dismissAllToasts = useCallback(() => setToasts([]), []);
 
   const open = useCallback((invocation: Invocation) => {
     setToasts((current) => current.filter((toast) => toast.invocation.id !== invocation.id));
@@ -267,6 +277,14 @@ export function useAttention({
         });
       }
       const kind = attentionTransition(previous, invocation);
+      // 提示说的状态已经过去了（比如失败后被重试、等回答的已经答了）：收起那条提示
+      if (!kind && previous && previous.status !== invocation.status) {
+        setToasts((current) =>
+          current.some((toast) => toast.invocation.id === invocation.id)
+            ? current.filter((toast) => toast.invocation.id !== invocation.id)
+            : current,
+        );
+      }
       if (!kind || !concernsMe(invocation, { username, isOwner })) return;
       if (kind === "unseen") {
         if (document.visibilityState === "visible" && invocation.roomId === currentRoomId) return;
@@ -294,7 +312,17 @@ export function useAttention({
     return counts;
   }, [unseen]);
 
-  return { items, byRoom, unseenByRoom, observe, seed, open, toasts, dismissToast };
+  return {
+    items,
+    byRoom,
+    unseenByRoom,
+    observe,
+    seed,
+    open,
+    toasts,
+    dismissToast,
+    dismissAllToasts,
+  };
 }
 
 const toastIcons: Record<AttentionKind, string> = {
@@ -305,21 +333,36 @@ const toastIcons: Record<AttentionKind, string> = {
   unseen: "✓",
 };
 
-/** 页面内提示：右下角，最多三条，点整条提示跳到对应任务 */
+/**
+ * 页面内提示：右下角，点整条提示跳到对应任务。不会自己消失——不点就一直留着，
+ * 点开、点 ×、点「全部关闭」或回到那个房间时才收起；同时只摆最新三条，更早的折成「还有 n 条」
+ */
 export function AttentionToasts({
   toasts,
   roomName,
   onOpen,
   onDismiss,
+  onDismissAll,
 }: {
   toasts: readonly AttentionToast[];
   roomName: (roomId: string) => string;
   onOpen: (invocation: Invocation) => void;
   onDismiss: (id: string) => void;
+  onDismissAll: () => void;
 }) {
+  const shown = toasts.slice(-visibleToasts);
+  const hidden = toasts.length - shown.length;
   return (
     <div className="attention-toasts" role="region" aria-label={t("任务提醒")} aria-live="polite">
-      {toasts.map((toast) => (
+      {toasts.length > 1 && (
+        <div className="attention-toasts-bar">
+          <span>{hidden > 0 ? t("还有 {0} 条", { 0: hidden }) : ""}</span>
+          <button type="button" onClick={onDismissAll}>
+            {t("全部关闭")}
+          </button>
+        </div>
+      )}
+      {shown.map((toast) => (
         <AttentionToastItem
           key={toast.id}
           toast={toast}
@@ -343,21 +386,8 @@ function AttentionToastItem({
   onOpen: (invocation: Invocation) => void;
   onDismiss: (id: string) => void;
 }) {
-  const [hovered, setHovered] = useState(false);
-  // 完成和出错的提示 10 秒后自动收起；等你回答、等你放行的留到你处理或关掉；鼠标停在上面时不收
-  const sticky = toast.kind === "question" || toast.kind === "approval";
-  useEffect(() => {
-    if (sticky || hovered) return;
-    const timer = window.setTimeout(() => onDismiss(toast.id), 10_000);
-    return () => window.clearTimeout(timer);
-  }, [hovered, onDismiss, sticky, toast.id]);
   return (
-    <div
-      className={`attention-toast ${toast.kind}`}
-      role="status"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
+    <div className={`attention-toast ${toast.kind}`} role="status">
       {/* 整条提示都能点：跳到对应任务；只有右边的 × 是关闭 */}
       <button
         type="button"

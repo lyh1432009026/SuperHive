@@ -6913,6 +6913,7 @@ export function App({
         roomName={roomNameOf}
         onOpen={attention.open}
         onDismiss={attention.dismissToast}
+        onDismissAll={attention.dismissAllToasts}
       />
       {showOnboarding && onboardingOpen && (
         <OnboardingGuide steps={onboardingSteps} onClose={closeOnboarding} />

@@ -111,6 +111,33 @@
   pointer-events: none;
 }
 
+/* 提示多于一条时的顶栏：折起来的条数 + 全部关闭 */
+.attention-toasts-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  pointer-events: auto;
+}
+
+.attention-toasts-bar button {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.attention-toasts-bar button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
 .attention-toast {
   display: flex;
   align-items: stretch;
