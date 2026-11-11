@@ -972,6 +972,8 @@ export const imDeliveryStatsSchema = z.object({
 });
 /** IM 机器人说话用的语言（卡片、按钮、提示）；用户和 Agent 写的内容不翻译 */
 export const imLocaleSchema = z.enum(["zh-CN", "en"]);
+/** IM 连接接收哪些房间的推送：all=房主所在的所有房间（默认），current=只收当前房间 */
+export const imScopeSchema = z.enum(["all", "current"]);
 export const imConnectionSchema = z.object({
   id: z.string().uuid(),
   roomId: z.string(),
@@ -986,6 +988,7 @@ export const imConnectionSchema = z.object({
   detailText: serverTextSchema.optional(),
   level: imDeliveryLevelSchema,
   locale: imLocaleSchema.optional(),
+  scope: imScopeSchema.optional(),
   delivery: imDeliveryStatsSchema,
   createdAt: z.string().datetime(),
   /** 最近一次从 IM 收到房主消息的时间 */
@@ -1031,6 +1034,7 @@ export const startImLoginRequestSchema = z.object({
 });
 export const setImDeliveryLevelRequestSchema = z.object({ level: imDeliveryLevelSchema });
 export const setImLocaleRequestSchema = z.object({ locale: imLocaleSchema });
+export const setImScopeRequestSchema = z.object({ scope: imScopeSchema });
 export const submitImLoginCodeRequestSchema = z.object({
   code: z
     .string()
@@ -1230,6 +1234,7 @@ export type ImChannel = z.infer<typeof imChannelSchema>;
 export type ImConnection = z.infer<typeof imConnectionSchema>;
 export type ImDeliveryLevel = z.infer<typeof imDeliveryLevelSchema>;
 export type ImLocale = z.infer<typeof imLocaleSchema>;
+export type ImScope = z.infer<typeof imScopeSchema>;
 export type ImLoginView = z.infer<typeof imLoginViewSchema>;
 export type ImChannelsInfo = z.infer<typeof imChannelsInfoSchema>;
 export type ChatMessage = z.infer<typeof chatMessageSchema>;

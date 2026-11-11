@@ -195,6 +195,8 @@ function choiceElements(rich: ImRich): Array<Record<string, unknown>> {
   ];
 }
 
+const OTHER_ROOM = { template: "orange", tag: "orange" };
+
 /** 标题：「房间｜谁在做什么」，房间放最前，手机上一眼能分清是哪个房间的 */
 export function cardTitle(rich: Pick<ImRich, "title" | "room">): string {
   if (!rich.room) return plainText(rich.title, 80);
@@ -204,7 +206,16 @@ export function cardTitle(rich: Pick<ImRich, "title" | "room">): string {
 /** 渲染成飞书消息卡片（JSON 2.0） */
 export function renderFeishuCard(rich: ImRich): Record<string, unknown> {
   const locale = imLocaleOf(rich.locale);
-  const tone = rich.resolved ? (rich.resolved.ok ? RESOLVED_OK : RESOLVED_OTHER) : TONES[rich.tone];
+  const base = rich.resolved ? (rich.resolved.ok ? RESOLVED_OK : RESOLVED_OTHER) : TONES[rich.tone];
+  // 其他房间的卡片换成橙色，一眼分出不是当前房间；失败（红色）、已处理的颜色不变
+  const tone =
+    rich.otherRoom && !rich.resolved && rich.tone !== "danger" ? { ...base, ...OTHER_ROOM } : base;
+  const tags = [
+    ...(rich.otherRoom ? [{ text: `#${rich.otherRoom.name}`, color: "orange" }] : []),
+    ...(rich.resolved || rich.tag
+      ? [{ text: rich.resolved?.text ?? rich.tag ?? "", color: tone.tag }]
+      : []),
+  ];
   const elements: Array<Record<string, unknown>> = [];
   if (rich.body?.trim()) elements.push(markdown(escapeCardMarkdown(rich.body)));
   if (rich.steps?.length) {
@@ -299,18 +310,13 @@ export function renderFeishuCard(rich: ImRich): Record<string, unknown> {
         : {}),
       template: tone.template,
       icon: { tag: "standard_icon", token: tone.icon },
-      ...(rich.resolved || rich.tag
+      ...(tags.length
         ? {
-            text_tag_list: [
-              {
-                tag: "text_tag",
-                text: {
-                  tag: "plain_text",
-                  content: plainText(rich.resolved?.text ?? rich.tag ?? "", 20),
-                },
-                color: tone.tag,
-              },
-            ],
+            text_tag_list: tags.map((item) => ({
+              tag: "text_tag",
+              text: { tag: "plain_text", content: plainText(item.text, 20) },
+              color: item.color,
+            })),
           }
         : {}),
     },

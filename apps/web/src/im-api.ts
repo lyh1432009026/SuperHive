@@ -4,6 +4,7 @@ import type {
   ImConnection,
   ImDeliveryLevel,
   ImLocale,
+  ImScope,
   ImLoginView,
   WireServerText,
 } from "@superhive/protocol";
@@ -119,6 +120,19 @@ export const IM_LEVELS: Array<{ level: ImDeliveryLevel; label: string; hint: str
     { level: "all", label: t("全部消息"), hint: t("房间里所有人和 Agent 的消息逐条推送，不合并") },
   ],
 );
+
+/** 接收哪些房间的推送：所有房间（默认）或只收当前房间；在 IM 里发 /scope 也能切 */
+export function setImScope(
+  base: string,
+  token: string,
+  id: string,
+  scope: ImScope,
+): Promise<ImConnection> {
+  return call(`${base}/api/im/connections/${id}/scope`, token, {
+    method: "POST",
+    body: JSON.stringify({ scope }),
+  });
+}
 
 /** 机器人在 IM 里说话用的语言；在 IM 里发 /lang 也能切 */
 export function setImLocale(

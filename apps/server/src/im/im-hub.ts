@@ -34,6 +34,7 @@ import {
   type ImTextKey,
   type ImTextParams,
 } from "./im-texts.js";
+import type { ImScope } from "@superhive/protocol";
 import {
   USER_TARGET,
   type ImChannelDriver,
@@ -628,7 +629,7 @@ export class ImHub {
   }
 
   handleInbound(connectionId: string, message: ImInbound): void {
-    const connection = this.deps.store.getConnection(connectionId);
+    let connection = this.deps.store.getConnection(connectionId);
     if (!connection || connection.status === "paused") return;
     if (!this.deps.store.claimInbound(connection.id, message.externalId)) return;
     if (message.senderId !== connection.ownerActorId) {
@@ -671,6 +672,10 @@ export class ImHub {
     if (!files.length && /^(菜单|menu|控制面板)$/i.test(text)) {
       this.handleCommand(connection, message, "/menu");
       return;
+    }
+    // 回复（引用）了其他房间推来的卡片：这条消息发到那张卡片所在的房间，不用先切房间
+    if (message.replyToExternalId) {
+      connection = this.scopedToCard(connection, message.replyToExternalId);
     }
     const owner = this.deps.findParticipant(connection.roomId, connection.ownerName);
     if (!owner || owner.type !== "human") {
@@ -959,6 +964,25 @@ export class ImHub {
             owner: connection.ownerName,
           }),
         );
+      case "/scope":
+      case "/范围": {
+        const arg = args.join(" ").trim().toLowerCase();
+        const scopeName = (scope: ImScope) =>
+          this.t(connection, scope === "all" ? "im.scope.all" : "im.scope.current");
+        if (!arg) {
+          return say(
+            this.t(connection, "im.scope.status", { scope: scopeName(this.scopeOf(connection)) }),
+          );
+        }
+        const scope: ImScope | undefined = ["all", "所有", "全部", "所有房间"].includes(arg)
+          ? "all"
+          : ["current", "当前", "当前房间", "仅当前房间", "this"].includes(arg)
+            ? "current"
+            : undefined;
+        if (!scope) return say(this.t(connection, "im.scope.invalid"));
+        this.setScopeOf(connection, scope);
+        return say(this.t(connection, "im.scope.switched", { scope: scopeName(scope) }));
+      }
       case "/lang":
       case "/language":
       case "/语言": {
@@ -1438,6 +1462,7 @@ export class ImHub {
         chatId: message.chatId,
         chatType: message.chatType,
         senderId: message.senderId,
+        roomId: connection.roomId,
       }),
     );
     const prompt = this.t(connection, "im.pick.prompt", { token, count: candidates.length });
@@ -1480,9 +1505,6 @@ export class ImHub {
   ): { ok: true } | { ok: false; reason: string } {
     const raw = this.deps.store.kvGet(connection.id, `pending:${id}`);
     if (!raw) return { ok: false, reason: this.t(connection, "im.pick.alreadySent") };
-    if (!this.agentNames(connection.roomId).includes(agent)) {
-      return { ok: false, reason: this.t(connection, "im.pick.notInRoom", { name: agent }) };
-    }
     const pending = JSON.parse(raw) as {
       text: string;
       token: string;
@@ -1490,7 +1512,17 @@ export class ImHub {
       chatId: string;
       chatType: "p2p" | "group";
       senderId: string;
+      /** 挂起时要发去的房间（回复了其他房间的卡片时不是当前房间） */
+      roomId?: string;
     };
+    if (pending.roomId && pending.roomId !== connection.roomId) {
+      const scoped = { ...connection, roomId: pending.roomId };
+      owner = this.ownerOf(scoped) ?? owner;
+      connection = scoped;
+    }
+    if (!this.agentNames(connection.roomId).includes(agent)) {
+      return { ok: false, reason: this.t(connection, "im.pick.notInRoom", { name: agent }) };
+    }
     let posted: ChatMessage;
     this.posting = connection.id;
     try {
@@ -1759,6 +1791,9 @@ export class ImHub {
         t("im.menu.level", {
           level: levelText(this.localeOf(connection), connection.level ?? "mine"),
         }),
+        t("im.menu.scope", {
+          scope: t(this.scopeOf(connection) === "all" ? "im.scope.all" : "im.scope.current"),
+        }),
         t("im.menu.agents", {
           count: agents.length,
           state: busy ? t("im.menu.busy", { count: busy }) : t("im.menu.idle"),
@@ -1776,6 +1811,17 @@ export class ImHub {
               { label: t("im.button.who"), value: { do: "who" }, style: "default" },
               { label: t("im.button.level"), value: { do: "level" }, style: "default" },
               { label: t("im.button.help"), value: { do: "help" }, style: "default" },
+              this.scopeOf(connection) === "all"
+                ? {
+                    label: t("im.button.scopeCurrent"),
+                    value: { do: "scope", scope: "current" },
+                    style: "default",
+                  }
+                : {
+                    label: t("im.button.scopeAll"),
+                    value: { do: "scope", scope: "all" },
+                    style: "default",
+                  },
               {
                 label: t("im.button.otherLanguage"),
                 value: { do: "lang", locale: other },
@@ -2033,15 +2079,17 @@ export class ImHub {
     if (action.operatorId !== connection.ownerActorId) {
       return { toast: { type: "error", text: t("im.toast.notOwner") } };
     }
-    const owner = this.ownerOf(connection);
+    // 作答、重试、停止这些作用在卡片所在的房间（可能不是当前房间），用那个房间里的房主身份
+    const scoped = this.scopedToCard(connection, action.externalId);
+    const owner = this.ownerOf(scoped);
     if (!owner) {
       return {
         toast: { type: "error", text: t("im.toast.ownerMissing", { owner: connection.ownerName }) },
       };
     }
     const op = action.value.do;
-    if (op === "answer" || op === "answer_form")
-      return this.answerFromCard(connection, owner, action);
+    if (op === "goto") return this.gotoFromCard(connection, action);
+    if (op === "answer" || op === "answer_form") return this.answerFromCard(scoped, owner, action);
     if (op === "retry" || op === "dismiss" || op === "continue") {
       return this.invocationFromCard(connection, owner, action, op);
     }
@@ -2101,6 +2149,19 @@ export class ImHub {
         rich: this.levelCard(current),
       };
     }
+    if (op === "scope") {
+      const scope = action.value.scope === "current" ? "current" : "all";
+      const current = this.setScopeOf(connection, scope);
+      return {
+        toast: {
+          type: "success",
+          text: this.t(current, "im.scope.switched", {
+            scope: this.t(current, scope === "all" ? "im.scope.all" : "im.scope.current"),
+          }),
+        },
+        rich: this.menuCard(current),
+      };
+    }
     if (op === "lang") {
       const locale = parseImLocale(action.value.locale ?? "");
       if (!locale) return { toast: { type: "error", text: t("im.lang.invalid") } };
@@ -2126,6 +2187,22 @@ export class ImHub {
     }
     if (op === "follow") {
       const agent = action.value.agent ?? "";
+      // 其他房间的回复卡片上点「继续问它」：先切到那个房间
+      if (scoped.roomId !== connection.roomId && !this.switchRoom(connection, scoped.roomId)) {
+        const current = this.deps.store.getConnection(connection.id) ?? connection;
+        if (this.agentNames(current.roomId).includes(agent)) {
+          this.setTarget(current, agent);
+          return {
+            toast: {
+              type: "success",
+              text: this.t(current, "im.toast.followSwitched", {
+                room: this.roomName(current.roomId),
+                name: agent,
+              }),
+            },
+          };
+        }
+      }
       if (!this.agentNames(connection.roomId).includes(agent)) {
         return {
           toast: {
@@ -2315,14 +2392,156 @@ export class ImHub {
     return { toast: { type: "success", text: label }, rich };
   }
 
-  private ownerOf(connection: StoredConnection): Participant | undefined {
-    const owner = this.deps.findParticipant(connection.roomId, connection.ownerName);
+  /** 房主在某个房间里的成员身份（默认当前房间）；其他房间的事要按那个房间算 */
+  private ownerOf(
+    connection: StoredConnection,
+    roomId = connection.roomId,
+  ): Participant | undefined {
+    const owner = this.deps.findParticipant(roomId, connection.ownerName);
     return owner?.type === "human" ? owner : undefined;
+  }
+
+  /* ---------- 接收所有房间 ---------- */
+
+  /** 接收范围：默认所有房间（房主所在的、没归档的）；可以改成只收当前房间 */
+  private scopeOf(connection: StoredConnection): ImScope {
+    return connection.config.scope === "current" ? "current" : "all";
+  }
+
+  setScope(id: string, scope: ImScope): ImConnection {
+    return this.view(this.setScopeOf(this.require(id), scope));
+  }
+
+  private setScopeOf(connection: StoredConnection, scope: ImScope): StoredConnection {
+    const updated =
+      this.deps.store.update(connection.id, { config: { ...connection.config, scope } }) ??
+      connection;
+    this.deps.onConnectionsChanged(connection.roomId);
+    return updated;
+  }
+
+  private liveRoom(roomId: string): boolean {
+    const room = this.deps.getRoom(roomId);
+    return Boolean(room && !room.archivedAt);
+  }
+
+  /**
+   * 这个房间里发生的事和哪些连接有关。
+   * - all：绑定在这个房间的，加上房主也在这个房间里的（不管接收范围）。用来更新已经推出去的卡片：
+   *   回复其他房间卡片派出的任务、在那边作答的提问，进度和结论都要回到原来那张卡片上。
+   * - push：要推新消息的。绑定在这个房间的，加上「接收所有房间」的；房间已归档的不推；
+   *   同一个 IM 账号接了几个连接时只推一次（优先绑定在这个房间的）。
+   */
+  private connectionsFor(roomId: string): { all: StoredConnection[]; push: StoredConnection[] } {
+    const all = this.deps.store
+      .listConnections()
+      .filter(
+        (connection) =>
+          connection.status !== "paused" &&
+          (connection.roomId === roomId || Boolean(this.ownerOf(connection, roomId))),
+      );
+    if (!this.liveRoom(roomId)) return { all, push: [] };
+    const ordered = [
+      ...all.filter((connection) => connection.roomId === roomId),
+      ...all.filter(
+        (connection) => connection.roomId !== roomId && this.scopeOf(connection) === "all",
+      ),
+    ];
+    const seen = new Set<string>();
+    const push = ordered.filter((connection) => {
+      const key = `${connection.channel}:${connection.ownerActorId}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    return { all, push };
+  }
+
+  /** 一张已推出的卡片属于哪个房间：消息卡片、进度卡片、提醒卡片都能对上 */
+  private roomOfCard(connection: StoredConnection, externalId: string): string | undefined {
+    const messageId = this.deps.store.messageForExternal(connection.id, externalId);
+    const message = messageId ? this.deps.getMessage(messageId) : undefined;
+    if (message) return message.roomId;
+    const delivery = this.deps.store.deliveryByExternal(connection.id, externalId);
+    if (!delivery) return undefined;
+    if (delivery.messageId) return this.deps.getMessage(delivery.messageId)?.roomId;
+    if (delivery.eventKey.startsWith("task:")) {
+      return this.deps.getMessage(delivery.eventKey.slice("task:".length))?.roomId;
+    }
+    if (delivery.check?.kind === "invocation") {
+      return this.deps.getInvocation(delivery.check.id)?.roomId;
+    }
+    if (delivery.check?.kind === "question") {
+      return this.deps.getMessage(delivery.check.messageId)?.roomId;
+    }
+    return undefined;
+  }
+
+  /**
+   * 卡片在其他房间时，返回一个「临时站在那个房间」的连接视图（不改连接本身）：
+   * 引用回复、作答、重试、停止都落在卡片所在的房间
+   */
+  private scopedToCard(connection: StoredConnection, externalId: string): StoredConnection {
+    const roomId = this.roomOfCard(connection, externalId);
+    if (!roomId || roomId === connection.roomId || !this.liveRoom(roomId)) return connection;
+    return this.ownerOf(connection, roomId) ? { ...connection, roomId } : connection;
+  }
+
+  /** 推到 IM 的东西不在当前房间：卡片标上「#房间名」、换成橙色，底部加「切到 #房间 继续」；文字前面加 [#房间名] */
+  private markOtherRoom(
+    connection: StoredConnection,
+    roomId: string,
+    item: { text: string; rich?: ImRich | undefined },
+  ): { text: string; rich?: ImRich } {
+    if (roomId === connection.roomId) {
+      return { text: item.text, ...(item.rich ? { rich: item.rich } : {}) };
+    }
+    const name = this.roomName(roomId);
+    const text = `${this.t(connection, "im.otherRoom.prefix", { room: name })} ${item.text}`;
+    if (!item.rich) return { text };
+    const goto = {
+      label: this.t(connection, "im.button.gotoRoom", { room: name }),
+      value: { do: "goto", room: roomId },
+      style: "default" as const,
+    };
+    return {
+      text,
+      rich: {
+        ...item.rich,
+        otherRoom: { id: roomId, name },
+        ...(this.cardsEnabled(connection)
+          ? { actions: [...(item.rich.actions ?? []), goto] }
+          : {
+              note: [item.rich.note, this.t(connection, "im.otherRoom.textHint", { room: roomId })]
+                .filter(Boolean)
+                .join(this.t(connection, "im.sep.clause")),
+            }),
+      },
+    };
+  }
+
+  /** 卡片上点「切到 #房间 继续」：连接的当前房间切过去，卡片保留内容、去掉这个按钮并注明已切换 */
+  private gotoFromCard(connection: StoredConnection, action: ImAction): ImActionResult {
+    const roomId = action.value.room ?? "";
+    const failure = this.switchRoom(connection, roomId);
+    if (failure) return { toast: { type: "error", text: failure } };
+    const current = this.deps.store.getConnection(connection.id) ?? connection;
+    const text = this.roomSwitchedText(current);
+    const delivery = this.deps.store.deliveryByExternal(connection.id, action.externalId);
+    const base = delivery?.rich;
+    if (!delivery || !base) return { toast: { type: "success", text } };
+    const rich: ImRich = {
+      ...base,
+      actions: (base.actions ?? []).filter((item) => item.value.do !== "goto"),
+      footer: text,
+    };
+    this.deps.store.setRich(delivery.id, rich);
+    return { toast: { type: "success", text }, rich };
   }
 
   /** 这条 Agent 消息所在的任务是不是房主自己派的（沿委派链找到源头的人） */
   private isOwnersTask(connection: StoredConnection, message: ChatMessage): boolean {
-    const owner = this.ownerOf(connection);
+    const owner = this.ownerOf(connection, message.roomId);
     if (!owner || !message.parentMessageId) return false;
     const invocation = this.deps
       .invocationsFor(message.parentMessageId)
@@ -2367,10 +2586,12 @@ export class ImHub {
       eventKey,
       messageId: message.id,
       ...this.target(connection, origin),
-      text: this.format(connection, message, driver?.maxTextLength ?? 1800),
-      ...(driver?.richTextLength
-        ? { rich: this.richMessage(connection, message, driver.richTextLength) }
-        : {}),
+      ...this.markOtherRoom(connection, message.roomId, {
+        text: this.format(connection, message, driver?.maxTextLength ?? 1800),
+        rich: driver?.richTextLength
+          ? this.richMessage(connection, message, driver.richTextLength)
+          : undefined,
+      }),
       ...(options.batch ? { batch: true } : {}),
       ...(options.check ? { check: options.check } : {}),
     });
@@ -2462,8 +2683,8 @@ export class ImHub {
 
   /** 房间里有新消息：按每个连接的档位决定推不推 */
   onMessageCreated(message: ChatMessage): void {
-    for (const connection of this.deps.store.listConnections(message.roomId)) {
-      if (connection.status === "paused") continue;
+    const { all, push } = this.connectionsFor(message.roomId);
+    for (const connection of all) {
       // 提问被回答了：推出去的提问卡片改成已回答（卡片上点的由回调自己更新）
       if (
         (message.answer || message.replyToMessageId) &&
@@ -2472,6 +2693,8 @@ export class ImHub {
       ) {
         this.settleQuestion(connection, message);
       }
+    }
+    for (const connection of push) {
       // 从这个连接发进来的消息不再推回去
       if (this.posting === connection.id) continue;
       const decision = this.decide(connection, message);
@@ -2527,13 +2750,15 @@ export class ImHub {
    * 这些往往没有对应的聊天消息，只看新消息会漏掉。
    */
   onInvocationUpdated(invocation: Invocation): void {
-    for (const connection of this.deps.store.listConnections(invocation.roomId)) {
-      if (connection.status === "paused") continue;
+    const { all, push } = this.connectionsFor(invocation.roomId);
+    for (const connection of all) {
       // 飞书派的任务：进度卡片、处理中/完成表情；已发出的提醒卡片随状态改成已处理
       this.trackTask(connection, invocation);
       this.settleNotices(connection, invocation);
+    }
+    for (const connection of push) {
       if (connection.level === "im") continue;
-      const owner = this.ownerOf(connection);
+      const owner = this.ownerOf(connection, invocation.roomId);
       if (!owner) continue;
       const ownTask = this.rootRequesterId(invocation) === owner.id;
       // 最终结果：房主直接派的这一轮交付的回复（委派出去的子任务回执给 Agent，不推）
@@ -2561,13 +2786,15 @@ export class ImHub {
         connectionId: connection.id,
         eventKey: `inv:${invocation.id}:${invocation.attempts}:${invocation.status}`,
         ...this.target(connection, origin),
-        ...(rich ? { rich } : {}),
-        text: this.clip(
-          connection,
-          `${this.roomName(invocation.roomId)} - ${invocation.agentName}\n${notice}`,
-          invocation.roomId,
-          driver?.maxTextLength ?? 1800,
-        ),
+        ...this.markOtherRoom(connection, invocation.roomId, {
+          rich,
+          text: this.clip(
+            connection,
+            `${this.roomName(invocation.roomId)} - ${invocation.agentName}\n${notice}`,
+            invocation.roomId,
+            driver?.maxTextLength ?? 1800,
+          ),
+        }),
         check: {
           kind: "invocation",
           id: invocation.id,

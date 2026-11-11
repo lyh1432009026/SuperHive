@@ -12,6 +12,7 @@ import {
   setImDeliveryLevel,
   serverMessage,
   setImLocale,
+  setImScope,
   startImLogin,
   submitImLoginCode,
 } from "./im-api";
@@ -502,6 +503,45 @@ export function ImDialog({
                         </div>
                         <small>
                           {t("机器人的卡片、按钮和提示用这个语言；在 IM 里发 /lang 也能切换")}
+                        </small>
+                      </div>
+                      <div className="im-level">
+                        <div
+                          className="duration-segments"
+                          role="radiogroup"
+                          aria-label={t("接收哪些房间")}
+                        >
+                          {(
+                            [
+                              ["all", t("所有房间")],
+                              ["current", t("仅当前房间")],
+                            ] as const
+                          ).map(([scope, label]) => (
+                            <button
+                              key={scope}
+                              type="button"
+                              role="radio"
+                              aria-checked={(connection.scope ?? "all") === scope}
+                              className={(connection.scope ?? "all") === scope ? "on" : ""}
+                              onClick={() =>
+                                void setImScope(base, adminToken, connection.id, scope).then(
+                                  refresh,
+                                  fail,
+                                )
+                              }
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <small>
+                          {(connection.scope ?? "all") === "all"
+                            ? t(
+                                "你所在的所有房间都会推过来，其他房间的卡片标成橙色，点卡片上的按钮就能切过去；直接回复卡片会发到那个房间",
+                              )
+                            : t("只推当前房间 {0} 的消息；在 IM 里发 /scope all 改回所有房间", {
+                                0: connection.roomId,
+                              })}
                         </small>
                       </div>
                     </li>

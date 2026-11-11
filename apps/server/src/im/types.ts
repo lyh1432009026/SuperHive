@@ -97,6 +97,8 @@ export type ImRich = {
   }>;
   /** 会话列表里的一行预览 */
   summary: string;
+  /** 不在连接的当前房间：卡片标上「#房间名」、换成橙色 */
+  otherRoom?: { id: string; name: string };
   /** 卡片里固定的字（提交按钮、附件标题）用的语言；发送前由中枢按连接的语言填上 */
   locale?: ImLocale;
 };

@@ -7,6 +7,7 @@ import type { ChatMessage, ServerEvent } from "@superhive/protocol";
 import WebSocket from "ws";
 import { buildApp } from "./app.js";
 import { parseChoice } from "./im/im-hub.js";
+import { renderFeishuCard } from "./im/feishu-card.js";
 import type {
   ImChannelDriver,
   ImInbound,
@@ -76,7 +77,8 @@ class FakeChannel {
   reactions: Array<{ op: "add" | "remove"; externalId: string; emoji?: string; id?: string }> = [];
   files: Array<{ chatId: string; name: string; kind: string; size: number; replyTo?: string }> = [];
   events: ImTransportEvents | undefined;
-  login: { callbacks: ImLoginCallbacks; resolve: (owner: string) => void } | undefined;
+  login:
+    { callbacks: ImLoginCallbacks; resolve: (owner: string, appId?: string) => void } | undefined;
   transports = 0;
   closes = 0;
   private counter = 0;
@@ -92,11 +94,11 @@ class FakeChannel {
           callbacks.onQr("https://example.test/qr", 300);
           this.login = {
             callbacks,
-            resolve: (owner) =>
+            resolve: (owner, appId = "cli_test") =>
               resolve({
                 ownerActorId: owner,
                 label: "测试机器人",
-                config: { appId: "cli_test", ...(this.richCards ? { cardCallbacks: "1" } : {}) },
+                config: { appId, ...(this.richCards ? { cardCallbacks: "1" } : {}) },
                 secret: "s3cret",
                 identityKey: "appId",
               }),
@@ -1562,6 +1564,207 @@ describe("IM 推送档位", () => {
     fake.emit({ text: "/lang klingon" });
     await until(() => fake.sent.find((item) => item.text.startsWith("语言只能是")));
     await client.close();
+  });
+  /** 在另一个房间 proj 里：rd 在网页上派活给 rd-omp，rd-omp 回复，返回回复消息 */
+  async function otherRoom(
+    ctx: Awaited<ReturnType<typeof setup>>,
+    options: { roomName?: string } = {},
+  ) {
+    await ctx.api("POST", "/api/rooms", { id: "proj", name: options.roomName ?? "项目" });
+    const rdProj = await ctx.join("rd", "human", "proj");
+    const omp = await ctx.join("rd-omp", "agent", "proj");
+    const assign = async (content: string, clientMessageId: string) => {
+      rdProj.send({ type: "message.send", clientMessageId, content });
+      const mentioned = await omp.next((event) => event.type === "agent.mentioned");
+      const trigger = (mentioned as { message: ChatMessage }).message;
+      omp.send({ type: "invocation.report", messageId: trigger.id, status: "running" });
+      return trigger;
+    };
+    const reply = async (trigger: ChatMessage, content: string, clientMessageId: string) => {
+      omp.send({
+        type: "message.send",
+        clientMessageId,
+        content,
+        parentMessageId: trigger.id,
+      });
+    };
+    return { rdProj, omp, assign, reply };
+  }
+
+  it("所有房间：其他房间的结果、失败提醒默认也推过来，卡片标「#房间」橙色、带「切过去继续」；回复卡片发到那个房间", async () => {
+    const ctx = await setup({ richCards: true });
+    const { fake, api, id, helper, assign: assignHere } = ctx;
+    const { rdProj, omp, assign, reply } = await otherRoom(ctx);
+    expect((await api("GET", "/api/rooms/general/im")).body.connections[0].scope).toBe("all");
+
+    // 当前房间的卡片照旧
+    const here = await assignHere("@helper 看下", "here-1");
+    helper.send({ type: "invocation.report", messageId: here.id, status: "running" });
+    helper.send({
+      type: "message.send",
+      clientMessageId: "here-reply",
+      content: "当前房间的结果",
+      parentMessageId: here.id,
+    });
+    const current = await until(() =>
+      fake.sent.find((item) => item.text.includes("当前房间的结果")),
+    );
+    expect(current.rich!.otherRoom).toBeUndefined();
+    expect(current.text.startsWith("[#")).toBe(false);
+
+    // 其他房间：任务结果
+    const trigger = await assign("@rd-omp 部署", "proj-1");
+    await reply(trigger, "部署好了", "proj-reply");
+    const result = await until(() => fake.sent.find((item) => item.text.includes("部署好了")));
+    expect(result.text.startsWith("[#项目] ")).toBe(true);
+    expect(result.rich).toMatchObject({ room: "项目", otherRoom: { id: "proj", name: "项目" } });
+    expect(result.rich!.actions!.at(-1)).toMatchObject({
+      label: "切到 #项目 继续",
+      value: { do: "goto", room: "proj" },
+    });
+    const card = renderFeishuCard(result.rich!) as any;
+    expect(card.header.template).toBe("orange");
+    expect(card.header.text_tag_list[0]).toMatchObject({
+      text: { content: "#项目" },
+      color: "orange",
+    });
+
+    // 其他房间：失败提醒仍是红色，加房间标签
+    const failing = await assign("@rd-omp 回滚", "proj-2");
+    omp.send({
+      type: "invocation.report",
+      messageId: failing.id,
+      status: "failed",
+      detail: "exit 1",
+    });
+    const notice = await until(() => fake.sent.find((item) => item.rich?.tone === "danger"));
+    expect(notice.rich!.otherRoom).toMatchObject({ id: "proj" });
+    const noticeCard = renderFeishuCard(notice.rich!) as any;
+    expect(noticeCard.header.template).toBe("red");
+    expect(noticeCard.header.text_tag_list.map((tag: any) => tag.text.content)).toEqual([
+      "#项目",
+      "失败",
+    ]);
+    if (process.env.IM_SAMPLE) {
+      const fs = await import("node:fs");
+      fs.writeFileSync(
+        "/tmp/im-all-rooms-samples.json",
+        JSON.stringify(
+          {
+            currentRoom: renderFeishuCard(current.rich!),
+            otherRoom: card,
+            otherRoomFailed: noticeCard,
+          },
+          null,
+          2,
+        ),
+      );
+    }
+
+    // 直接回复其他房间的卡片：消息进那个房间，发给卡片上的 Agent
+    fake.emit({ text: "再检查一遍", replyToExternalId: fake.sentIds.get(result)! });
+    const followUp = await rdProj.next(
+      (event) => event.type === "message.created" && event.message.content.includes("再检查一遍"),
+    );
+    expect((followUp as { message: ChatMessage }).message).toMatchObject({
+      roomId: "proj",
+      content: "@rd-omp 再检查一遍",
+      via: { channel: "feishu" },
+    });
+    await omp.next((event) => event.type === "agent.mentioned");
+    // 当前房间没变
+    expect((await api("GET", "/api/rooms/general/im")).body.connections[0].id).toBe(id);
+
+    // 失败卡片上点重试：作用在卡片所在的房间
+    expect(
+      fake.events!.onAction!({
+        externalId: fake.sentIds.get(notice)!,
+        chatId: notice.chatId,
+        operatorId: "owner-open-id",
+        value: { hive: "1", do: "retry" },
+      }),
+    ).toMatchObject({ toast: { type: "success", text: "已重试" } });
+    await omp.next((event) => event.type === "agent.mentioned" && event.message.id === failing.id);
+
+    // 点「切到 #项目 继续」：当前房间切过去，卡片留着内容、去掉这个按钮
+    const gone = fake.events!.onAction!({
+      externalId: fake.sentIds.get(result)!,
+      chatId: result.chatId,
+      operatorId: "owner-open-id",
+      value: { hive: "1", do: "goto", room: "proj" },
+    });
+    expect(gone).toMatchObject({
+      toast: { type: "success", text: expect.stringContaining("已切换到房间「项目」") },
+      rich: { body: expect.stringContaining("部署好了") },
+    });
+    expect((gone as any).rich.actions.some((item: any) => item.value.do === "goto")).toBe(false);
+    expect((await api("GET", "/api/rooms/proj/im")).body.connections[0].id).toBe(id);
+  });
+
+  it("仅当前房间时其他房间不推；归档的房间不推；同一个 IM 账号接了两个连接只推一次", async () => {
+    const ctx = await setup({ richCards: true });
+    const { fake, api, id } = ctx;
+    const { assign, reply } = await otherRoom(ctx);
+    fake.emit({ text: "/scope current" });
+    await until(() => fake.sent.find((item) => item.text === "接收范围改为：仅当前房间"));
+    expect((await api("GET", "/api/rooms/general/im")).body.connections[0].scope).toBe("current");
+    const first = await assign("@rd-omp 一", "scope-1");
+    await reply(first, "只在项目里", "scope-reply-1");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(fake.sent.some((item) => item.text.includes("只在项目里"))).toBe(false);
+
+    // 网页上改回所有房间，再把项目归档：归档房间的也不推
+    expect(
+      (await api("POST", `/api/im/connections/${id}/scope`, { scope: "all" })).body.scope,
+    ).toBe("all");
+    const second = await assign("@rd-omp 二", "scope-2");
+    await api("PATCH", "/api/rooms/proj", { archived: true });
+    await reply(second, "归档房间的回复", "scope-reply-2");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(fake.sent.some((item) => item.text.includes("归档房间的回复"))).toBe(false);
+    await api("PATCH", "/api/rooms/proj", { archived: false });
+
+    // 同一个飞书账号又接了一个机器人，绑在项目房间：项目里的消息只推一次（走绑在项目的那个）
+    const previous = fake.login;
+    const started = await api("POST", "/api/rooms/proj/im/login", {
+      channel: "feishu",
+      ownerName: "rd",
+    });
+    expect(started.status).toBe(201);
+    await until(() => fake.login !== previous && fake.login);
+    fake.login!.resolve("owner-open-id", "cli_second");
+    for (let i = 0; i < 50; i += 1) {
+      const list = (await api("GET", "/api/rooms/proj/im")).body.connections;
+      if (list[0]?.status === "connected") break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const third = await assign("@rd-omp 三", "scope-3");
+    await reply(third, "两个连接只推一次", "scope-reply-3");
+    await until(() => fake.sent.find((item) => item.text.includes("两个连接只推一次")));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const pushed = fake.sent.filter((item) => item.text.includes("两个连接只推一次"));
+    expect(pushed).toHaveLength(1);
+    // 绑在项目房间的那个连接推的：不算其他房间
+    expect(pushed[0]!.rich!.otherRoom).toBeUndefined();
+  });
+
+  it("English：其他房间的卡片、按钮和 /scope 都是英文", async () => {
+    const ctx = await setup({ richCards: true, locale: "en" });
+    const { fake } = ctx;
+    const { assign, reply } = await otherRoom(ctx, { roomName: "proj" });
+    const trigger = await assign("@rd-omp deploy", "en-1");
+    await reply(trigger, "deployed", "en-reply");
+    const result = await until(() => fake.sent.find((item) => item.text.includes("deployed")));
+    expect(result.text.startsWith("[#proj] ")).toBe(true);
+    expect(result.rich!.actions!.at(-1)!.label).toBe("Continue in #proj");
+    fake.emit({ text: "/scope" });
+    await until(() =>
+      fake.sent.find((item) =>
+        item.text.startsWith("Hearing from: All rooms (cards from other rooms are orange)"),
+      ),
+    );
+    fake.emit({ text: "/scope nope" });
+    await until(() => fake.sent.find((item) => item.text.startsWith("The scope must be")));
   });
 });
 

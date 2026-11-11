@@ -26,6 +26,7 @@ import {
   startImLoginRequestSchema,
   setImDeliveryLevelRequestSchema,
   setImLocaleRequestSchema,
+  setImScopeRequestSchema,
   submitImLoginCodeRequestSchema,
   type ImChannel,
   type ChatMessage,
@@ -3238,6 +3239,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           if (!body.success)
             return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
           return imHub.setLocale(request.params.id, body.data.locale);
+        }
+        if (request.params.action === "scope") {
+          const body = setImScopeRequestSchema.safeParse(request.body);
+          if (!body.success)
+            return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+          return imHub.setScope(request.params.id, body.data.scope);
         }
         return reply.code(404).send({ ...errorText(serverText("error.request.invalid")) });
       } catch (error) {
