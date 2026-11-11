@@ -12,6 +12,7 @@ const mentionPattern = /(?<![A-Za-z0-9_.])(@[\p{L}\p{N}_.-]+)/gu;
 interface MdNode {
   type: string;
   value?: string;
+  url?: string;
   children?: MdNode[];
   data?: { hName?: string };
 }
@@ -61,6 +62,48 @@ function visitMentions(node: MdNode): void {
   if (changed) {
     node.children = nextChildren;
   }
+}
+
+// 裸链接遇到中文就收住：GFM 的裸链接只在空白处结束，「见 https://a.com/cn）页脚……」会把后面的
+// 中文、全角括号和标点一起吞进链接，点开地址就错了。中文里网址后面通常紧跟中文，没有空格，
+// 和飞书、微信一样在第一个汉字或全角标点处截断；[文字](网址) 这类显式链接不受影响
+const cjkBoundary = /[\u2018-\u201f\u2e80-\u9fff\uf900-\ufaff\ufe30-\ufe4f\uff00-\uffef]/u;
+
+function trimCjkAutolinks(node: MdNode): void {
+  if (!node.children) {
+    return;
+  }
+  const nextChildren: MdNode[] = [];
+  for (const child of node.children) {
+    trimCjkAutolinks(child);
+    const label = child.children?.length === 1 ? child.children[0] : undefined;
+    const text = label?.type === "text" ? label.value : undefined;
+    const url = child.url;
+    const isAutolink =
+      child.type === "link" &&
+      text !== undefined &&
+      url !== undefined &&
+      [text, `http://${text}`, `mailto:${text}`].includes(url);
+    const cut = isAutolink ? text.search(cjkBoundary) : -1;
+    if (!isAutolink || cut <= 0) {
+      nextChildren.push(child);
+      continue;
+    }
+    const kept = text.slice(0, cut);
+    nextChildren.push(
+      {
+        ...child,
+        url: url.slice(0, url.length - (text.length - cut)),
+        children: [{ type: "text", value: kept }],
+      },
+      { type: "text", value: text.slice(cut) },
+    );
+  }
+  node.children = nextChildren;
+}
+
+function remarkCjkAutolinks() {
+  return (tree: MdNode) => trimCjkAutolinks(tree);
 }
 
 // 将文本节点中的 @提及 渲染为 <mark>，跳过代码与链接内部
@@ -189,7 +232,12 @@ export const MessageMarkdown = memo(function MessageMarkdown({
   return (
     <ReactMarkdown
       // 只认 ~~ 为删除线：「~100~200 元」这种写法很常见，和输入框保持一致
-      remarkPlugins={[[remarkGfm, { singleTilde: false }], remarkBreaks, remarkMentionHighlights]}
+      remarkPlugins={[
+        [remarkGfm, { singleTilde: false }],
+        remarkCjkAutolinks,
+        remarkBreaks,
+        remarkMentionHighlights,
+      ]}
       // 不开语言自动检测：未标记语言的代码块要用全部语法逐一试探打分，遇到长文本是
       // 主线程热点（实测单块可达数百毫秒）；标记了语言的代码块仍正常高亮
       rehypePlugins={[rehypeHighlight]}

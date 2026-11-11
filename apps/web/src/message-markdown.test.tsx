@@ -47,6 +47,24 @@ describe("MessageMarkdown", () => {
     expect(link?.getAttribute("rel")).toContain("noopener");
   });
 
+  it("裸链接在第一个汉字或全角标点处结束，显式链接不受影响", () => {
+    const { container } = render(
+      <MessageMarkdown
+        content={
+          "在 zcode 中文页（https://zcode.z.ai/cn）页脚最下面一行\n\n见 www.example.com/a，或 https://b.com/x?q=1。\n\n[说明](https://c.com/文档)"
+        }
+      />,
+    );
+    const links = [...container.querySelectorAll("a")];
+    expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+      ["https://zcode.z.ai/cn", "https://zcode.z.ai/cn"],
+      ["www.example.com/a", "http://www.example.com/a"],
+      ["https://b.com/x?q=1", "https://b.com/x?q=1"],
+      ["说明", "https://c.com/%E6%96%87%E6%A1%A3"],
+    ]);
+    expect(container.textContent).toContain("https://zcode.z.ai/cn）页脚最下面一行");
+  });
+
   it("不渲染原始 HTML，防止注入", () => {
     const { container } = render(
       <MessageMarkdown content={"<img src=x onerror=alert(1)><script>alert(2)</script>"} />,
