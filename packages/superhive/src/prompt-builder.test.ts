@@ -264,6 +264,16 @@ describe("lead agent hint", () => {
       leadMessageIds: [plain.id],
     });
     expect(prompt).toContain("#12 没有 @ 任何人：你是本房间的主 Agent");
+    // @ 了不在场的名字也交给主 Agent：提示里说清楚，免得它以为是在叫别人
+    const ghost = chat({ seq: 13, content: "@nobody 帮我看下", mentions: ["nobody"] });
+    expect(
+      buildMentionPrompt({
+        messages: [ghost],
+        triggers: [ghost],
+        agentName: "agent",
+        leadMessageIds: [ghost.id],
+      }),
+    ).toContain("#13 没有 @ 到房间里在场的成员（@ 的名字不在房间或已离线）：你是本房间的主 Agent");
     // 服务端没标（比如换了主 Agent 后重试旧消息）：不自己推断
     expect(
       buildMentionPrompt({ messages: [plain], triggers: [plain], agentName: "agent" }),

@@ -39,7 +39,7 @@ export function buildDeveloperInstructions(input: {
 ${input.workspace && input.access !== "read-only" ? `你在本房间的工作目录：${input.workspace.cwd}\n` : ""}${input.workspace?.note ? `${input.workspace.note}\n` : ""}
 规则：
 
-1. 只有被明确 @ 时才回复；你是房间的主 Agent 时，没有 @ 任何人的人类消息也会派给你接话。
+1. 只有被明确 @ 时才回复；你是房间的主 Agent 时，没有 @ 任何人、或 @ 的名字不在房间/已离线的人类消息也会派给你接话。
 2. 你的回复会被聊天室所有参与者看到。
 3. 根据公共消息历史回答，不要假设你拥有其他 Agent 的私有上下文。
 4. @ 会唤醒对方：只有需要某位成员回应或接手时才 @ 对方；只是提到、引用或致谢时直接写名字，不要加 @。
@@ -272,7 +272,7 @@ export function buildMentionPrompt(input: MentionPromptInput): string {
   const ledTriggers = input.triggers.filter((message) => leadIds.has(message.id));
   if (ledTriggers.length > 0) {
     sections.push(
-      `${ledTriggers.map((message) => `#${message.seq}`).join("、")} 没有 @ 任何人：你是本房间的主 Agent，由你接话。能自己处理的直接处理；需要别的 Agent 做的，按成员的角色和忙闲用 hive_invoke 分派，收到子任务回执后汇总给发起人；只是人与人之间的交流、不需要你回应时只输出 ${SILENT_REPLY_TOKEN}。`,
+      `${ledTriggers.map((message) => `#${message.seq}`).join("、")} ${ledTriggers.some((message) => message.mentions.length > 0) ? "没有 @ 到房间里在场的成员（@ 的名字不在房间或已离线）" : "没有 @ 任何人"}：你是本房间的主 Agent，由你接话。能自己处理的直接处理；需要别的 Agent 做的，按成员的角色和忙闲用 hive_invoke 分派，收到子任务回执后汇总给发起人；只是人与人之间的交流、不需要你回应时只输出 ${SILENT_REPLY_TOKEN}。`,
     );
   }
   const closing =

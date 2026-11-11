@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { ServerEvent } from "@superhive/protocol";
 import { buildApp } from "./app.js";
@@ -6,6 +6,7 @@ import { Peer } from "./test-peer.js";
 
 let cleanup: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const step of cleanup.reverse()) await step();
   cleanup = [];
 });
@@ -44,7 +45,7 @@ async function room() {
       headers: { authorization: "Bearer test-token" },
       payload: { leadAgent },
     });
-  return { alice, lead, other, setLead };
+  return { alice, lead, other, setLead, join };
 }
 
 describe("room lead agent", () => {
@@ -84,6 +85,54 @@ describe("room lead agent", () => {
     expect((await setLead(null)).json().room.leadAgent).toBeUndefined();
     alice.send({ type: "message.send", clientMessageId: "after", content: "还有人吗" });
     await expect(lead.next((event) => event.type === "agent.mentioned", 150)).rejects.toThrow();
+  });
+
+  it("hands a message whose @ names nobody present to the lead", async () => {
+    const { alice, lead, other, setLead, join } = await room();
+    await setLead("Lead");
+
+    // @ 的名字不在房间里：交给主 Agent，并标成主 Agent 接手
+    alice.send({ type: "message.send", clientMessageId: "ghost", content: "@nobody 帮我看下" });
+    const ghost = (await lead.next((event) => event.type === "agent.mentioned")) as Mentioned;
+    expect(ghost.message.content).toBe("@nobody 帮我看下");
+    expect(ghost.lead).toBe(true);
+
+    // @ 到在场的人：是人和人说话，主 Agent 不插手
+    await join("Bob", "human");
+    alice.send({ type: "message.send", clientMessageId: "human", content: "@Bob 你看下" });
+    await expect(lead.next((event) => event.type === "agent.mentioned", 150)).rejects.toThrow();
+
+    // @ 的 Agent 刚断开（重启这种）：照旧排队等它回来，主 Agent 不接
+    other.socket.close();
+    await alice.next(
+      (event) =>
+        event.type === "presence.changed" &&
+        event.participant.username === "other" &&
+        event.participant.status === "offline",
+    );
+    alice.send({ type: "message.send", clientMessageId: "brief", content: "@other 改一下" });
+    const queued = await alice.next(
+      (event) => event.type === "invocation.updated" && event.invocation.agentName === "other",
+    );
+    expect(queued).toBeTruthy();
+    await expect(lead.next((event) => event.type === "agent.mentioned", 150)).rejects.toThrow();
+
+    // 离线超过两分钟：主 Agent 接手，不再给它排队
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now + 3 * 60_000);
+    alice.send({ type: "message.send", clientMessageId: "away", content: "@other 再改一下" });
+    const away = (await lead.next((event) => event.type === "agent.mentioned")) as Mentioned;
+    expect(away.message.content).toBe("@other 再改一下");
+    expect(away.lead).toBe(true);
+    await expect(
+      alice.next(
+        (event) =>
+          event.type === "invocation.updated" &&
+          event.invocation.agentName === "other" &&
+          event.invocation.messageId === away.message.id,
+        150,
+      ),
+    ).rejects.toThrow();
   });
 
   it("sends a reply to an agent's message to that agent, not the lead", async () => {

@@ -1239,6 +1239,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       if (mention.toLocaleLowerCase() === "all") continue;
       const agent = database.findParticipant(participant.roomId, mention);
       if (!agent || agent.type !== "agent" || agent.id === participant.id) continue;
+      // 主 Agent 接手了：@ 到的离线 Agent 不再另外排队，免得它回来后把同一件事再做一遍
+      if (implicit && agent.id !== implicit.id && awayAgent(agent)) continue;
       const needsApproval =
         senderGuest &&
         !senderGuest.allowAgents &&
@@ -1311,9 +1313,30 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     return agent?.type === "agent" ? agent : undefined;
   }
 
-  /** 人发的普通消息、没有 @ 任何人（Agent 的消息、回执、定时触发、话题分隔都不算） */
+  /** Agent 离线超过这么久才算「不在」；重启、断线重连这种几秒钟的离线照旧排队等它回来 */
+  const AWAY_AFTER_MS = 2 * 60_000;
+
+  /** 被 @ 的 Agent 已经离线一阵子了：消息交给主 Agent 接手，不再排队等它 */
+  function awayAgent(agent: Participant): boolean {
+    return (
+      agent.type === "agent" &&
+      agent.status === "offline" &&
+      Date.now() - Date.parse(agent.lastSeenAt) > AWAY_AFTER_MS
+    );
+  }
+
+  /**
+   * 人发的普通消息、没有真正 @ 到人（Agent 的消息、回执、定时触发、话题分隔都不算）：
+   * 一个 @ 都没有，或者 @ 的名字都不是房间成员、@ 的 Agent 都已离线一阵子——这些都交给主 Agent。
+   * @ 到任何一个在场的成员（包括人、@all）就算有人接，主 Agent 不插手
+   */
   function unaddressed(message: ChatMessage): boolean {
-    return message.senderType === "human" && !message.kind && message.mentions.length === 0;
+    if (message.senderType !== "human" || message.kind) return false;
+    return message.mentions.every((name) => {
+      if (name.toLocaleLowerCase() === "all") return false;
+      const member = database.findParticipant(message.roomId, name);
+      return !member || member.id === message.senderId || awayAgent(member);
+    });
   }
 
   /** 回复的是哪个 Agent 的消息（它还在房间里时） */
