@@ -178,6 +178,7 @@ const storedNotificationSoundKey = "superhive.notification-sound";
 const storedPresenceNotificationsKey = "superhive.notify-agent-presence";
 const storedThemeKey = "superhive.theme";
 const storedDensityKey = "superhive.density";
+const storedThreadWidthKey = "superhive.thread-width";
 const storedMessageSizeKey = "superhive.message-size";
 const storedMembersCollapsedKey = "superhive.members-collapsed";
 const storedRoomsCollapsedKey = "superhive.rooms-collapsed";
@@ -194,6 +195,8 @@ type SettingsTab = "chat" | "notifications" | "appearance" | "computer";
 type TimeFormat = "system" | "24h" | "12h";
 type ThemePreference = "system" | "dark" | "light";
 type InterfaceDensity = "comfortable" | "compact";
+/** 消息区宽度：标准约 768px、宽约 1040px（默认）、铺满随窗口（上限约 1600px） */
+type ThreadWidth = "standard" | "wide" | "full";
 type MessageSize = "small" | "standard" | "large";
 type BrowserNotificationPermission = NotificationPermission | "unsupported";
 type MobilePanel = "members" | "rooms";
@@ -1491,6 +1494,9 @@ export function App({
   const [interfaceDensity, setInterfaceDensity] = useState<InterfaceDensity>(() =>
     storedChoice(storedDensityKey, ["comfortable", "compact"], "comfortable"),
   );
+  const [threadWidth, setThreadWidth] = useState<ThreadWidth>(() =>
+    storedChoice(storedThreadWidthKey, ["standard", "wide", "full"], "wide"),
+  );
   const [membersCollapsed, setMembersCollapsed] = useState(() =>
     storedBoolean(storedMembersCollapsedKey, false),
   );
@@ -1784,9 +1790,10 @@ export function App({
   useEffect(() => {
     const root = document.documentElement;
     root.dataset.density = interfaceDensity;
+    root.dataset.threadWidth = threadWidth;
     root.dataset.messageSize = messageSize;
     root.dataset.reduceMotion = String(reduceMotion);
-  }, [interfaceDensity, messageSize, reduceMotion]);
+  }, [interfaceDensity, messageSize, reduceMotion, threadWidth]);
 
   useEffect(() => {
     fetch(
@@ -6562,6 +6569,37 @@ export function App({
                               key={value}
                             >
                               {value === "comfortable" ? t("舒适") : t("紧凑")}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="settings-inline-row">
+                        <span>
+                          <strong>{t("消息区宽度")}</strong>
+                          <small>{t("宽屏下消息和输入框能用多宽；手机上不受影响")}</small>
+                        </span>
+                        <div
+                          className="compact-choice"
+                          role="radiogroup"
+                          aria-label={t("消息区宽度")}
+                        >
+                          {(["standard", "wide", "full"] as const).map((value) => (
+                            <button
+                              type="button"
+                              role="radio"
+                              aria-checked={threadWidth === value}
+                              className={threadWidth === value ? "active" : ""}
+                              onClick={() => {
+                                setThreadWidth(value);
+                                localStorage.setItem(storedThreadWidthKey, value);
+                              }}
+                              key={value}
+                            >
+                              {value === "standard"
+                                ? t("标准宽度")
+                                : value === "wide"
+                                  ? t("加宽")
+                                  : t("铺满")}
                             </button>
                           ))}
                         </div>

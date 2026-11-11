@@ -1148,5 +1148,10 @@
   "{0} 发送 · {1} 换行": "{0} to send · {1} for a new line",
   "{0} 换行": "{0} for a new line",
   "机器人语言": "Bot language",
-  "机器人的卡片、按钮和提示用这个语言；在 IM 里发 /lang 也能切换": "Cards, buttons and replies from the bot use this language. You can also send /lang in the chat to switch."
+  "机器人的卡片、按钮和提示用这个语言；在 IM 里发 /lang 也能切换": "Cards, buttons and replies from the bot use this language. You can also send /lang in the chat to switch.",
+  "消息区宽度": "Conversation width",
+  "宽屏下消息和输入框能用多宽；手机上不受影响": "How wide messages and the composer get on large screens. No effect on phones.",
+  "标准宽度": "Standard",
+  "加宽": "Wide",
+  "铺满": "Full"
 }

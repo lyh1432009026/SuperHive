@@ -600,6 +600,11 @@ describe("App mention autocomplete", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
     await user.click(within(settingsDialog).getByRole("radio", { name: "紧凑" }));
     expect(document.documentElement.dataset.density).toBe("compact");
+    // 消息区宽度：默认「加宽」，切换后存在本机
+    expect(document.documentElement.dataset.threadWidth).toBe("wide");
+    await user.click(within(settingsDialog).getByRole("radio", { name: "铺满" }));
+    expect(document.documentElement.dataset.threadWidth).toBe("full");
+    expect(localStorage.getItem("superhive.thread-width")).toBe("full");
     await user.click(within(settingsDialog).getByRole("radio", { name: "大" }));
     expect(document.documentElement.dataset.messageSize).toBe("large");
     await user.click(within(settingsDialog).getByRole("switch", { name: /^减少动态效果/ }));

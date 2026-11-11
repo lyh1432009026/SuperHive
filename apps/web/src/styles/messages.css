@@ -251,10 +251,17 @@
 }
 
 /* 别人发的消息：左对齐、收缩到内容宽度的气泡，和自己的消息镜像。
-   收缩是为了让操作条能贴住气泡左上角，而不是停在正文列的右端 */
+   收缩是为了让操作条能贴住气泡左上角，而不是停在正文列的右端；
+   长回复可以用满整列（头像那一栏之外），表格、代码块、图片随消息区宽度变宽 */
 .message:not(.own) > .message-content {
   justify-self: start;
-  max-width: min(88%, 680px);
+  max-width: 100%;
+}
+
+/* 「铺满」时一行字太长不好读：只限制段落、列表、引用、标题的行宽（约 50 个汉字 / 100 个英文字符），
+   表格、代码块、图片不受限，照样用满整列 */
+:root[data-thread-width="full"] .message-body :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6) {
+  max-width: 52em;
 }
 
 .message:not(.own) .message-body {
@@ -277,7 +284,7 @@
 }
 
 .message.own .message-content {
-  max-width: min(80%, 620px);
+  max-width: 80%;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
