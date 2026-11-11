@@ -1766,6 +1766,76 @@ describe("IM 推送档位", () => {
     fake.emit({ text: "/scope nope" });
     await until(() => fake.sent.find((item) => item.text.startsWith("The scope must be")));
   });
+  it("房主没进过的房间里，同名的访客「rd」不算房主：不推、不能切过去、不能以它的身份发言", async () => {
+    const ctx = await setup({ richCards: true });
+    const { fake, api } = ctx;
+    await api("POST", "/api/rooms", { id: "proj", name: "项目" });
+    const omp = await ctx.join("rd-omp", "agent", "proj");
+    const invite = (
+      await api("POST", "/api/rooms/proj/invites", { expiresInMinutes: 60, allowAgents: true })
+    ).body;
+    const redeemed = await fetch(
+      `http://127.0.0.1:${(ctx.app.server.address() as AddressInfo).port}/api/invites/redeem`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: invite.token, username: "rd" }),
+      },
+    ).then((response) => response.json() as Promise<{ token: string; role: string }>);
+    expect(redeemed.role).toBe("guest");
+    const guest = await Peer.connect(
+      `ws://127.0.0.1:${(ctx.app.server.address() as AddressInfo).port}/ws`,
+    );
+    peers.push(guest);
+    guest.send({
+      type: "participant.join",
+      username: "rd",
+      participantType: "human",
+      roomId: "proj",
+      token: redeemed.token,
+    });
+    await guest.next((event) => event.type === "room.snapshot");
+
+    // 访客 rd 派的任务、Agent 提到 rd 的消息：都不推到房主的飞书
+    guest.send({ type: "message.send", clientMessageId: "guest-1", content: "@rd-omp 帮我看下" });
+    const mentioned = await omp.next((event) => event.type === "agent.mentioned");
+    const trigger = (mentioned as { message: ChatMessage }).message;
+    omp.send({ type: "invocation.report", messageId: trigger.id, status: "running" });
+    omp.send({
+      type: "message.send",
+      clientMessageId: "guest-reply",
+      content: "访客任务的结果 @rd",
+      parentMessageId: trigger.id,
+    });
+    await guest.next(
+      (event) =>
+        event.type === "message.created" && event.message.content.includes("访客任务的结果"),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(fake.sent.some((item) => item.text.includes("访客任务的结果"))).toBe(false);
+
+    // 不能切过去：/room 和「切过去」按钮都给出「还不是成员」
+    fake.emit({ text: "/room proj" });
+    await until(() => fake.sent.find((item) => item.text.startsWith("你还不是房间「项目」的成员")));
+    fake.emit({ text: "menu" });
+    const menu = await until(() => fake.sent.find((item) => item.rich?.title === "控制面板"));
+    expect(
+      fake.events!.onAction!({
+        externalId: fake.sentIds.get(menu)!,
+        chatId: menu.chatId,
+        operatorId: "owner-open-id",
+        value: { hive: "1", do: "goto", room: "proj" },
+      }),
+    ).toMatchObject({
+      toast: { type: "error", text: expect.stringContaining("还不是房间「项目」的成员") },
+    });
+    // 换房间卡片里也没有它
+    fake.emit({ text: "/room" });
+    const picker = await until(() => fake.sent.find((item) => item.rich?.title === "切换房间"));
+    expect(picker.rich!.actions!.some((action) => action.value.room === "proj")).toBe(false);
+    const [connection] = (await api("GET", "/api/rooms/general/im")).body.connections;
+    expect(connection.roomId).toBe("general");
+  });
 });
 
 describe("parseChoice", () => {

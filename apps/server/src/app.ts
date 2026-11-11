@@ -2982,6 +2982,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     getRoom: (roomId) => database.getRoom(roomId),
     listRoomIds: () => database.listRooms(false).map((room) => room.id),
     findParticipant: (roomId, username) => database.findParticipant(roomId, username),
+    // 有过访客会话（含已到期、被移除的）就是访客，不是房主本人
+    isGuest: (participant) =>
+      access.latestSessionFor(participant.roomId, participant.username)?.kind === participant.type,
     getMessage: (id) => database.getMessage(id),
     getInvocation: (id) => database.getInvocation(id),
     invocationAncestors: (id) => database.invocationAncestors(id),

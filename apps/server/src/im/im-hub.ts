@@ -55,6 +55,8 @@ export type ImHubDeps = {
   ): { id: string; name: string; archivedAt?: string | undefined } | undefined;
   listRoomIds(): string[];
   findParticipant(roomId: string, username: string): Participant | undefined;
+  /** 这个成员是不是经邀请链接进来的访客（同名不等于房主本人） */
+  isGuest?(participant: Participant): boolean;
   getMessage(id: string): ChatMessage | undefined;
   getInvocation(id: string): Invocation | undefined;
   /** 沿委派链向上的调用（不含自身，最近的在前） */
@@ -677,8 +679,8 @@ export class ImHub {
     if (message.replyToExternalId) {
       connection = this.scopedToCard(connection, message.replyToExternalId);
     }
-    const owner = this.deps.findParticipant(connection.roomId, connection.ownerName);
-    if (!owner || owner.type !== "human") {
+    const owner = this.ownerOf(connection);
+    if (!owner) {
       this.reply(
         connection,
         message.chatId,
@@ -1589,7 +1591,7 @@ export class ImHub {
   private memberRooms(connection: StoredConnection): Array<{ id: string; name: string }> {
     return this.deps
       .listRoomIds()
-      .filter((id) => this.deps.findParticipant(id, connection.ownerName)?.type === "human")
+      .filter((id) => Boolean(this.ownerOf(connection, id)))
       .map((id) => ({ id, name: this.roomName(id) }));
   }
 
@@ -1629,8 +1631,7 @@ export class ImHub {
   private switchRoom(connection: StoredConnection, roomId: string): string | undefined {
     const room = this.deps.getRoom(roomId);
     if (!room || room.archivedAt) return this.t(connection, "im.room.notFound", { room: roomId });
-    const member = this.deps.findParticipant(room.id, connection.ownerName);
-    if (!member || member.type !== "human") {
+    if (!this.ownerOf(connection, room.id)) {
       return this.t(connection, "im.room.notMember", { room: room.name });
     }
     const previous = connection.roomId;
@@ -2398,7 +2399,10 @@ export class ImHub {
     roomId = connection.roomId,
   ): Participant | undefined {
     const owner = this.deps.findParticipant(roomId, connection.ownerName);
-    return owner?.type === "human" ? owner : undefined;
+    // 名字只在各个房间里各自查重：房主没进过的房间里，访客也可以叫这个名字。访客不是房主本人，
+    // 不能拿来收那个房间的推送、以它的身份发言或点按钮
+    if (owner?.type !== "human" || this.deps.isGuest?.(owner)) return undefined;
+    return owner;
   }
 
   /* ---------- 接收所有房间 ---------- */
