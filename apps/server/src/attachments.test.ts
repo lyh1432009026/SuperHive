@@ -229,6 +229,19 @@ describe("附件", () => {
     expect(policy).not.toContain("script-src 'self'");
     expect(await served.text()).toBe(page);
 
+    // 网页和 Server 不同源（开发时的 Vite、单独部署的前端）：申请时的 Origin 进 frame-ancestors，弹窗里才嵌得进去；
+    // 乱写的 Origin 不会被塞进 CSP
+    const crossOrigin = await preview(html.id, { ...OWNER, Origin: "http://localhost:5188" });
+    const crossUrl = ((await crossOrigin.json()) as { url: string }).url;
+    expect((await fetch(`${base}${crossUrl}`)).headers.get("content-security-policy")).toContain(
+      "frame-ancestors 'self' http://localhost:5188;",
+    );
+    const bogus = await preview(html.id, { ...OWNER, Origin: "javascript:alert(1); script-src *" });
+    const bogusUrl = ((await bogus.json()) as { url: string }).url;
+    const bogusPolicy = (await fetch(`${base}${bogusUrl}`)).headers.get("content-security-policy");
+    expect(bogusPolicy).toContain("frame-ancestors 'self';");
+    expect(bogusPolicy).not.toContain("javascript");
+
     // 猜不到的 token、过期后的 token 都是 404
     expect((await fetch(`${base}/api/attachment-previews/nope`)).status).toBe(404);
     advance(5 * 60_000 + 1);

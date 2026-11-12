@@ -3884,8 +3884,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
    * 返回原文，响应带 CSP sandbox（不含 allow-same-origin）：浏览器把它当成不透明源，即使在新标签页
    * 直接打开也读不到网页的存储、发请求也带不上凭证。token 只在内存里，几分钟后失效。
    */
-  const previewTokens = new Map<string, { attachmentId: string; expiresAt: number }>();
+  const previewTokens = new Map<
+    string,
+    { attachmentId: string; expiresAt: number; ancestor?: string }
+  >();
   const PREVIEW_TTL_MS = 5 * 60_000;
+  /** 只接受 http(s) 的源，原样规范化（防止往 CSP 里塞别的指令） */
+  const frameAncestorOf = (origin: string | undefined): string | undefined => {
+    if (!origin) return undefined;
+    try {
+      const url = new URL(origin);
+      return url.protocol === "http:" || url.protocol === "https:" ? url.origin : undefined;
+    } catch {
+      return undefined;
+    }
+  };
   const isHtmlAttachment = (item: StoredAttachment) =>
     /\.html?$/i.test(item.name) || item.mime.startsWith("text/html");
 
@@ -3914,7 +3927,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       if (entry.expiresAt <= now) previewTokens.delete(token);
     }
     const token = randomBytes(24).toString("base64url");
-    previewTokens.set(token, { attachmentId: result.item.id, expiresAt: now + PREVIEW_TTL_MS });
+    // 网页和 Server 不同源时（开发时的 Vite、单独部署的前端），iframe 的父页面就是发起申请的那个源：
+    // 记下来放进 frame-ancestors，否则预览页在弹窗里被浏览器拒绝嵌入
+    const ancestor = frameAncestorOf(request.headers.origin);
+    previewTokens.set(token, {
+      attachmentId: result.item.id,
+      expiresAt: now + PREVIEW_TTL_MS,
+      ...(ancestor ? { ancestor } : {}),
+    });
     return reply
       .header("Cache-Control", "no-store")
       .send({ url: `/api/attachment-previews/${token}` });
@@ -3952,7 +3972,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             "font-src https: data:",
             "media-src https: data: blob:",
             "connect-src https:",
-            "frame-ancestors 'self'",
+            `frame-ancestors 'self'${entry.ancestor ? ` ${entry.ancestor}` : ""}`,
             "base-uri 'none'",
           ].join("; "),
         );
