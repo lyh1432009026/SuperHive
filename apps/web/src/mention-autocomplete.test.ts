@@ -35,12 +35,13 @@ describe("mention autocomplete", () => {
     expect(findMentionContext("@agent done", 11)).toBeUndefined();
   });
 
-  it("filters case-insensitively, excludes self, and ranks online prefix matches first", () => {
+  it("filters case-insensitively, excludes self and offline members, ranks prefix matches first", () => {
     const participants = [
       participant("myself"),
       participant("backend-agent", "online", "agent"),
-      participant("agent-backup", "offline", "agent"),
-      participant("Backend-Bot", "offline", "agent"),
+      participant("agent-backup", "busy", "agent"),
+      participant("Backend-Bot", "online", "agent"),
+      participant("backup-offline", "offline", "agent"),
     ];
     expect(
       filterMentionParticipants(participants, "back", "myself").map((item) => item.username),

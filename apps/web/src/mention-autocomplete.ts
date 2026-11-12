@@ -30,8 +30,9 @@ export function findMentionContext(value: string, cursor: number): MentionContex
 }
 
 /**
- * @ 候选：名字以输入开头的在前，在线的在前，再按名字排。默认列出全部匹配，菜单本身可滚动；
- * 以前只取前 8 个，房间里 Agent 一多，排在后面的（如 rd-omp、rd-opencode）只输 @ 时根本看不到
+ * @ 候选：只列在线（含忙碌）的成员，离线的不出现；名字以输入开头的在前，再按名字排。
+ * 默认列出全部匹配，菜单本身可滚动（以前只取前 8 个，Agent 一多后面的就看不到）。
+ * 离线的名字照样可以手打，@ 不在场的成员会交给主 Agent 接手
  */
 export function filterMentionParticipants(
   participants: Participant[],
@@ -44,6 +45,7 @@ export function filterMentionParticipants(
   return participants
     .filter(
       (participant) =>
+        participant.status !== "offline" &&
         participant.username.toLocaleLowerCase() !== normalizedCurrentUsername &&
         participant.username.toLocaleLowerCase().includes(normalizedQuery),
     )
@@ -51,9 +53,6 @@ export function filterMentionParticipants(
       const leftPrefix = left.username.toLocaleLowerCase().startsWith(normalizedQuery) ? 0 : 1;
       const rightPrefix = right.username.toLocaleLowerCase().startsWith(normalizedQuery) ? 0 : 1;
       if (leftPrefix !== rightPrefix) return leftPrefix - rightPrefix;
-      const leftOffline = left.status === "offline" ? 1 : 0;
-      const rightOffline = right.status === "offline" ? 1 : 0;
-      if (leftOffline !== rightOffline) return leftOffline - rightOffline;
       return left.username.localeCompare(right.username);
     })
     .slice(0, limit);
