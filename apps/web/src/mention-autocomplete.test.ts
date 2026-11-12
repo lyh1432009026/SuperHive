@@ -47,6 +47,20 @@ describe("mention autocomplete", () => {
     ).toEqual(["backend-agent", "Backend-Bot", "agent-backup"]);
   });
 
+  it("lists every match for a bare @ instead of cutting off after eight", () => {
+    const names = ["GLM", "rd-claude", "rd-claude2", "rd-claude3", "rd-claude4", "rd-claude5"];
+    const participants = [
+      participant("rd"),
+      ...[...names, "rd-codex", "rd-copilot", "rd-omp", "rd-opencode"].map((name) =>
+        participant(name, "online", "agent"),
+      ),
+    ];
+    const listed = filterMentionParticipants(participants, "", "rd").map((item) => item.username);
+    expect(listed).toHaveLength(10);
+    expect(listed).toContain("rd-omp");
+    expect(listed).toContain("rd-opencode");
+  });
+
   it("replaces only the active mention and returns the next caret position", () => {
     expect(
       applyMention("ask @fro about this", { start: 4, end: 8, query: "fro" }, "frontend-agent"),

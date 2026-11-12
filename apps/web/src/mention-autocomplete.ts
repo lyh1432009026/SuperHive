@@ -29,11 +29,15 @@ export function findMentionContext(value: string, cursor: number): MentionContex
   return { start: atIndex, end: safeCursor, query };
 }
 
+/**
+ * @ 候选：名字以输入开头的在前，在线的在前，再按名字排。默认列出全部匹配，菜单本身可滚动；
+ * 以前只取前 8 个，房间里 Agent 一多，排在后面的（如 rd-omp、rd-opencode）只输 @ 时根本看不到
+ */
 export function filterMentionParticipants(
   participants: Participant[],
   query: string,
   currentUsername: string,
-  limit = 8,
+  limit = Number.POSITIVE_INFINITY,
 ): Participant[] {
   const normalizedQuery = query.toLocaleLowerCase();
   const normalizedCurrentUsername = currentUsername.toLocaleLowerCase();
