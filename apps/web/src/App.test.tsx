@@ -961,6 +961,81 @@ describe("App mention autocomplete", () => {
     expect((screen.getByLabelText("消息") as HTMLTextAreaElement).value).toContain("@helper");
   });
 
+  it("opens the same member menu from a sender's avatar or name in the conversation", async () => {
+    localStorage.setItem("superhive.username", "Alice");
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    const helper = participant("00000000-0000-4000-8000-000000000002", "helper", "agent");
+    const message = (id: string, seq: number, sender: Participant, content: string) =>
+      ({
+        id,
+        roomId: "general",
+        seq,
+        senderId: sender.id,
+        senderName: sender.username,
+        senderType: sender.type,
+        content,
+        mentions: [],
+        traceId: "00000000-0000-4000-8000-0000000000f0",
+        hopCount: 0,
+        createdAt: new Date().toISOString(),
+      }) as ChatMessage;
+    const gone = participant("00000000-0000-4000-8000-000000000003", "old-bot", "agent");
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self, helper],
+        messages: [
+          message("00000000-0000-4000-8000-0000000000f1", 1, helper, "你好"),
+          message("00000000-0000-4000-8000-0000000000f2", 2, gone, "我已经离开了"),
+        ],
+        latestSeq: 2,
+      }),
+    );
+    const list = () =>
+      within(document.querySelector(".message-list")!.shadowRoot as unknown as HTMLElement);
+    const labels = (menu: HTMLElement) =>
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent);
+
+    // 成员列表里的菜单作为基准
+    const memberRow = screen
+      .getAllByText("helper")
+      .map((node) => node.closest(".member-row"))
+      .find(Boolean)!;
+    fireEvent.contextMenu(memberRow, { clientX: 300, clientY: 200 });
+    const fromList = labels(screen.getByRole("menu", { name: "helper" }));
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    expect(fromList).toContain("查看 Agent 任务");
+
+    // 对话流里右击头像、右击名字，菜单和成员列表一致
+    const sender = await waitFor(() => list().getByText("helper", { selector: ".message-sender" }));
+    const avatar = sender.closest(".message")!.querySelector(".avatar") as HTMLElement;
+    fireEvent.contextMenu(avatar, { clientX: 100, clientY: 100 });
+    expect(labels(screen.getByRole("menu", { name: "helper" }))).toEqual(fromList);
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    // 键盘：聚焦名字后按菜单键（坐标为 0）也能打开
+    sender.focus();
+    fireEvent.contextMenu(sender, { clientX: 0, clientY: 0 });
+    expect(labels(screen.getByRole("menu", { name: "helper" }))).toEqual(fromList);
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+
+    // 已经不在房间的成员：只剩 @ 它和复制名字
+    fireEvent.contextMenu(list().getByText("old-bot", { selector: ".message-sender" }), {
+      clientX: 100,
+      clientY: 100,
+    });
+    expect(labels(screen.getByRole("menu", { name: "old-bot" }))).toEqual([
+      "@ old-bot",
+      "复制名字",
+    ]);
+  });
+
   it("switches rooms, shows unread dots, and creates rooms from the sidebar", async () => {
     const user = userEvent.setup();
     localStorage.setItem("superhive.username", "Alice");
@@ -2352,6 +2427,13 @@ describe("App mention autocomplete", () => {
       }),
     );
     expect(await screen.findByRole("img", { name: "# frontend：2 个任务进行中" })).toBeTruthy();
+    // 标签页图标：你派的任务在跑，蓝点；标题不带数字
+    await waitFor(() =>
+      expect(document.querySelector<HTMLLinkElement>('link[rel~="icon"]')?.dataset.badge).toBe(
+        "running",
+      ),
+    );
+    expect(document.title.startsWith("(")).toBe(false);
 
     // 页面不在前台：两条任务各弹一条系统通知，不会互相顶掉
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
@@ -2383,6 +2465,11 @@ describe("App mention autocomplete", () => {
         .getAllByRole("button")
         .map((item) => item.textContent),
     ).toEqual(["等你回答frontend-agent · # frontend", "失败frontend-agent · # frontend"]);
+    // 需要你处理的优先：红点，标题数出 2 条
+    expect(document.querySelector<HTMLLinkElement>('link[rel~="icon"]')?.dataset.badge).toBe(
+      "attention",
+    );
+    expect(document.title.startsWith("(2) ")).toBe(true);
 
     // 回到前台、但看的是别的房间：做完了在页面内提示，房间上标「完成未看」
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
@@ -2406,6 +2493,11 @@ describe("App mention autocomplete", () => {
     expect(
       await screen.findByRole("img", { name: "# frontend：1 个任务做完了，还没看" }),
     ).toBeTruthy();
+    // 没有要处理、也没有在跑的了：只剩做完未看，绿点，标题去掉数字
+    expect(document.querySelector<HTMLLinkElement>('link[rel~="icon"]')?.dataset.badge).toBe(
+      "unseen",
+    );
+    expect(document.title.startsWith("(")).toBe(false);
 
     // 点「查看」跳到那个房间；看过之后「完成未看」消失
     // 点整条提示就跳过去，没有单独的「查看」按钮

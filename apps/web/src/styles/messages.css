@@ -1148,3 +1148,10 @@ label.question-option:hover {
   color: var(--accent);
   font-weight: var(--weight-medium);
 }
+
+/* 发送者名字可右击、可聚焦：只在键盘聚焦时给出焦点框 */
+.message-sender:focus-visible {
+  border-radius: var(--radius-xs);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}

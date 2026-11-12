@@ -74,7 +74,12 @@ import { buildGoToItems } from "./goto";
 import { GoToPalette } from "./goto-palette";
 import { keyCombo, matchShortcut, type ShortcutId } from "./shortcuts";
 import { ShortcutsHelp } from "./shortcuts-help";
-import { ContextMenu, contextMenuPoint, type ContextMenuState } from "./context-menu";
+import {
+  ContextMenu,
+  contextMenuPoint,
+  type ContextMenuItem,
+  type ContextMenuState,
+} from "./context-menu";
 import { isMachineMessage, machinePreview, splitMentions } from "./machine-message";
 import {
   AttentionRoomGroup,
@@ -84,7 +89,8 @@ import {
   useAttention,
   type AttentionDelivery,
 } from "./attention-alerts";
-import { attentionLabels, nextAttention } from "./attention";
+import { attentionLabels, concernsMe, nextAttention } from "./attention";
+import { useFaviconBadge } from "./favicon-badge";
 import {
   OnboardingGuide,
   finishOnboarding,
@@ -2787,6 +2793,18 @@ export function App({
   });
   attentionRef.current = attention;
 
+  // 标签页图标的小圆点和标题前缀：需要你处理 > 有任务在跑（你派的或当前房间的） > 做完未看。
+  // 和侧栏标记一样是被动显示，不受「任务提醒」开关影响
+  useFaviconBadge({
+    attention: attention.items.filter((item) => item.kind !== "unseen").length,
+    running: [...activeInvocations.values()].filter(
+      (invocation) =>
+        isInFlight(invocation) &&
+        (invocation.roomId === currentRoomId || concernsMe(invocation, { username, isOwner })),
+    ).length,
+    unseen: [...attention.unseenByRoom.values()].reduce((sum, count) => sum + count, 0),
+  });
+
   // 首次引导的「连 IM」一步：看这个房间有没有连上飞书或微信
   const showOnboarding = onboardingWanted && isOwner && Boolean(username);
   useEffect(() => {
@@ -3477,10 +3495,18 @@ export function App({
     }
   }
 
-  /** 成员右键：@ 它、复制名字；Agent 还能设为主 Agent、看任务、打开设置、重启 / 停止 / 启动 */
-  function openMemberMenu(event: ReactMouseEvent<HTMLElement>, participant: Participant) {
-    event.preventDefault();
-    const self = participant.username.toLocaleLowerCase() === username.toLocaleLowerCase();
+  /**
+   * 成员的右键菜单项：成员列表和对话流里的头像、名字共用这一套。
+   * 已经不在这个房间的成员（participant 为空）只给复制名字和 @ 它；@ 一个不在场的名字会交给主 Agent。
+   */
+  function memberMenuItems(participant: Participant | undefined, name: string): ContextMenuItem[] {
+    const self = name.toLocaleLowerCase() === username.toLocaleLowerCase();
+    if (!participant) {
+      return [
+        ...(!self ? [{ label: t("@ {0}", { 0: name }), onSelect: () => appendMention(name) }] : []),
+        { label: t("复制名字"), onSelect: () => void copyForMenu(name) },
+      ];
+    }
     const agent = participant.type === "agent" ? localAgentFor(participant.username) : undefined;
     const lead = isLeadAgent(participant);
     const act = (action: "start" | "stop" | "restart") =>
@@ -3488,67 +3514,92 @@ export function App({
         setError(reason instanceof Error ? reason.message : String(reason));
       });
     const live = agent && agent.status !== "stopped" && agent.status !== "crashed";
+    return [
+      ...(!self
+        ? [
+            {
+              label: t("@ {0}", { 0: participant.username }),
+              onSelect: () => appendMention(participant.username),
+            },
+          ]
+        : []),
+      { label: t("复制名字"), onSelect: () => void copyForMenu(participant.username) },
+      ...(participant.type === "agent"
+        ? [
+            "separator" as const,
+            { label: t("查看 Agent 任务"), onSelect: () => openActivity("tasks") },
+            ...(isOwner
+              ? [
+                  lead
+                    ? { label: t("取消主 Agent"), onSelect: () => void setLeadAgent(null) }
+                    : {
+                        label: t("设为本房间的主 Agent"),
+                        onSelect: () => void setLeadAgent(participant.username),
+                      },
+                ]
+              : []),
+            ...(agent
+              ? [
+                  "separator" as const,
+                  { label: t("设置…"), onSelect: () => setSettingsAgentId(agent.id) },
+                  {
+                    label: local.mode === "device" ? t("复制会话命令") : t("在终端打开会话"),
+                    onSelect: () => void openAgentTerminal(agent),
+                  },
+                  ...(live
+                    ? [
+                        {
+                          label: t("重启"),
+                          disabled: !local.canManage,
+                          onSelect: () => act("restart"),
+                        },
+                        {
+                          label: t("停止"),
+                          danger: true,
+                          disabled: !local.canManage,
+                          onSelect: () => act("stop"),
+                        },
+                      ]
+                    : [
+                        {
+                          label: t("启动"),
+                          disabled: !local.canManage,
+                          onSelect: () => act("start"),
+                        },
+                      ]),
+                ]
+              : []),
+          ]
+        : []),
+    ];
+  }
+
+  /** 成员右键：@ 它、复制名字；Agent 还能设为主 Agent、看任务、打开设置、重启 / 停止 / 启动 */
+  function openMemberMenu(event: ReactMouseEvent<HTMLElement>, participant: Participant) {
+    event.preventDefault();
     setContextMenu({
       ...contextMenuPoint(event),
       title: participant.username,
-      items: [
-        ...(!self
-          ? [
-              {
-                label: t("@ {0}", { 0: participant.username }),
-                onSelect: () => appendMention(participant.username),
-              },
-            ]
-          : []),
-        { label: t("复制名字"), onSelect: () => void copyForMenu(participant.username) },
-        ...(participant.type === "agent"
-          ? [
-              "separator" as const,
-              { label: t("查看 Agent 任务"), onSelect: () => openActivity("tasks") },
-              ...(isOwner
-                ? [
-                    lead
-                      ? { label: t("取消主 Agent"), onSelect: () => void setLeadAgent(null) }
-                      : {
-                          label: t("设为本房间的主 Agent"),
-                          onSelect: () => void setLeadAgent(participant.username),
-                        },
-                  ]
-                : []),
-              ...(agent
-                ? [
-                    "separator" as const,
-                    { label: t("设置…"), onSelect: () => setSettingsAgentId(agent.id) },
-                    {
-                      label: local.mode === "device" ? t("复制会话命令") : t("在终端打开会话"),
-                      onSelect: () => void openAgentTerminal(agent),
-                    },
-                    ...(live
-                      ? [
-                          {
-                            label: t("重启"),
-                            disabled: !local.canManage,
-                            onSelect: () => act("restart"),
-                          },
-                          {
-                            label: t("停止"),
-                            danger: true,
-                            disabled: !local.canManage,
-                            onSelect: () => act("stop"),
-                          },
-                        ]
-                      : [
-                          {
-                            label: t("启动"),
-                            disabled: !local.canManage,
-                            onSelect: () => act("start"),
-                          },
-                        ]),
-                  ]
-                : []),
-            ]
-          : []),
-      ],
+      items: memberMenuItems(participant, participant.username),
+    });
+  }
+
+  /** 对话流里右击头像或名字：和成员列表同一套菜单，按发送者现在在不在房间算 */
+  function openSenderMenu(
+    event: ReactMouseEvent<HTMLElement>,
+    sender: { id?: string; name: string },
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    const participant =
+      participants.find((item) => item.id === sender.id) ??
+      participants.find(
+        (item) => item.username.toLocaleLowerCase() === sender.name.toLocaleLowerCase(),
+      );
+    setContextMenu({
+      ...contextMenuPoint(event),
+      title: participant?.username ?? sender.name,
+      items: memberMenuItems(participant, participant?.username ?? sender.name),
     });
   }
 
@@ -4348,7 +4399,16 @@ export function App({
                               {formatMessageTime(message.createdAt)}
                             </span>
                           ) : (
-                            <span className={`avatar ${message.senderType}`} aria-hidden="true">
+                            <span
+                              className={`avatar ${message.senderType}`}
+                              aria-hidden="true"
+                              onContextMenu={(event) =>
+                                openSenderMenu(event, {
+                                  id: message.senderId,
+                                  name: message.senderName,
+                                })
+                              }
+                            >
                               <AvatarGlyph
                                 type={message.senderType}
                                 name={message.senderName}
@@ -4369,7 +4429,20 @@ export function App({
                             )}
                             {!grouped && (
                               <header>
-                                <strong>{message.senderName}</strong>
+                                {/* 名字也能右击，键盘聚焦后按菜单键或 Shift+F10 一样能打开 */}
+                                <strong
+                                  className="message-sender"
+                                  tabIndex={0}
+                                  aria-haspopup="menu"
+                                  onContextMenu={(event) =>
+                                    openSenderMenu(event, {
+                                      id: message.senderId,
+                                      name: message.senderName,
+                                    })
+                                  }
+                                >
+                                  {message.senderName}
+                                </strong>
                                 {message.senderType === "agent" && <b>Agent</b>}
                                 {message.kind === "progress" && (
                                   <span
@@ -4740,6 +4813,12 @@ export function App({
                           .filter((seq): seq is number => seq !== undefined)
                           .sort((a, b) => a - b)}
                         traceAllowed={!guest || guest.showTrace !== false}
+                        onAvatarContextMenu={(event) =>
+                          openSenderMenu(event, {
+                            id: invocation.agentId,
+                            name: invocation.agentName,
+                          })
+                        }
                         defaultCollapsed={cards.length > 3 && index < cards.length - 1}
                         {...(() => {
                           // 卡片上写明在处理哪条消息；合批时引用最早的一条

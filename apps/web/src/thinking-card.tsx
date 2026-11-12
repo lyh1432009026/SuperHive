@@ -1,4 +1,12 @@
-import { memo, useDeferredValue, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  memo,
+  useDeferredValue,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
 import type { Invocation, TraceStep } from "@superhive/protocol";
 import { t } from "./i18n";
 import {
@@ -209,7 +217,10 @@ export function ThinkingCard({
   batchSeqs = [],
   trigger,
   onJumpToTrigger,
+  onAvatarContextMenu,
 }: {
+  /** 右击头像：和成员列表同一套菜单 */
+  onAvatarContextMenu?: (event: ReactMouseEvent<HTMLElement>) => void;
   /** 这一轮合在一起处理的几条消息的序号（两条以上才显示） */
   batchSeqs?: number[];
   /** 触发这一轮的那条消息：卡片上写明在处理哪个问题，点了跳过去 */
@@ -245,12 +256,19 @@ export function ThinkingCard({
       aria-label={t("{0} 正在处理", { 0: invocation.agentName })}
       title={unobservable ? t("这种 Agent 不上报执行过程，或你没有查看执行过程的权限") : undefined}
     >
-      <span className="avatar agent" aria-hidden="true">
+      <span className="avatar agent" aria-hidden="true" onContextMenu={onAvatarContextMenu}>
         {avatar}
       </span>
       <div className="thinking-card-content">
         <header>
-          <strong>{invocation.agentName}</strong>
+          <strong
+            className="message-sender"
+            tabIndex={onAvatarContextMenu ? 0 : undefined}
+            aria-haspopup={onAvatarContextMenu ? "menu" : undefined}
+            onContextMenu={onAvatarContextMenu}
+          >
+            {invocation.agentName}
+          </strong>
           {batchSeqs.length > 1 ? (
             <span className="thinking-card-batch" title={t("这几条消息在同一轮里一起处理")}>
               {t("一起处理 {0}", { 0: batchSeqs.map((seq) => `#${seq}`).join("、") })}
