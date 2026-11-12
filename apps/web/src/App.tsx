@@ -80,6 +80,7 @@ import {
   type ContextMenuItem,
   type ContextMenuState,
 } from "./context-menu";
+import { Select } from "./select";
 import { isMachineMessage, machinePreview, splitMentions } from "./machine-message";
 import {
   AttentionRoomGroup,
@@ -6841,21 +6842,30 @@ export function App({
               {isOwner && roomDialog.mode === "manage" && (
                 <label className="room-field">
                   <span>{t("主 Agent（可选）")}</span>
-                  <select
+                  <Select
                     value={roomDialogLead}
-                    onChange={(event) => setRoomDialogLead(event.target.value)}
-                  >
-                    <option value="">{t("不设置")}</option>
-                    {roomDialogLead &&
-                      !leadCandidates(roomDialog.room).includes(roomDialogLead) && (
-                        <option value={roomDialogLead}>{roomDialogLead}</option>
-                      )}
-                    {leadCandidates(roomDialog.room).map((name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setRoomDialogLead}
+                    options={[
+                      { value: "", label: t("不设置") },
+                      ...(roomDialogLead &&
+                      !leadCandidates(roomDialog.room).includes(roomDialogLead)
+                        ? [{ value: roomDialogLead, label: roomDialogLead }]
+                        : []),
+                      ...leadCandidates(roomDialog.room).map((name) => ({
+                        value: name,
+                        label: name,
+                        icon: (
+                          <span className="avatar agent select-avatar" aria-hidden="true">
+                            <AvatarGlyph
+                              type="agent"
+                              name={name}
+                              provider={agentProviderByName.get(name.toLocaleLowerCase())}
+                            />
+                          </span>
+                        ),
+                      })),
+                    ]}
+                  />
                   {roomDialogLead &&
                     roomDialog.room.id === currentRoomId &&
                     !leadCandidates(roomDialog.room).includes(roomDialogLead) && (

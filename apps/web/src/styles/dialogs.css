@@ -793,8 +793,7 @@
   font-weight: var(--weight-medium);
 }
 
-.room-field input,
-.room-field select {
+.room-field input {
   min-height: 44px;
   border: 1px solid var(--border-heavy);
   border-radius: var(--radius-lg);
@@ -809,13 +808,11 @@
   color: var(--text-tertiary);
 }
 
-.room-field input:hover,
-.room-field select:hover {
+.room-field input:hover {
   border-color: var(--text-tertiary);
 }
 
-.room-field input:focus,
-.room-field select:focus {
+.room-field input:focus {
   border-color: var(--accent);
 }
 
