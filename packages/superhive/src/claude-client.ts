@@ -297,6 +297,15 @@ export class ClaudeCodeResponder implements AgentResponder {
           "已请求终止 Claude 主进程，但工具子进程是否停止尚未确认。",
         );
       }
+      // 上游重试用完后，Claude Code 会先写出一条 is_error 的结果（如「API Error: 429 …」）再以非零码退出。
+      // 原因明确，不是「中途断了」：按上游出错交给 Bridge，它会看这一轮有没有做过改动再决定自动继续还是等人
+      const payload = stream.finish();
+      if (payload?.is_error && payload.result?.trim() && isUpstreamFailure(payload.result)) {
+        throw new AgentUpstreamError(
+          redactTrace(payload.result.replace(/\s+/g, " ").trim()).slice(0, 240),
+          payload.session_id ?? input.threadId,
+        );
+      }
       // An interrupted/invalid stream may follow tool side effects. Never blindly replay it.
       throw new AgentExecutionUncertainError(
         "Claude Code 执行中断，结果未知；请先核对已执行操作。",

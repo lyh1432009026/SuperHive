@@ -385,6 +385,44 @@ describe("ClaudeCodeResponder", () => {
     expect(error.threadId).toBe("session-1");
   });
 
+  it("treats a non-zero exit after an upstream error result as an upstream failure, not an interruption", async () => {
+    // 真实情况：重试 10 次都 429 后，Claude Code 先写出 is_error 的结果，再以退出码 1 结束
+    const result = `${JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: true,
+      result:
+        'API Error: 429 {"error":{"message":"This channel has reached its request rate limit"}}',
+      session_id: "session-429",
+    })}\n`;
+    const exhausted = new ClaudeCodeResponder({
+      command: "claude",
+      cwd: "/workspace",
+      hive,
+      runner: (_command, _args, options) => {
+        options.onStdout?.(result);
+        return Promise.reject(new Error("运行进程异常退出（1）。"));
+      },
+    });
+    const error = (await exhausted
+      .reply({ instructions: "rules", prompt: "context" })
+      .catch((cause: unknown) => cause)) as AgentUpstreamError;
+    expect(error).toBeInstanceOf(AgentUpstreamError);
+    expect(error.message).toMatch(/429/);
+    expect(error.threadId).toBe("session-429");
+
+    // 没有结果、或结果不是上游出错：仍按「执行中断，结果未知」处理，不能盲目重放
+    const broken = new ClaudeCodeResponder({
+      command: "claude",
+      cwd: "/workspace",
+      hive,
+      runner: () => Promise.reject(new Error("运行进程异常退出（1）。")),
+    });
+    await expect(broken.reply({ instructions: "rules", prompt: "context" })).rejects.toBeInstanceOf(
+      AgentExecutionUncertainError,
+    );
+  });
+
   it("loads only the MCP servers left enabled in the agent settings file", async () => {
     const settingsFile = path.join(mkdtempSync(path.join(tmpdir(), "hive-settings-")), "a.json");
     writeFileSync(settingsFile, JSON.stringify({ mcpDisabled: ["rea"] }));

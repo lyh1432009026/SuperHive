@@ -74,7 +74,10 @@ class FakeRoom {
 
   start() {}
   stop() {}
-  setTyping() {}
+  typing: boolean[] = [];
+  setTyping(active: boolean) {
+    this.typing.push(active);
+  }
   async fetchInstructions() {
     return "server rules";
   }
@@ -912,6 +915,8 @@ describe("AgentBridge", () => {
       ),
     );
     expect(room.statuses(mention.id)).not.toContain("failed");
+    // 等着自动继续时还算忙：对话流里是「执行中」，成员列表也不能显示空闲
+    expect(room.typing.at(-1)).toBe(true);
     // 等一会儿接着原会话继续，并提醒从断点往下做
     await waitUntil(() => responder.calls.length === 2);
     expect(responder.calls[1]!.threadId).toBe("session-upstream");
@@ -984,8 +989,11 @@ describe("AgentBridge", () => {
     await waitUntil(() => responder.calls.length === 1);
     responder.fail(new AgentUpstreamError("API Error: 429", "s1"));
     await waitUntil(() => room.reports.some((report) => report.progress?.includes("自动继续")));
+    expect(room.typing.at(-1)).toBe(true);
     room.handlers.onCancel?.(mention.id);
     await waitUntil(() => room.statuses(mention.id).includes("cancelled"));
+    // 停掉以后不再算忙
+    expect(room.typing.at(-1)).toBe(false);
     await new Promise((resolve) => setTimeout(resolve, 120));
     expect(responder.calls).toHaveLength(1);
   });

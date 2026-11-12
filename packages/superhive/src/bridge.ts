@@ -656,6 +656,11 @@ export class AgentBridge {
     if (this.isLocal(messageId)) this.recalled.add(messageId);
   }
 
+  /** 成员列表的忙闲：正在跑一轮，或有任务在等上游恢复后自动继续 */
+  private syncTyping(): void {
+    this.room.setTyping(Boolean(this.active) || this.waitingResume.size > 0);
+  }
+
   private cancel(messageId: string): void {
     // 正在等待自动继续：直接取消，不用等计时器
     const waiting = this.waitingResume.get(messageId);
@@ -664,6 +669,7 @@ export class AgentBridge {
       if (![...this.waitingResume.values()].includes(waiting)) clearTimeout(waiting);
       this.resumeNotes.delete(messageId);
       this.rememberProcessed(messageId);
+      this.syncTyping();
       this.log(`[hive] 等待自动继续的 ${messageId} 已被停止`);
       void this.store
         .save(this.state)
@@ -1071,8 +1077,9 @@ export class AgentBridge {
       if (heartbeat) clearInterval(heartbeat);
       if (traceTimer) clearTimeout(traceTimer);
       traceTimer = undefined;
-      this.room.setTyping(false);
       if (this.active === active) this.active = undefined;
+      // 等上游恢复后自动继续的任务还算在办：成员列表显示忙，不然对话流里还在「执行中」，列表却是空闲
+      this.syncTyping();
     }
   }
 
@@ -1346,7 +1353,10 @@ export class AgentBridge {
           if (this.stopped || this.state.processedMessageIds.includes(message.id)) continue;
           resume.push(message);
         }
-        if (resume.length === 0) return;
+        if (resume.length === 0) {
+          this.syncTyping();
+          return;
+        }
         this.pending.unshift(...resume);
         void this.drain();
       }, delay);
