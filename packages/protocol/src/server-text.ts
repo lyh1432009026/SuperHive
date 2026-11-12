@@ -596,6 +596,14 @@ export const serverTexts = {
     en: "The owner removed you from this room.",
   },
   "error.im.connectionNotFound": { zh: "没有这个 IM 连接。", en: "There's no such IM connection." },
+  "error.im.roomNotFound": {
+    zh: "没有这个房间，或者已经归档。",
+    en: "That room doesn't exist or has been archived.",
+  },
+  "error.im.notRoomMember": {
+    zh: "你还不是这个房间的成员，请先在网页上进入一次。",
+    en: "You're not a member of that room yet. Open it once in the web app first.",
+  },
   "error.im.loginNotFound": {
     zh: "扫码会话不存在或已过期。",
     en: "This sign-in session doesn't exist or has expired.",

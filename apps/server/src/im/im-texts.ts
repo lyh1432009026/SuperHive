@@ -77,7 +77,7 @@ export const imTexts = {
       "· Agent 向你提问时，点卡片上的选项，或回复这条提问打字（选项字母也行，多选用逗号隔开，如 A,C）",
       "· /to 选对话对象：选好后直接打字就发给它；也可以 /to codex。临时找别人写 @简写，如 @codex",
       "· 回复某个 Agent 的卡片，就是接着跟它说",
-      "· /room 切换房间（点卡片或回编号），/room 房间ID 直接切",
+      "· /room 切换默认房间：直接发的消息进这个房间（点卡片或回编号），/room 房间ID 直接切；其他房间的推送照样收得到",
       "· /who 看房间里的 Agent 谁在忙",
       "· /level 查看推送档位，/level mine|im|agents|all 切换",
       "· /scope 接收范围：/scope all 收所有房间（默认，其他房间的卡片标成橙色），/scope current 只收当前房间",
@@ -93,7 +93,7 @@ export const imTexts = {
       "· When an agent asks you something, tap an option on the card, or reply to the question (option letters work too; separate several with commas, e.g. A,C)",
       "· /to picks who you're talking to, so you can just type after that. /to codex works too. To reach someone else once, use a short @, e.g. @codex",
       "· Reply to an agent's card to keep talking to it",
-      "· /room switches rooms (tap the card or reply with a number); /room <room ID> switches directly",
+      "· /room switches your default room, where messages you send go (tap the card or reply with a number); /room <room ID> switches directly. You still hear from the other rooms",
       "· /who shows which agents are busy",
       "· /level shows your notification level; /level mine|im|agents|all changes it",
       "· /scope sets which rooms you hear from: /scope all for every room (default; cards from other rooms are orange), /scope current for the current room only",
@@ -384,7 +384,7 @@ export const imTexts = {
     zh: [
       "- 发「菜单」或 `/` 打开**控制面板**，常用操作都能点",
       "- `/to` 选对话对象，`/to codex` 直接指定，`/to off` 取消",
-      "- `/room` 切换房间",
+      "- `/room` 切换默认房间（直接发的消息进这里）",
       "- `/who` 谁在忙",
       "- `/level` 推送档位",
       "- `/scope all` 收所有房间，`/scope current` 只收当前房间",
@@ -395,7 +395,7 @@ export const imTexts = {
     en: [
       "- Send `menu` or `/` to open the **control panel**, where the common actions are one tap away",
       "- `/to` picks an agent, `/to codex` picks one directly, `/to off` clears it",
-      "- `/room` switches rooms",
+      "- `/room` switches your default room (where messages you send go)",
       "- `/who` shows who's busy",
       "- `/level` sets notifications",
       "- `/scope all` hears from every room, `/scope current` from the current room only",
@@ -729,6 +729,24 @@ export const imTexts = {
   "im.message.clipped": {
     zh: "…（太长已截断，全文见网页{where}）",
     en: "… (too long, so it was cut off; full text on the web{where})",
+  },
+  "im.held.otherChannel": {
+    zh: "个人微信「{label}」的推送暂停了：微信要你先给机器人发一条消息才能继续推。在微信里随便发一句，暂停期间的推送会合成一条补发过去。",
+    en: 'Pushes to your personal WeChat "{label}" are paused: WeChat needs you to send the bot a message before it can push again. Send it anything and the missed pushes will arrive in one message.',
+  },
+  "im.held.caughtUp": {
+    zh: "推送暂停期间有 {count} 条没送到，现在补上：",
+    en: {
+      one: "{count} push didn't get through while pushes were paused. Here it is:",
+      other: "{count} pushes didn't get through while pushes were paused. Here they are:",
+    },
+  },
+  "im.held.older": {
+    zh: "（更早的 {count} 条放不下，到网页查看）",
+    en: {
+      one: "({count} earlier push doesn't fit here; see it on the web)",
+      other: "({count} earlier pushes don't fit here; see them on the web)",
+    },
   },
   "im.digest.title": {
     zh: "{count} 条新消息",

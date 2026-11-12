@@ -1,4 +1,4 @@
-import { WeChatBot, type Credentials, type IncomingMessage } from "@wechatbot/wechatbot";
+import { ApiError, WeChatBot, type Credentials, type IncomingMessage } from "@wechatbot/wechatbot";
 import type { ImConfig } from "./im-store.js";
 import { serverText } from "@superhive/protocol";
 import { imLocaleOf, imText } from "./im-texts.js";
@@ -202,11 +202,19 @@ class WeChatTransport implements ImTransport {
 
   async sendText(chatId: string, text: string): Promise<string | undefined> {
     checkAuthority(this.bot.getCredentials()?.baseUrl);
-    // 个人微信的私聊会话 ID 就是对方的用户 ID
-    await this.bot.send(
-      chatId.startsWith(USER_TARGET) ? chatId.slice(USER_TARGET.length) : chatId,
-      text,
-    );
+    try {
+      // 个人微信的私聊会话 ID 就是对方的用户 ID
+      await this.bot.send(
+        chatId.startsWith(USER_TARGET) ? chatId.slice(USER_TARGET.length) : chatId,
+        text,
+      );
+    } catch (error) {
+      // iLink 的业务错误只有一句 errmsg（如「prepare failed」）：把错误码也记下来，排查时分得清是哪种
+      if (error instanceof ApiError && error.errcode !== undefined) {
+        error.message = `${error.message} (errcode ${error.errcode})`;
+      }
+      throw error;
+    }
     return undefined;
   }
 

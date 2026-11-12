@@ -127,6 +127,10 @@ type LoginSession = {
 };
 
 const MAX_ATTEMPTS = 8;
+/** 推送暂停期间，待发的往后放这么久（收到你的消息就立刻补发，不用等到点） */
+const HELD_POSTPONE_MS = 7 * 24 * 60 * 60_000;
+/** 连接报错时说明「要重新扫码」的那几种 */
+const RELOGIN_KEYS = new Set(["error.im.wechatExpired", "error.im.wechatSignedOut"]);
 /** 「全部 Agent 消息」档的合并窗口 */
 export const DIGEST_WINDOW_MS = 3 * 60_000;
 const LOGIN_TTL_MS = 10 * 60_000;
@@ -252,13 +256,139 @@ export class ImHub {
     return this.deps.store.listConnections(roomId).map((connection) => this.view(connection));
   }
 
+  /** 房主的全部连接：连接不再属于某个房间，房间只是「默认发到哪」 */
+  listAll(): ImConnection[] {
+    return this.deps.store.listConnections().map((connection) => this.view(connection));
+  }
+
+  /** 网页上改默认房间：和 /room 同一套校验（房间存在、没归档、房主本人在里面） */
+  setRoom(id: string, roomId: string): ImConnection {
+    const connection = this.require(id);
+    const room = this.deps.getRoom(roomId);
+    if (!room || room.archivedAt) {
+      throw new HiveError("ROOM_NOT_FOUND", serverText("error.im.roomNotFound"));
+    }
+    if (!this.ownerOf(connection, room.id)) {
+      throw new HiveError("NOT_A_MEMBER", serverText("error.im.notRoomMember"));
+    }
+    this.switchRoom(connection, room.id);
+    return this.view(this.require(id));
+  }
+
   /** 连接状态说明的结构化文案：只在内存里（状态说明本来就是暂时的，重启后会重新连接、重新报） */
   private readonly detailTexts = new Map<string, ServerText>();
 
   private view(connection: StoredConnection): ImConnection {
     const view = publicConnection(connection, this.deps.store.deliveryStats(connection.id));
     const text = this.detailTexts.get(connection.id);
-    return text && connection.detail === zhText(text) ? { ...view, detailText: text } : view;
+    const detailText = text && connection.detail === zhText(text) ? text : undefined;
+    const held = this.heldSince(connection);
+    const attention: ImConnection["attention"] =
+      connection.status === "error" && detailText && RELOGIN_KEYS.has(detailText.key)
+        ? "relogin"
+        : held
+          ? "needs_message"
+          : connection.status === "connected" &&
+              view.delivery.lastStatus &&
+              view.delivery.lastStatus !== "sent"
+            ? "push_failing"
+            : undefined;
+    return {
+      ...view,
+      roomName: this.roomName(connection.roomId),
+      ...(detailText ? { detailText } : {}),
+      ...(attention ? { attention } : {}),
+      ...(held ? { heldSince: held } : {}),
+    };
+  }
+
+  /* ---------- 个人微信：要你先发一条消息才能继续推 ---------- */
+
+  /**
+   * 个人微信（iLink）只能在你给机器人发过消息之后推送：没收到过消息时 SDK 报 NoContextError；
+   * 发过一阵之后服务端返回「prepare failed」（实测在你最后一次发消息后推了 10 条，第 11 条起全部失败）。
+   * 这两种都不是重试能好的，暂停这个连接的推送、等你下一条消息到了再补发，不悄悄重试 8 次再放弃。
+   */
+  private needsUserMessage(connection: StoredConnection, error: unknown): boolean {
+    if (connection.channel !== "wechat") return false;
+    const value = error as { name?: unknown; code?: unknown; message?: unknown } | undefined;
+    return (
+      value?.name === "NoContextError" ||
+      value?.code === "NO_CONTEXT" ||
+      (typeof value?.message === "string" && /prepare failed/i.test(value.message))
+    );
+  }
+
+  private heldSince(connection: StoredConnection): string | undefined {
+    return this.deps.store.kvGet(connection.id, "held:needsMessage");
+  }
+
+  /** 暂停推送：待发的都往后放，不占发送队列；用别的 IM 提醒一次（微信这边已经发不出去了） */
+  private hold(connection: StoredConnection, error: unknown): void {
+    if (!this.heldSince(connection)) {
+      this.deps.store.kvSet(connection.id, "held:needsMessage", new Date(this.now()).toISOString());
+      this.deps.log("im push held until the owner sends a message", describe(error));
+      this.notifyOwner(
+        { key: "im.held.otherChannel", params: { label: connection.label } },
+        (other) => other.id !== connection.id && other.ownerName === connection.ownerName,
+      );
+    }
+    this.deps.store.postponePending(connection.id, this.now() + HELD_POSTPONE_MS);
+    this.deps.onConnectionsChanged(connection.roomId);
+  }
+
+  /**
+   * 你发来了消息：恢复推送，把暂停期间攒下的合成一条补发。
+   * 合成一条而不是逐条补发：微信每收到你一条消息后能推的条数有限，逐条补发会很快又被卡住。
+   * 已经过时的（问题已回答、任务状态已变）不再补；放不下的只给条数，到网页看。
+   */
+  private async release(connection: StoredConnection, chatId: string): Promise<void> {
+    if (!this.heldSince(connection)) return;
+    this.deps.store.kvDelete(connection.id, "held:needsMessage");
+    const transport = this.transports.get(connection.id);
+    const driver = this.deps.drivers[connection.channel];
+    const items = this.deps.store.pendingFor(connection.id).filter((item) => {
+      if (this.stillRelevant(item)) return true;
+      this.deps.store.markSkipped(item.id);
+      return false;
+    });
+    this.deps.onConnectionsChanged(connection.roomId);
+    if (!transport || !items.length) return;
+    const limit = driver?.maxTextLength ?? 1800;
+    const separator = "\n\n———\n\n";
+    const header = this.t(connection, "im.held.caughtUp", { count: items.length });
+    // 从最新的往前放，放不下的较早几条只在开头说一声
+    const kept: OutboxItem[] = [];
+    let length = header.length + 80;
+    for (const item of [...items].reverse()) {
+      const next = length + item.text.length + separator.length;
+      if (kept.length && next > limit) break;
+      kept.unshift(item);
+      length = next;
+    }
+    const dropped = items.length - kept.length;
+    const text = this.clip(
+      connection,
+      [
+        header,
+        ...(dropped ? [this.t(connection, "im.held.older", { count: dropped })] : []),
+        kept.map((item) => item.text).join(separator),
+      ].join("\n\n"),
+      connection.roomId,
+      limit,
+    );
+    try {
+      await transport.sendText(chatId, text);
+      for (const item of items) {
+        if (kept.includes(item)) this.deps.store.markSent(item.id);
+        else this.deps.store.markSkipped(item.id);
+      }
+    } catch (error) {
+      if (this.needsUserMessage(connection, error)) this.hold(connection, error);
+      else this.deps.log("im catch-up failed", error);
+    } finally {
+      this.deps.onConnectionsChanged(connection.roomId);
+    }
   }
 
   setLevel(id: string, level: ImDeliveryLevel): ImConnection {
@@ -663,6 +793,8 @@ export class ImHub {
       return;
     }
     this.deps.store.touchInbound(connection.id, message.chatId);
+    // 个人微信等你发消息才能继续推：这条就是，先把攒下的补上
+    if (this.heldSince(connection)) void this.release(connection, message.chatId);
     // 记下会话是私聊还是群：带房主登录票的链接只发到私聊
     this.deps.store.kvSet(connection.id, `chatType:${message.chatId}`, message.chatType);
     const text = message.text.trim();
@@ -3178,6 +3310,11 @@ export class ImHub {
     const transport = this.transports.get(first.connectionId);
     const connection = this.deps.store.getConnection(first.connectionId);
     if (!transport || !connection || connection.status !== "connected") return;
+    // 推送暂停中（个人微信等你发消息）：不发、不算失败，等你的消息到了一起补
+    if (this.heldSince(connection)) {
+      this.deps.store.postponePending(connection.id, this.now() + HELD_POSTPONE_MS);
+      return;
+    }
     const live = items.filter((item) => {
       if (this.stillRelevant(item)) return true;
       this.deps.store.markSkipped(item.id);
@@ -3217,6 +3354,10 @@ export class ImHub {
         void this.forwardFiles(transport, first, externalId);
       }
     } catch (error) {
+      if (this.needsUserMessage(connection, error)) {
+        this.hold(connection, error);
+        return;
+      }
       for (const item of live) {
         const attempts = item.attempts + 1;
         this.deps.store.markRetry(

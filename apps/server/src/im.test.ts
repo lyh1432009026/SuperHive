@@ -72,6 +72,8 @@ class FakeChannel {
   sentIds = new Map<object, string>();
   /** 模拟支持卡片的渠道（飞书） */
   richCards = false;
+  /** 设了就让发文字失败（模拟个人微信「要你先发一条消息」） */
+  sendError: Error | undefined;
   /** 卡片原地更新、表情、文件的调用记录 */
   updates: Array<{ externalId: string; rich: ImRich }> = [];
   reactions: Array<{ op: "add" | "remove"; externalId: string; emoji?: string; id?: string }> = [];
@@ -111,6 +113,7 @@ class FakeChannel {
             this.events = events;
           },
           sendText: async (chatId, text, replyTo) => {
+            if (this.sendError) throw this.sendError;
             this.sent.push({ chatId, text, ...(replyTo ? { replyTo } : {}) });
             this.counter += 1;
             return `out-${this.counter}`;
@@ -228,14 +231,18 @@ describe("IM 连接", () => {
       });
       return { status: response.status, body: (await response.json()) as Record<string, any> };
     };
-    const join = async (username: string, participantType: "human" | "agent") => {
+    const join = async (
+      username: string,
+      participantType: "human" | "agent",
+      roomId = "general",
+    ) => {
       const peer = await Peer.connect(`ws://127.0.0.1:${port}/ws`);
       peers.push(peer);
       peer.send({
         type: "participant.join",
         username,
         participantType,
-        roomId: "general",
+        roomId,
         token: "test-token",
       });
       await peer.next((event) => event.type === "room.snapshot");
@@ -736,6 +743,82 @@ describe("IM 连接", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     expect(connection.detailText).toBeUndefined();
+  });
+
+  it("我的 IM 连接：从哪个房间都列出全部连接；网页上能改默认房间", async () => {
+    const { api, connect, join, base } = await start();
+    const { connections } = await connect();
+    await api("POST", "/api/rooms", { id: "proj", name: "项目" });
+    await api("POST", "/api/rooms", { id: "secret", name: "秘密" });
+    await join("rd", "human", "proj");
+    const all = await api("GET", "/api/im/connections");
+    expect(all.body.connections).toMatchObject([
+      { id: connections[0]!.id, roomId: "general", roomName: "general", channel: "feishu" },
+    ]);
+    expect((await fetch(`${base}/api/im/connections`)).status).toBe(401);
+    const id = connections[0]!.id;
+    const unknown = await api("POST", `/api/im/connections/${id}/room`, { roomId: "nope" });
+    expect(unknown.status).toBe(404);
+    expect(unknown.body.text).toMatchObject({ key: "error.im.roomNotFound" });
+    const stranger = await api("POST", `/api/im/connections/${id}/room`, { roomId: "secret" });
+    expect(stranger.status).toBe(400);
+    expect(stranger.body.text).toMatchObject({ key: "error.im.notRoomMember" });
+    const moved = await api("POST", `/api/im/connections/${id}/room`, { roomId: "proj" });
+    expect(moved.body).toMatchObject({ roomId: "proj", roomName: "项目" });
+  });
+
+  it("个人微信要你先发消息才能推：暂停推送、标出原因，收到你的消息后把攒下的合成一条补发", async () => {
+    const { api, join, fake } = await start();
+    const rd = await join("rd", "human");
+    const helper = await join("helper", "agent");
+    const started = await api("POST", "/api/rooms/general/im/login", {
+      channel: "wechat",
+      ownerName: "rd",
+      acceptRisk: true,
+    });
+    expect(started.status).toBe(201);
+    await until(() => fake.login);
+    fake.login!.resolve("owner-open-id");
+    await until(() => fake.events);
+    let connection: Record<string, any> = {};
+    for (let i = 0; i < 50 && connection.status !== "connected"; i += 1) {
+      connection = (await api("GET", "/api/im/connections")).body.connections[0] ?? {};
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    void rd;
+    fake.sendError = Object.assign(new Error("prepare failed (errcode -1)"), { name: "ApiError" });
+    const say = (content: string, id: string) =>
+      helper.send({ type: "message.send", clientMessageId: id, content });
+    say("@rd 第一条", "w1");
+    for (let i = 0; i < 100 && connection.attention !== "needs_message"; i += 1) {
+      connection = (await api("GET", "/api/im/connections")).body.connections[0];
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(connection).toMatchObject({
+      attention: "needs_message",
+      heldSince: expect.any(String),
+      delivery: { pending: 1 },
+    });
+    // 暂停期间不再重试、不算失败
+    say("@rd 第二条", "w2");
+    say("@rd 第三条", "w3");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    connection = (await api("GET", "/api/im/connections")).body.connections[0];
+    expect(connection.delivery).toMatchObject({ pending: 3 });
+    expect(connection.delivery.lastStatus).toBeUndefined();
+
+    // 你在微信里发了一条：恢复推送，攒下的三条合成一条补发
+    fake.sendError = undefined;
+    fake.emit({ text: "在吗" });
+    const caughtUp = await until(() =>
+      fake.sent.find((item) => item.text.startsWith("推送暂停期间有 3 条没送到")),
+    );
+    expect(caughtUp.text).toContain("第一条");
+    expect(caughtUp.text).toContain("第三条");
+    connection = (await api("GET", "/api/im/connections")).body.connections[0];
+    expect(connection.attention).toBeUndefined();
+    expect(connection.delivery.pending).toBe(0);
+    expect(connection.delivery.lastSentAt).toEqual(expect.any(String));
   });
 
   it("个人微信必须确认风险；访客身份不能作为发言人", async () => {

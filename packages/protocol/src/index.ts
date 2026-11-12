@@ -965,6 +965,8 @@ export const imDeliveryStatsSchema = z.object({
   lastAt: z.string().datetime().optional(),
   lastStatus: z.enum(["sent", "retrying", "failed"]).optional(),
   lastError: z.string().optional(),
+  /** 最近一次推送成功的时间 */
+  lastSentAt: z.string().datetime().optional(),
   /** 排队待发的条数 */
   pending: z.number().int().nonnegative(),
   /** 按当前档位没有推送的消息条数（自连接起累计） */
@@ -989,6 +991,15 @@ export const imConnectionSchema = z.object({
   level: imDeliveryLevelSchema,
   locale: imLocaleSchema.optional(),
   scope: imScopeSchema.optional(),
+  /** 默认发到的房间名（roomId 对应的显示名） */
+  roomName: z.string().optional(),
+  /**
+   * 需要房主处理的情况：needs_message=个人微信要你先给机器人发一条消息才能继续推送（推送已暂停，收到后补发）；
+   * relogin=登录失效，要重新扫码；push_failing=最近推送失败、还在重试
+   */
+  attention: z.enum(["needs_message", "relogin", "push_failing"]).optional(),
+  /** needs_message 从什么时候开始 */
+  heldSince: z.string().datetime().optional(),
   delivery: imDeliveryStatsSchema,
   createdAt: z.string().datetime(),
   /** 最近一次从 IM 收到房主消息的时间 */
@@ -1035,6 +1046,7 @@ export const startImLoginRequestSchema = z.object({
 export const setImDeliveryLevelRequestSchema = z.object({ level: imDeliveryLevelSchema });
 export const setImLocaleRequestSchema = z.object({ locale: imLocaleSchema });
 export const setImScopeRequestSchema = z.object({ scope: imScopeSchema });
+export const setImRoomRequestSchema = z.object({ roomId: z.string().min(1).max(64) });
 export const submitImLoginCodeRequestSchema = z.object({
   code: z
     .string()

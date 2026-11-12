@@ -457,11 +457,32 @@ export class ImStore {
   }
 
   duePending(now: number, limit = 50): OutboxItem[] {
-    const rows = this.db
+    return this.pendingRows(
+      "SELECT * FROM im_deliveries WHERE status = 'pending' AND next_at <= ? ORDER BY created_at, rowid LIMIT ?",
+      new Date(now).toISOString(),
+      limit,
+    );
+  }
+
+  /** 一个连接所有待发的推送（不看到点时间）：暂停推送后补发用 */
+  pendingFor(connectionId: string): OutboxItem[] {
+    return this.pendingRows(
+      "SELECT * FROM im_deliveries WHERE status = 'pending' AND connection_id = ? ORDER BY created_at, rowid",
+      connectionId,
+    );
+  }
+
+  /** 把一个连接待发的推送推迟到 until（暂停推送期间不占发送队列） */
+  postponePending(connectionId: string, until: number): void {
+    this.db
       .prepare(
-        "SELECT * FROM im_deliveries WHERE status = 'pending' AND next_at <= ? ORDER BY created_at, rowid LIMIT ?",
+        "UPDATE im_deliveries SET next_at = ? WHERE connection_id = ? AND status = 'pending'",
       )
-      .all(new Date(now).toISOString(), limit) as Array<{
+      .run(new Date(until).toISOString(), connectionId);
+  }
+
+  private pendingRows(sql: string, ...params: Array<string | number>): OutboxItem[] {
+    const rows = this.db.prepare(sql).all(...params) as Array<{
       id: string;
       connection_id: string;
       event_key: string;
@@ -610,7 +631,13 @@ export class ImStore {
     const filtered = this.db
       .prepare("SELECT COALESCE(filtered_count, 0) AS count FROM im_connections WHERE id = ?")
       .get(connectionId) as { count: number } | undefined;
+    const sent = this.db
+      .prepare(
+        "SELECT MAX(updated_at) AS at FROM im_deliveries WHERE connection_id = ? AND status = 'sent'",
+      )
+      .get(connectionId) as { at: string | null };
     return {
+      ...(sent.at ? { lastSentAt: sent.at } : {}),
       ...(last
         ? {
             lastAt: last.updated_at,

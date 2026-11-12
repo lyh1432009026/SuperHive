@@ -27,6 +27,7 @@ import {
   setImDeliveryLevelRequestSchema,
   setImLocaleRequestSchema,
   setImScopeRequestSchema,
+  setImRoomRequestSchema,
   submitImLoginCodeRequestSchema,
   type ImChannel,
   type ChatMessage,
@@ -3141,6 +3142,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     IM_NOT_FOUND: 404,
     IM_NO_CODE: 409,
     NOT_A_MEMBER: 400,
+    ROOM_NOT_FOUND: 404,
   };
 
   function imError(
@@ -3247,6 +3249,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     return view;
   });
 
+  /** 房主的全部 IM 连接：从哪个房间打开都一样（连接不属于某个房间，房间只是默认发到哪） */
+  app.get("/api/im/connections", async (request, reply) => {
+    if (!adminOnly(request, reply)) return reply;
+    return { connections: imHub.listAll() };
+  });
+
   app.post<{ Params: { id: string; action: string } }>(
     "/api/im/connections/:id/:action",
     async (request, reply) => {
@@ -3265,6 +3273,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           if (!body.success)
             return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
           return imHub.setLocale(request.params.id, body.data.locale);
+        }
+        if (request.params.action === "room") {
+          const body = setImRoomRequestSchema.safeParse(request.body);
+          if (!body.success)
+            return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+          return imHub.setRoom(request.params.id, body.data.roomId);
         }
         if (request.params.action === "scope") {
           const body = setImScopeRequestSchema.safeParse(request.body);
