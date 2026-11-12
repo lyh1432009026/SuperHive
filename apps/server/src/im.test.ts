@@ -372,7 +372,7 @@ describe("IM 连接", () => {
     );
 
     fake.emit({ text: "/room" });
-    await until(() => fake.sent.find((item) => item.text.includes("当前房间")));
+    await until(() => fake.sent.find((item) => item.text.includes("默认房间")));
 
     const [connection] = (await api("GET", "/api/rooms/general/im")).body.connections as Array<{
       id: string;
@@ -1789,7 +1789,7 @@ describe("IM 推送档位", () => {
     const { fake, api, id } = ctx;
     const { assign, reply } = await otherRoom(ctx);
     fake.emit({ text: "/scope current" });
-    await until(() => fake.sent.find((item) => item.text === "接收范围改为：仅当前房间"));
+    await until(() => fake.sent.find((item) => item.text === "接收范围改为：仅默认房间"));
     expect((await api("GET", "/api/rooms/general/im")).body.connections[0].scope).toBe("current");
     const first = await assign("@rd-omp 一", "scope-1");
     await reply(first, "只在项目里", "scope-reply-1");

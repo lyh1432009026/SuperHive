@@ -5786,6 +5786,9 @@ export function App({
           adminToken={authToken}
           roomId={currentRoomId}
           ownerName={username}
+          rooms={rooms
+            .filter((room) => !room.archivedAt)
+            .map((room) => ({ id: room.id, name: room.name }))}
           onClose={() => setImDialogOpen(false)}
         />
       )}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ImChannel, ImChannelsInfo, ImConnection, ImLoginView } from "@superhive/protocol";
 import {
   IM_CHANNEL_LABELS,
@@ -6,12 +6,13 @@ import {
   cancelImLogin,
   fetchImChannels,
   getImLogin,
-  listImConnections,
+  listAllImConnections,
   removeImConnection,
+  serverMessage,
   setImConnectionPaused,
   setImDeliveryLevel,
-  serverMessage,
   setImLocale,
+  setImRoom,
   setImScope,
   startImLogin,
   submitImLoginCode,
@@ -26,12 +27,69 @@ function CloseGlyph() {
   );
 }
 
-const statusLabels: Record<ImConnection["status"], string> = localized(() => ({
-  connecting: t("连接中"),
-  connected: t("已连接"),
-  paused: t("已暂停"),
-  error: t("连接异常"),
-}));
+function BackGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <path
+        d="M15 6 9 12l6 6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ChevronGlyph({ open }: { open: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      aria-hidden="true"
+      className={open ? "im-chevron open" : "im-chevron"}
+    >
+      <path
+        d="m4 6 4 4 4-4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** 渠道图标：飞书蓝、微信绿的圆角方块里一个字，不依赖外部图片 */
+function ChannelMark({ channel }: { channel: ImChannel }) {
+  return (
+    <span className={`im-channel-mark ${channel}`} aria-hidden="true">
+      {channel === "feishu" ? (
+        <svg viewBox="0 0 24 24" width="18" height="18">
+          <path
+            d="M5 7.5c3.2.4 6.1 2.1 8.3 4.6l1.4 1.6c1.2 1.3 3 1.8 4.6 1.2-1.4 2.6-4.6 3.8-7.4 2.6L5 14.4z"
+            fill="currentColor"
+          />
+          <path d="M9 5h7.2c.9 1 1.5 2.2 1.8 3.5L14.5 10C13 8 11.1 6.3 9 5z" fill="currentColor" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" width="18" height="18">
+          <path
+            d="M9.5 5C5.9 5 3 7.4 3 10.4c0 1.7.9 3.2 2.4 4.2L4.8 16.5l2.3-1.2c.7.2 1.5.3 2.3.3h.4a4.7 4.7 0 0 1-.2-1.3c0-3 2.9-5.4 6.4-5.4h.3C15.7 6.6 12.9 5 9.5 5z"
+            fill="currentColor"
+          />
+          <path
+            d="M21 14.3c0-2.4-2.4-4.4-5.2-4.4s-5.2 2-5.2 4.4 2.4 4.4 5.2 4.4c.6 0 1.2-.1 1.7-.2l1.9 1-.5-1.6c1.3-.8 2.1-2.1 2.1-3.6z"
+            fill="currentColor"
+          />
+        </svg>
+      )}
+    </span>
+  );
+}
 
 const loginHints: Partial<Record<ImLoginView["status"], string>> = localized(() => ({
   starting: t("正在获取二维码…"),
@@ -39,6 +97,11 @@ const loginHints: Partial<Record<ImLoginView["status"], string>> = localized(() 
   scanned: t("已扫码，请在手机上确认"),
   need_code: t("请输入手机上显示的配对码"),
   connecting: t("正在连接…"),
+}));
+
+const channelIntros: Record<ImChannel, string> = localized(() => ({
+  feishu: t("官方开放平台，支持卡片、按钮、图片和文件；适合长期使用"),
+  wechat: t("经腾讯 iLink 通道，只有文字，有封号风险；默认不启用"),
 }));
 
 const scanGuides: Record<ImChannel, string> = localized(() => ({
@@ -49,60 +112,106 @@ const scanGuides: Record<ImChannel, string> = localized(() => ({
 }));
 
 function shortTime(value: string): string {
-  return new Date(value).toLocaleString("zh-CN", {
-    month: "numeric",
-    day: "numeric",
+  const date = new Date(value);
+  const sameDay = date.toDateString() === new Date().toDateString();
+  return date.toLocaleString(getLocale(), {
+    ...(sameDay ? {} : { month: "numeric", day: "numeric" }),
     hour: "2-digit",
     minute: "2-digit",
   });
 }
 
-/** 推送情况：分清「没推」是被档位过滤了还是发送失败 */
-function deliverySummary(delivery: ImConnection["delivery"]): string {
-  const parts: string[] = [];
-  if (delivery.lastAt && delivery.lastStatus) {
-    parts.push(
-      delivery.lastStatus === "sent"
-        ? t("最近推送 {0} 成功", { 0: shortTime(delivery.lastAt) })
-        : t("最近推送{0}：{1}", {
-            0: delivery.lastStatus === "failed" ? t("失败") : t("失败，稍后重试"),
-            1: delivery.lastError ?? t("原因未知"),
-          }),
-    );
-  } else {
-    parts.push(t("还没有推送过"));
+type Health = {
+  tone: "ok" | "info" | "warning" | "danger" | "muted";
+  label: string;
+  /** 有问题时：出了什么事、怎么解决 */
+  problem?: { title: string; fix: string; since?: string };
+};
+
+/** 一个连接现在好不好用；有问题时写清原因和怎么办 */
+export function connectionHealth(connection: ImConnection): Health {
+  if (connection.status === "paused") return { tone: "muted", label: t("已暂停") };
+  if (connection.attention === "relogin") {
+    return {
+      tone: "danger",
+      label: t("需要重新扫码"),
+      problem: {
+        title: serverMessage(connection.detailText, connection.detail ?? t("登录已失效")),
+        fix: t("点「重新扫码」再连一次。推送档位、语言这些设置会保留。"),
+      },
+    };
   }
-  if (delivery.pending) parts.push(t("待发 {0} 条", { 0: delivery.pending }));
-  parts.push(t("按档位未推 {0} 条", { 0: delivery.filtered }));
-  return parts.join(" · ");
+  if (connection.attention === "needs_message") {
+    return {
+      tone: "warning",
+      label: t("推送暂停"),
+      problem: {
+        title: t("要你在微信里给机器人发一条消息"),
+        fix: t(
+          "个人微信只能在你给机器人发过消息之后推送，隔一阵或推了几条就得再发一次。在微信里给「{0}」随便发一句，暂停期间的推送会合成一条补发过来。",
+          { 0: connection.label },
+        ),
+        ...(connection.heldSince ? { since: connection.heldSince } : {}),
+      },
+    };
+  }
+  if (connection.status === "error") {
+    return {
+      tone: "danger",
+      label: t("连接异常"),
+      problem: {
+        title: serverMessage(connection.detailText, connection.detail ?? t("原因未知")),
+        fix: t("点「重新连接」再试一次；一直不行就重新扫码。"),
+      },
+    };
+  }
+  if (connection.status === "connecting") return { tone: "info", label: t("连接中") };
+  if (connection.attention === "push_failing") {
+    return {
+      tone: "warning",
+      label: t("推送失败"),
+      problem: {
+        title: connection.delivery.lastError ?? t("原因未知"),
+        fix: t("会自动重试。一直失败的话，检查机器人的权限，或重新扫码。"),
+      },
+    };
+  }
+  return { tone: "ok", label: t("正常") };
 }
 
 const LOGIN_DONE: ImLoginView["status"][] = ["succeeded", "failed", "cancelled"];
 
+type RoomOption = { id: string; name: string };
+
 /**
- * 房主把飞书机器人或个人微信接进当前房间：扫码一次即可。
- * IM 里发的消息以房主本人身份进房间；由此发起的任务结果、@ 房主的消息和提问再推回原会话。
+ * 我的 IM 连接：飞书机器人、个人微信。连接不属于某个房间——房间只是「直接发的消息进哪」，
+ * 推送按接收范围来；所以不管从哪个房间打开，都列出房主的全部连接。
  */
 export function ImDialog({
   base,
   adminToken,
   roomId,
   ownerName,
+  rooms = [],
   onClose,
 }: {
   base: string;
   adminToken: string;
   roomId: string;
   ownerName: string;
+  /** 可选的默认房间（房主所在、没归档的） */
+  rooms?: RoomOption[];
   onClose: () => void;
 }) {
   const [channels, setChannels] = useState<ImChannelsInfo>();
+  const [connections, setConnections] = useState<ImConnection[]>();
+  const [view, setView] = useState<"list" | "add">("list");
   const [channel, setChannel] = useState<ImChannel>("feishu");
   const [acceptRisk, setAcceptRisk] = useState(false);
-  const [connections, setConnections] = useState<ImConnection[]>([]);
   const [login, setLogin] = useState<ImLoginView>();
   const [code, setCode] = useState("");
   const [error, setError] = useState<string>();
+  const [expanded, setExpanded] = useState<string>();
   const loginRef = useRef<ImLoginView | undefined>(undefined);
   loginRef.current = login;
 
@@ -110,8 +219,8 @@ export function ImDialog({
     setError(reason instanceof Error ? reason.message : String(reason));
 
   const refresh = useCallback(
-    () => listImConnections(base, adminToken, roomId).then(setConnections, fail),
-    [adminToken, base, roomId],
+    () => listAllImConnections(base, adminToken).then(setConnections, fail),
+    [adminToken, base],
   );
 
   useEffect(() => {
@@ -126,9 +235,9 @@ export function ImDialog({
       () => {
         const current = loginRef.current;
         if (current && !LOGIN_DONE.includes(current.status)) {
-          void getImLogin(base, adminToken, current.id).then((view) => {
-            setLogin(view);
-            if (view.status === "succeeded") void refresh();
+          void getImLogin(base, adminToken, current.id).then((next) => {
+            setLogin(next);
+            if (next.status === "succeeded") void refresh();
           }, fail);
         } else {
           void refresh();
@@ -158,35 +267,46 @@ export function ImDialog({
     [adminToken, base],
   );
 
-  const scanning = login && !LOGIN_DONE.includes(login.status);
+  const scanning = Boolean(login && !LOGIN_DONE.includes(login.status));
   const wechatEnabled = channels?.wechat.enabled ?? false;
+
+  function openAdd(next: ImChannel = channel) {
+    setError(undefined);
+    setChannel(next);
+    setLogin(undefined);
+    setCode("");
+    setView("add");
+  }
+
+  async function backToList() {
+    if (login && scanning) await cancelImLogin(base, adminToken, login.id).catch(() => undefined);
+    setLogin(undefined);
+    setError(undefined);
+    setView("list");
+    void refresh();
+  }
 
   async function begin() {
     setError(undefined);
     setCode("");
     try {
-      const view = await startImLogin(base, adminToken, roomId, {
+      const started = await startImLogin(base, adminToken, roomId, {
         channel,
         ownerName,
         // 机器人先说和网页一样的语言，之后可以在这里或 IM 里用 /lang 改
         locale: getLocale(),
         ...(channel === "wechat" ? { acceptRisk } : {}),
       });
-      setLogin(view);
+      setLogin(started);
     } catch (reason) {
       fail(reason);
     }
   }
 
-  async function cancel() {
-    if (!login) return;
-    await cancelImLogin(base, adminToken, login.id).then(setLogin, fail);
-  }
+  const update = (action: Promise<unknown>) => void action.then(refresh, fail);
 
-  async function sendCode() {
-    if (!login) return;
-    await submitImLoginCode(base, adminToken, login.id, code).then(setLogin, fail);
-  }
+  const list = connections ?? [];
+  const title = view === "add" ? t("新增 IM 连接") : t("IM 连接");
 
   return (
     <div className="room-dialog-layer">
@@ -202,361 +322,582 @@ export function ImDialog({
         aria-modal="true"
         aria-labelledby="im-dialog-title"
       >
-        <header className="invite-dialog-header">
-          <div>
-            <h2 id="im-dialog-title">{t("连接 IM")}</h2>
-            <p>
-              {t("把飞书或微信接进")} <b># {roomId}</b>
-              {t("，在手机上也能给房间发消息。消息以")} <b>{ownerName}</b>{" "}
-              {t("的身份发出，任务结果和需要你回答的提问会回到原来的会话。")}
-            </p>
+        <header className="invite-dialog-header im-dialog-header">
+          <div className="im-dialog-heading">
+            {view === "add" && (
+              <button
+                type="button"
+                className="im-back"
+                aria-label={t("返回连接列表")}
+                onClick={() => void backToList()}
+              >
+                <BackGlyph />
+              </button>
+            )}
+            <div>
+              <h2 id="im-dialog-title">{title}</h2>
+              <p>
+                {view === "add"
+                  ? t("扫码一次就好。之后在 IM 里发的消息以 {0} 的身份进房间。", { 0: ownerName })
+                  : t(
+                      "在飞书、微信里给房间发消息、收推送。这里是你的全部连接，和从哪个房间打开无关。",
+                    )}
+              </p>
+            </div>
           </div>
-          <button type="button" className="invite-close" aria-label={t("关闭")} onClick={onClose}>
-            <CloseGlyph />
-          </button>
+          <div className="im-dialog-tools">
+            {view === "list" && list.length > 0 && (
+              <button type="button" className="im-add" onClick={() => openAdd()}>
+                {t("新增连接")}
+              </button>
+            )}
+            <button type="button" className="invite-close" aria-label={t("关闭")} onClick={onClose}>
+              <CloseGlyph />
+            </button>
+          </div>
         </header>
 
-        <div className="invite-dialog-body">
-          <div className="invite-create">
-            <div className="invite-field">
-              <span className="invite-label">{t("渠道")}</span>
-              <div className="duration-segments" role="radiogroup" aria-label={t("渠道")}>
-                {(["feishu", "wechat"] as const)
-                  .filter((item) => item === "feishu" || wechatEnabled)
-                  .map((item) => (
-                    <button
-                      key={item}
-                      type="button"
-                      role="radio"
-                      aria-checked={channel === item}
-                      className={channel === item ? "on" : ""}
-                      disabled={Boolean(scanning)}
-                      onClick={() => setChannel(item)}
-                    >
-                      {IM_CHANNEL_LABELS[item]}
-                    </button>
-                  ))}
-              </div>
-              <small>{scanGuides[channel]}</small>
-            </div>
-
-            {channel === "wechat" && (
-              <div className="im-risk" role="note">
-                <strong>{t("个人微信有风险，默认不启用")}</strong>
-                <p>
-                  {t(
-                    "个人微信没有面向第三方的公开开放平台，这里经腾讯 iLink 通道接入，可能违反平台规则，有被限制或封号的风险； 消息内容会经过微信服务器。只支持你本人在私聊里发的文字。",
-                  )}
-                </p>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={acceptRisk}
-                    disabled={Boolean(scanning)}
-                    onChange={(event) => setAcceptRisk(event.target.checked)}
-                  />
-                  {t("我了解风险，仍要连接")}
-                </label>
-              </div>
-            )}
-
-            {error && (
-              <p className="room-dialog-error" role="alert">
-                {error}
-              </p>
-            )}
-
-            {login && (scanning || login.status !== "cancelled") && (
-              <div className="im-login" role="status">
-                {login.qrDataUrl && scanning ? (
-                  <img
-                    className="im-qr"
-                    src={login.qrDataUrl}
-                    alt={t("{0}扫码二维码", { 0: IM_CHANNEL_LABELS[login.channel] })}
-                  />
-                ) : null}
-                <div className="im-login-copy">
-                  {login.status === "succeeded" ? (
-                    <strong className="im-ok">{t("已连接")}</strong>
-                  ) : login.status === "failed" ? (
-                    <strong className="im-failed">
-                      {t("连接失败：{0}", { 0: serverMessage(login.errorText, login.error ?? "") })}
-                    </strong>
-                  ) : (
-                    <>
-                      <strong>
-                        {login.status === "waiting_scan"
-                          ? t("请用{0}扫描二维码", { 0: IM_CHANNEL_LABELS[login.channel] })
-                          : loginHints[login.status]}
-                      </strong>
-                      {login.qrUrl && login.channel === "feishu" && (
-                        <small>
-                          {t("也可以在手机上直接打开")}
-                          <a href={login.qrUrl} target="_blank" rel="noreferrer">
-                            {t("这个链接")}
-                          </a>
-                        </small>
-                      )}
-                      {login.error && (
-                        <small className="im-failed">
-                          {serverMessage(login.errorText, login.error)}
-                        </small>
-                      )}
-                    </>
-                  )}
-                  {login.status === "need_code" && (
-                    <form
-                      className="im-code"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void sendCode();
-                      }}
-                    >
-                      <input
-                        inputMode="numeric"
-                        autoFocus
-                        value={code}
-                        maxLength={8}
-                        aria-label={t("配对码")}
-                        onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
-                      />
-                      <button type="submit" className="primary" disabled={code.length < 4}>
-                        {t("提交")}
-                      </button>
-                    </form>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {scanning ? (
-              <button
-                type="button"
-                className="invite-submit secondary"
-                onClick={() => void cancel()}
-              >
-                {t("取消扫码")}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="invite-submit"
-                disabled={channel === "wechat" && !acceptRisk}
-                onClick={() => void begin()}
-              >
-                {login?.status === "succeeded"
-                  ? t("再连接一个")
-                  : t("扫码连接{0}", { 0: IM_CHANNEL_LABELS[channel] })}
-              </button>
-            )}
-          </div>
-
-          <section className="invite-list" aria-label={t("本房间的 IM 连接")}>
-            <h3>
-              {t("已连接")}
-              <span>{connections.length}</span>
-            </h3>
-            {connections.length === 0 ? (
-              <p className="invite-empty">{t("还没有接入 IM。")}</p>
-            ) : (
-              <ul>
-                {connections.map((connection) => {
-                  const state =
-                    connection.status === "connected"
-                      ? "active"
-                      : connection.status === "paused"
-                        ? "expired"
-                        : "revoked";
-                  return (
-                    <li key={connection.id} className={`invite-item ${state}`}>
-                      <div className="invite-item-main">
-                        <span className={`invite-dot ${state}`} aria-hidden="true" />
-                        <div className="invite-item-copy">
-                          <strong>
-                            {IM_CHANNEL_LABELS[connection.channel]} · {connection.label}
-                          </strong>
-                          <small>
-                            {t("{0} · 以 {1} 发言 {2} {3}", {
-                              0: statusLabels[connection.status],
-                              1: connection.ownerName,
-                              2: connection.lastInboundAt
-                                ? t(" · 最近收到 {0}", {
-                                    0: new Date(connection.lastInboundAt).toLocaleString("zh-CN", {
-                                      month: "numeric",
-                                      day: "numeric",
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    }),
-                                  })
-                                : t(" · 还没收到消息"),
-                              3:
-                                connection.detail && connection.status !== "connected"
-                                  ? ` · ${serverMessage(connection.detailText, connection.detail)}`
-                                  : "",
-                            })}
-                          </small>
-                          <small
-                            className={
-                              connection.delivery.lastStatus &&
-                              connection.delivery.lastStatus !== "sent"
-                                ? "im-failed"
-                                : undefined
-                            }
-                          >
-                            {deliverySummary(connection.delivery)}
-                          </small>
-                        </div>
-                        <div className="invite-item-actions">
-                          <button
-                            type="button"
-                            className="ghost"
-                            onClick={() =>
-                              void setImConnectionPaused(
-                                base,
-                                adminToken,
-                                connection.id,
-                                connection.status !== "paused",
-                              ).then(refresh, fail)
-                            }
-                          >
-                            {connection.status === "paused" ? t("恢复") : t("暂停")}
-                          </button>
-                          <button
-                            type="button"
-                            className="ghost danger"
-                            onClick={() => {
-                              if (
-                                window.confirm(
-                                  t(
-                                    "断开后，这个 IM 发来的消息不再进入房间，保存的凭据也会删除。确定断开？",
-                                  ),
-                                )
-                              ) {
-                                void removeImConnection(base, adminToken, connection.id).then(
-                                  refresh,
-                                  fail,
-                                );
-                              }
-                            }}
-                          >
-                            {t("断开")}
-                          </button>
-                        </div>
-                      </div>
-                      <div className="im-level">
-                        <div
-                          className="duration-segments"
-                          role="radiogroup"
-                          aria-label={t("推送到 IM 的消息")}
-                        >
-                          {IM_LEVELS.map((item) => (
-                            <button
-                              key={item.level}
-                              type="button"
-                              role="radio"
-                              aria-checked={connection.level === item.level}
-                              className={connection.level === item.level ? "on" : ""}
-                              title={item.hint}
-                              onClick={() =>
-                                void setImDeliveryLevel(
-                                  base,
-                                  adminToken,
-                                  connection.id,
-                                  item.level,
-                                ).then(refresh, fail)
-                              }
-                            >
-                              {item.label}
-                            </button>
-                          ))}
-                        </div>
-                        <small>
-                          {IM_LEVELS.find((item) => item.level === connection.level)?.hint}
-                        </small>
-                      </div>
-                      <div className="im-level">
-                        <div
-                          className="duration-segments"
-                          role="radiogroup"
-                          aria-label={t("机器人语言")}
-                        >
-                          {LOCALE_OPTIONS.flatMap(({ value: locale, label }) =>
-                            locale === "system" ? [] : [{ locale, label }],
-                          ).map(({ locale, label }) => (
-                            <button
-                              key={locale}
-                              type="button"
-                              role="radio"
-                              lang={locale}
-                              aria-checked={(connection.locale ?? "zh-CN") === locale}
-                              className={(connection.locale ?? "zh-CN") === locale ? "on" : ""}
-                              onClick={() =>
-                                void setImLocale(base, adminToken, connection.id, locale).then(
-                                  refresh,
-                                  fail,
-                                )
-                              }
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                        <small>
-                          {t("机器人的卡片、按钮和提示用这个语言；在 IM 里发 /lang 也能切换")}
-                        </small>
-                      </div>
-                      <div className="im-level">
-                        <div
-                          className="duration-segments"
-                          role="radiogroup"
-                          aria-label={t("接收哪些房间")}
-                        >
-                          {(
-                            [
-                              ["all", t("所有房间")],
-                              ["current", t("仅当前房间")],
-                            ] as const
-                          ).map(([scope, label]) => (
-                            <button
-                              key={scope}
-                              type="button"
-                              role="radio"
-                              aria-checked={(connection.scope ?? "all") === scope}
-                              className={(connection.scope ?? "all") === scope ? "on" : ""}
-                              onClick={() =>
-                                void setImScope(base, adminToken, connection.id, scope).then(
-                                  refresh,
-                                  fail,
-                                )
-                              }
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                        <small>
-                          {(connection.scope ?? "all") === "all"
-                            ? t(
-                                "你所在的所有房间都会推过来，其他房间的卡片标成橙色，点卡片上的按钮就能切过去；直接回复卡片会发到那个房间",
-                              )
-                            : t("只推当前房间 {0} 的消息；在 IM 里发 /scope all 改回所有房间", {
-                                0: connection.roomId,
-                              })}
-                        </small>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            <p className="invite-empty im-usage">
-              {t(
-                "推送的消息顶部会标注「房间名 - 发送者」。在 IM 里 @ Agent 的名字就能让它干活；回复 /help 查看用法，/room 房间ID 切换房间。",
-              )}
+        <div className="invite-dialog-body im-dialog-body">
+          {error && (
+            <p className="room-dialog-error" role="alert">
+              {error}
             </p>
-          </section>
+          )}
+
+          {view === "list" ? (
+            connections === undefined ? (
+              <p className="im-loading">{t("正在加载…")}</p>
+            ) : list.length === 0 ? (
+              <EmptyState wechatEnabled={wechatEnabled} onAdd={openAdd} />
+            ) : (
+              <ul className="im-cards" aria-label={t("我的 IM 连接")}>
+                {list.map((connection) => (
+                  <ConnectionCard
+                    key={connection.id}
+                    connection={connection}
+                    rooms={rooms}
+                    expanded={expanded === connection.id}
+                    onToggle={() =>
+                      setExpanded((current) =>
+                        current === connection.id ? undefined : connection.id,
+                      )
+                    }
+                    onPause={(paused) =>
+                      update(setImConnectionPaused(base, adminToken, connection.id, paused))
+                    }
+                    onRescan={() => openAdd(connection.channel)}
+                    onRemove={() => {
+                      if (
+                        window.confirm(
+                          t(
+                            "断开后，这个 IM 发来的消息不再进入房间，保存的凭据也会删除。确定断开？",
+                          ),
+                        )
+                      ) {
+                        update(removeImConnection(base, adminToken, connection.id));
+                      }
+                    }}
+                    onLevel={(level) =>
+                      update(setImDeliveryLevel(base, adminToken, connection.id, level))
+                    }
+                    onLocale={(locale) =>
+                      update(setImLocale(base, adminToken, connection.id, locale))
+                    }
+                    onScope={(scope) => update(setImScope(base, adminToken, connection.id, scope))}
+                    onRoom={(room) => update(setImRoom(base, adminToken, connection.id, room))}
+                  />
+                ))}
+              </ul>
+            )
+          ) : (
+            <AddConnection
+              channel={channel}
+              wechatEnabled={wechatEnabled}
+              acceptRisk={acceptRisk}
+              login={login}
+              scanning={scanning}
+              code={code}
+              onChannel={(next) => {
+                setChannel(next);
+                setLogin(undefined);
+              }}
+              onAcceptRisk={setAcceptRisk}
+              onCode={setCode}
+              onBegin={() => void begin()}
+              onCancel={() =>
+                login && void cancelImLogin(base, adminToken, login.id).then(setLogin, fail)
+              }
+              onSubmitCode={() =>
+                login &&
+                void submitImLoginCode(base, adminToken, login.id, code).then(setLogin, fail)
+              }
+              onDone={() => void backToList()}
+            />
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function EmptyState({
+  wechatEnabled,
+  onAdd,
+}: {
+  wechatEnabled: boolean;
+  onAdd: (channel: ImChannel) => void;
+}) {
+  return (
+    <div className="im-empty">
+      <div className="im-empty-marks" aria-hidden="true">
+        <ChannelMark channel="feishu" />
+        <ChannelMark channel="wechat" />
+      </div>
+      <strong>{t("还没有连接 IM")}</strong>
+      <p>
+        {t(
+          "连上之后，不开网页也能在手机上派活、回答 Agent 的提问；你所在的所有房间里和你有关的结果都会推过来。",
+        )}
+      </p>
+      <div className="im-empty-actions">
+        <button type="button" className="invite-submit" onClick={() => onAdd("feishu")}>
+          {t("连接飞书")}
+        </button>
+        {wechatEnabled && (
+          <button type="button" className="invite-submit secondary" onClick={() => onAdd("wechat")}>
+            {t("连接个人微信")}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Segments<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: ReadonlyArray<{ value: T; label: string; title?: string; lang?: string }>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="duration-segments" role="radiogroup" aria-label={label}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          role="radio"
+          aria-checked={value === option.value}
+          className={value === option.value ? "on" : ""}
+          {...(option.title ? { title: option.title } : {})}
+          {...(option.lang ? { lang: option.lang } : {})}
+          onClick={() => {
+            if (value !== option.value) onChange(option.value);
+          }}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SettingRow({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="im-setting">
+      <div className="im-setting-copy">
+        <strong>{title}</strong>
+        {hint && <small>{hint}</small>}
+      </div>
+      <div className="im-setting-control">{children}</div>
+    </div>
+  );
+}
+
+function ConnectionCard({
+  connection,
+  rooms,
+  expanded,
+  onToggle,
+  onPause,
+  onRescan,
+  onRemove,
+  onLevel,
+  onLocale,
+  onScope,
+  onRoom,
+}: {
+  connection: ImConnection;
+  rooms: RoomOption[];
+  expanded: boolean;
+  onToggle: () => void;
+  onPause: (paused: boolean) => void;
+  onRescan: () => void;
+  onRemove: () => void;
+  onLevel: (level: ImConnection["level"]) => void;
+  onLocale: (locale: NonNullable<ImConnection["locale"]>) => void;
+  onScope: (scope: NonNullable<ImConnection["scope"]>) => void;
+  onRoom: (roomId: string) => void;
+}) {
+  const health = connectionHealth(connection);
+  const scope = connection.scope ?? "all";
+  const locale = connection.locale ?? "zh-CN";
+  const level = IM_LEVELS.find((item) => item.level === connection.level);
+  const settingsId = `im-settings-${connection.id}`;
+  const roomName = connection.roomName ?? connection.roomId;
+  // 默认房间的候选：当前这个一定在里面
+  const roomOptions = rooms.some((room) => room.id === connection.roomId)
+    ? rooms
+    : [{ id: connection.roomId, name: roomName }, ...rooms];
+  const localeName = LOCALE_OPTIONS.find((option) => option.value === locale)?.label ?? locale;
+  return (
+    <li className={`im-card ${health.tone}`}>
+      <div className="im-card-head">
+        <ChannelMark channel={connection.channel} />
+        <div className="im-card-title">
+          <strong>{connection.label}</strong>
+          <small>{IM_CHANNEL_LABELS[connection.channel]}</small>
+        </div>
+        <span className={`im-health ${health.tone}`}>
+          <span className="im-health-dot" aria-hidden="true" />
+          {health.label}
+        </span>
+      </div>
+
+      <dl className="im-card-facts">
+        <div>
+          <dt>{t("默认房间")}</dt>
+          <dd># {roomName}</dd>
+        </div>
+        <div>
+          <dt>{t("接收")}</dt>
+          <dd>{scope === "all" ? t("所有房间") : t("仅默认房间")}</dd>
+        </div>
+        <div>
+          <dt>{t("推送")}</dt>
+          <dd>{level?.label ?? connection.level}</dd>
+        </div>
+        <div>
+          <dt>{t("语言")}</dt>
+          <dd>{localeName}</dd>
+        </div>
+      </dl>
+
+      <p className="im-card-activity">
+        {[
+          connection.lastInboundAt
+            ? t("最近收到 {0}", { 0: shortTime(connection.lastInboundAt) })
+            : t("还没收到过你的消息"),
+          connection.delivery.lastSentAt
+            ? t("最近推送成功 {0}", { 0: shortTime(connection.delivery.lastSentAt) })
+            : t("还没推送成功过"),
+          ...(connection.delivery.pending
+            ? [t("待发 {0} 条", { 0: connection.delivery.pending })]
+            : []),
+        ].join(" · ")}
+      </p>
+
+      {health.problem && (
+        <div className={`im-problem ${health.tone}`} role="status">
+          <strong>
+            {health.problem.title}
+            {health.problem.since && (
+              <span>{t("（{0} 起）", { 0: shortTime(health.problem.since) })}</span>
+            )}
+          </strong>
+          <p>{health.problem.fix}</p>
+        </div>
+      )}
+
+      <div className="im-card-actions">
+        <button
+          type="button"
+          className="im-settings-toggle"
+          aria-expanded={expanded}
+          aria-controls={settingsId}
+          onClick={onToggle}
+        >
+          {t("设置")}
+          <ChevronGlyph open={expanded} />
+        </button>
+        <span className="im-card-spacer" />
+        {connection.attention === "relogin" && (
+          <button type="button" className="ghost" onClick={onRescan}>
+            {t("重新扫码")}
+          </button>
+        )}
+        {connection.status === "error" && connection.attention !== "relogin" && (
+          <button type="button" className="ghost" onClick={() => onPause(false)}>
+            {t("重新连接")}
+          </button>
+        )}
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => onPause(connection.status !== "paused")}
+        >
+          {connection.status === "paused" ? t("继续") : t("暂停")}
+        </button>
+        <button type="button" className="ghost danger" onClick={onRemove}>
+          {t("断开")}
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="im-settings" id={settingsId}>
+          <SettingRow
+            title={t("默认房间")}
+            hint={t("在 IM 里直接发的消息进这个房间；也可以在 IM 里发 /room 切换")}
+          >
+            <div className="im-room-chips" role="radiogroup" aria-label={t("默认房间")}>
+              {roomOptions.map((room) => (
+                <button
+                  key={room.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={room.id === connection.roomId}
+                  className={room.id === connection.roomId ? "on" : ""}
+                  onClick={() => {
+                    if (room.id !== connection.roomId) onRoom(room.id);
+                  }}
+                >
+                  # {room.name}
+                </button>
+              ))}
+            </div>
+          </SettingRow>
+          <SettingRow
+            title={t("接收哪些房间")}
+            hint={
+              scope === "all"
+                ? t(
+                    "你所在的所有房间都会推过来，其他房间的卡片标成橙色；直接回复卡片会发到那个房间",
+                  )
+                : t("只推默认房间的消息")
+            }
+          >
+            <Segments
+              label={t("接收哪些房间")}
+              value={scope}
+              options={[
+                { value: "all", label: t("所有房间") },
+                { value: "current", label: t("仅默认房间") },
+              ]}
+              onChange={onScope}
+            />
+          </SettingRow>
+          <SettingRow title={t("推送档位")} {...(level ? { hint: level.hint } : {})}>
+            <Segments
+              label={t("推送档位")}
+              value={connection.level}
+              options={IM_LEVELS.map((item) => ({
+                value: item.level,
+                label: item.label,
+                title: item.hint,
+              }))}
+              onChange={onLevel}
+            />
+          </SettingRow>
+          <SettingRow
+            title={t("机器人语言")}
+            hint={t("卡片、按钮和提示用这个语言；在 IM 里发 /lang 也能切换")}
+          >
+            <Segments
+              label={t("机器人语言")}
+              value={locale}
+              options={LOCALE_OPTIONS.flatMap((option) =>
+                option.value === "system"
+                  ? []
+                  : [{ value: option.value, label: option.label, lang: option.value }],
+              )}
+              onChange={onLocale}
+            />
+          </SettingRow>
+        </div>
+      )}
+    </li>
+  );
+}
+
+function AddConnection({
+  channel,
+  wechatEnabled,
+  acceptRisk,
+  login,
+  scanning,
+  code,
+  onChannel,
+  onAcceptRisk,
+  onCode,
+  onBegin,
+  onCancel,
+  onSubmitCode,
+  onDone,
+}: {
+  channel: ImChannel;
+  wechatEnabled: boolean;
+  acceptRisk: boolean;
+  login: ImLoginView | undefined;
+  scanning: boolean;
+  code: string;
+  onChannel: (channel: ImChannel) => void;
+  onAcceptRisk: (value: boolean) => void;
+  onCode: (value: string) => void;
+  onBegin: () => void;
+  onCancel: () => void;
+  onSubmitCode: () => void;
+  onDone: () => void;
+}) {
+  const channels = (["feishu", "wechat"] as const).filter(
+    (item) => item === "feishu" || wechatEnabled,
+  );
+  if (login?.status === "succeeded") {
+    return (
+      <div className="im-added" role="status">
+        <ChannelMark channel={login.channel} />
+        <strong>{t("{0}已连接", { 0: IM_CHANNEL_LABELS[login.channel] })}</strong>
+        <p>
+          {login.channel === "wechat"
+            ? t("先在微信里给机器人发一条消息（比如 /help），之后才收得到推送。")
+            : t("在飞书里私聊机器人发 /help 看看能做什么。")}
+        </p>
+        <button type="button" className="invite-submit" onClick={onDone}>
+          {t("完成")}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="im-add-flow">
+      <div className="im-channel-picker" role="radiogroup" aria-label={t("渠道")}>
+        {channels.map((item) => (
+          <button
+            key={item}
+            type="button"
+            role="radio"
+            aria-checked={channel === item}
+            className={channel === item ? "on" : ""}
+            disabled={scanning}
+            onClick={() => onChannel(item)}
+          >
+            <ChannelMark channel={item} />
+            <span>
+              <strong>{IM_CHANNEL_LABELS[item]}</strong>
+              <small>{channelIntros[item]}</small>
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <p className="im-guide">{scanGuides[channel]}</p>
+
+      {channel === "wechat" && (
+        <div className="im-risk" role="note">
+          <strong>{t("个人微信有风险，默认不启用")}</strong>
+          <p>
+            {t(
+              "个人微信没有面向第三方的公开开放平台，这里经腾讯 iLink 通道接入，可能违反平台规则，有被限制或封号的风险； 消息内容会经过微信服务器。只支持你本人在私聊里发的文字。",
+            )}
+          </p>
+          <label>
+            <input
+              type="checkbox"
+              checked={acceptRisk}
+              disabled={scanning}
+              onChange={(event) => onAcceptRisk(event.target.checked)}
+            />
+            {t("我了解风险，仍要连接")}
+          </label>
+        </div>
+      )}
+
+      {login && (scanning || login.status === "failed") && (
+        <div className="im-login" role="status">
+          {login.qrDataUrl && scanning ? (
+            <img
+              className="im-qr"
+              src={login.qrDataUrl}
+              alt={t("{0}扫码二维码", { 0: IM_CHANNEL_LABELS[login.channel] })}
+            />
+          ) : null}
+          <div className="im-login-copy">
+            {login.status === "failed" ? (
+              <strong className="im-failed">
+                {t("连接失败：{0}", { 0: serverMessage(login.errorText, login.error ?? "") })}
+              </strong>
+            ) : (
+              <>
+                <strong>
+                  {login.status === "waiting_scan"
+                    ? t("请用{0}扫描二维码", { 0: IM_CHANNEL_LABELS[login.channel] })
+                    : loginHints[login.status]}
+                </strong>
+                {login.qrUrl && login.channel === "feishu" && (
+                  <small>
+                    {t("也可以在手机上直接打开")}
+                    <a href={login.qrUrl} target="_blank" rel="noreferrer">
+                      {t("这个链接")}
+                    </a>
+                  </small>
+                )}
+                {login.error && (
+                  <small className="im-failed">{serverMessage(login.errorText, login.error)}</small>
+                )}
+              </>
+            )}
+            {login.status === "need_code" && (
+              <form
+                className="im-code"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  onSubmitCode();
+                }}
+              >
+                <input
+                  inputMode="numeric"
+                  autoFocus
+                  value={code}
+                  maxLength={8}
+                  aria-label={t("配对码")}
+                  onChange={(event) => onCode(event.target.value.replace(/\D/g, ""))}
+                />
+                <button type="submit" className="primary" disabled={code.length < 4}>
+                  {t("提交")}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {scanning ? (
+        <button type="button" className="invite-submit secondary" onClick={onCancel}>
+          {t("取消扫码")}
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="invite-submit"
+          disabled={channel === "wechat" && !acceptRisk}
+          onClick={onBegin}
+        >
+          {login?.status === "failed"
+            ? t("重新扫码")
+            : t("扫码连接{0}", { 0: IM_CHANNEL_LABELS[channel] })}
+        </button>
+      )}
     </div>
   );
 }

@@ -44,6 +44,25 @@ export function fetchImChannels(base: string, token: string): Promise<ImChannels
   return call(`${base}/api/im/channels`, token);
 }
 
+/** 房主的全部 IM 连接（不分房间） */
+export async function listAllImConnections(base: string, token: string): Promise<ImConnection[]> {
+  const result = await call<{ connections: ImConnection[] }>(`${base}/api/im/connections`, token);
+  return result.connections;
+}
+
+/** 改默认房间：直接发的消息进这个房间 */
+export function setImRoom(
+  base: string,
+  token: string,
+  id: string,
+  roomId: string,
+): Promise<ImConnection> {
+  return call(`${base}/api/im/connections/${id}/room`, token, {
+    method: "POST",
+    body: JSON.stringify({ roomId }),
+  });
+}
+
 export async function listImConnections(
   base: string,
   token: string,

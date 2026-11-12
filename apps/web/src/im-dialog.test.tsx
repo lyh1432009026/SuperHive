@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ImConnection } from "@superhive/protocol";
 import { ImDialog } from "./im-dialog";
 import { getLocalePreference, setLocalePreference } from "./i18n";
 
@@ -24,20 +25,138 @@ function mockServer(handler: (route: Route) => unknown) {
   return calls;
 }
 
-describe("连接 IM 弹窗", () => {
+const feishu: ImConnection = {
+  id: "11111111-1111-4111-8111-111111111111",
+  roomId: "autoclaw-web",
+  roomName: "autoclaw-web",
+  channel: "feishu",
+  ownerName: "rd",
+  label: "Autoclaw助手",
+  status: "connected",
+  level: "mine",
+  locale: "zh-CN",
+  scope: "all",
+  delivery: {
+    lastAt: "2026-11-12T10:00:00.000Z",
+    lastStatus: "sent",
+    lastSentAt: "2026-11-12T10:00:00.000Z",
+    pending: 0,
+    filtered: 3,
+  },
+  createdAt: "2026-11-10T00:00:00.000Z",
+  lastInboundAt: "2026-11-12T09:00:00.000Z",
+};
+
+const wechat: ImConnection = {
+  id: "22222222-2222-4222-8222-222222222222",
+  roomId: "build",
+  roomName: "build",
+  channel: "wechat",
+  ownerName: "rd",
+  label: "个人微信",
+  status: "connected",
+  level: "all",
+  locale: "zh-CN",
+  scope: "all",
+  attention: "needs_message",
+  heldSince: "2026-11-12T10:50:00.000Z",
+  delivery: { pending: 5, filtered: 0 },
+  createdAt: "2026-11-12T08:00:00.000Z",
+};
+
+function renderDialog(rooms = [{ id: "build", name: "build" }]) {
+  return render(
+    <ImDialog
+      base="http://hive"
+      adminToken="t"
+      roomId="build"
+      ownerName="rd"
+      rooms={rooms}
+      onClose={() => undefined}
+    />,
+  );
+}
+
+describe("我的 IM 连接", () => {
+  const original = getLocalePreference();
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    setLocalePreference(original);
   });
 
-  it("个人微信需要先确认风险，扫码时显示二维码", async () => {
+  it("不管从哪个房间打开都列出全部连接：状态一眼看清，有问题写明原因和怎么办", async () => {
     const calls = mockServer((route) => {
       if (route.url === "/api/im/channels")
         return { feishu: { enabled: true }, wechat: { enabled: true } };
-      if (route.url === "/api/rooms/build/im") return { connections: [] };
+      if (route.url === "/api/im/connections") return { connections: [feishu, wechat] };
+      return {};
+    });
+    renderDialog();
+    const cards = await screen.findAllByRole("listitem");
+    expect(cards).toHaveLength(2);
+    // 列的是房主全部连接，不是当前房间的
+    expect(calls.some((call) => call.url === "/api/im/connections")).toBe(true);
+    expect(calls.some((call) => call.url === "/api/rooms/build/im")).toBe(false);
+
+    const [first, second] = cards as [HTMLElement, HTMLElement];
+    expect(within(first).getByText("Autoclaw助手")).toBeTruthy();
+    expect(within(first).getByText("正常")).toBeTruthy();
+    expect(within(first).getByText("# autoclaw-web")).toBeTruthy();
+    expect(within(first).queryByRole("status")).toBeNull();
+
+    expect(within(second).getByText("推送暂停")).toBeTruthy();
+    const problem = within(second).getByRole("status");
+    expect(problem.textContent).toContain("要你在微信里给机器人发一条消息");
+    expect(problem.textContent).toContain("在微信里给「个人微信」随便发一句");
+    expect(within(second).getByText(/待发 5 条/)).toBeTruthy();
+  });
+
+  it("设置收在卡片里：展开后改默认房间、接收范围、推送档位、语言", async () => {
+    const calls = mockServer((route) => {
+      if (route.url === "/api/im/channels")
+        return { feishu: { enabled: true }, wechat: { enabled: false } };
+      if (route.url === "/api/im/connections") return { connections: [feishu] };
+      return feishu;
+    });
+    renderDialog([
+      { id: "build", name: "build" },
+      { id: "autoclaw-web", name: "autoclaw-web" },
+    ]);
+    const toggle = await screen.findByRole("button", { name: "设置" });
+    expect(screen.queryByRole("radiogroup", { name: "推送档位" })).toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(
+      within(screen.getByRole("radiogroup", { name: "默认房间" })).getByRole("radio", {
+        name: "# build",
+      }),
+    );
+    fireEvent.click(screen.getByRole("radio", { name: "全部 Agent" }));
+    fireEvent.click(screen.getByRole("radio", { name: "仅默认房间" }));
+    fireEvent.click(screen.getByRole("radio", { name: "English" }));
+    await waitFor(() =>
+      expect(calls.filter((call) => call.method === "POST").map((call) => call.body)).toEqual([
+        { roomId: "build" },
+        { level: "agents" },
+        { scope: "current" },
+        { locale: "en" },
+      ]),
+    );
+    expect(calls.find((call) => call.body && "roomId" in (call.body as object))?.url).toBe(
+      `/api/im/connections/${feishu.id}/room`,
+    );
+  });
+
+  it("还没有连接时显示引导；新增连接单独一步：个人微信先确认风险再扫码", async () => {
+    const calls = mockServer((route) => {
+      if (route.url === "/api/im/channels")
+        return { feishu: { enabled: true }, wechat: { enabled: true } };
+      if (route.url === "/api/im/connections") return { connections: [] };
       if (route.url.endsWith("/im/login"))
         return {
-          id: "11111111-1111-4111-8111-111111111111",
+          id: "33333333-3333-4333-8333-333333333333",
           channel: "wechat",
           roomId: "build",
           status: "waiting_scan",
@@ -45,16 +164,13 @@ describe("连接 IM 弹窗", () => {
         };
       return {};
     });
-    render(
-      <ImDialog
-        base="http://hive"
-        adminToken="t"
-        roomId="build"
-        ownerName="rd"
-        onClose={() => undefined}
-      />,
+    renderDialog();
+    expect(await screen.findByText("还没有连接 IM")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "连接个人微信" }));
+    expect(screen.getByRole("heading", { name: "新增 IM 连接" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /个人微信/ }).getAttribute("aria-checked")).toBe(
+      "true",
     );
-    fireEvent.click(await screen.findByRole("radio", { name: "个人微信" }));
     const start = screen.getByRole("button", { name: "扫码连接个人微信" });
     expect(start).toHaveProperty("disabled", true);
     fireEvent.click(screen.getByRole("checkbox"));
@@ -67,134 +183,54 @@ describe("连接 IM 弹窗", () => {
       locale: "zh-CN",
       acceptRisk: true,
     });
+    // 返回列表时放弃扫码
+    fireEvent.click(screen.getByRole("button", { name: "返回连接列表" }));
+    await waitFor(() =>
+      expect(
+        calls.some((call) => call.method === "DELETE" && call.url.includes("/im/logins/")),
+      ).toBe(true),
+    );
   });
 
-  it("关闭个人微信时只显示飞书，并列出已有连接", async () => {
+  it("关闭个人微信时新增连接只有飞书", async () => {
     mockServer((route) => {
       if (route.url === "/api/im/channels")
         return { feishu: { enabled: true }, wechat: { enabled: false } };
-      if (route.url === "/api/rooms/build/im")
-        return {
-          connections: [
-            {
-              id: "22222222-2222-4222-8222-222222222222",
-              roomId: "build",
-              channel: "feishu",
-              ownerName: "rd",
-              label: "SuperHive 助手",
-              status: "connected",
-              level: "mine",
-              delivery: { pending: 0, filtered: 3 },
-              createdAt: new Date().toISOString(),
-            },
-          ],
-        };
+      if (route.url === "/api/im/connections") return { connections: [feishu] };
       return {};
     });
-    render(
-      <ImDialog
-        base="http://hive"
-        adminToken="t"
-        roomId="build"
-        ownerName="rd"
-        onClose={() => undefined}
-      />,
-    );
-    await waitFor(() => expect(screen.getByText("飞书 · SuperHive 助手")).toBeTruthy());
-    expect(screen.queryByRole("radio", { name: "个人微信" })).toBeNull();
-    expect(screen.getByRole("radio", { name: "与我相关" }).getAttribute("aria-checked")).toBe(
-      "true",
-    );
-    expect(screen.getByText(/按档位未推 3 条/)).toBeTruthy();
+    renderDialog();
+    fireEvent.click(await screen.findByRole("button", { name: "新增连接" }));
+    expect(screen.getByRole("radio", { name: /飞书/ })).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: /个人微信/ })).toBeNull();
   });
 
-  it("切换推送档位", async () => {
-    const calls = mockServer((route) => {
-      if (route.url === "/api/im/channels")
-        return { feishu: { enabled: true }, wechat: { enabled: false } };
-      if (route.url === "/api/rooms/build/im")
-        return {
-          connections: [
-            {
-              id: "22222222-2222-4222-8222-222222222222",
-              roomId: "build",
-              channel: "feishu",
-              ownerName: "rd",
-              label: "SuperHive 助手",
-              status: "connected",
-              level: "mine",
-              delivery: { pending: 0, filtered: 0 },
-              createdAt: new Date().toISOString(),
-            },
-          ],
-        };
-      return {};
-    });
-    render(
-      <ImDialog
-        base="http://hive"
-        adminToken="t"
-        roomId="build"
-        ownerName="rd"
-        onClose={() => undefined}
-      />,
-    );
-    fireEvent.click(await screen.findByRole("radio", { name: "全部消息" }));
-    await waitFor(() =>
-      expect(calls.find((call) => call.url.endsWith("/level"))?.body).toEqual({ level: "all" }),
-    );
-  });
-});
-
-describe("连接 IM 弹窗的语言", () => {
-  const original = getLocalePreference();
-  afterEach(() => {
-    cleanup();
-    vi.unstubAllGlobals();
-    setLocalePreference(original);
-  });
-
-  it("服务端的结构化文案按网页语言显示，没有时用原文；可以切机器人的语言", async () => {
+  it("英文界面：状态、原因和服务端的结构化文案都按网页语言显示", async () => {
     setLocalePreference("en");
-    const connection = {
-      id: "22222222-2222-4222-8222-222222222222",
-      roomId: "build",
-      channel: "wechat",
-      ownerName: "rd",
-      label: "Personal WeChat",
+    const expired: ImConnection = {
+      ...wechat,
+      attention: "relogin",
       status: "error",
       detail: "微信登录已过期，请重新扫码连接。",
       detailText: { key: "error.im.wechatExpired" },
-      level: "mine",
-      locale: "zh-CN",
-      delivery: { pending: 0, failed: 0, sent: 0, filtered: 0 },
-      createdAt: "2026-11-10T00:00:00.000Z",
     };
-    const calls = mockServer((route) => {
+    mockServer((route) => {
       if (route.url === "/api/im/channels")
         return { feishu: { enabled: true }, wechat: { enabled: true } };
-      if (route.url === "/api/rooms/build/im") return { connections: [connection] };
-      if (route.url.endsWith("/locale")) return { ...connection, locale: "en" };
+      if (route.url === "/api/im/connections") return { connections: [expired, feishu] };
       return {};
     });
-    render(
-      <ImDialog
-        base="http://hive"
-        adminToken="t"
-        roomId="build"
-        ownerName="rd"
-        onClose={() => undefined}
-      />,
+    renderDialog();
+    const [card] = (await screen.findAllByRole("listitem")) as [HTMLElement];
+    expect(within(card).getByText("Scan again", { selector: ".im-health" })).toBeTruthy();
+    expect(within(card).getByRole("status").textContent).toContain(
+      "Your WeChat sign-in expired. Scan the QR code again to reconnect.",
     );
-    expect(
-      await screen.findByText(
-        /Your WeChat sign-in expired\. Scan the QR code again to reconnect\./,
-      ),
-    ).toBeTruthy();
     expect(screen.queryByText(/微信登录已过期/)).toBeNull();
-    fireEvent.click(screen.getByRole("radio", { name: "English" }));
-    await waitFor(() =>
-      expect(calls.find((call) => call.url.endsWith("/locale"))?.body).toEqual({ locale: "en" }),
-    );
+    // 「重新扫码」直接进新增连接，渠道选好
+    fireEvent.click(within(card).getByRole("button", { name: "Scan again" }));
+    expect(
+      screen.getByRole("radio", { name: /Personal WeChat|WeChat/ }).getAttribute("aria-checked"),
+    ).toBe("true");
   });
 });
