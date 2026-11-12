@@ -568,7 +568,10 @@ function ConnectionCard({
         <ChannelMark channel={connection.channel} />
         <div className="im-card-title">
           <strong>{connection.label}</strong>
-          <small>{IM_CHANNEL_LABELS[connection.channel]}</small>
+          {/* 个人微信的名称就是「个人微信」，不再重复一遍渠道 */}
+          {connection.label !== IM_CHANNEL_LABELS[connection.channel] && (
+            <small>{IM_CHANNEL_LABELS[connection.channel]}</small>
+          )}
         </div>
         <span className={`im-health ${health.tone}`}>
           <span className="im-health-dot" aria-hidden="true" />
