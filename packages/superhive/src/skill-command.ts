@@ -101,8 +101,9 @@ export function skillUninstallCommand(args: string[], home = homedir()): void {
     const result = uninstallSkill(target.id, { home });
     if (result.removed) {
       removedAny = true;
-      const tail =
-        result.leftovers.length > 0
+      const tail = result.restored
+        ? `，并放回了安装前你自己的那份（${path.basename(result.restored)} → SKILL.md）`
+        : result.leftovers.length > 0
           ? `（目录里还有 ${result.leftovers.join("、")}，保留未动）`
           : "";
       console.log(`${result.target.label}：已移除 ${result.path}${tail}`);

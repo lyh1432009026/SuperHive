@@ -98,16 +98,40 @@ describe("skill install", () => {
     ).toThrow(/未知的 Agent：“copilot”。支持：claude、codex、openclaw/);
   });
 
-  it("uninstall removes the managed file, its backup and the now-empty directory", () => {
+  it("uninstall removes the managed file and the now-empty directory", () => {
     agentHome(home, "claude");
     const options = { version: "1.2.3", skillText: SKILL_TEXT, home };
     const skillPath = installSkill("claude", options).path;
-    writeFileSync(`${skillPath}.bak`, "旧备份\n");
     const result = uninstallSkill("claude", { home });
     expect(result.removed).toBe(true);
+    expect(result.restored).toBeUndefined();
     expect(existsSync(skillPath)).toBe(false);
-    expect(existsSync(`${skillPath}.bak`)).toBe(false);
     expect(existsSync(path.dirname(skillPath))).toBe(false);
+  });
+
+  it("uninstall puts back the user's own SKILL.md that install backed up", () => {
+    agentHome(home, "claude");
+    const skillPath = path.join(home, ".claude", "skills", "superhive", "SKILL.md");
+    mkdirSync(path.dirname(skillPath), { recursive: true });
+    writeFileSync(skillPath, "用户手写的说明\n");
+    installSkill("claude", { version: "1.2.3", skillText: SKILL_TEXT, home });
+    const result = uninstallSkill("claude", { home });
+    expect(result.removed).toBe(true);
+    expect(result.restored).toBe(`${skillPath}.bak`);
+    expect(readFileSync(skillPath, "utf8")).toBe("用户手写的说明\n");
+    expect(existsSync(`${skillPath}.bak`)).toBe(false);
+  });
+
+  it("never overwrites an earlier backup when taking over again", () => {
+    agentHome(home, "claude");
+    const skillPath = path.join(home, ".claude", "skills", "superhive", "SKILL.md");
+    mkdirSync(path.dirname(skillPath), { recursive: true });
+    writeFileSync(`${skillPath}.bak`, "更早的备份\n");
+    writeFileSync(skillPath, "又一份手写的\n");
+    const result = installSkill("claude", { version: "1.2.3", skillText: SKILL_TEXT, home });
+    expect(result.backup).toBe(`${skillPath}.bak.1`);
+    expect(readFileSync(`${skillPath}.bak`, "utf8")).toBe("更早的备份\n");
+    expect(readFileSync(`${skillPath}.bak.1`, "utf8")).toBe("又一份手写的\n");
   });
 
   it("uninstall keeps the directory and reports leftovers when the user added files", () => {

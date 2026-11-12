@@ -133,7 +133,7 @@ hive skill status             # 查看各 Agent 装的版本
 npx --yes superhive@latest skill install   # 没全局安装时用 npx
 ```
 
-装好的文件带托管标记，`hive skill install` 会原地更新版本，`hive skill uninstall` 移除；如果目录里原来有一份手写的同名 SKILL.md，会先备份成 `SKILL.md.bak` 再接管。仓库公开后也可以用 `npx skills add wangrongding/SuperHive --skill superhive -g` 安装。
+装好的文件带托管标记，`hive skill install` 会原地更新版本，`hive skill uninstall` 移除；如果目录里原来有一份手写的同名 SKILL.md，会先备份成 `SKILL.md.bak` 再接管，`hive skill uninstall` 时再放回原处。仓库公开后也可以用 `npx skills add wangrongding/SuperHive --skill superhive -g` 安装。
 
 ### Agent 权限
 

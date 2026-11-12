@@ -1,6 +1,7 @@
 import {
   copyFileSync,
   existsSync,
+  renameSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -85,8 +86,9 @@ export function installSkill(
       writeFileSync(skillPath, desired);
       return { target, path: skillPath, outcome: "updated", fromVersion };
     }
-    // 没有 hive 标记：可能是用户手工放的（比如 hive --skill 重定向），备份一份再接管
-    const backup = `${skillPath}.bak`;
+    // 没有 hive 标记：可能是用户手工放的（比如 hive --skill 重定向），备份一份再接管；
+    // 已经有备份时另起名字，不覆盖之前那份
+    const backup = freeBackupPath(skillPath);
     copyFileSync(skillPath, backup);
     writeFileSync(skillPath, desired);
     return { target, path: skillPath, outcome: "took-over", backup };
@@ -95,12 +97,21 @@ export function installSkill(
   return { target, path: skillPath, outcome: "installed" };
 }
 
+/** 备份文件名：SKILL.md.bak，已被占用时依次 .bak.1、.bak.2… */
+function freeBackupPath(skillPath: string): string {
+  let candidate = `${skillPath}.bak`;
+  for (let index = 1; existsSync(candidate); index += 1) candidate = `${skillPath}.bak.${index}`;
+  return candidate;
+}
+
 export interface UninstallResult {
   target: SkillTarget;
   path: string;
   removed: boolean;
   /** 目录里还剩哪些文件（目录因此保留） */
   leftovers: string[];
+  /** 安装时备份过用户原来的 SKILL.md：卸载时放回原处 */
+  restored?: string;
   reason?: string;
 }
 
@@ -123,8 +134,13 @@ export function uninstallSkill(targetId: string, options: { home?: string } = {}
     };
   }
   rmSync(skillPath);
+  // 接管时备份过用户自己的 SKILL.md：卸载就是把它放回去，不能删
   const backup = `${skillPath}.bak`;
-  if (existsSync(backup)) rmSync(backup);
+  let restored: string | undefined;
+  if (existsSync(backup)) {
+    renameSync(backup, skillPath);
+    restored = backup;
+  }
   const leftovers = existsSync(skillDir) ? readdirSync(skillDir) : [];
   if (leftovers.length === 0) {
     try {
@@ -133,7 +149,7 @@ export function uninstallSkill(targetId: string, options: { home?: string } = {}
       /* 目录被别的进程占用时留着即可 */
     }
   }
-  return { target, path: skillPath, removed: true, leftovers };
+  return { target, path: skillPath, removed: true, leftovers, ...(restored ? { restored } : {}) };
 }
 
 export type SkillState = "agent-missing" | "none" | "current" | "outdated" | "foreign";
