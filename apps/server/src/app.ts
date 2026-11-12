@@ -3879,6 +3879,88 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   });
 
   /**
+   * HTML 附件预览：Agent（也可能是访客的 Agent）写的网页绝不能以网页本身的源运行，否则能读到
+   * localStorage 里的登录凭证。所以先凭现有读权限换一个短时 token，再用不需要鉴权的预览地址
+   * 返回原文，响应带 CSP sandbox（不含 allow-same-origin）：浏览器把它当成不透明源，即使在新标签页
+   * 直接打开也读不到网页的存储、发请求也带不上凭证。token 只在内存里，几分钟后失效。
+   */
+  const previewTokens = new Map<string, { attachmentId: string; expiresAt: number }>();
+  const PREVIEW_TTL_MS = 5 * 60_000;
+  const isHtmlAttachment = (item: StoredAttachment) =>
+    /\.html?$/i.test(item.name) || item.mime.startsWith("text/html");
+
+  app.post<{ Params: { id: string } }>("/api/attachments/:id/preview", async (request, reply) => {
+    const principal = guard(request, reply);
+    if (!principal) return;
+    const id = z.string().uuid().safeParse(request.params.id);
+    if (!id.success) {
+      return reply.code(404).send({
+        ...errorText(serverText("error.attachment.notFound")),
+        code: "ATTACHMENT_NOT_FOUND",
+      });
+    }
+    const result = readableAttachment(principal, id.data);
+    if (!("item" in result)) {
+      return reply.code(result.status).send({ error: result.error, code: result.code });
+    }
+    if (!isHtmlAttachment(result.item)) {
+      return reply.code(415).send({
+        ...errorText(serverText("error.attachment.previewUnsupported")),
+        code: "PREVIEW_UNSUPPORTED",
+      });
+    }
+    const now = clock();
+    for (const [token, entry] of previewTokens) {
+      if (entry.expiresAt <= now) previewTokens.delete(token);
+    }
+    const token = randomBytes(24).toString("base64url");
+    previewTokens.set(token, { attachmentId: result.item.id, expiresAt: now + PREVIEW_TTL_MS });
+    return reply
+      .header("Cache-Control", "no-store")
+      .send({ url: `/api/attachment-previews/${token}` });
+  });
+
+  app.get<{ Params: { token: string } }>(
+    "/api/attachment-previews/:token",
+    async (request, reply) => {
+      const entry = previewTokens.get(request.params.token);
+      const item =
+        entry && entry.expiresAt > clock() ? attachments.get(entry.attachmentId) : undefined;
+      if (!entry || !item || item.revokedAt || !existsSync(item.filePath)) {
+        if (entry && entry.expiresAt <= clock()) previewTokens.delete(request.params.token);
+        return reply
+          .code(404)
+          .header("Content-Type", "text/plain; charset=utf-8")
+          .header("Content-Security-Policy", "default-src 'none'; sandbox")
+          .send(zhText(serverText("error.attachment.previewExpired")));
+      }
+      reply
+        .header("Content-Type", "text/html; charset=utf-8")
+        .header("Content-Disposition", "inline")
+        .header("X-Content-Type-Options", "nosniff")
+        .header("Cache-Control", "no-store")
+        .header("Referrer-Policy", "no-referrer")
+        // 先设好 CSP，onSend 里网页自己的 CSP 只在没有时才加，不会覆盖这条
+        .header(
+          "Content-Security-Policy",
+          [
+            "sandbox allow-scripts allow-popups allow-forms allow-modals",
+            "default-src https: data: blob:",
+            "script-src 'unsafe-inline' 'unsafe-eval' https: blob:",
+            "style-src 'unsafe-inline' https:",
+            "img-src https: data: blob:",
+            "font-src https: data:",
+            "media-src https: data: blob:",
+            "connect-src https:",
+            "frame-ancestors 'self'",
+            "base-uri 'none'",
+          ].join("; "),
+        );
+      return reply.send(createReadStream(item.filePath));
+    },
+  );
+
+  /**
    * 与 Server 同在一台电脑上的房主 Agent 直接拿 Server 存的那份文件路径，不再下载第二份；
    * 远程 Bridge 拿不到这个接口，改为下载到自己机器上的缓存。
    */

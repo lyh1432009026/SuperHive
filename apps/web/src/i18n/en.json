@@ -1159,5 +1159,9 @@
   "仅当前房间": "Current room only",
   "你所在的所有房间都会推过来，其他房间的卡片标成橙色，点卡片上的按钮就能切过去；直接回复卡片会发到那个房间": "You'll get messages from every room you're in. Cards from other rooms are orange: tap the button on a card to switch there, or reply to the card to post in that room.",
   "只推当前房间 {0} 的消息；在 IM 里发 /scope all 改回所有房间": "Only messages from the current room, {0}. Send /scope all in the chat to hear from every room again.",
-  "全部关闭": "Dismiss all"
+  "全部关闭": "Dismiss all",
+  "预览方式": "Preview mode",
+  "页面": "Page",
+  "源码": "Source",
+  "新窗口打开": "Open in new window"
 }

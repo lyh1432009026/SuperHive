@@ -185,6 +185,56 @@ describe("附件", () => {
     expect(binary).toMatchObject({ kind: "file", mime: "application/octet-stream" });
   });
 
+  it("HTML 附件可换短时预览链接：只给 html、按读权限、过期失效，响应是不透明源的 sandbox 页面", async () => {
+    const { upload, join, sendMessage, guest, base, advance } = await start();
+    const owner = await join("rd", "human");
+    const alice = await guest("alice");
+    const outsider = await guest("eve", "secret");
+    const preview = (id: string, headers: Record<string, string> = OWNER) =>
+      fetch(`${base}/api/attachments/${id}/preview`, { method: "POST", headers });
+    const page = "<!doctype html><script>document.title = 'ok'</script><h1>Hi</h1>";
+    const html = (await upload("report.html", page)).body;
+    const text = (await upload("notes.txt", "hello")).body;
+    created(
+      await sendMessage(owner, {
+        clientMessageId: "html",
+        content: "看看",
+        attachmentIds: [html.id, text.id],
+      }),
+    );
+
+    // 只有 html 能预览；没有读权限的拿不到；不带凭证不行
+    expect((await preview(text.id)).status).toBe(415);
+    expect((await preview(html.id, outsider.headers)).status).toBe(403);
+    expect((await preview(html.id, {})).status).toBe(401);
+
+    // 同房间的访客和下载权限一致，也能预览
+    const granted = await preview(html.id, alice.headers);
+    expect(granted.status).toBe(200);
+    const { url } = (await granted.json()) as { url: string };
+    expect(url).toMatch(/^\/api\/attachment-previews\/[\w-]{20,}$/);
+
+    // 预览地址本身不需要凭证，返回原文和 sandbox CSP（没有 allow-same-origin，onSend 没覆盖它）
+    const served = await fetch(`${base}${url}`);
+    expect(served.status).toBe(200);
+    expect(served.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(served.headers.get("content-disposition")).toBe("inline");
+    expect(served.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(served.headers.get("cache-control")).toBe("no-store");
+    expect(served.headers.get("referrer-policy")).toBe("no-referrer");
+    const policy = served.headers.get("content-security-policy") ?? "";
+    expect(policy).toMatch(/^sandbox allow-scripts allow-popups allow-forms allow-modals;/);
+    expect(policy).not.toContain("allow-same-origin");
+    expect(policy).toContain("frame-ancestors 'self'");
+    expect(policy).not.toContain("script-src 'self'");
+    expect(await served.text()).toBe(page);
+
+    // 猜不到的 token、过期后的 token 都是 404
+    expect((await fetch(`${base}/api/attachment-previews/nope`)).status).toBe(404);
+    advance(5 * 60_000 + 1);
+    expect((await fetch(`${base}${url}`)).status).toBe(404);
+  });
+
   it("重发同一条消息幂等；附件不能被第二条消息再用；空消息被拒", async () => {
     const { upload, join, sendMessage } = await start();
     const owner = await join("rd", "human");

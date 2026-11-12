@@ -248,4 +248,66 @@ describe("文件预览", () => {
     // 不能预览的照旧是下载
     expect(screen.getByRole("button", { name: "下载 data.zip" })).toBeTruthy();
   });
+
+  it("HTML 默认显示渲染后的页面（sandbox iframe、不同源），可切到源码，新窗口打开会重新申请预览链接", async () => {
+    const calls: Array<{ url: string; method: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, method: init?.method ?? "GET" });
+        if (url.endsWith("/preview")) {
+          return new Response(
+            JSON.stringify({ url: `/api/attachment-previews/tok${calls.length}` }),
+          );
+        }
+        return new Response("<h1>Hello</h1>");
+      }),
+    );
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:preview" }));
+    const opened = { opener: {} as unknown, location: { href: "" }, close: vi.fn() };
+    const open = vi.fn(() => opened);
+    vi.stubGlobal("open", open);
+    render(
+      <MessageAttachments
+        attachments={[
+          file("00000000-0000-4000-8000-0000000000b1", "page.html", "text", "text/plain"),
+        ]}
+        base="http://hive"
+        token="t"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "预览 page.html" }));
+    const frame = await vi.waitFor(() => {
+      const element = document.querySelector<HTMLIFrameElement>("iframe.file-preview-page");
+      if (!element) throw new Error("no iframe");
+      return element;
+    });
+    expect(frame.getAttribute("src")).toMatch(/^http:\/\/hive\/api\/attachment-previews\/tok/);
+    expect(frame.getAttribute("sandbox")).toBe(
+      "allow-scripts allow-popups allow-forms allow-modals",
+    );
+    expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin");
+    expect(calls).toContainEqual({
+      url: "http://hive/api/attachments/00000000-0000-4000-8000-0000000000b1/preview",
+      method: "POST",
+    });
+
+    // 切到源码：按 html 高亮的代码
+    fireEvent.click(screen.getByRole("radio", { name: "源码" }));
+    expect(document.querySelector("iframe.file-preview-page")).toBeNull();
+    await vi.waitFor(() =>
+      expect(document.querySelector(".file-preview-text code")?.textContent).toContain("<h1>"),
+    );
+
+    // 新窗口打开：同步开窗、切断 opener，再换一个新的预览链接跳过去
+    const before = calls.filter((call) => call.url.endsWith("/preview")).length;
+    fireEvent.click(screen.getByRole("button", { name: "新窗口打开" }));
+    expect(open).toHaveBeenCalledWith("", "_blank");
+    expect(opened.opener).toBeNull();
+    await vi.waitFor(() =>
+      expect(opened.location.href).toMatch(/^http:\/\/hive\/api\/attachment-previews\/tok/),
+    );
+    expect(calls.filter((call) => call.url.endsWith("/preview")).length).toBe(before + 1);
+  });
 });

@@ -404,12 +404,38 @@ function ImageAttachment({
   );
 }
 
-/** 页面内能预览的：文本类（含代码、Markdown）和 PDF；其他照旧下载 */
-export function previewKind(attachment: Attachment): "markdown" | "text" | "pdf" | undefined {
+/** 页面内能预览的：网页（HTML）、文本类（含代码、Markdown）和 PDF；其他照旧下载 */
+export function previewKind(
+  attachment: Attachment,
+): "html" | "markdown" | "text" | "pdf" | undefined {
   if (attachment.mime === "application/pdf") return "pdf";
   if (attachment.kind !== "text") return undefined;
+  if (/\.html?$/i.test(attachment.name)) return "html";
   return /\.(md|markdown|mdx)$/i.test(attachment.name) ? "markdown" : "text";
 }
+
+/**
+ * HTML 附件的预览地址：凭登录换一个几分钟内有效的 token。预览页由服务端带 CSP sandbox 返回，
+ * 是不透明源，读不到这个网页的 localStorage、发请求也带不上凭证；绝不能用同源的 blob 或 srcdoc 打开
+ */
+async function fetchHtmlPreviewUrl(base: string, token: string, id: string): Promise<string> {
+  const response = await fetch(`${base}/api/attachments/${id}/preview`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new Error(
+      response.status === 410
+        ? t("附件已撤回或过期")
+        : t("无法读取附件（{0}）", { 0: response.status }),
+    );
+  }
+  const { url } = (await response.json()) as { url: string };
+  return `${base}${url}`;
+}
+
+/** iframe 也加一道 sandbox：和服务端 CSP 一样，允许脚本、弹窗、表单，但不给同源 */
+const HTML_PREVIEW_SANDBOX = "allow-scripts allow-popups allow-forms allow-modals";
 
 /** 文本预览最多显示这么多字，再长的请下载看全文 */
 const PREVIEW_TEXT_LIMIT = 200_000;
@@ -444,6 +470,37 @@ function FilePreview({
 }) {
   const kind = previewKind(attachment)!;
   const { url, error } = useAttachmentUrl(base, token, attachment.id, true);
+  // HTML 默认看渲染后的页面，可以切回源码
+  const [htmlView, setHtmlView] = useState<"page" | "source">("page");
+  const [pageUrl, setPageUrl] = useState<{ url?: string; error?: string }>({});
+  useEffect(() => {
+    if (kind !== "html" || !token) return;
+    let alive = true;
+    fetchHtmlPreviewUrl(base, token, attachment.id).then(
+      (value) => alive && setPageUrl({ url: value }),
+      (cause: unknown) =>
+        alive && setPageUrl({ error: cause instanceof Error ? cause.message : String(cause) }),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [attachment.id, base, kind, token]);
+  // 新窗口打开：先同步开窗（避免被拦截），拿到新的预览链接后再跳过去，并切断和本页的联系
+  function openInNewWindow() {
+    if (!token) return;
+    const opened = window.open("", "_blank");
+    if (opened) opened.opener = null;
+    fetchHtmlPreviewUrl(base, token, attachment.id).then(
+      (value) => {
+        if (opened) opened.location.href = value;
+        else window.open(value, "_blank", "noopener");
+      },
+      (cause: unknown) => {
+        opened?.close();
+        setDownloadError(cause instanceof Error ? cause.message : String(cause));
+      },
+    );
+  }
   const [text, setText] = useState<{ value: string; clipped: boolean }>();
   const [downloadError, setDownloadError] = useState<string>();
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -479,6 +536,20 @@ function FilePreview({
 
   const body = error ? (
     <p className="file-preview-status danger">{error}</p>
+  ) : kind === "html" && htmlView === "page" ? (
+    pageUrl.error ? (
+      <p className="file-preview-status danger">{pageUrl.error}</p>
+    ) : pageUrl.url ? (
+      <iframe
+        className="file-preview-page"
+        src={pageUrl.url}
+        sandbox={HTML_PREVIEW_SANDBOX}
+        referrerPolicy="no-referrer"
+        title={attachment.name}
+      />
+    ) : (
+      <p className="file-preview-status">{t("加载中…")}</p>
+    )
   ) : kind === "pdf" ? (
     url ? (
       <iframe className="file-preview-pdf" src={url} title={attachment.name} />
@@ -523,6 +594,27 @@ function FilePreview({
               {downloadError ?? formatBytes(attachment.size)}
             </small>
           </span>
+          {kind === "html" && (
+            <>
+              <div className="file-preview-views" role="radiogroup" aria-label={t("预览方式")}>
+                {(["page", "source"] as const).map((view) => (
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={htmlView === view}
+                    className={htmlView === view ? "active" : ""}
+                    onClick={() => setHtmlView(view)}
+                    key={view}
+                  >
+                    {view === "page" ? t("页面") : t("源码")}
+                  </button>
+                ))}
+              </div>
+              <button type="button" onClick={openInNewWindow}>
+                {t("新窗口打开")}
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={() => {

@@ -516,6 +516,37 @@
   margin: 0;
 }
 
+/* HTML 预览：iframe 里是服务端给的 sandbox 页面，背景固定白色，和一般网页一样 */
+.file-preview-page {
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  border: 0;
+  background: #fff;
+}
+
+.file-preview-views {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--border-heavy);
+  border-radius: var(--radius-md);
+}
+
+.file-preview-header .file-preview-views button {
+  min-height: 30px;
+  border: 0;
+  border-radius: 0;
+}
+
+.file-preview-header .file-preview-views button + button {
+  border-left: 1px solid var(--border-heavy);
+}
+
+.file-preview-header .file-preview-views button.active {
+  background: var(--bg-active);
+  font-weight: var(--weight-medium);
+}
+
 .file-preview-pdf {
   width: 100%;
   min-height: 0;

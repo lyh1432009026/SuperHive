@@ -423,6 +423,14 @@ export const serverTexts = {
     zh: "附件文件已被清理。",
     en: "The attachment file has been cleaned up.",
   },
+  "error.attachment.previewUnsupported": {
+    zh: "只有 HTML 附件能预览成网页。",
+    en: "Only HTML attachments can be previewed as a page.",
+  },
+  "error.attachment.previewExpired": {
+    zh: "预览链接已过期，请重新打开预览。",
+    en: "This preview link has expired. Open the preview again.",
+  },
   "error.attachment.localOnly": {
     zh: "只提供给本机的房主 Agent。",
     en: "Only available to the owner's agents on this computer.",
