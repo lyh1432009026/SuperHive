@@ -320,28 +320,24 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
-  margin: 0;
 }
 
-.im-card-facts div {
+/* 每项：上面一行小标签，下面是下拉；下拉本身显示当前值，点开就能改 */
+.im-fact {
+  display: grid;
   min-width: 0;
-  border-radius: var(--radius-md, 8px);
-  padding: 8px 10px;
-  background: var(--bg-main);
+  gap: 4px;
 }
 
-.im-card-facts dt {
+.im-fact-label {
+  padding-left: 2px;
   color: var(--text-tertiary);
   font-size: var(--text-xs);
 }
 
-.im-card-facts dd {
-  margin: 2px 0 0;
-  overflow: hidden;
-  color: var(--text);
-  font-size: var(--text-sm);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.im-fact-select {
+  width: 100%;
+  min-width: 0;
 }
 
 .im-card-activity {
@@ -395,8 +391,7 @@
   flex: 1;
 }
 
-.im-card-actions .ghost,
-.im-settings-toggle {
+.im-card-actions .ghost {
   height: 30px;
   padding: 0 12px;
   border: 1px solid var(--border);
@@ -407,77 +402,12 @@
   cursor: pointer;
 }
 
-.im-card-actions .ghost:hover,
-.im-settings-toggle:hover {
+.im-card-actions .ghost:hover {
   background: var(--bg-hover);
 }
 
 .im-card-actions .ghost.danger {
   color: var(--danger);
-}
-
-.im-settings-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.im-chevron {
-  transition: transform var(--duration, 0.15s) var(--ease-out, ease);
-}
-
-.im-chevron.open {
-  transform: rotate(180deg);
-}
-
-.im-settings {
-  display: grid;
-  gap: 2px;
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-  animation: pop-in var(--duration) var(--ease-out);
-}
-
-.im-setting {
-  display: grid;
-  grid-template-columns: minmax(160px, 220px) minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
-  padding: 10px 0;
-}
-
-.im-setting + .im-setting {
-  border-top: 1px dashed var(--border);
-}
-
-.im-setting-copy {
-  display: grid;
-  gap: 4px;
-}
-
-.im-setting-copy strong {
-  color: var(--text);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-}
-
-.im-setting-copy small {
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-  line-height: 1.5;
-}
-
-.im-setting-control {
-  min-width: 0;
-}
-
-.im-setting-control .duration-segments > button {
-  min-height: 30px;
-  font-size: var(--text-xs);
-}
-
-.im-room-select {
-  max-width: 320px;
 }
 
 .im-empty {
@@ -602,11 +532,6 @@
 
   .im-card-facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .im-setting {
-    grid-template-columns: 1fr;
-    gap: 8px;
   }
 
   .im-empty-actions {

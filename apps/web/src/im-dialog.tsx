@@ -43,27 +43,6 @@ function BackGlyph() {
   );
 }
 
-function ChevronGlyph({ open }: { open: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      aria-hidden="true"
-      className={open ? "im-chevron open" : "im-chevron"}
-    >
-      <path
-        d="m4 6 4 4 4-4"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 /** 渠道图标：飞书蓝、微信绿的圆角方块里一个字，不依赖外部图片 */
 function ChannelMark({ channel }: { channel: ImChannel }) {
   return (
@@ -212,7 +191,6 @@ export function ImDialog({
   const [login, setLogin] = useState<ImLoginView>();
   const [code, setCode] = useState("");
   const [error, setError] = useState<string>();
-  const [expanded, setExpanded] = useState<string>();
   const loginRef = useRef<ImLoginView | undefined>(undefined);
   loginRef.current = login;
 
@@ -377,12 +355,6 @@ export function ImDialog({
                     key={connection.id}
                     connection={connection}
                     rooms={rooms}
-                    expanded={expanded === connection.id}
-                    onToggle={() =>
-                      setExpanded((current) =>
-                        current === connection.id ? undefined : connection.id,
-                      )
-                    }
                     onPause={(paused) =>
                       update(setImConnectionPaused(base, adminToken, connection.id, paused))
                     }
@@ -474,55 +446,13 @@ function EmptyState({
   );
 }
 
-function Segments<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: T;
-  options: ReadonlyArray<{ value: T; label: string; title?: string; lang?: string }>;
-  onChange: (value: T) => void;
-}) {
+function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="duration-segments" role="radiogroup" aria-label={label}>
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          role="radio"
-          aria-checked={value === option.value}
-          className={value === option.value ? "on" : ""}
-          {...(option.title ? { title: option.title } : {})}
-          {...(option.lang ? { lang: option.lang } : {})}
-          onClick={() => {
-            if (value !== option.value) onChange(option.value);
-          }}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function SettingRow({
-  title,
-  hint,
-  children,
-}: {
-  title: string;
-  hint?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="im-setting">
-      <div className="im-setting-copy">
-        <strong>{title}</strong>
-        {hint && <small>{hint}</small>}
-      </div>
-      <div className="im-setting-control">{children}</div>
+    <div className="im-fact">
+      <span className="im-fact-label" aria-hidden="true">
+        {label}
+      </span>
+      {children}
     </div>
   );
 }
@@ -530,8 +460,6 @@ function SettingRow({
 function ConnectionCard({
   connection,
   rooms,
-  expanded,
-  onToggle,
   onPause,
   onRescan,
   onRemove,
@@ -542,8 +470,6 @@ function ConnectionCard({
 }: {
   connection: ImConnection;
   rooms: RoomOption[];
-  expanded: boolean;
-  onToggle: () => void;
   onPause: (paused: boolean) => void;
   onRescan: () => void;
   onRemove: () => void;
@@ -555,14 +481,11 @@ function ConnectionCard({
   const health = connectionHealth(connection);
   const scope = connection.scope ?? "all";
   const locale = connection.locale ?? "zh-CN";
-  const level = IM_LEVELS.find((item) => item.level === connection.level);
-  const settingsId = `im-settings-${connection.id}`;
   const roomName = connection.roomName ?? connection.roomId;
   // 默认房间的候选：当前这个一定在里面
   const roomOptions = rooms.some((room) => room.id === connection.roomId)
     ? rooms
     : [{ id: connection.roomId, name: roomName }, ...rooms];
-  const localeName = LOCALE_OPTIONS.find((option) => option.value === locale)?.label ?? locale;
   return (
     <li className={`im-card ${health.tone}`}>
       <div className="im-card-head">
@@ -580,24 +503,79 @@ function ConnectionCard({
         </span>
       </div>
 
-      <dl className="im-card-facts">
-        <div>
-          <dt>{t("默认房间")}</dt>
-          <dd># {roomName}</dd>
-        </div>
-        <div>
-          <dt>{t("接收")}</dt>
-          <dd>{scope === "all" ? t("所有房间") : t("仅默认房间")}</dd>
-        </div>
-        <div>
-          <dt>{t("推送")}</dt>
-          <dd>{level?.label ?? connection.level}</dd>
-        </div>
-        <div>
-          <dt>{t("语言")}</dt>
-          <dd>{localeName}</dd>
-        </div>
-      </dl>
+      {/* 四项设置直接做成下拉：一眼看到当前值，点开就能改，不用再展开「设置」 */}
+      <div className="im-card-facts">
+        <Fact label={t("默认房间")}>
+          <Select
+            className="im-fact-select"
+            aria-label={t("默认房间")}
+            value={connection.roomId}
+            options={roomOptions.map((room) => ({
+              value: room.id,
+              label: `# ${room.name}`,
+            }))}
+            onChange={(next) => {
+              if (next !== connection.roomId) onRoom(next);
+            }}
+          />
+        </Fact>
+        <Fact label={t("接收")}>
+          <Select
+            className="im-fact-select"
+            aria-label={t("接收哪些房间")}
+            value={scope}
+            options={[
+              {
+                value: "all",
+                label: t("所有房间"),
+                description: t(
+                  "你所在的所有房间都会推过来，其他房间的卡片标成橙色；直接回复卡片会发到那个房间",
+                ),
+              },
+              { value: "current", label: t("仅默认房间"), description: t("只推默认房间的消息") },
+            ]}
+            onChange={(next) => {
+              if (next !== scope) onScope(next);
+            }}
+          />
+        </Fact>
+        <Fact label={t("推送")}>
+          <Select
+            className="im-fact-select"
+            aria-label={t("推送档位")}
+            value={connection.level}
+            options={IM_LEVELS.map((item) => ({
+              value: item.level,
+              label: item.label,
+              description: item.hint,
+            }))}
+            onChange={(next) => {
+              if (next !== connection.level) onLevel(next);
+            }}
+          />
+        </Fact>
+        <Fact label={t("语言")}>
+          <Select
+            className="im-fact-select"
+            aria-label={t("机器人语言")}
+            value={locale}
+            options={LOCALE_OPTIONS.flatMap((option) =>
+              option.value === "system"
+                ? []
+                : [
+                    {
+                      value: option.value,
+                      label: option.label,
+                      description: t("卡片、按钮和提示用这个语言；在 IM 里发 /lang 也能切换"),
+                    },
+                  ],
+            )}
+            onChange={(next) => {
+              if (next !== locale) onLocale(next);
+            }}
+          />
+        </Fact>
+      </div>
 
       <p className="im-card-activity">
         {[
@@ -626,16 +604,6 @@ function ConnectionCard({
       )}
 
       <div className="im-card-actions">
-        <button
-          type="button"
-          className="im-settings-toggle"
-          aria-expanded={expanded}
-          aria-controls={settingsId}
-          onClick={onToggle}
-        >
-          {t("设置")}
-          <ChevronGlyph open={expanded} />
-        </button>
         <span className="im-card-spacer" />
         {connection.attention === "relogin" && (
           <button type="button" className="ghost" onClick={onRescan}>
@@ -658,72 +626,6 @@ function ConnectionCard({
           {t("断开")}
         </button>
       </div>
-
-      {expanded && (
-        <div className="im-settings" id={settingsId}>
-          <SettingRow
-            title={t("默认房间")}
-            hint={t("在 IM 里直接发的消息进这个房间；也可以在 IM 里发 /room 切换")}
-          >
-            <Select
-              className="im-room-select"
-              aria-label={t("默认房间")}
-              value={connection.roomId}
-              options={roomOptions.map((room) => ({ value: room.id, label: `# ${room.name}` }))}
-              onChange={(next) => {
-                if (next !== connection.roomId) onRoom(next);
-              }}
-            />
-          </SettingRow>
-          <SettingRow
-            title={t("接收哪些房间")}
-            hint={
-              scope === "all"
-                ? t(
-                    "你所在的所有房间都会推过来，其他房间的卡片标成橙色；直接回复卡片会发到那个房间",
-                  )
-                : t("只推默认房间的消息")
-            }
-          >
-            <Segments
-              label={t("接收哪些房间")}
-              value={scope}
-              options={[
-                { value: "all", label: t("所有房间") },
-                { value: "current", label: t("仅默认房间") },
-              ]}
-              onChange={onScope}
-            />
-          </SettingRow>
-          <SettingRow title={t("推送档位")} {...(level ? { hint: level.hint } : {})}>
-            <Segments
-              label={t("推送档位")}
-              value={connection.level}
-              options={IM_LEVELS.map((item) => ({
-                value: item.level,
-                label: item.label,
-                title: item.hint,
-              }))}
-              onChange={onLevel}
-            />
-          </SettingRow>
-          <SettingRow
-            title={t("机器人语言")}
-            hint={t("卡片、按钮和提示用这个语言；在 IM 里发 /lang 也能切换")}
-          >
-            <Segments
-              label={t("机器人语言")}
-              value={locale}
-              options={LOCALE_OPTIONS.flatMap((option) =>
-                option.value === "system"
-                  ? []
-                  : [{ value: option.value, label: option.label, lang: option.value }],
-              )}
-              onChange={onLocale}
-            />
-          </SettingRow>
-        </div>
-      )}
     </li>
   );
 }

@@ -112,7 +112,7 @@ describe("我的 IM 连接", () => {
     expect(within(second).getByText(/待发 5 条/)).toBeTruthy();
   });
 
-  it("设置收在卡片里：展开后改默认房间、接收范围、推送档位、语言", async () => {
+  it("卡片上四项直接是下拉：显示当前值，选了就改默认房间、接收范围、推送档位、语言", async () => {
     const calls = mockServer((route) => {
       if (route.url === "/api/im/channels")
         return { feishu: { enabled: true }, wechat: { enabled: false } };
@@ -123,16 +123,18 @@ describe("我的 IM 连接", () => {
       { id: "build", name: "build" },
       { id: "autoclaw-web", name: "autoclaw-web" },
     ]);
-    const toggle = await screen.findByRole("button", { name: "设置" });
-    expect(screen.queryByRole("radiogroup", { name: "推送档位" })).toBeNull();
-    fireEvent.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-
-    fireEvent.click(screen.getByRole("combobox", { name: "默认房间" }));
-    fireEvent.click(await screen.findByRole("option", { name: "# build" }));
-    fireEvent.click(screen.getByRole("radio", { name: "全部 Agent" }));
-    fireEvent.click(screen.getByRole("radio", { name: "仅默认房间" }));
-    fireEvent.click(screen.getByRole("radio", { name: "English" }));
+    const room = await screen.findByRole("combobox", { name: "默认房间" });
+    // 不用展开：当前值直接显示在下拉上
+    expect(screen.queryByRole("button", { name: "设置" })).toBeNull();
+    expect(room.textContent).toContain("# autoclaw-web");
+    const pick = async (combobox: string, option: RegExp) => {
+      fireEvent.click(screen.getByRole("combobox", { name: combobox }));
+      fireEvent.click(await screen.findByRole("option", { name: option }));
+    };
+    await pick("默认房间", /^# build/);
+    await pick("推送档位", /^全部 Agent/);
+    await pick("接收哪些房间", /^仅默认房间/);
+    await pick("机器人语言", /^English/);
     await waitFor(() =>
       expect(calls.filter((call) => call.method === "POST").map((call) => call.body)).toEqual([
         { roomId: "build" },

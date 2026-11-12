@@ -1163,7 +1163,6 @@
   "最近推送成功 {0}": "Last push delivered {0}",
   "{0}已连接": "{0} connected",
   "还没有连接 IM": "No IM connected yet",
-  "在 IM 里直接发的消息进这个房间；也可以在 IM 里发 /room 切换": "Messages you send in the chat go to this room. You can also switch with /room in the chat",
   "仅默认房间": "Default room only",
   "正常": "Working",
   "个人微信只能在你给机器人发过消息之后推送，隔一阵或推了几条就得再发一次。在微信里给「{0}」随便发一句，暂停期间的推送会合成一条补发过来。": "Personal WeChat can only push after you've messaged the bot, and you need to message it again after a while or a few pushes. Send \"{0}\" anything in WeChat and the missed pushes will arrive in one message.",
