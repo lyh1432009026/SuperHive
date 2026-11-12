@@ -107,8 +107,8 @@
 /* ---------- 邀请弹窗 ---------- */
 .invite-dialog {
   position: relative;
-  width: min(600px, 100%);
-  max-height: min(780px, calc(100dvh - 48px));
+  width: min(var(--dialog-width), 100%);
+  max-height: var(--dialog-max-height);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;

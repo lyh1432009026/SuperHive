@@ -134,3 +134,8 @@
   font-size: var(--text-xs);
   line-height: 1.5;
 }
+
+/* IM 弹窗：每个连接一行要放状态、档位、语言、接收范围，用宽一档的弹窗 */
+.invite-dialog.im-dialog {
+  width: min(var(--dialog-width-wide), 100%);
+}
