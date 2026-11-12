@@ -128,11 +128,8 @@ describe("我的 IM 连接", () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
 
-    fireEvent.click(
-      within(screen.getByRole("radiogroup", { name: "默认房间" })).getByRole("radio", {
-        name: "# build",
-      }),
-    );
+    fireEvent.click(screen.getByRole("combobox", { name: "默认房间" }));
+    fireEvent.click(await screen.findByRole("option", { name: "# build" }));
     fireEvent.click(screen.getByRole("radio", { name: "全部 Agent" }));
     fireEvent.click(screen.getByRole("radio", { name: "仅默认房间" }));
     fireEvent.click(screen.getByRole("radio", { name: "English" }));

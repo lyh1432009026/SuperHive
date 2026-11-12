@@ -18,6 +18,7 @@ import {
   submitImLoginCode,
 } from "./im-api";
 import { LOCALE_OPTIONS, getLocale, localized, t } from "./i18n";
+import { Select } from "./select";
 
 function CloseGlyph() {
   return (
@@ -664,22 +665,15 @@ function ConnectionCard({
             title={t("默认房间")}
             hint={t("在 IM 里直接发的消息进这个房间；也可以在 IM 里发 /room 切换")}
           >
-            <div className="im-room-chips" role="radiogroup" aria-label={t("默认房间")}>
-              {roomOptions.map((room) => (
-                <button
-                  key={room.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={room.id === connection.roomId}
-                  className={room.id === connection.roomId ? "on" : ""}
-                  onClick={() => {
-                    if (room.id !== connection.roomId) onRoom(room.id);
-                  }}
-                >
-                  # {room.name}
-                </button>
-              ))}
-            </div>
+            <Select
+              className="im-room-select"
+              aria-label={t("默认房间")}
+              value={connection.roomId}
+              options={roomOptions.map((room) => ({ value: room.id, label: `# ${room.name}` }))}
+              onChange={(next) => {
+                if (next !== connection.roomId) onRoom(next);
+              }}
+            />
           </SettingRow>
           <SettingRow
             title={t("接收哪些房间")}

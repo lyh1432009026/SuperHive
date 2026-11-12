@@ -476,34 +476,8 @@
   font-size: var(--text-xs);
 }
 
-.im-room-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  max-height: 132px;
-  overflow-y: auto;
-}
-
-.im-room-chips button {
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-  cursor: pointer;
-}
-
-.im-room-chips button:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.im-room-chips button.on {
-  border-color: var(--text);
-  background: var(--text);
-  color: var(--bg-main);
+.im-room-select {
+  max-width: 320px;
 }
 
 .im-empty {
