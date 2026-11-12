@@ -309,5 +309,15 @@ describe("文件预览", () => {
       expect(opened.location.href).toMatch(/^http:\/\/hive\/api\/attachment-previews\/tok/),
     );
     expect(calls.filter((call) => call.url.endsWith("/preview")).length).toBe(before + 1);
+
+    // 放大：铺满窗口，选择记在本机，再点还原
+    const backdrop = () => document.querySelector(".file-preview-backdrop")!;
+    expect(backdrop().classList.contains("maximized")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "放大预览" }));
+    expect(backdrop().classList.contains("maximized")).toBe(true);
+    expect(localStorage.getItem("superhive.preview-maximized")).toBe("1");
+    fireEvent.click(screen.getByRole("button", { name: "还原大小" }));
+    expect(backdrop().classList.contains("maximized")).toBe(false);
+    expect(localStorage.getItem("superhive.preview-maximized")).toBeNull();
   });
 });

@@ -1163,5 +1163,7 @@
   "预览方式": "Preview mode",
   "页面": "Page",
   "源码": "Source",
-  "新窗口打开": "Open in new window"
+  "新窗口打开": "Open in new window",
+  "还原大小": "Restore size",
+  "放大预览": "Maximize"
 }

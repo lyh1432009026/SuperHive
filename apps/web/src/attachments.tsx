@@ -437,6 +437,25 @@ async function fetchHtmlPreviewUrl(base: string, token: string, id: string): Pro
 /** iframe 也加一道 sandbox：和服务端 CSP 一样，允许脚本、弹窗、表单，但不给同源 */
 const HTML_PREVIEW_SANDBOX = "allow-scripts allow-popups allow-forms allow-modals";
 
+const PREVIEW_MAXIMIZED_KEY = "superhive.preview-maximized";
+
+function loadPreviewMaximized(): boolean {
+  try {
+    return localStorage.getItem(PREVIEW_MAXIMIZED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function savePreviewMaximized(value: boolean) {
+  try {
+    if (value) localStorage.setItem(PREVIEW_MAXIMIZED_KEY, "1");
+    else localStorage.removeItem(PREVIEW_MAXIMIZED_KEY);
+  } catch {
+    // 存不了就只在这次生效
+  }
+}
+
 /** 文本预览最多显示这么多字，再长的请下载看全文 */
 const PREVIEW_TEXT_LIMIT = 200_000;
 
@@ -472,6 +491,14 @@ function FilePreview({
   const { url, error } = useAttachmentUrl(base, token, attachment.id, true);
   // HTML 默认看渲染后的页面，可以切回源码
   const [htmlView, setHtmlView] = useState<"page" | "source">("page");
+  // 放大：铺满窗口，选择记在本机，下次打开预览照旧
+  const [maximized, setMaximized] = useState(loadPreviewMaximized);
+  const toggleMaximized = useCallback(() => {
+    setMaximized((current) => {
+      savePreviewMaximized(!current);
+      return !current;
+    });
+  }, []);
   const [pageUrl, setPageUrl] = useState<{ url?: string; error?: string }>({});
   useEffect(() => {
     if (kind !== "html" || !token) return;
@@ -577,7 +604,7 @@ function FilePreview({
 
   return createPortal(
     <div
-      className="file-preview-backdrop"
+      className={`file-preview-backdrop${maximized ? " maximized" : ""}`}
       role="dialog"
       aria-modal="true"
       aria-label={t("预览 {0}", { 0: attachment.name })}
@@ -626,6 +653,22 @@ function FilePreview({
             }}
           >
             {t("下载")}
+          </button>
+          <button
+            type="button"
+            className="file-preview-size"
+            aria-pressed={maximized}
+            aria-label={maximized ? t("还原大小") : t("放大预览")}
+            title={maximized ? t("还原大小") : t("放大预览")}
+            onClick={toggleMaximized}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              {maximized ? (
+                <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+              ) : (
+                <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+              )}
+            </svg>
           </button>
           <button
             ref={closeRef}
