@@ -1754,6 +1754,25 @@ export function App({
     () => buildTimeline(hiddenCount > 0 ? topicMessages.slice(-visibleLimit) : topicMessages),
     [topicMessages, visibleLimit, hiddenCount],
   );
+  // 点「显示更早」把更早的消息插到上方：浏览器在贴顶（scrollTop=0，正是按钮的位置）时
+  // 不会做滚动锚定，视口会落到插入内容的最顶部、读的位置被顶走。这里在点击瞬间记下
+  // 「视口到内容底部的距离」（新消息只往上方插入，底部不动），渲染完成后按该距离恢复
+  // scrollTop，正在读的内容保持在原位。jumpToMessage 也会扩大窗口，但它要滚到目标消息，不经过这里。
+  const earlierScrollAnchorRef = useRef<number | undefined>(undefined);
+  const captureScrollAnchor = () => {
+    const list = messageListRef.current;
+    earlierScrollAnchorRef.current = list
+      ? Math.max(0, list.scrollHeight - list.scrollTop)
+      : undefined;
+  };
+  useLayoutEffect(() => {
+    const distance = earlierScrollAnchorRef.current;
+    if (distance === undefined) return;
+    earlierScrollAnchorRef.current = undefined;
+    const list = messageListRef.current;
+    if (list && typeof list.scrollTo === "function")
+      list.scrollTo({ top: Math.max(0, list.scrollHeight - distance), behavior: "instant" });
+  }, [timeline]);
   const invocationsByMessage = useMemo(() => groupInvocationsByMessage(invocations), [invocations]);
   /** 回复消息 → 产生它的那次调用：回复上方显示这一轮过程的回顾 */
   const invocationByReply = useMemo(() => {
@@ -4422,7 +4441,10 @@ export function App({
                     <button
                       type="button"
                       className="load-earlier"
-                      onClick={() => setVisibleLimit((current) => current + 100)}
+                      onClick={() => {
+                        captureScrollAnchor();
+                        setVisibleLimit((current) => current + 100);
+                      }}
                     >
                       {t("显示更早的 {0} 条消息（共隐藏 {1} 条）", {
                         0: Math.min(hiddenCount, 100),
@@ -4435,7 +4457,10 @@ export function App({
                       <button
                         type="button"
                         className="load-earlier"
-                        onClick={() => setExpandedTopicId(currentTopic.id)}
+                        onClick={() => {
+                          captureScrollAnchor();
+                          setExpandedTopicId(currentTopic.id);
+                        }}
                       >
                         {t("显示更早的话题（{0} 条消息）", { 0: earlierTopicCount })}
                       </button>

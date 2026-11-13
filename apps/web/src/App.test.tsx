@@ -1441,6 +1441,73 @@ describe("App mention autocomplete", () => {
     expect(list().queryByText("Alice 开启了新话题", { exact: false })).toBeNull();
   });
 
+  it("loads earlier messages above without moving the viewport to the very top", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    const base = {
+      roomId: "general",
+      mentions: [] as string[],
+      traceId: "00000000-0000-4000-8000-000000000011",
+      hopCount: 0,
+      createdAt: new Date().toISOString(),
+      senderId: self.id,
+      senderName: "Alice",
+      senderType: "human" as const,
+    };
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self],
+        messages: Array.from({ length: 120 }, (_, index) => ({
+          ...base,
+          id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+          seq: index + 1,
+          content: `第 ${index + 1} 条`,
+        })),
+        latestSeq: 120,
+      }),
+    );
+    const container = document.querySelector(".message-list")! as HTMLElement;
+    const list = () => within(container.shadowRoot as unknown as HTMLElement);
+    await waitFor(() => expect(list().getByText("第 120 条")).toBeTruthy());
+    expect(list().queryByText("第 1 条")).toBeNull();
+    expect(
+      list().getByRole("button", { name: "显示更早的 95 条消息（共隐藏 95 条）" }),
+    ).toBeTruthy();
+
+    // jsdom 没有布局：让 scrollHeight 随已挂载消息数增长、scrollTop 可存取，验证锚定算式
+    const height = () => container.shadowRoot!.querySelectorAll("[data-message-id]").length * 40;
+    let scrollTop = 200;
+    Object.defineProperty(container, "scrollHeight", { configurable: true, get: height });
+    Object.defineProperty(container, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = value;
+      },
+    });
+    // 恢复走 scrollTo({ behavior: "instant" })（容器 CSS 是 scroll-behavior: smooth）；
+    // jsdom 的 scrollTo 不实现，替换成与 scrollTop 同一存储的桩
+    container.scrollTo = ((options: ScrollToOptions) => {
+      scrollTop = options.top ?? 0;
+    }) as typeof container.scrollTo;
+
+    await user.click(list().getByRole("button", { name: /显示更早的/ }));
+    expect(list().getByText("第 1 条")).toBeTruthy();
+    // 点击时 25 条已挂载（高 1000，视口在 200）；展开后 120 条（高 4800），
+    // 保持「视口到内容底部的距离」800 不变 → scrollTop 应为 4000，而不是停在顶部 0
+    expect(height()).toBe(4800);
+    expect(scrollTop).toBe(4000);
+  });
+
   it("asks returning users to grant notification permission from an in-app prompt", async () => {
     const user = userEvent.setup();
     localStorage.setItem("superhive.username", "Alice");
