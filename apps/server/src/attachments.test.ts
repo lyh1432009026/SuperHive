@@ -185,6 +185,45 @@ describe("附件", () => {
     expect(binary).toMatchObject({ kind: "file", mime: "application/octet-stream" });
   });
 
+  it("认出常见音视频的文件头：mp4 / mov / webm / mp3 / wav 记成对应 MIME，下载照旧 attachment + sandbox", async () => {
+    const { upload, download } = await start();
+    const box = (brand: string) =>
+      Buffer.concat([
+        Buffer.from([0, 0, 0, 0x18]),
+        Buffer.from(`ftyp${brand}`, "latin1"),
+        Buffer.alloc(16),
+      ]);
+    const cases: Array<[string, Buffer, string]> = [
+      ["clip.mp4", box("isom"), "video/mp4"],
+      ["clip.mov", box("qt  "), "video/quicktime"],
+      ["voice.m4a", box("M4A "), "audio/mp4"],
+      ["clip.webm", Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0, 0, 0, 0]), "video/webm"],
+      [
+        "song.mp3",
+        Buffer.concat([Buffer.from("ID3", "latin1"), Buffer.from([4, 0, 0, 0])]),
+        "audio/mpeg",
+      ],
+      [
+        "tone.wav",
+        Buffer.concat([
+          Buffer.from("RIFF", "latin1"),
+          Buffer.alloc(4),
+          Buffer.from("WAVEfmt ", "latin1"),
+        ]),
+        "audio/wav",
+      ],
+    ];
+    for (const [name, bytes, mime] of cases) {
+      const item = (await upload(name, bytes)).body;
+      expect(item, name).toMatchObject({ kind: "file", mime });
+    }
+    const video = (await upload("clip.mp4", box("mp42"))).body;
+    const response = await download(video.id);
+    expect(response.headers.get("content-type")).toBe("video/mp4");
+    expect(response.headers.get("content-disposition")).toMatch(/^attachment/);
+    expect(response.headers.get("content-security-policy")).toContain("sandbox");
+  });
+
   it("HTML 附件可换短时预览链接：只给 html、按读权限、过期失效，响应是不透明源的 sandbox 页面", async () => {
     const { upload, join, sendMessage, guest, base, advance } = await start();
     const owner = await join("rd", "human");

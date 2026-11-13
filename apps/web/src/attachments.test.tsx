@@ -249,6 +249,54 @@ describe("文件预览", () => {
     expect(screen.getByRole("button", { name: "下载 data.zip" })).toBeTruthy();
   });
 
+  it("音视频在页面内播放：老附件只记了 octet-stream 也按扩展名认出来，并按正确的类型交给播放器", async () => {
+    const blobs: Blob[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(new Blob([new Uint8Array([0, 0, 0, 0x18])]))),
+    );
+    vi.stubGlobal(
+      "URL",
+      Object.assign(URL, {
+        createObjectURL: (blob: Blob) => {
+          blobs.push(blob);
+          return `blob:media-${blobs.length}`;
+        },
+        revokeObjectURL: () => {},
+      }),
+    );
+    render(
+      <MessageAttachments
+        attachments={[
+          file(
+            "00000000-0000-4000-8000-0000000000c1",
+            "bird.mp4",
+            "file",
+            "application/octet-stream",
+          ),
+          file("00000000-0000-4000-8000-0000000000c2", "voice.mp3", "file", "audio/mpeg"),
+        ]}
+        base="http://hive"
+        token="t"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "预览 bird.mp4" }));
+    const video = await vi.waitFor(() => {
+      const element = document.querySelector<HTMLVideoElement>("video.file-preview-video");
+      if (!element) throw new Error("no video");
+      return element;
+    });
+    expect(video.getAttribute("src")).toMatch(/^blob:media-/);
+    expect(video.hasAttribute("controls")).toBe(true);
+    expect(blobs.at(-1)?.type).toBe("video/mp4");
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "预览 voice.mp3" }));
+    await vi.waitFor(() =>
+      expect(document.querySelector(".file-preview-audio audio")).toBeTruthy(),
+    );
+  });
+
   it("HTML 默认显示渲染后的页面（sandbox iframe、不同源），可切到源码，新窗口打开会重新申请预览链接", async () => {
     const calls: Array<{ url: string; method: string }> = [];
     vi.stubGlobal(

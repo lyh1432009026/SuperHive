@@ -404,11 +404,44 @@ function ImageAttachment({
   );
 }
 
-/** 页面内能预览的：网页（HTML）、文本类（含代码、Markdown）和 PDF；其他照旧下载 */
+const VIDEO_TYPES: Record<string, string> = {
+  mp4: "video/mp4",
+  m4v: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
+};
+const AUDIO_TYPES: Record<string, string> = {
+  mp3: "audio/mpeg",
+  m4a: "audio/mp4",
+  aac: "audio/aac",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
+  flac: "audio/flac",
+};
+
+/**
+ * 音视频附件的播放类型：优先用服务端识别出的 MIME；早先上传的文件服务端只记成 application/octet-stream，
+ * 按扩展名补上（播放器靠它判断能不能放）
+ */
+export function mediaType(
+  attachment: Attachment,
+): { kind: "video" | "audio"; type: string } | undefined {
+  if (attachment.mime.startsWith("video/")) return { kind: "video", type: attachment.mime };
+  if (attachment.mime.startsWith("audio/")) return { kind: "audio", type: attachment.mime };
+  const ext = /\.([a-z0-9]+)$/i.exec(attachment.name)?.[1]?.toLowerCase() ?? "";
+  if (VIDEO_TYPES[ext]) return { kind: "video", type: VIDEO_TYPES[ext] };
+  if (AUDIO_TYPES[ext]) return { kind: "audio", type: AUDIO_TYPES[ext] };
+  return undefined;
+}
+
+/** 页面内能预览的：网页（HTML）、文本类（含代码、Markdown）、PDF、音视频；其他照旧下载 */
 export function previewKind(
   attachment: Attachment,
-): "html" | "markdown" | "text" | "pdf" | undefined {
+): "html" | "markdown" | "text" | "pdf" | "video" | "audio" | undefined {
   if (attachment.mime === "application/pdf") return "pdf";
+  const media = mediaType(attachment);
+  if (media) return media.kind;
   if (attachment.kind !== "text") return undefined;
   if (/\.html?$/i.test(attachment.name)) return "html";
   return /\.(md|markdown|mdx)$/i.test(attachment.name) ? "markdown" : "text";
@@ -532,8 +565,30 @@ function FilePreview({
   const [downloadError, setDownloadError] = useState<string>();
   const closeRef = useRef<HTMLButtonElement>(null);
 
+  // 音视频：按正确的 MIME 重新包一层 blob 再交给播放器（Safari 不认 application/octet-stream）
+  const [mediaUrl, setMediaUrl] = useState<string>();
   useEffect(() => {
-    if (!url || kind === "pdf") return;
+    const media = mediaType(attachment);
+    if (!url || !media) return;
+    let alive = true;
+    let created: string | undefined;
+    void fetch(url)
+      .then((response) => response.blob())
+      .then((blob) => {
+        if (!alive) return;
+        created = URL.createObjectURL(
+          blob.type === media.type ? blob : new Blob([blob], { type: media.type }),
+        );
+        setMediaUrl(created);
+      });
+    return () => {
+      alive = false;
+      if (created) URL.revokeObjectURL(created);
+    };
+  }, [attachment, url]);
+
+  useEffect(() => {
+    if (!url || kind === "pdf" || kind === "video" || kind === "audio") return;
     let alive = true;
     void fetch(url)
       .then((response) => response.text())
@@ -574,6 +629,25 @@ function FilePreview({
         referrerPolicy="no-referrer"
         title={attachment.name}
       />
+    ) : (
+      <p className="file-preview-status">{t("加载中…")}</p>
+    )
+  ) : kind === "video" || kind === "audio" ? (
+    mediaUrl ? (
+      kind === "video" ? (
+        <video
+          className="file-preview-video"
+          src={mediaUrl}
+          controls
+          autoPlay
+          playsInline
+          aria-label={attachment.name}
+        />
+      ) : (
+        <div className="file-preview-audio">
+          <audio src={mediaUrl} controls autoPlay aria-label={attachment.name} />
+        </div>
+      )
     ) : (
       <p className="file-preview-status">{t("加载中…")}</p>
     )

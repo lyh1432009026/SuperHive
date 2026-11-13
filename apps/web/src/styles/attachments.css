@@ -575,6 +575,27 @@
   font-weight: var(--weight-medium);
 }
 
+/* 音视频：在弹窗里居中播放，按原比例缩放，不裁切 */
+.file-preview-video {
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  background: #000;
+  object-fit: contain;
+}
+
+.file-preview-audio {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  padding: 32px 24px;
+  place-items: center;
+}
+
+.file-preview-audio audio {
+  width: min(560px, 100%);
+}
+
 .file-preview-pdf {
   width: 100%;
   min-height: 0;

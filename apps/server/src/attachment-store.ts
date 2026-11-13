@@ -117,6 +117,42 @@ function sniffImage(head: Buffer): string | undefined {
   return undefined;
 }
 
+/**
+ * 常见音视频的文件头：识别出 MIME 后网页才能直接播放。仍按 kind=file 存、下载接口照旧 attachment +
+ * sandbox，只是 Content-Type 对了，网页把它包成 blob 交给 <video>/<audio>
+ */
+export function sniffMedia(head: Buffer): string | undefined {
+  // ISO BMFF（mp4 / mov / m4a）：第 4–8 字节是 ftyp，后面是主品牌
+  if (head.length >= 12 && head.subarray(4, 8).toString("latin1") === "ftyp") {
+    const brand = head.subarray(8, 12).toString("latin1");
+    if (brand === "qt  ") return "video/quicktime";
+    if (brand === "M4A " || brand === "M4B ") return "audio/mp4";
+    return "video/mp4";
+  }
+  // Matroska / WebM
+  if (head.length >= 4 && head.readUInt32BE(0) === 0x1a45dfa3) return "video/webm";
+  if (head.length >= 3 && head.subarray(0, 3).toString("latin1") === "ID3") return "audio/mpeg";
+  // MPEG 音频帧同步字（没有 ID3 头的 mp3）
+  if (
+    head.length >= 2 &&
+    head[0] === 0xff &&
+    (head[1]! & 0xe0) === 0xe0 &&
+    (head[1]! & 0x06) !== 0
+  ) {
+    return "audio/mpeg";
+  }
+  if (
+    head.length >= 12 &&
+    head.subarray(0, 4).toString("latin1") === "RIFF" &&
+    head.subarray(8, 12).toString("latin1") === "WAVE"
+  ) {
+    return "audio/wav";
+  }
+  if (head.length >= 4 && head.subarray(0, 4).toString("latin1") === "OggS") return "audio/ogg";
+  if (head.length >= 4 && head.subarray(0, 4).toString("latin1") === "fLaC") return "audio/flac";
+  return undefined;
+}
+
 /** 文件头里没有 NUL 且是合法 UTF-8（末尾被截断的多字节字符不算错）即视为文本 */
 function looksLikeText(head: Buffer, complete: boolean): boolean {
   if (head.includes(0)) return false;
@@ -169,6 +205,8 @@ export function classify(
   if (looksLikeText(head, complete)) {
     return { kind: "text", mime: TEXT_MIME[ext] ?? "text/plain", ext: `.${ext || "txt"}` };
   }
+  const media = sniffMedia(head);
+  if (media) return { kind: "file", mime: media, ext: ext ? `.${ext}` : ".bin" };
   return { kind: "file", mime: "application/octet-stream", ext: ext ? `.${ext}` : ".bin" };
 }
 
