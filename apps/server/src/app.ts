@@ -317,6 +317,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           // 消息里的 Markdown 图片可能来自外部
           "img-src 'self' data: blob: https:",
           "media-src 'self' blob:",
+          // PDF 预览：iframe 里放网页自己生成的 application/pdf blob，由浏览器内置的 PDF 查看器显示
+          "frame-src 'self' blob:",
           "font-src 'self' data:",
           `connect-src 'self' ws://${host} wss://${host}`,
           "object-src 'none'",

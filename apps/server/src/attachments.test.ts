@@ -224,6 +224,19 @@ describe("附件", () => {
     expect(response.headers.get("content-security-policy")).toContain("sandbox");
   });
 
+  it("文件头是 %PDF- 的记成 application/pdf（开头像文本也一样），下载照旧 attachment + sandbox", async () => {
+    const { upload, download } = await start();
+    const pdf = Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n", "latin1");
+    const item = (await upload("报告", pdf)).body;
+    expect(item).toMatchObject({ kind: "file", mime: "application/pdf" });
+    const response = await download(item.id);
+    expect(response.headers.get("content-type")).toBe("application/pdf");
+    expect(response.headers.get("content-disposition")).toMatch(/^attachment/);
+    expect(response.headers.get("content-security-policy")).toContain("sandbox");
+    // 只是扩展名叫 .pdf 的文本照旧是文本
+    expect((await upload("fake.pdf", "hello")).body).toMatchObject({ kind: "text" });
+  });
+
   it("HTML 附件可换短时预览链接：只给 html、按读权限、过期失效，响应是不透明源的 sandbox 页面", async () => {
     const { upload, join, sendMessage, guest, base, advance } = await start();
     const owner = await join("rd", "human");

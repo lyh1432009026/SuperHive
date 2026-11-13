@@ -332,10 +332,22 @@ export function ComposerAttachments({
 
 /* ---------- 消息里的附件：凭 Bearer 取回文件，生成本地 object URL ---------- */
 
-const blobCache = new Map<string, Promise<string>>();
+const blobCache = new Map<string, Promise<{ url: string; blob: Blob }>>();
 
 /** 同一附件在页面内只取一次；失败的不缓存，下次再试 */
 export function fetchAttachmentUrl(base: string, token: string, id: string): Promise<string> {
+  return fetchAttachment(base, token, id).then((loaded) => loaded.url);
+}
+
+/**
+ * 连同文件内容一起给出：预览要读正文、换 MIME 时直接用这份 Blob。不能再 fetch(blob:) 一遍，
+ * 生产环境网页的 CSP connect-src 不含 blob:，会被拦下
+ */
+function fetchAttachment(
+  base: string,
+  token: string,
+  id: string,
+): Promise<{ url: string; blob: Blob }> {
   const cached = blobCache.get(id);
   if (cached) return cached;
   const task = fetch(`${base}/api/attachments/${id}`, {
@@ -348,7 +360,8 @@ export function fetchAttachmentUrl(base: string, token: string, id: string): Pro
           : t("无法读取附件（{0}）", { 0: response.status }),
       );
     }
-    return URL.createObjectURL(await response.blob());
+    const blob = await response.blob();
+    return { url: URL.createObjectURL(blob), blob };
   });
   blobCache.set(id, task);
   task.catch(() => blobCache.delete(id));
@@ -356,12 +369,12 @@ export function fetchAttachmentUrl(base: string, token: string, id: string): Pro
 }
 
 function useAttachmentUrl(base: string, token: string | undefined, id: string, enabled: boolean) {
-  const [state, setState] = useState<{ url?: string; error?: string }>({});
+  const [state, setState] = useState<{ url?: string; blob?: Blob; error?: string }>({});
   useEffect(() => {
     if (!enabled || !token) return;
     let alive = true;
-    fetchAttachmentUrl(base, token, id).then(
-      (url) => alive && setState({ url }),
+    fetchAttachment(base, token, id).then(
+      ({ url, blob }) => alive && setState({ url, blob }),
       (error: unknown) =>
         alive && setState({ error: error instanceof Error ? error.message : String(error) }),
     );
@@ -435,11 +448,19 @@ export function mediaType(
   return undefined;
 }
 
+/** PDF：服务端按文件头识别；早先上传的只记成 application/octet-stream，按扩展名补上 */
+function isPdf(attachment: Attachment): boolean {
+  return (
+    attachment.mime === "application/pdf" ||
+    (attachment.kind === "file" && /\.pdf$/i.test(attachment.name))
+  );
+}
+
 /** 页面内能预览的：网页（HTML）、文本类（含代码、Markdown）、PDF、音视频；其他照旧下载 */
 export function previewKind(
   attachment: Attachment,
 ): "html" | "markdown" | "text" | "pdf" | "video" | "audio" | undefined {
-  if (attachment.mime === "application/pdf") return "pdf";
+  if (isPdf(attachment)) return "pdf";
   const media = mediaType(attachment);
   if (media) return media.kind;
   if (attachment.kind !== "text") return undefined;
@@ -489,6 +510,17 @@ function savePreviewMaximized(value: boolean) {
   }
 }
 
+/** 读出 Blob 里的文字；老一些的环境里 Blob 没有 text()，退回 FileReader */
+function readBlobText(blob: Blob): Promise<string> {
+  if (typeof blob.text === "function") return blob.text();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+    reader.readAsText(blob);
+  });
+}
+
 /** 文本预览最多显示这么多字，再长的请下载看全文 */
 const PREVIEW_TEXT_LIMIT = 200_000;
 
@@ -521,7 +553,7 @@ function FilePreview({
   onClose: () => void;
 }) {
   const kind = previewKind(attachment)!;
-  const { url, error } = useAttachmentUrl(base, token, attachment.id, true);
+  const { url, blob, error } = useAttachmentUrl(base, token, attachment.id, true);
   // HTML 默认看渲染后的页面，可以切回源码
   const [htmlView, setHtmlView] = useState<"page" | "source">("page");
   // 放大：铺满窗口，选择记在本机，下次打开预览照旧
@@ -565,44 +597,35 @@ function FilePreview({
   const [downloadError, setDownloadError] = useState<string>();
   const closeRef = useRef<HTMLButtonElement>(null);
 
-  // 音视频：按正确的 MIME 重新包一层 blob 再交给播放器（Safari 不认 application/octet-stream）
+  // 音视频、PDF：按正确的 MIME 重新包一层 blob 再交给播放器 / PDF 查看器（Safari 不认
+  // application/octet-stream；PDF 不是这个类型 iframe 会变成下载）
   const [mediaUrl, setMediaUrl] = useState<string>();
   useEffect(() => {
-    const media = mediaType(attachment);
-    if (!url || !media) return;
-    let alive = true;
-    let created: string | undefined;
-    void fetch(url)
-      .then((response) => response.blob())
-      .then((blob) => {
-        if (!alive) return;
-        created = URL.createObjectURL(
-          blob.type === media.type ? blob : new Blob([blob], { type: media.type }),
-        );
-        setMediaUrl(created);
-      });
-    return () => {
-      alive = false;
-      if (created) URL.revokeObjectURL(created);
-    };
-  }, [attachment, url]);
+    const media = kind === "pdf" ? { type: "application/pdf" } : mediaType(attachment);
+    if (!url || !blob || !media) return;
+    if (blob.type === media.type) {
+      setMediaUrl(url);
+      return;
+    }
+    const created = URL.createObjectURL(new Blob([blob], { type: media.type }));
+    setMediaUrl(created);
+    return () => URL.revokeObjectURL(created);
+  }, [attachment, blob, kind, url]);
 
   useEffect(() => {
-    if (!url || kind === "pdf" || kind === "video" || kind === "audio") return;
+    if (!blob || kind === "pdf" || kind === "video" || kind === "audio") return;
     let alive = true;
-    void fetch(url)
-      .then((response) => response.text())
-      .then((value) => {
-        if (!alive) return;
-        setText({
-          value: value.length > PREVIEW_TEXT_LIMIT ? value.slice(0, PREVIEW_TEXT_LIMIT) : value,
-          clipped: value.length > PREVIEW_TEXT_LIMIT,
-        });
+    void readBlobText(blob).then((value) => {
+      if (!alive) return;
+      setText({
+        value: value.length > PREVIEW_TEXT_LIMIT ? value.slice(0, PREVIEW_TEXT_LIMIT) : value,
+        clipped: value.length > PREVIEW_TEXT_LIMIT,
       });
+    });
     return () => {
       alive = false;
     };
-  }, [kind, url]);
+  }, [blob, kind]);
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -652,8 +675,8 @@ function FilePreview({
       <p className="file-preview-status">{t("加载中…")}</p>
     )
   ) : kind === "pdf" ? (
-    url ? (
-      <iframe className="file-preview-pdf" src={url} title={attachment.name} />
+    mediaUrl ? (
+      <iframe className="file-preview-pdf" src={mediaUrl} title={attachment.name} />
     ) : (
       <p className="file-preview-status">{t("加载中…")}</p>
     )

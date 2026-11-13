@@ -2084,6 +2084,9 @@ describe("网页安全响应头", () => {
       const policy = String(response.headers["content-security-policy"]);
       expect(policy).toContain("script-src 'self'");
       expect(policy).toContain("frame-ancestors 'none'");
+      // PDF 预览的 blob 能放进 iframe；插件仍然一律不许
+      expect(policy).toContain("frame-src 'self' blob:");
+      expect(policy).toContain("object-src 'none'");
       expect(policy).toContain("connect-src 'self' ws://10.0.0.8:8787 wss://10.0.0.8:8787");
       expect(response.headers["referrer-policy"]).toBe("no-referrer");
       // 接口不受影响

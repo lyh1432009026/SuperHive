@@ -297,6 +297,50 @@ describe("文件预览", () => {
     );
   });
 
+  it("PDF 在页面内预览：老附件只记了 octet-stream 也按扩展名认出来，按 application/pdf 交给查看器", async () => {
+    const blobs: Blob[] = [];
+    const fetchMock = vi.fn<(input: RequestInfo | URL) => Promise<Response>>(
+      async () => new Response(new Blob(["%PDF-1.4"], { type: "application/octet-stream" })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal(
+      "URL",
+      Object.assign(URL, {
+        createObjectURL: (blob: Blob) => {
+          blobs.push(blob);
+          return `blob:pdf-${blobs.length}`;
+        },
+        revokeObjectURL: () => {},
+      }),
+    );
+    render(
+      <MessageAttachments
+        attachments={[
+          file(
+            "00000000-0000-4000-8000-0000000000d1",
+            "old.PDF",
+            "file",
+            "application/octet-stream",
+          ),
+        ]}
+        base="http://hive"
+        token="t"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "预览 old.PDF" }));
+    const frame = await vi.waitFor(() => {
+      const element = document.querySelector<HTMLIFrameElement>("iframe.file-preview-pdf");
+      if (!element) throw new Error("no pdf frame");
+      return element;
+    });
+    expect(frame.getAttribute("src")).toBe(`blob:pdf-${blobs.length}`);
+    expect(blobs.at(-1)?.type).toBe("application/pdf");
+    // 只向服务端取一次文件，不再 fetch(blob:)：生产环境 CSP 的 connect-src 不含 blob:
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      "http://hive/api/attachments/00000000-0000-4000-8000-0000000000d1",
+    ]);
+  });
+
   it("HTML 默认显示渲染后的页面（sandbox iframe、不同源），可切到源码，新窗口打开会重新申请预览链接", async () => {
     const calls: Array<{ url: string; method: string }> = [];
     vi.stubGlobal(

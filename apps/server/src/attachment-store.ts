@@ -202,6 +202,10 @@ export function classify(
   const image = sniffImage(head);
   if (image) return { kind: "image", mime: image, ext: IMAGE_EXT[image]! };
   const ext = extensionOf(name);
+  // PDF 先认：不压缩的 PDF 开头一段全是 ASCII，会被当成文本。仍按 kind=file 存，下载照旧 attachment + sandbox
+  if (head.subarray(0, 5).toString("latin1") === "%PDF-") {
+    return { kind: "file", mime: "application/pdf", ext: ".pdf" };
+  }
   if (looksLikeText(head, complete)) {
     return { kind: "text", mime: TEXT_MIME[ext] ?? "text/plain", ext: `.${ext || "txt"}` };
   }
