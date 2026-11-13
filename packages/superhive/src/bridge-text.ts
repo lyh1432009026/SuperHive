@@ -12,7 +12,7 @@ export const BRIDGE_TEXTS = {
   "bridge.cancelledBeforeRun": "任务在执行前被取消",
   "bridge.notSteeredQueued": "当前没有正在执行、能引导的任务，已排队",
   "bridge.steerUnsupported": "这个运行时不支持引导，已排队",
-  "bridge.steering": "正在引导当前任务",
+  "bridge.steering": "正在引导",
   "bridge.steerUnconfirmed": "消息已尝试注入但未获确认；禁止退回队列或自动重放。",
   "bridge.steerRemoved": "未注入的排队任务已移除",
   "bridge.steerCancelRace": "取消与注入并发，执行结果需核对",

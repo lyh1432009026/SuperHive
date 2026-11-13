@@ -83,7 +83,7 @@ describe("steering a queued message into the running turn", () => {
       (event) =>
         event.type === "invocation.updated" &&
         event.invocation.id === invocation.id &&
-        Boolean(event.invocation.detail?.includes("请求引导当前任务")),
+        Boolean(event.invocation.detail?.includes("请求引导")),
     );
     expect(updated).toBeTruthy();
   });
@@ -93,7 +93,7 @@ describe("steering a queued message into the running turn", () => {
     const { mentioned } = await queueSecond("@helper 补充一句", true);
     expect(mentioned.steer).toBe(true);
 
-    // 当前任务结束后再「发送并引导」：没有可插的任务，照常排队
+    // 当前任务结束后再「引导」：没有可插的任务，照常排队
     helper.send({ type: "invocation.report", messageId: first.id, status: "completed" });
     helper.send({
       type: "invocation.report",

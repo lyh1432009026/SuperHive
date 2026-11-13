@@ -27,7 +27,7 @@ export const serverTexts = {
   /* ---------- 调用（任务）状态说明 ---------- */
   "invocation.delivered": { zh: "已送达，排队中", en: "Delivered, waiting in queue" },
   "invocation.steerRequested": {
-    zh: "{name} 请求引导当前任务",
+    zh: "{name} 请求引导",
     en: "{name} asked to add this to the current task",
   },
   "invocation.preemptRequested": {
@@ -35,11 +35,11 @@ export const serverTexts = {
     en: "{name} asked to stop the current task and do this one first",
   },
   "invocation.steerSend": {
-    zh: "发送并引导：请求引导当前任务",
+    zh: "请求引导",
     en: "Sent as steer: asked to add this to the current task",
   },
   "invocation.steerAuto": {
-    zh: "自动引导：请求引导当前任务",
+    zh: "自动请求引导",
     en: "Auto steer: asked to add this to the current task",
   },
   "invocation.answered": {
@@ -300,7 +300,7 @@ export const serverTexts = {
     zh: "这个运行时不支持引导，已排队",
     en: "This runtime doesn't support steering, so it's queued",
   },
-  "bridge.steering": { zh: "正在引导当前任务", en: "Adding to the current task" },
+  "bridge.steering": { zh: "正在引导", en: "Adding to the current task" },
   "bridge.steerUnconfirmed": {
     zh: "消息已尝试注入但未获确认；禁止退回队列或自动重放。",
     en: "Tried to add the message but got no confirmation. It won't be requeued or retried automatically.",

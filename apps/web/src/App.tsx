@@ -2993,7 +2993,7 @@ export function App({
 
   // 有附件在上传或上传失败时不能发：失败的要先重试或移除，避免悄悄丢掉
   const attachmentsBlocking = attachmentQueue.uploading || attachmentQueue.failed;
-  // 草稿里 @ 到的、正在这个房间执行任务、支持引导的 Agent：可以「发送并引导」
+  // 草稿里 @ 到的、正在这个房间执行任务、支持引导的 Agent：可以直接「引导」
   const steerTargets = (() => {
     const named = new Set(
       [...draft.matchAll(/@([\p{L}\p{N}_.-]+)/gu)].map((match) => match[1]!.toLocaleLowerCase()),
@@ -5396,7 +5396,7 @@ export function App({
                         0: steerTargets.map((name) => `@${name}`).join(t("、")),
                       })}
                     >
-                      {t("发送并引导")}
+                      {t("引导")}
                     </button>
                   )}
                   <button

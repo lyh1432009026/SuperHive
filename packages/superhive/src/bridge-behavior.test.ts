@@ -687,7 +687,7 @@ describe("AgentBridge", () => {
     room.handlers.onMention(late, late.seq, false);
     await flush();
     expect(responder.steered).toHaveLength(0);
-    // 人点「引导当前任务」：从队里拿出来插进去
+    // 人点「引导」：从队里拿出来插进去
     room.handlers.onMention(late, late.seq, false, true);
     await waitUntil(() => responder.steered.length === 1);
     await waitUntil(() => room.statuses(late.id).includes("running"));

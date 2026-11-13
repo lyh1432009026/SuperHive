@@ -2203,9 +2203,9 @@ describe("App mention autocomplete", () => {
     );
     const composer = screen.getByRole("textbox", { name: "消息" });
     fireEvent.change(composer, { target: { value: "@idle 看一下" } });
-    expect(screen.queryByRole("button", { name: "发送并引导" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "引导" })).toBeNull();
     fireEvent.change(composer, { target: { value: "@helper 顺便把 README 也改了" } });
-    fireEvent.click(screen.getByRole("button", { name: "发送并引导" }));
+    fireEvent.click(screen.getByRole("button", { name: "引导" }));
     expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({
       type: "message.send",
       content: "@helper 顺便把 README 也改了",

@@ -82,7 +82,7 @@ export function canDismissInvocation(invocation: Invocation): boolean {
 const STEERABLE_PROVIDERS = new Set(["claude", "codex", "opencode", "omp"]);
 
 /**
- * 能「引导当前任务」：人发的、还在排队的消息，而且同一个 Agent 在这个房间正有任务在执行、
+ * 能「引导」：人发的、还在排队的消息，而且同一个 Agent 在这个房间正有任务在执行、
  * 它的运行时支持引导。服务端会再核对一遍（定时触发、Agent 发的消息都会被拒绝）。
  */
 export function canSteerInvocation(
@@ -425,7 +425,7 @@ export function InvocationChips({
 }: {
   /** 「在终端打开会话」：本机 Agent 才返回处理函数 */
   onOpenTerminal?: ((invocation: Invocation) => (() => void) | undefined) | undefined;
-  /** 「引导当前任务」：把排队中的这条插进 Agent 正在执行的这一轮 */
+  /** 「引导」：把排队中的这条插进 Agent 正在执行的这一轮 */
   onSteer?: (invocation: Invocation) => void;
   /** 「停下当前，改做这条」 */
   onPreempt?: (invocation: Invocation) => void;
@@ -633,7 +633,7 @@ export function InvocationChips({
                     title={t("不排队，让它在当前这一轮里接着处理这条")}
                     onClick={() => onSteer(invocation)}
                   >
-                    {t("引导当前任务")}
+                    {t("引导")}
                   </button>
                 )}
               {onPreempt &&

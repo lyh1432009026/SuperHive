@@ -907,7 +907,6 @@
   "复位（0）": "Reset (0)",
   "继续": "Continue",
   "接着原会话从中断处继续，不会从头重做": "Pick up the same session where it stopped instead of starting over",
-  "引导当前任务": "Steer into current task",
   "不排队，让它在当前这一轮里接着处理这条": "Skip the queue — have it pick this up in the turn it's already running",
   "用这条引导 @{0} 正在执行的任务": "Steer this into @{0}'s running task",
   "停下当前，改做这条": "Stop and do this instead",
@@ -916,10 +915,8 @@
   "无法插入。": "Couldn't steer.",
   "无法停下。": "Couldn't stop.",
   "停下 @{0} 正在执行的任务，改做这条？\n\n正在执行的那一轮会被中断，结果可能是「已停止」或「结果未知」，做到一半的改动不会自动撤回、也不会自动重跑。": "Stop @{0}'s running task and do this instead?\n\nThe current turn will be interrupted and end as “Stopped” or “Outcome unknown”. Half-done changes aren't rolled back or re-run.",
-  "发送并引导": "Send & steer",
   "{0} 正在执行任务：发出后直接用来引导它当前的任务，不排队": "{0} is working. Send this straight into its current task instead of queueing it",
   "人发的消息自动引导": "Auto-steer messages from people",
-  "它正在执行任务时，人 @ 它的新消息直接用来引导当前任务，不排队。默认关：先排队，需要时在那条消息上点「引导当前任务」，或用「发送并引导」。其他 Agent 的消息始终排队。": "While it's working, new messages from people that @ it go straight into the current task instead of the queue. Off by default: messages queue, and you can use “Steer into current task” or “Send & steer” when you need to. Messages from other agents always queue.",
   "工作区 {0} 当前分支：{1}": "Workspace {0} is on branch {1}",
   "当前分支": "Current branch",
   "主 Agent：没有 @ 任何人的消息由它接话、调度其他 Agent": "Lead agent: answers messages that @ no one and dispatches other agents",
@@ -1190,5 +1187,7 @@
   "推送档位": "Notifications",
   "点「重新连接」再试一次；一直不行就重新扫码。": "Select Reconnect to try again. If it keeps failing, scan again.",
   "连接飞书": "Connect Feishu",
-  "会自动重试。一直失败的话，检查机器人的权限，或重新扫码。": "It retries automatically. If it keeps failing, check the bot's permissions or scan again."
+  "会自动重试。一直失败的话，检查机器人的权限，或重新扫码。": "It retries automatically. If it keeps failing, check the bot's permissions or scan again.",
+  "引导": "Steer",
+  "它正在执行任务时，人 @ 它的新消息直接用来引导当前任务，不排队。默认关：先排队，需要时在那条消息上或输入框旁点「引导」。其他 Agent 的消息始终排队。": "While it's working, new messages from people that @ it go straight into the current task instead of queueing. Off by default: messages queue first, and you can tap Steer on the message or next to the composer when needed. Messages from other agents always queue."
 }
