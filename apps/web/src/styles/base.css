@@ -104,6 +104,19 @@ kbd {
   text-align: center;
 }
 
+/* 一组按键：键帽之间留一点空，⌘ ↵ 这类单个符号用无衬线字体并放大一号，免得糊成一团 */
+.key-combo {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  vertical-align: middle;
+}
+
+.key-combo kbd.symbol {
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

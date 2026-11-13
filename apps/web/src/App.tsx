@@ -72,7 +72,8 @@ import {
 import { ThinkingCard, TraceRecap, groupLiveCards, showsLiveCard } from "./thinking-card";
 import { buildGoToItems } from "./goto";
 import { GoToPalette } from "./goto-palette";
-import { keyCombo, matchShortcut, type ShortcutId } from "./shortcuts";
+import { KeyCombo } from "./key-combo";
+import { matchShortcut, type ShortcutId } from "./shortcuts";
 import { ShortcutsHelp } from "./shortcuts-help";
 import {
   ContextMenu,
@@ -5366,7 +5367,7 @@ export function App({
                           ? { "{0}": ["Mod", "Enter"], "{1}": ["Enter"] }
                           : { "{0}": ["Enter"], "{1}": ["Shift", "Enter"] };
                       return part === "{0}" || part === "{1}" ? (
-                        <kbd key={index}>{keyCombo(keys[part])}</kbd>
+                        <KeyCombo key={index} keys={keys[part]} />
                       ) : (
                         part
                       );
@@ -6411,7 +6412,7 @@ export function App({
                             <strong>{t("组合键发送")}</strong>
                             <small>{t("推荐，Enter 可以安心换行")}</small>
                           </span>
-                          <kbd>{keyCombo(["Mod", "Enter"])}</kbd>
+                          <KeyCombo keys={["Mod", "Enter"]} />
                           <i aria-hidden="true">
                             <Icon name="check" size={14} />
                           </i>
@@ -6428,9 +6429,19 @@ export function App({
                         >
                           <span>
                             <strong>{t("Enter 发送")}</strong>
-                            <small>{t("{0} 换行", { 0: keyCombo(["Shift", "Enter"]) })}</small>
+                            <small>
+                              {t("{0} 换行")
+                                .split(/(\{0\})/)
+                                .map((part, index) =>
+                                  part === "{0}" ? (
+                                    <KeyCombo key={index} keys={["Shift", "Enter"]} />
+                                  ) : (
+                                    part
+                                  ),
+                                )}
+                            </small>
                           </span>
-                          <kbd>{keyCombo(["Enter"])}</kbd>
+                          <KeyCombo keys={["Enter"]} />
                           <i aria-hidden="true">
                             <Icon name="check" size={14} />
                           </i>

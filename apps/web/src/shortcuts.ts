@@ -52,9 +52,15 @@ export function keyLabel(key: string, mac = isMacPlatform()): string {
  * 输入框底部的发送提示和设置里的发送方式都用它，两处写法一致。
  */
 export function keyCombo(keys: string[], mac = isMacPlatform()): string {
-  if (!mac) return keys.map((key) => keyLabel(key, false)).join("+");
+  const parts = keyParts(keys, mac);
+  return mac ? parts.join("") : parts.join("+");
+}
+
+/** 一组按键逐个的显示名：macOS 用符号（⌘ ⇧ ⌥ ↵），其它系统用文字（Ctrl Shift Alt Enter） */
+export function keyParts(keys: string[], mac = isMacPlatform()): string[] {
+  if (!mac) return keys.map((key) => keyLabel(key, false));
   const symbols: Record<string, string> = { Mod: "⌘", Shift: "⇧", Alt: "⌥", Enter: "↵" };
-  return keys.map((key) => symbols[key] ?? key).join("");
+  return keys.map((key) => symbols[key] ?? key);
 }
 
 /** 焦点在可输入的地方：单键快捷键（比如 ?）不能抢用户在打的字 */

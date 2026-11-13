@@ -97,22 +97,28 @@
 }
 
 .composer-footer > .composer-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   min-width: 0;
   overflow: hidden;
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.composer-footer kbd {
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-tertiary);
+/* 发送提示里的快捷键：一个键一个小键帽，符号放大到看得清 */
+.composer-footer .key-combo kbd {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-bottom-width: 1px;
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
   font-family: var(--font-sans);
-  font-size: 10.5px;
+  font-size: 11px;
+  line-height: 16px;
 }
 
 .composer-actions {
