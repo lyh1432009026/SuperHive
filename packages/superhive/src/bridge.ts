@@ -66,7 +66,9 @@ export function shouldProcessMention(input: {
 }): boolean {
   return (
     !input.message.deletedAt &&
-    input.message.senderId !== input.ownParticipantId &&
+    // 自己发的不处理；例外是 hive_room_post 从别的房间转来、由服务端派给自己的活
+    (input.message.senderId !== input.ownParticipantId ||
+      (input.invited === true && input.message.text?.key === "roomPost.forwarded")) &&
     (input.invited === true || isMentioned(input.message.content, input.username)) &&
     !input.processedMessageIds.includes(input.message.id)
   );

@@ -806,7 +806,7 @@ describe("hive_room_create", () => {
       content: "@worker 在本房间工作区里跑一遍测试",
     });
     await new Promise((resolve) => setTimeout(resolve, 300));
-    await enter("helper");
+    const self = await enter("helper");
     const worker = await enter("worker");
     const posted = await posting;
     expect(posted.isError).toBeFalsy();
@@ -816,6 +816,18 @@ describe("hive_room_create", () => {
     expect(message.roomId).toBe("side");
     expect(message.hopCount).toBe(0);
     expect(message.content).toContain("从 #general");
+
+    // 派给「自己」：每个房间是不同的成员和会话，那边的 helper 要被叫醒（以前当成自己 @ 自己被跳过，没人干活）
+    const toSelf = await call(client, "hive_room_post", {
+      room: "side",
+      content: "@helper 在这个房间接着做需求",
+    });
+    expect(toSelf.isError).toBeFalsy();
+    const woken = (await self.next(
+      (event) => event.type === "agent.mentioned" && event.message.content.includes("接着做需求"),
+    )) as Extract<ServerEvent, { type: "agent.mentioned" }>;
+    expect(woken.message.senderName).toBe("helper");
+    expect(woken.message.text?.key).toBe("roomPost.forwarded");
 
     expect(
       (await call(client, "hive_room_post", { room: "general", content: "@helper x" })).isError,

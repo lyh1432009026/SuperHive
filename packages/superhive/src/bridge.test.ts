@@ -49,6 +49,19 @@ describe("shouldProcessMention", () => {
         processedMessageIds: [],
       }),
     ).toBe(false);
+    // 例外：hive_room_post 从别的房间转来、服务端派给自己的活要处理（只看 @ 不算）
+    const relayed = message({
+      senderId: "self",
+      text: { key: "roomPost.forwarded", params: {} },
+    });
+    const relay = {
+      message: relayed,
+      username: "agent-a",
+      ownParticipantId: "self",
+      processedMessageIds: [],
+    };
+    expect(shouldProcessMention({ ...relay, invited: true })).toBe(true);
+    expect(shouldProcessMention(relay)).toBe(false);
     const duplicate = message();
     expect(
       shouldProcessMention({

@@ -34,6 +34,8 @@ export type ChatMessage = {
   kind?: "topic" | "delegation" | "receipt" | "question" | "schedule" | "progress";
   /** 随消息发出的附件元数据；内容需经 hive_attachment_read 或附件接口读取 */
   attachments?: Attachment[];
+  /** 服务端代发消息的结构化正文（键见 protocol 的 server-text.ts），比如 roomPost.forwarded */
+  text?: { key: string; params?: Record<string, unknown> };
 };
 
 export type Attachment = {

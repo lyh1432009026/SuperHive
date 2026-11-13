@@ -1172,6 +1172,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       steer?: boolean;
       /** Agent 经 hive_message_send 发出（不是 Bridge 代发的最终回复） */
       fromTool?: boolean;
+      /**
+       * hive_room_post 替房主转到另一个房间的派活：@ 到发送者自己也要派发。
+       * Agent 在每个房间是不同的成员、各有各的会话，在 A 房间让「自己」去 B 房间干活是正常用法
+       */
+      relay?: boolean;
     } = {},
   ) {
     const result = database.createMessage(participant, input);
@@ -1239,7 +1244,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     for (const mention of targets) {
       if (mention.toLocaleLowerCase() === "all") continue;
       const agent = database.findParticipant(participant.roomId, mention);
-      if (!agent || agent.type !== "agent" || agent.id === participant.id) continue;
+      if (!agent || agent.type !== "agent") continue;
+      if (agent.id === participant.id && !options.relay) continue;
       // 主 Agent 接手了：@ 到的离线 Agent 不再另外排队，免得它回来后把同一件事再做一遍
       if (implicit && agent.id !== implicit.id && awayAgent(agent)) continue;
       const needsApproval =
@@ -2042,11 +2048,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       seq: parent.seq,
       requester: requester.username,
     });
-    const { message } = createAndDispatchMessage(sender, {
-      content: zhText(forwarded),
-      text: forwarded,
-      clientMessageId: input.clientMessageId,
-    });
+    const { message } = createAndDispatchMessage(
+      sender,
+      {
+        content: zhText(forwarded),
+        text: forwarded,
+        clientMessageId: input.clientMessageId,
+      },
+      { relay: true },
+    );
     return message;
   }
 
