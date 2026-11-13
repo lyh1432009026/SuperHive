@@ -646,6 +646,9 @@ describe("Hive WebSocket protocol", () => {
       (event) => event.type === "room.activity" && event.roomId === "adhoc" && event.latestSeq > 0,
     );
     expect(activity.type === "room.activity" && activity.onlineCount).toBe(1);
+    // 带着最近一条消息的时间，侧栏按它排不置顶的房间
+    const adhocActivityAt = activity.type === "room.activity" ? activity.lastActivityAt : undefined;
+    expect(adhocActivityAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     await expect(watcher.next((event) => event.type === "message.created", 150)).rejects.toThrow(
       /timed out/i,
     );
@@ -695,6 +698,64 @@ describe("Hive WebSocket protocol", () => {
     ).json()) as { rooms: Array<{ id: string; latestSeq: number }> };
     expect(finalList.rooms.map((room) => room.id).sort()).toEqual(["adhoc", "frontend", "general"]);
     expect(finalList.rooms.find((room) => room.id === "adhoc")?.latestSeq).toBeGreaterThan(0);
+
+    // 置顶：房主整份写回顺序，存在服务端（换设备也一样），改动的房间广播给所有人
+    const pinsBefore = (await (
+      await fetch(`${baseUrl}/api/rooms`, { headers: authHeaders })
+    ).json()) as { rooms: Array<{ id: string; pinned?: number; lastActivityAt?: string }> };
+    expect(pinsBefore.rooms.every((room) => room.pinned === undefined)).toBe(true);
+    expect(pinsBefore.rooms.find((room) => room.id === "adhoc")?.lastActivityAt).toBe(
+      adhocActivityAt,
+    );
+    expect(pinsBefore.rooms.find((room) => room.id === "frontend")?.lastActivityAt).toBeUndefined();
+
+    expect(
+      (
+        await fetch(`${baseUrl}/api/room-pins`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roomIds: ["frontend"] }),
+        })
+      ).status,
+    ).toBeGreaterThanOrEqual(400);
+    const pinned = await fetch(`${baseUrl}/api/room-pins`, {
+      method: "PUT",
+      headers: jsonHeaders,
+      body: JSON.stringify({ roomIds: ["frontend", "missing", "general", "frontend"] }),
+    });
+    expect(pinned.status).toBe(200);
+    // 不存在的、重复的去掉
+    expect(await pinned.json()).toEqual({ roomIds: ["frontend", "general"] });
+    const pinnedFrontend = await restored.next(
+      (event) => event.type === "rooms.changed" && event.room.id === "frontend",
+    );
+    expect(pinnedFrontend.type === "rooms.changed" && pinnedFrontend.room.pinned).toBe(0);
+    const pinnedList = (await (
+      await fetch(`${baseUrl}/api/rooms`, { headers: authHeaders })
+    ).json()) as { rooms: Array<{ id: string; pinned?: number }> };
+    expect(Object.fromEntries(pinnedList.rooms.map((room) => [room.id, room.pinned]))).toEqual({
+      frontend: 0,
+      general: 1,
+      adhoc: undefined,
+    });
+
+    await fetch(`${baseUrl}/api/room-pins`, {
+      method: "PUT",
+      headers: jsonHeaders,
+      body: JSON.stringify({ roomIds: ["general"] }),
+    });
+    const unpinned = await restored.next(
+      (event) =>
+        event.type === "rooms.changed" &&
+        event.room.id === "frontend" &&
+        event.room.pinned === undefined,
+    );
+    expect(unpinned.type).toBe("rooms.changed");
+    const generalMoved = await restored.next(
+      (event) =>
+        event.type === "rooms.changed" && event.room.id === "general" && event.room.pinned === 0,
+    );
+    expect(generalMoved.type).toBe("rooms.changed");
   });
 });
 

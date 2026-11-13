@@ -141,6 +141,7 @@ type RoomRow = {
   lead_agent: string | null;
   online_count: number;
   latest_seq: number;
+  last_activity_at: string | null;
 };
 
 type InvocationRow = {
@@ -559,13 +560,15 @@ function mapRoom(row: RoomRow): RoomSummary {
     ...(row.lead_agent ? { leadAgent: row.lead_agent } : {}),
     onlineCount: row.online_count,
     latestSeq: row.latest_seq,
+    ...(row.last_activity_at ? { lastActivityAt: row.last_activity_at } : {}),
   };
 }
 
 const roomSummarySelect = `
   SELECT r.id, r.name, r.created_at, r.created_by, r.archived_at, r.workspace, r.lead_agent,
          COALESCE(p.online_count, 0) AS online_count,
-         COALESCE(m.latest_seq, 0) AS latest_seq
+         COALESCE(m.latest_seq, 0) AS latest_seq,
+         lm.created_at AS last_activity_at
   FROM rooms r
   LEFT JOIN (
     SELECT room_id, COUNT(*) AS online_count FROM participants
@@ -574,6 +577,7 @@ const roomSummarySelect = `
   LEFT JOIN (
     SELECT room_id, MAX(seq) AS latest_seq FROM messages GROUP BY room_id
   ) m ON m.room_id = r.id
+  LEFT JOIN messages lm ON lm.seq = m.latest_seq
 `;
 
 export class HiveDatabase {
@@ -1088,6 +1092,14 @@ export class HiveDatabase {
     if (!participant)
       throw new HiveError("PARTICIPANT_NOT_FOUND", serverText("error.member.notFound"));
     return participant;
+  }
+
+  /** 房间最近一条消息的时间（seq 递增，最大 seq 那条就是最新的） */
+  lastActivityAt(roomId: string): string | undefined {
+    const row = this.db
+      .prepare("SELECT created_at FROM messages WHERE room_id = ? ORDER BY seq DESC LIMIT 1")
+      .get(roomId) as { created_at: string } | undefined;
+    return row?.created_at;
   }
 
   latestSeq(roomId: string): number {

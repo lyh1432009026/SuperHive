@@ -831,6 +831,15 @@ export const roomSummarySchema = z.object({
   leadAgent: z.string().max(32).optional(),
   onlineCount: z.number().int().nonnegative(),
   latestSeq: z.number().int().nonnegative(),
+  /** 最近一条消息的时间：侧栏不置顶的房间按它倒序排；还没有消息时没有 */
+  lastActivityAt: z.string().datetime().optional(),
+  /** 房主把这个房间置顶时，它在置顶区里的位置（从 0 开始）；没置顶就没有 */
+  pinned: z.number().int().nonnegative().optional(),
+});
+
+/** 房主的置顶房间：按顺序存一份，换设备也一样 */
+export const roomPinsRequestSchema = z.object({
+  roomIds: z.array(roomIdSchema).max(100),
 });
 
 export const roomsChangedEventSchema = z.object({
@@ -843,6 +852,7 @@ export const roomActivityEventSchema = z.object({
   roomId: z.string(),
   latestSeq: z.number().int().nonnegative(),
   onlineCount: z.number().int().nonnegative(),
+  lastActivityAt: z.string().datetime().optional(),
 });
 
 export const serverEventSchema = z.discriminatedUnion("type", [

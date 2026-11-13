@@ -191,6 +191,24 @@
   padding-bottom: 8px;
 }
 
+/* 置顶区：不跟着下面滚动，和按活跃度排的房间之间隔一条线；置顶太多时自己滚 */
+.room-list.pinned {
+  flex: 0 0 auto;
+  max-height: 40%;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.room-item-pin {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+}
+
+.room-item.active .room-item-pin {
+  color: var(--text-secondary);
+}
+
 .room-item {
   position: relative;
   display: flex;

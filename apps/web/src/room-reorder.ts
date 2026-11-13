@@ -1,14 +1,41 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 
+/**
+ * 旧版存在本机的手动顺序。现在置顶区的顺序存在服务端（换设备也一样），不置顶的按活跃度排，
+ * 两套规则不能并存，所以这个值不再读取，启动时清掉。
+ */
 export const storedRoomOrderKey = "superhive.room-order";
 
-export function loadRoomOrder(storage: Pick<Storage, "getItem"> | undefined): string[] {
-  try {
-    const parsed: unknown = JSON.parse(storage?.getItem(storedRoomOrderKey) ?? "[]");
-    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
-  } catch {
-    return [];
-  }
+/** 房间最近的活跃时间：最近一条消息的时间，还没有消息的用创建时间 */
+export function roomActivity(room: { lastActivityAt?: string; createdAt: string }): number {
+  const at = Date.parse(room.lastActivityAt ?? room.createdAt);
+  return Number.isFinite(at) ? at : 0;
+}
+
+/**
+ * 侧栏顺序：置顶的按置顶区里的位置排在最前；其余的按最近活跃倒序，一样新时按 ID；已归档的放最后。
+ */
+export function sortRoomsForSidebar<
+  T extends {
+    id: string;
+    pinned?: number;
+    archivedAt?: string;
+    lastActivityAt?: string;
+    createdAt: string;
+  },
+>(rooms: readonly T[]): { pinned: T[]; others: T[] } {
+  const pinned = rooms
+    .filter((room) => room.pinned !== undefined)
+    .sort((a, b) => a.pinned! - b.pinned! || a.id.localeCompare(b.id));
+  const others = rooms
+    .filter((room) => room.pinned === undefined)
+    .sort(
+      (a, b) =>
+        Number(Boolean(a.archivedAt)) - Number(Boolean(b.archivedAt)) ||
+        roomActivity(b) - roomActivity(a) ||
+        a.id.localeCompare(b.id),
+    );
+  return { pinned, others };
 }
 
 /** 按保存的顺序排房间；没排过的（新建的）保持原来的先后，排在后面 */

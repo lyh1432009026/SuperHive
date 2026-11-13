@@ -19,6 +19,7 @@ import {
   parseMentions,
   createRoomRequestSchema,
   updateRoomRequestSchema,
+  roomPinsRequestSchema,
   createGuestAgentRequestSchema,
   createInviteRequestSchema,
   redeemInviteRequestSchema,
@@ -364,6 +365,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       roomId,
       latestSeq: database.latestSeq(roomId),
       onlineCount: database.onlineCount(roomId),
+      ...(() => {
+        const at = database.lastActivityAt(roomId);
+        return at ? { lastActivityAt: at } : {};
+      })(),
     });
   }
 
@@ -4310,13 +4315,28 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     },
   );
 
-  /** 房间工作区当前的 git 分支：侧栏房间名下面显示，切换分支后由定时检查推送 */
+  /** 房主置顶的房间，按置顶区里的顺序存在服务端设置里，换设备也一样 */
+  function roomPins(): string[] {
+    try {
+      const value = JSON.parse(database.getSetting("room-pins") ?? "[]") as unknown;
+      return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * 发给网页的房间摘要：补上工作区当前的 git 分支（侧栏房间名下面显示，切换分支后由定时检查推送）
+   * 和置顶位置
+   */
   const roomBranches = new Map<string, string | undefined>();
   function withBranch(room: RoomSummary): RoomSummary {
-    if (!room.workspace) return room;
+    const pinIndex = roomPins().indexOf(room.id);
+    const pinned = pinIndex >= 0 ? { ...room, pinned: pinIndex } : room;
+    if (!room.workspace) return pinned;
     const branch = gitBranch(room.workspace);
     roomBranches.set(room.id, branch);
-    return branch ? { ...room, branch } : room;
+    return branch ? { ...pinned, branch } : pinned;
   }
   function checkRoomBranches(): void {
     for (const room of database.listRooms(false)) {
@@ -4341,6 +4361,23 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         .filter((room) => canAccessRoom(principal, room.id))
         .map(withBranch),
     };
+  });
+
+  /** 置顶：整份覆盖（含顺序），只有房主能改；变了的房间各广播一次新摘要 */
+  app.put("/api/room-pins", async (request, reply) => {
+    if (!adminOnly(request, reply)) return reply;
+    const body = roomPinsRequestSchema.safeParse(request.body);
+    if (!body.success)
+      return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+    const before = roomPins();
+    const next = [...new Set(body.data.roomIds)].filter((id) => database.getRoom(id));
+    database.setSetting("room-pins", JSON.stringify(next));
+    for (const id of new Set([...before, ...next])) {
+      if (before.indexOf(id) === next.indexOf(id)) continue;
+      const room = database.getRoom(id);
+      if (room) broadcastAll({ type: "rooms.changed", room: withBranch(room) });
+    }
+    return { roomIds: next };
   });
 
   /** 房间工作区必须是 Server 所在电脑上真实存在的目录，存解析后的真实路径 */

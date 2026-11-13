@@ -122,6 +122,13 @@ const crossRoom: {
   searchable: ChatMessage[];
 } = { mentions: [], invocations: [], invocationMessages: [], searchable: [] };
 
+/** 房主的置顶房间（服务端存的那份）和收到的 PUT /api/room-pins */
+const roomPins: { ids: string[]; requests: string[][] } = { ids: [], requests: [] };
+const pinnedSummary = (id: string) => {
+  const index = roomPins.ids.indexOf(id);
+  return roomSummary(id, index < 0 ? {} : { pinned: index });
+};
+
 /** 本机 Agent 接口的假实现；enabled 为 false 时 /api/local/session 返回 404（非本机） */
 const localApi: {
   enabled: boolean;
@@ -163,6 +170,8 @@ describe("App mention autocomplete", () => {
     localApi.enabled = false;
     localApi.agents = [];
     localApi.requests = [];
+    roomPins.ids = [];
+    roomPins.requests = [];
     FakeNotification.permission = "default";
     FakeNotification.nextPermission = "granted";
     localStorage.clear();
@@ -273,8 +282,14 @@ describe("App mention autocomplete", () => {
           const body = JSON.parse(String(init.body)) as { id: string; name?: string };
           return jsonResponse({ room: roomSummary(body.id, { name: body.name ?? body.id }) }, 201);
         }
+        if (url.includes("/api/room-pins")) {
+          const body = JSON.parse(String(init!.body)) as { roomIds: string[] };
+          roomPins.ids = body.roomIds;
+          roomPins.requests.push(body.roomIds);
+          return jsonResponse({ roomIds: body.roomIds });
+        }
         if (url.includes("/api/rooms")) {
-          return jsonResponse({ rooms: [roomSummary("general"), roomSummary("frontend")] });
+          return jsonResponse({ rooms: [pinnedSummary("general"), pinnedSummary("frontend")] });
         }
         return jsonResponse({ error: "not found" }, 404);
       }),
@@ -938,17 +953,32 @@ describe("App mention autocomplete", () => {
       }),
     );
     const roomsPanel = screen.getByLabelText("房间列表");
-    const frontend = await within(roomsPanel).findByText("# frontend");
+    const general = await within(roomsPanel).findByText("# general");
     const names = () =>
       [...roomsPanel.querySelectorAll(".room-item-name")].map((item) => item.textContent);
-    expect(names()[0]).not.toBe("# frontend");
+    // 都没有消息：按创建时间，后建的 frontend 在上
+    await waitFor(() => expect(names()).toEqual(["# frontend", "# general"]));
 
-    fireEvent.contextMenu(frontend, { clientX: 40, clientY: 80 });
-    const roomMenu = screen.getByRole("menu", { name: "# frontend" });
+    fireEvent.contextMenu(general, { clientX: 40, clientY: 80 });
+    let roomMenu = screen.getByRole("menu", { name: "# general" });
     expect(within(roomMenu).getByRole("menuitem", { name: "复制房间链接" })).toBeTruthy();
-    fireEvent.click(within(roomMenu).getByRole("menuitem", { name: "移到最前" }));
+    // 没置顶的不能手动排
+    expect(within(roomMenu).queryByRole("menuitem", { name: /上移/ })).toBeNull();
+    fireEvent.click(within(roomMenu).getByRole("menuitem", { name: "置顶" }));
     expect(screen.queryByRole("menu")).toBeNull();
-    expect(names()[0]).toBe("# frontend");
+    expect(names()).toEqual(["# general", "# frontend"]);
+    const pinnedGroup = within(roomsPanel).getByRole("group", { name: "已置顶" });
+    expect(within(pinnedGroup).getByText("# general")).toBeTruthy();
+    expect(pinnedGroup.querySelector(".room-item-pin")).toBeTruthy();
+    await waitFor(() => expect(roomPins.requests).toEqual([["general"]]));
+
+    fireEvent.contextMenu(within(roomsPanel).getByText("# general"), { clientX: 40, clientY: 80 });
+    roomMenu = screen.getByRole("menu", { name: "# general" });
+    expect(within(roomMenu).getByRole("menuitem", { name: /上移/ })).toBeTruthy();
+    fireEvent.click(within(roomMenu).getByRole("menuitem", { name: "取消置顶" }));
+    expect(names()).toEqual(["# frontend", "# general"]);
+    expect(within(roomsPanel).queryByRole("group", { name: "已置顶" })).toBeNull();
+    await waitFor(() => expect(roomPins.requests).toEqual([["general"], []]));
 
     const memberRow = screen
       .getAllByText("helper")
@@ -2206,10 +2236,13 @@ describe("App mention autocomplete", () => {
     );
   });
 
-  it("reorders rooms by dragging and with Alt+arrow keys, and keeps the order after a reload", async () => {
+  it("reorders pinned rooms by dragging and with Alt+arrow keys, and keeps the order on the server", async () => {
     const user = userEvent.setup();
     localStorage.setItem("superhive.username", "Alice");
     localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    // 旧版存在本机的手动顺序不再沿用，启动时清掉
+    localStorage.setItem("superhive.room-order", JSON.stringify(["frontend", "general"]));
+    roomPins.ids = ["general", "frontend"];
     const { container, unmount } = render(<App />);
     const names = () =>
       [...container.querySelectorAll(".room-list .room-item-name")].map((node) => node.textContent);
@@ -2260,19 +2293,19 @@ describe("App mention autocomplete", () => {
     fireEvent.pointerUp(window, { pointerId: 1, clientX: 10, clientY: 60 });
     // 松手后先滑到新位置，再提交顺序
     await waitFor(() => expect(names()).toEqual(["# frontend", "# general"]));
-    expect(JSON.parse(localStorage.getItem("superhive.room-order")!)).toEqual([
-      "frontend",
-      "general",
-    ]);
+    await waitFor(() => expect(roomPins.requests).toEqual([["frontend", "general"]]));
+    expect(localStorage.getItem("superhive.room-order")).toBeNull();
 
     // 键盘：Alt + ↑ 把 general 移回第一位
     const general = [...container.querySelectorAll<HTMLElement>(".room-list .room-item-main")][1]!;
     general.focus();
     await user.keyboard("{Alt>}{ArrowUp}{/Alt}");
     expect(names()).toEqual(["# general", "# frontend"]);
+    await waitFor(() => expect(roomPins.ids).toEqual(["general", "frontend"]));
     unmount();
 
-    localStorage.setItem("superhive.room-order", JSON.stringify(["frontend", "general"]));
+    // 重新打开（换设备也一样）：顺序来自服务端
+    roomPins.ids = ["frontend", "general"];
     const again = render(<App />);
     await waitFor(() =>
       expect(
@@ -2281,6 +2314,43 @@ describe("App mention autocomplete", () => {
         ),
       ).toEqual(["# frontend", "# general"]),
     );
+  });
+
+  it("sorts unpinned rooms by their latest message and re-sorts when a new one arrives", async () => {
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    const { container } = render(<App />);
+    const names = () =>
+      [...container.querySelectorAll(".room-list .room-item-name")].map((node) => node.textContent);
+    await waitFor(() => expect(names()).toEqual(["# frontend", "# general"]));
+    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
+    const socket = FakeWebSocket.instances.at(-1)!;
+    act(() => socket.open());
+    const activity = (latestSeq: number, lastActivityAt: string) =>
+      act(() =>
+        socket.serverEvent({
+          type: "room.activity",
+          roomId: "general",
+          latestSeq,
+          onlineCount: 1,
+          lastActivityAt,
+        }),
+      );
+    activity(1, "2026-11-13T04:00:00.000Z");
+    expect(names()).toEqual(["# general", "# frontend"]);
+
+    // 鼠标停在列表上时先不动，移开后再排
+    const list = container.querySelector<HTMLElement>(".room-list")!;
+    fireEvent.pointerEnter(list);
+    act(() =>
+      socket.serverEvent({
+        type: "rooms.changed",
+        room: roomSummary("frontend", { latestSeq: 3, lastActivityAt: "2026-11-13T04:05:00.000Z" }),
+      }),
+    );
+    expect(names()).toEqual(["# general", "# frontend"]);
+    fireEvent.pointerLeave(list);
+    expect(names()).toEqual(["# frontend", "# general"]);
   });
 
   it("lists scheduled tasks with their run state and lets a human cancel a pending one", async () => {
@@ -2690,7 +2760,7 @@ describe("App mention autocomplete", () => {
     expect(within(help).getByText("跳到下一个要你处理的任务")).toBeTruthy();
     await user.type(within(help).getByRole("searchbox", { name: "筛选快捷键" }), "房间");
     expect(within(help).queryByText("换行")).toBeNull();
-    expect(within(help).getByText("把选中的房间上移一格")).toBeTruthy();
+    expect(within(help).getByText("把选中的置顶房间上移一格")).toBeTruthy();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "快捷键" })).toBeNull();
 

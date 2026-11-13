@@ -55,7 +55,7 @@ import { highlightDraft } from "./draft-highlight";
 import type { ComposerHandle, ComposerKeyInfo } from "./rich-composer";
 import { SchedulePanel, isPendingSchedule, upsertSchedule } from "./schedules";
 import {
-  loadRoomOrder,
+  sortRoomsForSidebar,
   moveRoom,
   orderRooms,
   storedRoomOrderKey,
@@ -435,6 +435,18 @@ function platformModifierLabel(): string {
 }
 
 /** git 分支的小图标（房间工作区是仓库时显示当前分支） */
+/** 置顶房间名前的小图钉 */
+function PinGlyph() {
+  return (
+    <svg className="room-item-pin" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
+      <path
+        d="M10.3 1.8 14.2 5.7l-1.4.5-2.6 2.6.3 3.2-1.3 1.3-2.6-2.6L3 14.3l-.9.1-.1-.9 3.6-3.6L3 7.3 4.3 6l3.2.3 2.6-2.6.2-1.9Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 function BranchGlyph() {
   return (
     <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
@@ -1647,32 +1659,76 @@ export function App({
     currentRoom?.leadAgent?.toLocaleLowerCase() === participant.username.toLocaleLowerCase();
   // 主 Agent 被删掉后服务端不再派给它：输入框不再这么提示
   const currentLeadAgent = participants.find(isLeadAgent)?.username;
-  // 房间顺序：拖拽排出来的，存在这台浏览器里
-  const [roomOrder, setRoomOrder] = useState<string[]>(() =>
-    loadRoomOrder(typeof localStorage === "undefined" ? undefined : localStorage),
+  // 房间顺序：置顶的在最前（顺序存在服务端，跟着房主走），其余按最近活跃倒序。
+  // 鼠标停在列表上或焦点在列表里时，不置顶区暂停重排，免得正要点的房间被新消息顶走
+  const [roomListFrozen, setRoomListFrozen] = useState<string[]>();
+  const sidebarRooms = useMemo(() => {
+    const sorted = sortRoomsForSidebar(
+      rooms
+        .filter((room) => showArchivedRooms || !room.archivedAt)
+        // 访客看不到房主的置顶
+        .map((room) =>
+          isOwner || room.pinned === undefined ? room : { ...room, pinned: undefined },
+        ),
+    );
+    return roomListFrozen
+      ? { pinned: sorted.pinned, others: orderRooms(sorted.others, roomListFrozen) }
+      : sorted;
+  }, [isOwner, roomListFrozen, rooms, showArchivedRooms]);
+  const pinnedRoomIds = useMemo(
+    () => sidebarRooms.pinned.map((room) => room.id),
+    [sidebarRooms.pinned],
   );
-  const visibleRooms = useMemo(
-    () =>
-      orderRooms(
-        rooms.filter((room) => showArchivedRooms || !room.archivedAt),
-        roomOrder,
-      ),
-    [roomOrder, rooms, showArchivedRooms],
+  const freezeRoomList = () =>
+    setRoomListFrozen((current) => current ?? sidebarRooms.others.map((room) => room.id));
+  const thawRoomList = (element: HTMLElement) => {
+    if (element.matches(":hover") || element.contains(document.activeElement)) return;
+    setRoomListFrozen(undefined);
+  };
+  const refreshRoomsRef = useRef<() => Promise<unknown>>(undefined);
+  /** 整份写回置顶列表：先在本地改好，服务端确认后会广播新的房间摘要 */
+  const savePinnedRooms = useCallback(
+    (next: string[]) => {
+      const index = new Map(next.map((id, position) => [id, position]));
+      setRooms((current) =>
+        current.map((room) => {
+          const pinned = index.get(room.id);
+          if (pinned === room.pinned) return room;
+          const { pinned: _old, ...rest } = room;
+          void _old;
+          return pinned === undefined ? rest : { ...rest, pinned };
+        }),
+      );
+      void fetch(`${base}/api/room-pins`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ roomIds: next }),
+      })
+        .then(async (response) => {
+          if (!response.ok) {
+            const failure: unknown = await response.json().catch(() => ({}));
+            throw new Error(
+              serverError(failure) ?? t("置顶没保存上（{0}）", { 0: response.status }),
+            );
+          }
+        })
+        .catch((reason: unknown) => {
+          setError(reason instanceof Error ? reason.message : String(reason));
+          // 没存上就以服务端为准重新拉一遍
+          void refreshRoomsRef.current?.().catch(() => undefined);
+        });
+    },
+    [authToken, base],
   );
-  const visibleRoomIds = useMemo(() => visibleRooms.map((room) => room.id), [visibleRooms]);
-  const reorderRooms = useCallback((next: string[]) => {
-    setRoomOrder((current) => {
-      // 没显示出来的（已归档隐藏的）保持原来的相对位置，排在后面
-      const merged = [...next, ...current.filter((id) => !next.includes(id))];
-      try {
-        localStorage.setItem(storedRoomOrderKey, JSON.stringify(merged));
-      } catch {
-        // 存不了也不影响本次排序
-      }
-      return merged;
-    });
+  // 拖动和 Alt+↑/↓ 只在置顶区里排序
+  const roomReorder = useRoomReorder(pinnedRoomIds, savePinnedRooms);
+  useEffect(() => {
+    try {
+      localStorage.removeItem(storedRoomOrderKey);
+    } catch {
+      // 清不掉也无妨：已经不再读取
+    }
   }, []);
-  const roomReorder = useRoomReorder(visibleRoomIds, reorderRooms);
   const activeRoomCount = useMemo(() => rooms.filter((room) => !room.archivedAt).length, [rooms]);
   // 渲染窗口：只挂载最近的一段消息，重房间切换时的同步提交成本与内存尖峰被限定为常量；
   // 更早的消息按需点击展开（数据仍全量在 messages 中，仅渲染被窗口化）
@@ -2243,6 +2299,7 @@ export function App({
       return next;
     });
   }, [authToken, base, meta]);
+  refreshRoomsRef.current = refreshRooms;
 
   useEffect(() => {
     if (!meta || !username) return;
@@ -2454,7 +2511,12 @@ export function App({
           setRooms((current) =>
             current.map((room) =>
               room.id === event.roomId
-                ? { ...room, latestSeq: event.latestSeq, onlineCount: event.onlineCount }
+                ? {
+                    ...room,
+                    latestSeq: event.latestSeq,
+                    onlineCount: event.onlineCount,
+                    ...(event.lastActivityAt ? { lastActivityAt: event.lastActivityAt } : {}),
+                  }
                 : room,
             ),
           );
@@ -3395,11 +3457,138 @@ export function App({
   }
 
   /** 房间右键：打开、复制链接 / ID、标为已读、调整顺序、管理 */
+  /** 侧栏里的一个房间：置顶的带图钉、可以拖动排序；其余的按活跃度排，不能拖 */
+  function renderRoomItem(room: RoomSummary, index: number, pinned: boolean) {
+    const placement = pinned ? roomReorder.itemStyle(room.id, index) : undefined;
+    return (
+      <div
+        key={room.id}
+        {...(pinned ? roomReorder.itemProps(room.id) : {})}
+        onContextMenu={(event) => openRoomMenu(event, room)}
+        style={placement?.style}
+        className={`room-item ${pinned ? "pinned" : ""} ${room.id === currentRoomId ? "active" : ""} ${room.archivedAt ? "archived" : ""} ${placement?.dragging ? "dragging" : ""}`}
+      >
+        {pinned && (
+          <span className="room-drag-handle" aria-hidden="true">
+            <svg viewBox="0 0 8 14" width="8" height="14">
+              <circle cx="2" cy="2" r="1.1" />
+              <circle cx="6" cy="2" r="1.1" />
+              <circle cx="2" cy="7" r="1.1" />
+              <circle cx="6" cy="7" r="1.1" />
+              <circle cx="2" cy="12" r="1.1" />
+              <circle cx="6" cy="12" r="1.1" />
+            </svg>
+          </span>
+        )}
+        <button
+          type="button"
+          className="room-item-main"
+          aria-current={room.id === currentRoomId}
+          {...(pinned
+            ? {
+                "aria-keyshortcuts": "Alt+ArrowUp Alt+ArrowDown",
+                title: t("已置顶，拖动可调整顺序（Alt + ↑/↓ 也可以）"),
+              }
+            : {})}
+          onClick={() => switchRoom(room.id)}
+        >
+          <span className="room-item-label">
+            <span className="room-item-name"># {room.name}</span>
+            {room.branch && (
+              <span
+                className="room-item-branch"
+                title={t("工作区 {0} 当前分支：{1}", {
+                  0: room.workspace ?? "",
+                  1: room.branch,
+                })}
+              >
+                <BranchGlyph />
+                <span>{room.branch}</span>
+              </span>
+            )}
+          </span>
+          {pinned && <PinGlyph />}
+          <span className="room-item-meta">
+            {room.archivedAt ? t("已归档") : t("{0} 在线", { 0: room.onlineCount })}
+          </span>
+          {(() => {
+            const tasks = roomTaskCounts.get(room.id) ?? { attention: 0, inFlight: 0 };
+            const unseenDone = attention.unseenByRoom.get(room.id) ?? 0;
+            if (room.archivedAt) return null;
+            if (tasks.attention > 0) {
+              return (
+                <span
+                  className="room-task attention"
+                  role="img"
+                  title={t("{0} 个任务需要处理", { 0: tasks.attention })}
+                  aria-label={t("# {0}：{1} 个任务需要处理", {
+                    0: room.name,
+                    1: tasks.attention,
+                  })}
+                >
+                  {tasks.attention}
+                </span>
+              );
+            }
+            if (unseenDone > 0) {
+              return (
+                <span
+                  className="room-task done"
+                  role="img"
+                  title={t("{0} 个任务做完了，你还没看", { 0: unseenDone })}
+                  aria-label={t("# {0}：{1} 个任务做完了，还没看", {
+                    0: room.name,
+                    1: unseenDone,
+                  })}
+                >
+                  ✓{unseenDone > 1 && unseenDone}
+                </span>
+              );
+            }
+            if (tasks.inFlight > 0) {
+              return (
+                <span
+                  className="room-task running"
+                  role="img"
+                  title={t("{0} 个任务进行中", { 0: tasks.inFlight })}
+                  aria-label={t("# {0}：{1} 个任务进行中", {
+                    0: room.name,
+                    1: tasks.inFlight,
+                  })}
+                >
+                  <span className="room-task-spinner" aria-hidden="true" />
+                  {tasks.inFlight > 1 && tasks.inFlight}
+                </span>
+              );
+            }
+            return null;
+          })()}
+          {room.id !== currentRoomId &&
+            !room.archivedAt &&
+            room.latestSeq > (readSeqs[room.id] ?? 0) && (
+              <span className="room-unread" aria-label={t("# {0} 有未读消息", { 0: room.name })} />
+            )}
+        </button>
+        {isOwner && (
+          <button
+            type="button"
+            className="room-item-manage"
+            aria-label={t("管理房间 {0}", { 0: room.name })}
+            aria-haspopup="dialog"
+            onClick={(event) => openRoomDialog({ mode: "manage", room }, event.currentTarget)}
+          >
+            <Icon name="settings" size={14} />
+          </button>
+        )}
+      </div>
+    );
+  }
+
   function openRoomMenu(event: ReactMouseEvent<HTMLElement>, room: RoomSummary) {
     event.preventDefault();
     const row = event.currentTarget;
-    const index = visibleRoomIds.indexOf(room.id);
-    const move = (to: number) => reorderRooms(moveRoom(visibleRoomIds, room.id, to));
+    const index = pinnedRoomIds.indexOf(room.id);
+    const move = (to: number) => savePinnedRooms(moveRoom(pinnedRoomIds, room.id, to));
     const origin = resolveShareBase({
       development: import.meta.env.DEV,
       location: window.location,
@@ -3422,17 +3611,36 @@ export function App({
         "separator",
         { label: t("复制房间链接"), onSelect: () => void copyForMenu(`${origin}/#${room.id}`) },
         { label: t("复制房间 ID"), onSelect: () => void copyForMenu(room.id) },
-        "separator",
-        { label: t("移到最前"), disabled: index <= 0, onSelect: () => move(0) },
-        { label: t("上移"), hint: "Alt+↑", disabled: index <= 0, onSelect: () => move(index - 1) },
-        {
-          label: t("下移"),
-          hint: "Alt+↓",
-          disabled: index < 0 || index >= visibleRoomIds.length - 1,
-          onSelect: () => move(index + 1),
-        },
         ...(isOwner
           ? [
+              "separator" as const,
+              index < 0
+                ? {
+                    label: t("置顶"),
+                    onSelect: () => savePinnedRooms([room.id, ...pinnedRoomIds]),
+                  }
+                : {
+                    label: t("取消置顶"),
+                    onSelect: () => savePinnedRooms(pinnedRoomIds.filter((id) => id !== room.id)),
+                  },
+              // 只有置顶区里能手动排顺序
+              ...(index < 0
+                ? []
+                : [
+                    { label: t("移到最前"), disabled: index <= 0, onSelect: () => move(0) },
+                    {
+                      label: t("上移"),
+                      hint: "Alt+↑",
+                      disabled: index <= 0,
+                      onSelect: () => move(index - 1),
+                    },
+                    {
+                      label: t("下移"),
+                      hint: "Alt+↓",
+                      disabled: index >= pinnedRoomIds.length - 1,
+                      onSelect: () => move(index + 1),
+                    },
+                  ]),
               "separator" as const,
               {
                 label: t("管理房间…"),
@@ -3901,133 +4109,30 @@ export function App({
             <span>{t("房间列表")}</span>
             <span className="panel-meta">{activeRoomCount}</span>
           </div>
+          {sidebarRooms.pinned.length > 0 && (
+            <div
+              className={`room-list pinned ${roomReorder.dragging ? "reordering" : ""}`}
+              ref={roomReorder.listRef}
+              role="group"
+              aria-label={t("已置顶")}
+            >
+              {sidebarRooms.pinned.map((room, index) => renderRoomItem(room, index, true))}
+            </div>
+          )}
           <div
-            className={`room-list ${roomReorder.dragging ? "reordering" : ""}`}
-            ref={roomReorder.listRef}
+            className="room-list"
+            onPointerEnter={freezeRoomList}
+            onPointerLeave={(event) => thawRoomList(event.currentTarget)}
+            onFocus={freezeRoomList}
+            onBlur={(event) => {
+              const list = event.currentTarget;
+              // 焦点还在列表里（用 Tab 换到下一个房间）就继续保持
+              if (!list.contains(event.relatedTarget as Node | null)) {
+                window.setTimeout(() => thawRoomList(list));
+              }
+            }}
           >
-            {visibleRooms.map((room, index) => {
-              const placement = roomReorder.itemStyle(room.id, index);
-              return (
-                <div
-                  key={room.id}
-                  {...roomReorder.itemProps(room.id)}
-                  onContextMenu={(event) => openRoomMenu(event, room)}
-                  style={placement.style}
-                  className={`room-item ${room.id === currentRoomId ? "active" : ""} ${room.archivedAt ? "archived" : ""} ${placement.dragging ? "dragging" : ""}`}
-                >
-                  <span className="room-drag-handle" aria-hidden="true">
-                    <svg viewBox="0 0 8 14" width="8" height="14">
-                      <circle cx="2" cy="2" r="1.1" />
-                      <circle cx="6" cy="2" r="1.1" />
-                      <circle cx="2" cy="7" r="1.1" />
-                      <circle cx="6" cy="7" r="1.1" />
-                      <circle cx="2" cy="12" r="1.1" />
-                      <circle cx="6" cy="12" r="1.1" />
-                    </svg>
-                  </span>
-                  <button
-                    type="button"
-                    className="room-item-main"
-                    aria-current={room.id === currentRoomId}
-                    aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-                    title={t("拖动可调整顺序（Alt + ↑/↓ 也可以）")}
-                    onClick={() => switchRoom(room.id)}
-                  >
-                    <span className="room-item-label">
-                      <span className="room-item-name"># {room.name}</span>
-                      {room.branch && (
-                        <span
-                          className="room-item-branch"
-                          title={t("工作区 {0} 当前分支：{1}", {
-                            0: room.workspace ?? "",
-                            1: room.branch,
-                          })}
-                        >
-                          <BranchGlyph />
-                          <span>{room.branch}</span>
-                        </span>
-                      )}
-                    </span>
-                    <span className="room-item-meta">
-                      {room.archivedAt ? t("已归档") : t("{0} 在线", { 0: room.onlineCount })}
-                    </span>
-                    {(() => {
-                      const tasks = roomTaskCounts.get(room.id) ?? { attention: 0, inFlight: 0 };
-                      const unseenDone = attention.unseenByRoom.get(room.id) ?? 0;
-                      if (room.archivedAt) return null;
-                      if (tasks.attention > 0) {
-                        return (
-                          <span
-                            className="room-task attention"
-                            role="img"
-                            title={t("{0} 个任务需要处理", { 0: tasks.attention })}
-                            aria-label={t("# {0}：{1} 个任务需要处理", {
-                              0: room.name,
-                              1: tasks.attention,
-                            })}
-                          >
-                            {tasks.attention}
-                          </span>
-                        );
-                      }
-                      if (unseenDone > 0) {
-                        return (
-                          <span
-                            className="room-task done"
-                            role="img"
-                            title={t("{0} 个任务做完了，你还没看", { 0: unseenDone })}
-                            aria-label={t("# {0}：{1} 个任务做完了，还没看", {
-                              0: room.name,
-                              1: unseenDone,
-                            })}
-                          >
-                            ✓{unseenDone > 1 && unseenDone}
-                          </span>
-                        );
-                      }
-                      if (tasks.inFlight > 0) {
-                        return (
-                          <span
-                            className="room-task running"
-                            role="img"
-                            title={t("{0} 个任务进行中", { 0: tasks.inFlight })}
-                            aria-label={t("# {0}：{1} 个任务进行中", {
-                              0: room.name,
-                              1: tasks.inFlight,
-                            })}
-                          >
-                            <span className="room-task-spinner" aria-hidden="true" />
-                            {tasks.inFlight > 1 && tasks.inFlight}
-                          </span>
-                        );
-                      }
-                      return null;
-                    })()}
-                    {room.id !== currentRoomId &&
-                      !room.archivedAt &&
-                      room.latestSeq > (readSeqs[room.id] ?? 0) && (
-                        <span
-                          className="room-unread"
-                          aria-label={t("# {0} 有未读消息", { 0: room.name })}
-                        />
-                      )}
-                  </button>
-                  {isOwner && (
-                    <button
-                      type="button"
-                      className="room-item-manage"
-                      aria-label={t("管理房间 {0}", { 0: room.name })}
-                      aria-haspopup="dialog"
-                      onClick={(event) =>
-                        openRoomDialog({ mode: "manage", room }, event.currentTarget)
-                      }
-                    >
-                      <Icon name="settings" size={14} />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
+            {sidebarRooms.others.map((room, index) => renderRoomItem(room, index, false))}
           </div>
           <button
             type="button"
