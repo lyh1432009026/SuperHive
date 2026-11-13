@@ -33,9 +33,9 @@ export class ClaudeStream {
   private discarding = false;
   private failed = false;
   private result?: ClaudeResult;
-  /** 这个进程里的每一轮结果：插话后 Claude 可能再跑一轮，各轮的回复都要交出去 */
+  /** 这个进程里的每一轮结果：引导后 Claude 可能再跑一轮，各轮的回复都要交出去 */
   private readonly results: ClaudeResult[] = [];
-  /** 每出一个结果、每确认收到一条写进去的消息时回调（插话用） */
+  /** 每出一个结果、每确认收到一条写进去的消息时回调（引导用） */
   onResult?: (result: ClaudeResult) => void;
   onUserAck?: (uuid: string) => void;
   /** 控制请求（例如 interrupt）的答复 */
@@ -131,7 +131,7 @@ export class ClaudeStream {
     if (!this.discarding && this.buffer.trim()) this.line(this.buffer);
     this.buffer = "";
     this.thinkingTrace.endAll();
-    // 插话后多跑了几轮：以最后一轮为准。它看得到前面的对话，通常会把结论连同插话一起重说一遍，
+    // 引导后多跑了几轮：以最后一轮为准。它看得到前面的对话，通常会把结论连同引导一起重说一遍，
     // 直接拼接反而重复；最后一轮没给出文字时才退回到上一轮的回复
     if (this.results.length <= 1) return this.result;
     const last = this.results.at(-1)!;

@@ -657,7 +657,7 @@ describe("AgentBridge", () => {
       room.reports.find((report) => report.messageId === late.id && report.status === "running")
         ?.detail,
     ).toBe(`已并入当前任务（#${first.seq}）`);
-    // 执行过程里标出插话
+    // 执行过程里标出引导
     expect(room.traces.some((trace) => trace.messageId === first.id)).toBe(true);
 
     responder.steerResult = false;
@@ -687,7 +687,7 @@ describe("AgentBridge", () => {
     room.handlers.onMention(late, late.seq, false);
     await flush();
     expect(responder.steered).toHaveLength(0);
-    // 人点「插入当前任务」：从队里拿出来插进去
+    // 人点「引导当前任务」：从队里拿出来插进去
     room.handlers.onMention(late, late.seq, false, true);
     await waitUntil(() => responder.steered.length === 1);
     await waitUntil(() => room.statuses(late.id).includes("running"));
@@ -730,7 +730,7 @@ describe("AgentBridge", () => {
     room.messages.push(mention);
     room.handlers.onMention(mention, mention.seq, false, true);
     await waitUntil(() =>
-      room.reports.some((report) => report.detail?.includes("没有正在执行、能插进去的任务")),
+      room.reports.some((report) => report.detail?.includes("没有正在执行、能引导的任务")),
     );
     await waitUntil(() => responder.calls.length === 1);
     responder.finish();

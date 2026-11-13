@@ -184,7 +184,7 @@ export function AgentSettingsDialog({
     }
   }
 
-  /** 自动插话：服务端在派发时判断，改了立即生效，不用重启 */
+  /** 自动引导：服务端在派发时判断，改了立即生效，不用重启 */
   async function toggleAutoSteer(next: boolean) {
     setSavingSteer(true);
     setError(undefined);
@@ -374,10 +374,10 @@ export function AgentSettingsDialog({
               onChange={(event) => void toggleAutoSteer(event.target.checked)}
             />
             <span>
-              <strong>{t("人发的消息自动插话")}</strong>
+              <strong>{t("人发的消息自动引导")}</strong>
               <small>
                 {t(
-                  "它正在执行任务时，人 @ 它的新消息直接插进当前任务，不排队。默认关：先排队，需要时在那条消息上点「插入当前任务」，或用「发送并插话」。其他 Agent 的消息始终排队。",
+                  "它正在执行任务时，人 @ 它的新消息直接用来引导当前任务，不排队。默认关：先排队，需要时在那条消息上点「引导当前任务」，或用「发送并引导」。其他 Agent 的消息始终排队。",
                 )}
               </small>
             </span>

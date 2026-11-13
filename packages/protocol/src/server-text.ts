@@ -27,7 +27,7 @@ export const serverTexts = {
   /* ---------- 调用（任务）状态说明 ---------- */
   "invocation.delivered": { zh: "已送达，排队中", en: "Delivered, waiting in queue" },
   "invocation.steerRequested": {
-    zh: "{name} 请求插入当前任务",
+    zh: "{name} 请求引导当前任务",
     en: "{name} asked to add this to the current task",
   },
   "invocation.preemptRequested": {
@@ -35,11 +35,11 @@ export const serverTexts = {
     en: "{name} asked to stop the current task and do this one first",
   },
   "invocation.steerSend": {
-    zh: "发送并插话：请求插入当前任务",
+    zh: "发送并引导：请求引导当前任务",
     en: "Sent as steer: asked to add this to the current task",
   },
   "invocation.steerAuto": {
-    zh: "自动插话：请求插入当前任务",
+    zh: "自动引导：请求引导当前任务",
     en: "Auto steer: asked to add this to the current task",
   },
   "invocation.answered": {
@@ -293,14 +293,14 @@ export const serverTexts = {
   },
   "bridge.cancelledBeforeRun": { zh: "任务在执行前被取消", en: "Cancelled before it started" },
   "bridge.notSteeredQueued": {
-    zh: "当前没有正在执行、能插进去的任务，已排队",
+    zh: "当前没有正在执行、能引导的任务，已排队",
     en: "Nothing is running that this could join, so it's queued",
   },
   "bridge.steerUnsupported": {
-    zh: "这个运行时不支持插话，已排队",
+    zh: "这个运行时不支持引导，已排队",
     en: "This runtime doesn't support steering, so it's queued",
   },
-  "bridge.steering": { zh: "正在插入当前任务", en: "Adding to the current task" },
+  "bridge.steering": { zh: "正在引导当前任务", en: "Adding to the current task" },
   "bridge.steerUnconfirmed": {
     zh: "消息已尝试注入但未获确认；禁止退回队列或自动重放。",
     en: "Tried to add the message but got no confirmation. It won't be requeued or retried automatically.",
@@ -319,7 +319,7 @@ export const serverTexts = {
   },
   "bridge.steered": { zh: "已并入当前任务（#{seq}）", en: "Added to the current task (#{seq})" },
   "bridge.steerLate": {
-    zh: "没能插进当前任务（这一轮已经收尾），已排队",
+    zh: "没能引导当前任务（这一轮已经收尾），已排队",
     en: "Couldn't join the current task (the turn was wrapping up), so it's queued",
   },
   "bridge.stoppedWhileWaiting": {
@@ -938,7 +938,7 @@ export const serverTexts = {
     en: "{agent} isn't running a task right now, so this message will start normally.",
   },
   "error.steer.humanOnly": {
-    zh: "只有人直接发的消息可以插进当前任务。",
+    zh: "只有人直接发的消息可以用来引导当前任务。",
     en: "Only messages sent directly by a person can be added to the current task.",
   },
   "error.steer.messageGone": { zh: "这条消息已经不在了。", en: "This message no longer exists." },

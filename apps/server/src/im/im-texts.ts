@@ -604,11 +604,11 @@ export const imTexts = {
     en: "changed which MCP servers local agent {name} loads",
   },
   "im.audit.autoSteerOn": {
-    zh: "打开了本机 Agent {name} 的自动插话",
+    zh: "打开了本机 Agent {name} 的自动引导",
     en: "turned on auto-steer for local agent {name}",
   },
   "im.audit.autoSteerOff": {
-    zh: "关闭了本机 Agent {name} 的自动插话",
+    zh: "关闭了本机 Agent {name} 的自动引导",
     en: "turned off auto-steer for local agent {name}",
   },
   "im.audit.mcpMeasured": { zh: "测量了本机 MCP", en: "measured the local MCP servers" },

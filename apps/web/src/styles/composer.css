@@ -155,7 +155,7 @@
   color: var(--text-tertiary);
 }
 
-/* 发送并插话：@ 到的 Agent 正在执行任务时才出现 */
+/* 发送并引导：@ 到的 Agent 正在执行任务时才出现 */
 .composer-steer {
   height: 32px;
   border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);

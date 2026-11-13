@@ -83,7 +83,7 @@ describe("steering a queued message into the running turn", () => {
       (event) =>
         event.type === "invocation.updated" &&
         event.invocation.id === invocation.id &&
-        Boolean(event.invocation.detail?.includes("请求插入当前任务")),
+        Boolean(event.invocation.detail?.includes("请求引导当前任务")),
     );
     expect(updated).toBeTruthy();
   });
@@ -93,7 +93,7 @@ describe("steering a queued message into the running turn", () => {
     const { mentioned } = await queueSecond("@helper 补充一句", true);
     expect(mentioned.steer).toBe(true);
 
-    // 当前任务结束后再「发送并插话」：没有可插的任务，照常排队
+    // 当前任务结束后再「发送并引导」：没有可插的任务，照常排队
     helper.send({ type: "invocation.report", messageId: first.id, status: "completed" });
     helper.send({
       type: "invocation.report",
@@ -112,7 +112,7 @@ describe("steering a queued message into the running turn", () => {
 
   it("auto-inserts human messages when the agent has auto-steer on", async () => {
     const { app, queueSecond } = await room();
-    // 打开 helper 的自动插话（按名字存）
+    // 打开 helper 的自动引导（按名字存）
     (
       app as unknown as { hiveDatabase: { setSetting: (key: string, value: string) => void } }
     ).hiveDatabase.setSetting(autoSteerKey("helper"), "1");

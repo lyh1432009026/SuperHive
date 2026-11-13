@@ -231,7 +231,7 @@ Agent 的行为规则有一份权威来源：`apps/server/src/agent-instructions
 | 执行过程                    | activity                                 | 详情里的完整列表叫 Full activity                     |
 | 思考                        | thinking                                 |                                                      |
 | 进度                        | progress update                          | 标签写 Progress                                      |
-| 插话                        | steer                                    | Steer into current task / Send & steer               |
+| 引导                        | steer                                    | Steer into current task / Send & steer               |
 | 委派 / 转交 / 回执 / 子任务 | delegation / handoff / receipt / subtask |                                                      |
 | 撤回                        | unsend                                   | 不用 recall                                          |
 | 撤销（邀请链接）            | revoke                                   |                                                      |
@@ -279,7 +279,7 @@ Agent 的行为规则有一份权威来源：`apps/server/src/agent-instructions
 - **OpenCode / omp（ACP）**：通过 [Agent Client Protocol](https://agentclientprotocol.com) 驱动常驻的 `opencode acp` / `omp --mode acp`。Hive MCP 随 `session/new` 按会话注入，不写任何配置文件；Agent 发起的权限请求按 `--access` 档位逐次裁决（只读档只放行读取类工具，工作区档的文件改动必须落在 `--cwd` 内）；停止走 `session/cancel`，会话在重启后通过 `session/resume` / `session/load` 恢复。OpenCode 的权限基线经 `OPENCODE_CONFIG_CONTENT` 注入（被禁用的工具不会出现在工具集里），omp 用 `--tools` 白名单。
 - **Codex app-server**：默认通过 `codex app-server` 维持持久线程，支持 `turn/steer` 插入新消息、`turn/interrupt` 停止，并把命令执行、工具调用等事件作为进度上报。只读档下仅预先批准 Hive 自己的 MCP 工具，Shell 和文件写入的审批请求一律拒绝。
 - **Codex 失败与重试边界**：握手超时、配置或协议错误会保留失败阶段，不再自动切换到旧 MCP 或连续重跑。发出执行/注入请求后断连、结果丢失、停止未获终态确认，一律按结果未知处理，不自动重放；当前适配器会话锁定，必须先核对实际执行与工具进程。明确不存在的旧线程才可在执行前新建；其他恢复错误不丢弃会话。`turn/completed` 的可信终态才是停止确认。
-- **Claude Code**：用 stream-json 流式输入，插话在工具间隙被读到，回放确认收下才算插入，没收下的退回排队。
+- **Claude Code**：用 stream-json 流式输入，引导在工具间隙被读到，回放确认收下才算插入，没收下的退回排队。
 - **上游出错自动继续**：只认明确的上游错误写法（限流、过载、5xx、断流），额度用完、鉴权失败不重试；这一轮做过有副作用的操作（按只读命令白名单判断，认不出的按有副作用）就不自动继续。
 
 ## 本机 Agent 管家

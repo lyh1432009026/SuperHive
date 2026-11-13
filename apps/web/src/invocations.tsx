@@ -82,8 +82,8 @@ export function canDismissInvocation(invocation: Invocation): boolean {
 const STEERABLE_PROVIDERS = new Set(["claude", "codex", "opencode", "omp"]);
 
 /**
- * 能「插入当前任务」：人发的、还在排队的消息，而且同一个 Agent 在这个房间正有任务在执行、
- * 它的运行时支持插话。服务端会再核对一遍（定时触发、Agent 发的消息都会被拒绝）。
+ * 能「引导当前任务」：人发的、还在排队的消息，而且同一个 Agent 在这个房间正有任务在执行、
+ * 它的运行时支持引导。服务端会再核对一遍（定时触发、Agent 发的消息都会被拒绝）。
  */
 export function canSteerInvocation(
   invocation: Invocation,
@@ -106,7 +106,7 @@ export function canSteerInvocation(
   return false;
 }
 
-/** 正在执行的任务（「停下当前，改做这条」需要有它；不要求运行时支持插话） */
+/** 正在执行的任务（「停下当前，改做这条」需要有它；不要求运行时支持引导） */
 export function hasRunningTask(invocation: Invocation, all: Iterable<Invocation>): boolean {
   for (const other of all) {
     if (
@@ -425,7 +425,7 @@ export function InvocationChips({
 }: {
   /** 「在终端打开会话」：本机 Agent 才返回处理函数 */
   onOpenTerminal?: ((invocation: Invocation) => (() => void) | undefined) | undefined;
-  /** 「插入当前任务」：把排队中的这条插进 Agent 正在执行的这一轮 */
+  /** 「引导当前任务」：把排队中的这条插进 Agent 正在执行的这一轮 */
   onSteer?: (invocation: Invocation) => void;
   /** 「停下当前，改做这条」 */
   onPreempt?: (invocation: Invocation) => void;
@@ -486,7 +486,7 @@ export function InvocationChips({
               {invocation.status === "running" && !traced && invocation.progress && (
                 <span className="invocation-progress">{invocation.progress}</span>
               )}
-              {/* 插话的进展（正在插入、已并入 #n、没插进去转回排队……） */}
+              {/* 引导的进展（正在插入、已并入 #n、没插进去转回排队……） */}
               {((invocation.status === "running" && !traced && !invocation.progress) ||
                 invocation.status === "queued") &&
                 invocation.detail &&
@@ -629,11 +629,11 @@ export function InvocationChips({
                   <button
                     type="button"
                     className="invocation-action primary"
-                    aria-label={t("把这条插进 @{0} 正在执行的任务", { 0: invocation.agentName })}
+                    aria-label={t("用这条引导 @{0} 正在执行的任务", { 0: invocation.agentName })}
                     title={t("不排队，让它在当前这一轮里接着处理这条")}
                     onClick={() => onSteer(invocation)}
                   >
-                    {t("插入当前任务")}
+                    {t("引导当前任务")}
                   </button>
                 )}
               {onPreempt &&

@@ -793,7 +793,7 @@
   gap: 14px;
 }
 
-/* Agent 设置：人发的消息自动插话 */
+/* Agent 设置：人发的消息自动引导 */
 .agent-auto-steer {
   display: flex;
   align-items: flex-start;

@@ -501,6 +501,29 @@ function ConnectionCard({
           <span className="im-health-dot" aria-hidden="true" />
           {health.label}
         </span>
+        {/* 常用操作放在标题栏右侧，不再单独占一行 */}
+        <div className="im-card-actions">
+          {connection.attention === "relogin" && (
+            <button type="button" className="ghost" onClick={onRescan}>
+              {t("重新扫码")}
+            </button>
+          )}
+          {connection.status === "error" && connection.attention !== "relogin" && (
+            <button type="button" className="ghost" onClick={() => onPause(false)}>
+              {t("重新连接")}
+            </button>
+          )}
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => onPause(connection.status !== "paused")}
+          >
+            {connection.status === "paused" ? t("继续") : t("暂停")}
+          </button>
+          <button type="button" className="ghost danger" onClick={onRemove}>
+            {t("断开")}
+          </button>
+        </div>
       </div>
 
       {/* 四项设置直接做成下拉：一眼看到当前值，点开就能改，不用再展开「设置」 */}
@@ -602,30 +625,6 @@ function ConnectionCard({
           <p>{health.problem.fix}</p>
         </div>
       )}
-
-      <div className="im-card-actions">
-        <span className="im-card-spacer" />
-        {connection.attention === "relogin" && (
-          <button type="button" className="ghost" onClick={onRescan}>
-            {t("重新扫码")}
-          </button>
-        )}
-        {connection.status === "error" && connection.attention !== "relogin" && (
-          <button type="button" className="ghost" onClick={() => onPause(false)}>
-            {t("重新连接")}
-          </button>
-        )}
-        <button
-          type="button"
-          className="ghost"
-          onClick={() => onPause(connection.status !== "paused")}
-        >
-          {connection.status === "paused" ? t("继续") : t("暂停")}
-        </button>
-        <button type="button" className="ghost danger" onClick={onRemove}>
-          {t("断开")}
-        </button>
-      </div>
     </li>
   );
 }

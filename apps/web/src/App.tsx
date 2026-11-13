@@ -2993,7 +2993,7 @@ export function App({
 
   // 有附件在上传或上传失败时不能发：失败的要先重试或移除，避免悄悄丢掉
   const attachmentsBlocking = attachmentQueue.uploading || attachmentQueue.failed;
-  // 草稿里 @ 到的、正在这个房间执行任务、支持插话的 Agent：可以「发送并插话」
+  // 草稿里 @ 到的、正在这个房间执行任务、支持引导的 Agent：可以「发送并引导」
   const steerTargets = (() => {
     const named = new Set(
       [...draft.matchAll(/@([\p{L}\p{N}_.-]+)/gu)].map((match) => match[1]!.toLocaleLowerCase()),
@@ -5392,11 +5392,11 @@ export function App({
                       className="composer-steer"
                       onClick={() => sendMessage(true)}
                       disabled={!canSend || connectionState !== "online"}
-                      title={t("{0} 正在执行任务：发出后直接插进它当前的任务，不排队", {
+                      title={t("{0} 正在执行任务：发出后直接用来引导它当前的任务，不排队", {
                         0: steerTargets.map((name) => `@${name}`).join(t("、")),
                       })}
                     >
-                      {t("发送并插话")}
+                      {t("发送并引导")}
                     </button>
                   )}
                   <button

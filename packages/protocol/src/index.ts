@@ -218,7 +218,7 @@ export const messageSendEventSchema = z.object({
   attachmentIds: z.array(z.string().uuid()).max(LIMITS.maxAttachmentsPerMessage).optional(),
   replyToMessageId: z.string().uuid().optional(),
   parentMessageId: z.string().uuid().optional(),
-  /** 发送并插话：@ 到的 Agent 正在执行任务时，把这条插进当前任务而不是排队（只对人发的消息有效） */
+  /** 发送并引导：@ 到的 Agent 正在执行任务时，把这条用来引导当前任务而不是排队（只对人发的消息有效） */
   steer: z.boolean().optional(),
 });
 
@@ -1150,7 +1150,7 @@ export const localAgentSchema = z.object({
   createdAt: z.string().datetime(),
   /** 在网页上关掉的本机 MCP 名称；空数组表示全部按 Agent CLI 自己的配置加载 */
   mcpDisabled: z.array(z.string()).default([]),
-  /** 人发给它的消息在它忙时自动插进当前任务（默认关，排队） */
+  /** 人发给它的消息在它忙时自动用来引导当前任务（默认关，排队） */
   autoSteer: z.boolean().default(false),
   /** 进程启动时还不支持设置文件（升级前就在运行）：MCP 勾选要重启这个 Agent 一次才生效 */
   settingsPendingRestart: z.boolean().optional(),

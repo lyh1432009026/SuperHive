@@ -28,12 +28,12 @@ function userLine(text: string, uuid: string): string {
   })}\n`;
 }
 
-/** 正在跑的这一轮：标准输入保持打开，插话写进去，Claude 在工具间隙读到 */
+/** 正在跑的这一轮：标准输入保持打开，引导写进去，Claude 在工具间隙读到 */
 type ClaudeTurn = {
   stdin?: { write: (text: string) => void; end: () => void };
-  /** 已经关闭输入、不再接收插话 */
+  /** 已经关闭输入、不再接收引导 */
   closed: boolean;
-  /** 写进去、还没被 Claude 收进对话的插话：uuid → 收下后的回调 */
+  /** 写进去、还没被 Claude 收进对话的引导：uuid → 收下后的回调 */
   unacked: Map<string, (accepted: boolean) => void>;
 };
 
@@ -41,9 +41,9 @@ export class ClaudeCodeResponder implements AgentResponder {
   private turn: ClaudeTurn | undefined;
 
   /**
-   * 插话：写进正在跑的这一轮的标准输入，Claude 回放（确认收进对话）后才算插进去。
+   * 引导：写进正在跑的这一轮的标准输入，Claude 回放（确认收进对话）后才算插进去。
    * 这一轮已经结束、或者写进去后进程意外退出，都返回 false，由 Bridge 退回排队。
-   * 收下的插话 Claude 一定会处理：在工具间隙读到就并入这一轮，晚了就在同一进程里接着再跑一轮。
+   * 收下的引导 Claude 一定会处理：在工具间隙读到就并入这一轮，晚了就在同一进程里接着再跑一轮。
    */
   async steer(prompt: string): Promise<boolean> {
     const turn = this.turn;
@@ -125,7 +125,7 @@ export class ClaudeCodeResponder implements AgentResponder {
       "stream-json",
       "--verbose",
       "--include-partial-messages",
-      // 流式输入：这一轮跑着时还能写进新消息（插话）；回放写进去的消息，用来确认 Claude 已经收下
+      // 流式输入：这一轮跑着时还能写进新消息（引导）；回放写进去的消息，用来确认 Claude 已经收下
       "--input-format",
       "stream-json",
       "--replay-user-messages",
@@ -181,8 +181,8 @@ export class ClaudeCodeResponder implements AgentResponder {
     input.onRuntimeEvent?.({ kind: "activity", phase: "starting" });
     const turn: ClaudeTurn = { closed: false, unacked: new Map() };
     this.turn = turn;
-    // 出了结果、又没有还没收下的插话：关闭输入，进程跑完这一轮就退出；
-    // 还有插话没收下就继续开着，Claude 会读到它们并接着再跑一轮
+    // 出了结果、又没有还没收下的引导：关闭输入，进程跑完这一轮就退出；
+    // 还有引导没收下就继续开着，Claude 会读到它们并接着再跑一轮
     const closeIfIdle = () => {
       if (turn.closed || turn.unacked.size > 0) return;
       turn.closed = true;
@@ -214,7 +214,7 @@ export class ClaudeCodeResponder implements AgentResponder {
         return;
       }
       interrupt.requestId = `interrupt-${randomUUID()}`;
-      // 停下以后不再接插话；还没收下的插话退回排队
+      // 停下以后不再接引导；还没收下的引导退回排队
       for (const resolve of turn.unacked.values()) resolve(false);
       turn.unacked.clear();
       turn.stdin.write(

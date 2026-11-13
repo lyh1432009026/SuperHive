@@ -99,10 +99,10 @@ describe("ClaudeCodeResponder", () => {
 
     const steered = responder.steer("补充：加上暗号");
     const uuid = JSON.parse(written.at(-1)!).uuid as string;
-    // 第一轮先出结果：插话还没被收下，输入不能关
+    // 第一轮先出结果：引导还没被收下，输入不能关
     emit({ type: "result", is_error: false, result: "第一段", session_id: "s" });
     expect(ended).toBe(false);
-    // Claude 回放这条插话 = 收下了；接着再跑一轮，出结果后才关输入
+    // Claude 回放这条引导 = 收下了；接着再跑一轮，出结果后才关输入
     emit({ type: "user", isReplay: true, uuid, message: { role: "user", content: [] } });
     await expect(steered).resolves.toBe(true);
     emit({ type: "result", is_error: false, result: "第二段", session_id: "s" });
@@ -111,7 +111,7 @@ describe("ClaudeCodeResponder", () => {
     // 以最后一轮为准：它看得到前面的对话，拼起来反而重复
     await expect(reply).resolves.toMatchObject({ text: "第二段", threadId: "s" });
 
-    // 这一轮结束后再插话：直接拒绝，由 Bridge 退回排队
+    // 这一轮结束后再引导：直接拒绝，由 Bridge 退回排队
     await expect(responder.steer("太晚了")).resolves.toBe(false);
   });
 

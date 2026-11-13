@@ -220,7 +220,7 @@ describe("inserting a queued message into the running task", () => {
         onPreempt={onPreempt}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "把这条插进 @worker 正在执行的任务" }));
+    fireEvent.click(screen.getByRole("button", { name: "用这条引导 @worker 正在执行的任务" }));
     expect(onSteer).toHaveBeenCalledWith(queued);
     fireEvent.click(screen.getByRole("button", { name: "停下 @worker 当前的任务，改做这条" }));
     expect(onPreempt).toHaveBeenCalledWith(queued);
@@ -237,7 +237,7 @@ describe("inserting a queued message into the running task", () => {
         onPreempt={vi.fn()}
       />,
     );
-    expect(screen.queryByRole("button", { name: /插进/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /引导/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /改做这条/ })).toBeNull();
     rerender(
       <InvocationChips
@@ -250,7 +250,7 @@ describe("inserting a queued message into the running task", () => {
         isOwner={false}
       />,
     );
-    expect(screen.queryByRole("button", { name: /插进/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /引导/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /改做这条/ })).toBeNull();
     rerender(
       <InvocationChips
@@ -262,7 +262,7 @@ describe("inserting a queued message into the running task", () => {
         onPreempt={vi.fn()}
       />,
     );
-    expect(screen.queryByRole("button", { name: /插进/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /引导/ })).toBeNull();
   });
 });
 

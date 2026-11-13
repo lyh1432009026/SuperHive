@@ -338,7 +338,7 @@ export const defaultProbe: ProviderProbe = (command) =>
     );
   });
 
-/** 「人发的消息在它忙时自动插话」开关：按 Agent 名字存（各房间通用） */
+/** 「人发的消息在它忙时自动引导」开关：按 Agent 名字存（各房间通用） */
 export function autoSteerKey(name: string): string {
   return `auto-steer:${name.toLocaleLowerCase()}`;
 }
@@ -462,7 +462,7 @@ export class LocalAgentSupervisor {
     settings: { mcpDisabled?: string[] | undefined; autoSteer?: boolean | undefined },
   ): LocalAgent {
     const runtime = this.require(id);
-    // 自动插话由服务端在派发时判断，不影响进程，随时可改
+    // 自动引导由服务端在派发时判断，不影响进程，随时可改
     if (settings.autoSteer !== undefined) {
       this.options.database.setSetting(
         autoSteerKey(runtime.config.name),

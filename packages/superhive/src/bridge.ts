@@ -470,7 +470,7 @@ export class AgentBridge {
       if (index > 0) this.pending.unshift(...this.pending.splice(index, 1));
       if (index >= 0) return;
     }
-    // 人要求插话：已经在排队的从队里拿出来插进当前任务；不能插就留在队里并说明原因
+    // 人要求引导：已经在排队的从队里拿出来用来引导当前任务；不能插就留在队里并说明原因
     if (options.steer && this.pending.some((item) => item.id === message.id)) {
       if (this.canSteer()) {
         this.pending.splice(
@@ -508,7 +508,7 @@ export class AgentBridge {
       return;
     }
     this.room.report({ messageId: message.id, status: "received" });
-    // 默认排队；只有人明确要求（插入当前任务、发送并插话、Agent 开了自动插话）才插进正在执行的这一轮
+    // 默认排队；只有人明确要求（引导当前任务、发送并引导、Agent 开了自动引导）才插进正在执行的这一轮
     if (options.steer) {
       if (this.canSteer()) {
         void this.steerIntoActive(this.active!, message);
@@ -521,7 +521,7 @@ export class AgentBridge {
     this.scheduleDrain(this.tuning.batchWindowMs);
   }
 
-  /** 有正在执行、还能吸收新消息的一轮，而且这个运行时支持插话 */
+  /** 有正在执行、还能吸收新消息的一轮，而且这个运行时支持引导 */
   private canSteer(): boolean {
     return Boolean(
       this.active?.accepting && this.responder.steer && !this.active.controller.signal.aborted,
@@ -607,14 +607,14 @@ export class AgentBridge {
         status: "running",
         ...said(bridgeText("bridge.steered", { seq: host.seq })),
       });
-      // 执行过程里标出插话的位置，看得出 Agent 从哪一步开始调整
+      // 执行过程里标出引导的位置，看得出 Agent 从哪一步开始调整
       const at = new Date().toISOString();
       for (const item of active.messages.filter((entry) => entry.id !== message.id)) {
         this.room.trace(item.id, [
           {
             id: `steer:${message.id}`,
             kind: "text",
-            text: `↳ ${message.senderName} 插话：${message.content}`.slice(0, 2000),
+            text: `↳ ${message.senderName} 引导：${message.content}`.slice(0, 2000),
             startedAt: at,
             endedAt: at,
           },

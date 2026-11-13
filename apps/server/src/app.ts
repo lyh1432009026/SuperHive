@@ -983,7 +983,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     });
   }
 
-  /** 这个 Agent 在这个房间里正在执行的调用（插话、停下改做都要有它） */
+  /** 这个 Agent 在这个房间里正在执行的调用（引导、停下改做都要有它） */
   function runningInvocations(agent: Participant, except?: string): Invocation[] {
     return database
       .listExecutingInvocations(agent.id)
@@ -993,7 +993,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   }
 
   /**
-   * 能不能插进当前任务：只有人发的普通消息（不含定时触发）、还在排队（没被拦下）、
+   * 能不能用来引导当前任务：只有人发的普通消息（不含定时触发）、还在排队（没被拦下）、
    * 这个 Agent 在这个房间里正有任务在执行。其他 Agent 的消息、回执、定时触发一律照常排队。
    */
   function steerableInvocation(actor: Participant, invocationId: string) {
@@ -1019,7 +1019,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     return { invocation, message, agent, running };
   }
 
-  /** 插入当前任务：让 Agent 把这条并进正在执行的这一轮（插不进去时 Agent 会说明并留在队里） */
+  /** 引导当前任务：让 Agent 把这条并进正在执行的这一轮（插不进去时 Agent 会说明并留在队里） */
   function steerInvocation(actor: Participant, invocationId: string): void {
     const { invocation, message, agent } = steerableInvocation(actor, invocationId);
     emitInvocation(
@@ -1046,7 +1046,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     );
   }
 
-  /** 这个 Agent 打开了「人发的消息自动插话」 */
+  /** 这个 Agent 打开了「人发的消息自动引导」 */
   function autoSteers(agent: Participant): boolean {
     return database.getSetting(autoSteerKey(agent.username)) === "1";
   }
@@ -1173,7 +1173,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       inferredParent?: boolean;
       delegateTo?: string;
       receipt?: boolean;
-      /** 发送并插话：@ 到的 Agent 正在执行时插进当前任务 */
+      /** 发送并引导：@ 到的 Agent 正在执行时用来引导当前任务 */
       steer?: boolean;
       /** Agent 经 hive_message_send 发出（不是 Bridge 代发的最终回复） */
       fromTool?: boolean;
@@ -1299,7 +1299,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       }
       emitInvocation(invocation);
       if (blocked) continue;
-      // 人发的消息、Agent 正在执行：按人的要求（发送并插话）或 Agent 的自动插话设置插进当前任务
+      // 人发的消息、Agent 正在执行：按人的要求（发送并引导）或 Agent 的自动引导设置用来引导当前任务
       const steer =
         participant.type === "human" &&
         message.kind !== "schedule" &&
