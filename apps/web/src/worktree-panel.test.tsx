@@ -69,12 +69,25 @@ describe("WorktreePanel", () => {
     const client = api();
     render(<WorktreePanel roomId="general" api={client} />);
     await screen.findByText("feat/clean");
-    fireEvent.click(screen.getByText("自动清理已合入的 worktree"));
+    const checkbox = screen.getByRole("checkbox", { name: /自动清理已合入的 worktree/ });
+    // 点勾选框：就地弹出确认气泡，确认前不勾上、不调接口
+    fireEvent.click(checkbox);
+    const popover = screen.getByRole("dialog", { name: "确认开启自动清理" });
+    expect(checkbox).toHaveProperty("checked", false);
     expect(client.configureWorktreeCleanup).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByText("确认开启"));
+    // Esc 收起，焦点回到勾选框
+    fireEvent.keyDown(popover, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "确认开启自动清理" })).toBeNull();
+    expect(document.activeElement).toBe(checkbox);
+    // 再点一次，确认后才勾上
+    fireEvent.click(checkbox);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "开启" }));
+    fireEvent.click(screen.getByRole("button", { name: "开启" }));
     await waitFor(() =>
       expect(client.configureWorktreeCleanup).toHaveBeenCalledWith("general", true),
     );
+    await waitFor(() => expect(checkbox).toHaveProperty("checked", true));
+    expect(screen.queryByRole("dialog", { name: "确认开启自动清理" })).toBeNull();
   });
 
   it("invalidates a selection when a branch tip changes during review", async () => {

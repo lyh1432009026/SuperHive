@@ -13,6 +13,26 @@ export function WorktreePanel({ roomId, api }: { roomId: string; api: WorktreeAp
   const [selected, setSelected] = useState<string[]>([]);
   const [automatic, setAutomatic] = useState(false);
   const [confirmAuto, setConfirmAuto] = useState(false);
+  const autoRef = useRef<HTMLInputElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const closeAutoConfirm = useCallback(() => {
+    setConfirmAuto(false);
+    autoRef.current?.focus();
+  }, []);
+  // 确认气泡：打开时焦点放到「开启」上；点气泡外面就收起
+  useEffect(() => {
+    if (!confirmAuto) return;
+    confirmRef.current?.focus();
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && (popoverRef.current?.contains(target) || autoRef.current?.contains(target)))
+        return;
+      setConfirmAuto(false);
+    };
+    document.addEventListener("pointerdown", onPointer, true);
+    return () => document.removeEventListener("pointerdown", onPointer, true);
+  }, [confirmAuto]);
   const [confirmCleanup, setConfirmCleanup] = useState(false);
   const [keepBranch, setKeepBranch] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -229,33 +249,57 @@ export function WorktreePanel({ roomId, api }: { roomId: string; api: WorktreeAp
           </div>
         </div>
       )}
-      <label className="worktree-auto">
-        <input
-          type="checkbox"
-          checked={automatic}
-          disabled={busy || !api.canManage}
-          onChange={(event) =>
-            event.target.checked ? setConfirmAuto(true) : void configure(false)
-          }
-        />
-        <span>
-          <strong>{t("自动清理已合入的 worktree")}</strong>
-          <small>
-            {t("默认关闭；只回收已登记、干净且无任务占用的目录。忽略文件也会阻止删除。")}
-          </small>
-        </span>
-      </label>
-      {confirmAuto && (
-        <div className="worktree-confirmation" role="alert">
-          <p>{t("开启后符合安全条件的目录会直接回收，不再逐次询问。确认开启？")}</p>
-          <button type="button" onClick={() => setConfirmAuto(false)}>
-            {t("取消")}
-          </button>
-          <button type="button" disabled={busy} onClick={() => void configure(true)}>
-            {t("确认开启")}
-          </button>
-        </div>
-      )}
+      {/* 开启自动清理要确认：就地弹一个轻量确认气泡，确认后才勾上；关闭不用确认 */}
+      <div className="worktree-auto-wrap">
+        <label className="worktree-auto">
+          <input
+            ref={autoRef}
+            type="checkbox"
+            checked={automatic}
+            aria-expanded={confirmAuto}
+            disabled={busy || !api.canManage}
+            onChange={(event) =>
+              event.target.checked ? setConfirmAuto(true) : void configure(false)
+            }
+          />
+          <span>
+            <strong>{t("自动清理已合入的 worktree")}</strong>
+            <small>
+              {t("默认关闭；只回收已登记、干净且无任务占用的目录。忽略文件也会阻止删除。")}
+            </small>
+          </span>
+        </label>
+        {confirmAuto && (
+          <div
+            ref={popoverRef}
+            className="worktree-auto-popover"
+            role="dialog"
+            aria-label={t("确认开启自动清理")}
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
+              event.preventDefault();
+              event.stopPropagation();
+              closeAutoConfirm();
+            }}
+          >
+            <p>{t("开启后符合安全条件的目录会直接回收，不再逐次询问。")}</p>
+            <div className="worktree-auto-popover-actions">
+              <button type="button" onClick={closeAutoConfirm}>
+                {t("取消")}
+              </button>
+              <button
+                ref={confirmRef}
+                type="button"
+                className="primary"
+                disabled={busy}
+                onClick={() => void configure(true)}
+              >
+                {t("开启")}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
       {error && (
         <p role="alert" className="room-dialog-error">
           {error}

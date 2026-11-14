@@ -23,8 +23,6 @@
   "确认清理": "Confirm cleanup",
   "自动清理已合入的 worktree": "Automatically clean up merged worktrees",
   "默认关闭；只回收已登记、干净且无任务占用的目录。忽略文件也会阻止删除。": "Off by default. Only registered, clean and unoccupied checkouts are reclaimed. Ignored files also block removal.",
-  "开启后符合安全条件的目录会直接回收，不再逐次询问。确认开启？": "Eligible checkouts will be reclaimed without asking each time. Enable automatic cleanup?",
-  "确认开启": "Confirm enable",
   " [代码] ": " [code] ",
   " · 可直接调度 Agent": " · Agents can be invoked directly",
   " · 已有 {0} 人加入": " · {0} {0|person|people} joined",
@@ -1237,5 +1235,7 @@
   "只对这一次重试生效，之后还是用它设置里的模型。": "Applies to this retry only. After that it goes back to the model in its settings.",
   "这个 Agent 不在这台电脑上，拿不到它的模型列表，请手动输入模型名。": "This agent isn't on this computer, so its model list isn't available. Enter a model name.",
   "用 {0} 重试": "Retry with {0}",
-  "重启、停止这个 Agent，选择它用的模型和加载哪些本机 MCP。每个 MCP 的工具说明会在每个会话开局整段发给模型，体积大的会明显增加新会话和缓存过期时的费用。hive 始终加载。": "Restart or stop this agent and choose its model and which local MCP servers it loads. Each MCP's tool descriptions are sent to the model at the start of every session; large ones noticeably raise the cost of new sessions and cache misses. hive is always loaded."
+  "重启、停止这个 Agent，选择它用的模型和加载哪些本机 MCP。每个 MCP 的工具说明会在每个会话开局整段发给模型，体积大的会明显增加新会话和缓存过期时的费用。hive 始终加载。": "Restart or stop this agent and choose its model and which local MCP servers it loads. Each MCP's tool descriptions are sent to the model at the start of every session; large ones noticeably raise the cost of new sessions and cache misses. hive is always loaded.",
+  "开启后符合安全条件的目录会直接回收，不再逐次询问。": "Eligible checkouts will be reclaimed automatically, without asking each time.",
+  "确认开启自动清理": "Confirm automatic cleanup"
 }
