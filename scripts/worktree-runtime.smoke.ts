@@ -18,8 +18,13 @@ import { Peer } from "../apps/server/src/test-peer.js";
 import { WorktreeManager, worktreeGit } from "../apps/server/src/worktrees.js";
 import { AgentBridge } from "../packages/superhive/src/bridge.js";
 import { CodexAppServerResponder } from "../packages/superhive/src/codex-app-server-client.js";
+import { ClaudeCodeResponder } from "../packages/superhive/src/claude-client.js";
+import type { AgentResponder } from "../packages/superhive/src/responder.js";
 import { StateStore } from "../packages/superhive/src/state-store.js";
-import { resolveTaskWorkspace } from "../packages/superhive/src/task-workspace.js";
+import {
+  resolveTaskWorkspace,
+  resolveTaskWorkspaces,
+} from "../packages/superhive/src/task-workspace.js";
 import { discoverCodexMcpServers } from "../packages/superhive/src/mcp-servers.js";
 
 const root = realpathSync(mkdtempSync(path.join(tmpdir(), "hive-worktree-runtime-")));
@@ -43,11 +48,19 @@ writeFileSync(secretFile, "must remain unchanged\n");
 const databasePath = path.join(root, "db.sqlite");
 const seed = new HiveDatabase(databasePath);
 const createWithModel = process.argv.includes("--create-with-model");
+const provider =
+  process.argv
+    .find((argument) => argument.startsWith("--provider="))
+    ?.slice("--provider=".length) ?? "codex";
+assert.ok(
+  provider === "codex" || provider === "claude",
+  "Use --provider=codex or --provider=claude",
+);
 seed.updateRoom("general", { workspace: repo });
 seed.createLocalAgent({
   name: "writer",
   access: "workspace",
-  provider: "codex",
+  provider,
   cwd: repo,
   model: null,
 });
@@ -97,16 +110,44 @@ writeFileSync(
   { mode: 0o600 },
 );
 const store = new StateStore(path.join(root, "state"), hive);
-const responder = (cwd: string) =>
-  new CodexAppServerResponder({ command: "codex", cwd, access: "workspace", hive, settingsFile });
+const runtimeCalls: Array<{ cwd: string; threadId: string | undefined }> = [];
+const responder = (cwd: string): AgentResponder => {
+  const runtime: AgentResponder =
+    provider === "claude"
+      ? new ClaudeCodeResponder({
+          command: "claude",
+          cwd,
+          access: "workspace",
+          hive,
+          settingsFile,
+          mcpServers: () => ({}),
+        })
+      : new CodexAppServerResponder({
+          command: "codex",
+          cwd,
+          access: "workspace",
+          hive,
+          settingsFile,
+        });
+  const reply = runtime.reply.bind(runtime);
+  runtime.reply = (input) => {
+    runtimeCalls.push({ cwd, threadId: input.threadId });
+    return reply(input);
+  };
+  return runtime;
+};
 const bridge = new AgentBridge(
   {
     ...hive,
     persona: "Temporary sandbox verification agent",
-    provider: "codex",
+    provider,
     access: "workspace",
     cwd: repo,
-    taskWorkspace: { resolve: (id) => resolveTaskWorkspace(hive, id), responder },
+    taskWorkspace: {
+      resolve: (id) => resolveTaskWorkspace(hive, id),
+      resolveMany: (ids) => resolveTaskWorkspaces(hive, ids),
+      responder,
+    },
   },
   store,
   responder(repo),
@@ -153,6 +194,8 @@ try {
   const state = await store.load();
   assert.equal(state?.workspace, checkout);
   assert.ok(state?.threadId);
+  assert.ok(runtimeCalls.some((call) => call.cwd === checkout && !call.threadId));
+  if (createWithModel) assert.ok(runtimeCalls.some((call) => call.cwd === repo));
   await git(checkout, ["add", "proof.txt"]);
   await git(checkout, ["commit", "-m", "workspace proof"]);
   await git(repo, ["merge", "--ff-only", "feat/writer-sandbox-proof"]);
@@ -184,6 +227,8 @@ try {
       newSessionBoundToCheckout: true,
       cleanupNotificationAndBatchRemoval: true,
       createWithModel,
+      provider,
+      setupTurnAndFreshCheckoutSession: createWithModel,
     }),
   );
 } finally {
