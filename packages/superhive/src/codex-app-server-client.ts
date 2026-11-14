@@ -601,8 +601,9 @@ export class CodexAppServerResponder implements AgentResponder {
       approvalPolicy: access.approvalPolicy,
       developerInstructions: input.instructions,
     };
-    const model = input.model ?? this.options.model;
-    if (model) common.model = model;
+    // 会话按启动时的模型开（记作会话原来的模型）；这一轮要换的模型在 turn/start 里指定，
+    // 这样「换个模型重试」碰上新开的会话，之后的回合也能回到原来的模型
+    if (this.options.model) common.model = this.options.model;
 
     if (input.threadId) {
       if (session.loadedThreads.has(input.threadId)) return input.threadId;

@@ -39,6 +39,10 @@ describe("isModelUnavailable", () => {
       'not_found_error: {"type":"not_found_error","message":"model: claude-old"}',
       "model gpt-4 has been deprecated",
       "Unknown model: foo/bar",
+      // Claude Code 的真实输出（--model 给了不存在的模型）
+      "There's an issue with the selected model (claude-nonexistent-9). It may not exist or you may not have access to it. Run --model to pick a different model.",
+      // Codex 经网关的真实输出
+      'unexpected status 404 Not Found: {"error":"Model `gpt-does-not-exist-9` not found"}',
     ]) {
       expect(isModelUnavailable(text), text).toBe(true);
     }

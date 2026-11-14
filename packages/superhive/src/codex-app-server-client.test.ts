@@ -902,6 +902,10 @@ describe("CodexAppServerResponder", () => {
     );
     await responder.reply({ instructions: "r", prompt: "a", model: "gpt-picked" });
     await responder.reply({ instructions: "r", prompt: "b", threadId: "thread-new" });
+    // 新会话按原来的模型开，不按这一次的模型
+    expect(
+      servers[0]!.sent.find((message: any) => message.method === "thread/start")?.params.model,
+    ).toBeUndefined();
     const turns = servers[0]!.sent.filter((message: any) => message.method === "turn/start");
     // turn/start 指定的模型会沿用到后续回合：没指定时要显式传回原来的
     expect(turns.map((message: any) => message.params.model)).toEqual([

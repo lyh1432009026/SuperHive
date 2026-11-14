@@ -156,7 +156,7 @@ export function isModelUnavailable(text: string): boolean {
   ) {
     return false;
   }
-  return /model_not_found|not_found_error[\s\S]{0,80}\bmodel\b|model[^.]{0,40}(?:does not exist|not found|not supported|is not available|unavailable|deprecated|has been (?:deprecated|retired|removed))|unknown model|invalid model|no such model|模型不存在|模型已下线/i.test(
+  return /model_not_found|not_found_error[\s\S]{0,80}\bmodel\b|model[^.]{0,40}(?:does not exist|not found|not supported|is not available|unavailable|deprecated|has been (?:deprecated|retired|removed))|unknown model|invalid model|no such model|issue with the selected model|unrecognized_model|模型不存在|模型已下线/i.test(
     text,
   );
 }
