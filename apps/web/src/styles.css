@@ -12,6 +12,7 @@
 @import "./styles/activity.css";
 @import "./styles/dialogs.css";
 @import "./styles/worktrees.css";
+@import "./styles/confirm-popover.css";
 @import "./styles/local-agents.css";
 @import "./styles/settings.css";
 @import "./styles/login.css";

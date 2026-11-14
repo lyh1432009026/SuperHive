@@ -421,30 +421,8 @@
   line-height: 1.55;
 }
 
-.full-access-confirmation {
-  display: grid;
-  gap: 14px;
-  margin-top: 12px;
-  border-radius: var(--radius-xl);
-  padding: 16px;
-  background: var(--danger-soft);
-  animation: pop-in var(--duration) var(--ease-out);
-}
+/* 完全访问的风险确认已改成就地气泡（confirm-popover.css），旧的底部确认区样式删除 */
 
-.full-access-confirmation strong {
-  color: var(--danger);
-  font-size: var(--text-base);
-  font-weight: var(--weight-semibold);
-}
-
-.full-access-confirmation p {
-  margin-top: 4px;
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  line-height: 1.55;
-}
-
-.full-access-actions,
 .room-archive-actions {
   display: flex;
   justify-content: flex-end;
@@ -452,7 +430,6 @@
 }
 
 /* 弹窗内通用按钮：次要为描边幽灵胶囊，主要为黑/白实心胶囊 */
-.full-access-actions button,
 .room-archive-actions button,
 .agent-dialog-nav button,
 .room-dialog-footer button {
@@ -475,21 +452,18 @@
     color var(--duration-fast);
 }
 
-.full-access-actions button:hover:not(:disabled),
 .room-archive-actions button:hover:not(:disabled),
 .agent-dialog-nav button:hover:not(:disabled),
 .room-dialog-footer button:hover:not(:disabled) {
   background: var(--bg-hover);
 }
 
-.full-access-actions button:last-child,
 .room-archive-actions button:last-child {
   border-color: transparent;
   background: var(--danger);
   color: var(--text-inverse);
 }
 
-.full-access-actions button:last-child:hover,
 .room-archive-actions button:last-child:hover:not(:disabled) {
   background: var(--danger);
   filter: brightness(1.08);
@@ -507,7 +481,6 @@
   background: var(--button-primary-hover);
 }
 
-.full-access-actions button:disabled,
 .room-archive-actions button:disabled,
 .agent-dialog-nav button:disabled,
 .room-dialog-footer button:disabled {
@@ -1064,14 +1037,6 @@
 
   .agent-steps li:not(.current) > * > span:last-child {
     display: none;
-  }
-
-  .full-access-actions {
-    flex-direction: column-reverse;
-  }
-
-  .full-access-actions button {
-    width: 100%;
   }
 
   .connection-details[open] dl {

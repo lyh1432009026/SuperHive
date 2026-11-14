@@ -827,8 +827,17 @@ describe("App mention autocomplete", () => {
 
     await previousStep();
     await user.click(screen.getByRole("radio", { name: /^完全访问/ }));
-    expect(screen.getByRole("alert").textContent).toContain("确认移除本机安全边界");
+    // 和 worktree 自动清理同款就地确认气泡：选项旁边弹出，确认前权限不变
+    const fullAccessPopover = screen.getByRole("dialog", { name: "确认开启完全访问" });
+    expect(fullAccessPopover.textContent).toContain("确认移除本机安全边界");
     expect(screen.getByRole("radio", { name: /^只读/ }).getAttribute("aria-checked")).toBe("true");
+    // Esc 收起气泡并把焦点还给「完全访问」选项，没有勾上
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "确认开启完全访问" })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("radio", { name: /^完全访问/ }));
+    expect(screen.getByRole("radio", { name: /^只读/ }).getAttribute("aria-checked")).toBe("true");
+    // 重新点开，这次确认，才切到完全访问
+    await user.click(screen.getByRole("radio", { name: /^完全访问/ }));
     await user.click(screen.getByRole("button", { name: "我了解风险，开启完全访问" }));
     expect(commandText()).toContain("--access full --cwd .");
 

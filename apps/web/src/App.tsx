@@ -83,6 +83,7 @@ import {
   type ContextMenuState,
 } from "./context-menu";
 import { Select } from "./select";
+import { ConfirmPopover } from "./confirm-popover";
 import { isMachineMessage, machinePreview, splitMentions } from "./machine-message";
 import {
   AttentionRoomGroup,
@@ -1582,6 +1583,7 @@ export function App({
   const agentDialogCloseRef = useRef<HTMLButtonElement>(null);
   const agentDialogTriggerRef = useRef<HTMLButtonElement>(null);
   const agentStepHeadingRef = useRef<HTMLHeadingElement>(null);
+  const fullAccessOptionRef = useRef<HTMLButtonElement>(null);
   const roomDialogRef = useRef<HTMLDivElement>(null);
   const roomDialogCloseRef = useRef<HTMLButtonElement>(null);
   const roomDialogTriggerRef = useRef<HTMLButtonElement>(null);
@@ -2132,6 +2134,15 @@ export function App({
     [agentAccess],
   );
 
+  const closeFullAccessConfirmation = useCallback(() => {
+    setFullAccessConfirmationOpen(false);
+    fullAccessOptionRef.current?.focus();
+  }, []);
+
+  const confirmFullAccess = useCallback(() => {
+    setAgentAccess("full");
+    goToAgentStep(3);
+  }, [goToAgentStep]);
   useEffect(() => {
     if (!agentDialogOpen) return;
     window.requestAnimationFrame(() => agentDialogCloseRef.current?.focus());
@@ -6211,42 +6222,62 @@ export function App({
 
               {agentStep === 2 && (
                 <>
-                  <div
-                    className="access-selector"
-                    role="radiogroup"
-                    aria-labelledby="agent-step-title"
-                    onKeyDown={(event) =>
-                      moveRadioSelection(
-                        event,
-                        agentAccessOptions.findIndex((option) => option.id === agentAccess),
-                        (index) => chooseAgentAccess(agentAccessOptions[index]!.id),
-                      )
-                    }
-                  >
-                    {agentAccessOptions.map((option) => (
-                      <button
-                        type="button"
-                        role="radio"
-                        aria-checked={agentAccess === option.id}
-                        aria-expanded={
-                          option.id === "full" ? fullAccessConfirmationOpen : undefined
-                        }
-                        tabIndex={agentAccess === option.id ? 0 : -1}
-                        className={`${option.id} ${agentAccess === option.id ? "active" : ""}`}
-                        // 点一下就进下一步；完全访问要先在下面确认风险
-                        onClick={() => {
-                          chooseAgentAccess(option.id);
-                          if (option.id !== "full" || agentAccess === "full") goToAgentStep(3);
-                        }}
-                        key={option.id}
-                      >
-                        <span className="access-indicator" aria-hidden="true">
-                          <i />
-                        </span>
-                        <strong>{option.label}</strong>
-                        <small>{option.description}</small>
-                      </button>
-                    ))}
+                  <div className="confirm-popover-anchor">
+                    <div
+                      className="access-selector"
+                      role="radiogroup"
+                      aria-labelledby="agent-step-title"
+                      onKeyDown={(event) =>
+                        moveRadioSelection(
+                          event,
+                          agentAccessOptions.findIndex((option) => option.id === agentAccess),
+                          (index) => chooseAgentAccess(agentAccessOptions[index]!.id),
+                        )
+                      }
+                    >
+                      {agentAccessOptions.map((option) => (
+                        <button
+                          type="button"
+                          role="radio"
+                          ref={option.id === "full" ? fullAccessOptionRef : undefined}
+                          aria-checked={agentAccess === option.id}
+                          aria-expanded={
+                            option.id === "full" ? fullAccessConfirmationOpen : undefined
+                          }
+                          tabIndex={agentAccess === option.id ? 0 : -1}
+                          className={`${option.id} ${agentAccess === option.id ? "active" : ""}`}
+                          // 点一下就进下一步；完全访问要先在选项旁的气泡里确认风险
+                          onClick={() => {
+                            chooseAgentAccess(option.id);
+                            if (option.id !== "full" || agentAccess === "full") goToAgentStep(3);
+                          }}
+                          key={option.id}
+                        >
+                          <span className="access-indicator" aria-hidden="true">
+                            <i />
+                          </span>
+                          <strong>{option.label}</strong>
+                          <small>{option.description}</small>
+                        </button>
+                      ))}
+                    </div>
+                    {fullAccessConfirmationOpen && agentAccess !== "full" && (
+                      <ConfirmPopover
+                        ariaLabel={t("确认开启完全访问")}
+                        title={t("确认移除本机安全边界？")}
+                        message={t(
+                          "{0} 将可以执行当前系统用户有权进行的操作；房间消息可能触发文件、命令或网络操作。",
+                          { 0: agentProviderLabel(agentProvider) },
+                        )}
+                        confirmLabel={t("我了解风险，开启完全访问")}
+                        cancelLabel={t("取消")}
+                        anchorRef={fullAccessOptionRef}
+                        placement="bottom"
+                        align="end"
+                        onConfirm={confirmFullAccess}
+                        onCancel={closeFullAccessConfirmation}
+                      />
+                    )}
                   </div>
                   {agentProvider === "openclaw" && (
                     <p className="openclaw-access-note">
@@ -6261,34 +6292,6 @@ export function App({
                         "omp 不会把文件写入限制在当前目录内；需要目录隔离时请选择 OpenCode、Codex 或 Claude Code。",
                       )}
                     </p>
-                  )}
-                  {fullAccessConfirmationOpen && agentAccess !== "full" && (
-                    <div className="full-access-confirmation" role="alert">
-                      <div>
-                        <strong>{t("确认移除本机安全边界？")}</strong>
-                        <p>
-                          {t(
-                            "{0} 将可以执行当前系统用户有权进行的操作；房间消息可能触发文件、命令或网络操作。",
-                            { 0: agentProviderLabel(agentProvider) },
-                          )}
-                        </p>
-                      </div>
-                      <div className="full-access-actions">
-                        <button type="button" onClick={() => setFullAccessConfirmationOpen(false)}>
-                          {t("取消")}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAgentAccess("full");
-                            setFullAccessConfirmationOpen(false);
-                            goToAgentStep(3);
-                          }}
-                        >
-                          {t("我了解风险，开启完全访问")}
-                        </button>
-                      </div>
-                    </div>
                   )}
                 </>
               )}
