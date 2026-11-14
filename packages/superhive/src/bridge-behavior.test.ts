@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -197,6 +197,9 @@ describe("AgentBridge", () => {
   let bridge: AgentBridge;
   const identity = { serverUrl: "http://hive", roomId: "general", username: "agent-a" };
 
+  /** 本机 Hive Server 写给 Agent 的设置文件（模型、备用模型） */
+  let settingsFile: string | undefined;
+
   async function startBridge(
     state?: AgentState,
     invocations?: Invocation[],
@@ -209,6 +212,7 @@ describe("AgentBridge", () => {
         persona: "p",
         provider: "codex",
         token: "t",
+        ...(settingsFile ? { settingsFile } : {}),
         tuning: {
           batchWindowMs: 20,
           offlineRetryIntervalMs: 5,
@@ -271,6 +275,7 @@ describe("AgentBridge", () => {
     store = new StateStore(directory, identity);
     room = new FakeRoom();
     responder = new ControlledResponder();
+    settingsFile = undefined;
   });
 
   afterEach(async () => {
@@ -980,6 +985,78 @@ describe("AgentBridge", () => {
     await waitUntil(() => room.statuses(mention.id).includes("failed"));
     await flush();
     expect(responder.calls).toHaveLength(2);
+  });
+
+  async function writeSettings(settings: { model?: string }) {
+    settingsFile = path.join(directory, "agent-settings.json");
+    await writeFile(settingsFile, JSON.stringify({ mcpDisabled: [], ...settings }));
+  }
+
+  it("uses the model from the agent settings on every turn", async () => {
+    await writeSettings({ model: "gpt-main" });
+    await startBridge(baseState());
+    await completePromptTurn();
+    expect(responder.calls[0]!.model).toBe("gpt-main");
+    // 网页上改了模型：下一轮就用新的，不用重启
+    await writeSettings({ model: "gpt-other" });
+    await completePromptTurn();
+    expect(responder.calls[1]!.model).toBe("gpt-other");
+  });
+
+  it("never switches models on its own; a retired model fails right away with a hint", async () => {
+    await writeSettings({ model: "gpt-old" });
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    // 模型下线：等多久都不会好，不自动重试、也不自动换模型，交给人
+    responder.fail(new AgentUpstreamError("model_not_found: gpt-old", "s1", "model"));
+    await waitUntil(() => room.statuses(mention.id).includes("failed"));
+    const failed = room.reports.find((report) => report.status === "failed");
+    expect(failed?.detail).toContain("这个模型用不了，等多久都不会好，可以点「换个模型重试」");
+    await flush();
+    expect(responder.calls).toHaveLength(1);
+  });
+
+  it("keeps using the same model while retrying an overloaded upstream", async () => {
+    await writeSettings({ model: "gpt-main" });
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    for (let call = 1; call <= 3; call += 1) {
+      await waitUntil(() => responder.calls.length === call);
+      expect(responder.calls[call - 1]!.model).toBe("gpt-main");
+      responder.fail(new AgentUpstreamError("API Error: 529 overloaded", "s1"));
+    }
+    await waitUntil(() => room.statuses(mention.id).includes("failed"));
+    await flush();
+    expect(responder.calls).toHaveLength(3);
+  });
+
+  it("retries once with the model a person picked", async () => {
+    await writeSettings({ model: "gpt-main" });
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    responder.fail(new AgentNonRetryableError("boom"));
+    await waitUntil(() => room.statuses(mention.id).includes("failed"));
+    room.handlers.onMention(mention, mention.seq, true, false, false, false, "gpt-picked");
+    await waitUntil(() => responder.calls.length === 2);
+    expect(responder.calls[1]!.model).toBe("gpt-picked");
+    const using = room.reports.find((report) => report.detailText?.key === "bridge.usingModel");
+    expect(using?.progress).toBe("这次用 gpt-picked 重试");
+    responder.fail(new AgentNonRetryableError("boom again"));
+    await waitUntil(() => room.statuses(mention.id).filter((s) => s === "failed").length === 2);
+    // 普通「重试」回到设置里的模型
+    room.handlers.onMention(mention, mention.seq, true);
+    await waitUntil(() => responder.calls.length === 3);
+    expect(responder.calls[2]!.model).toBe("gpt-main");
+    responder.finish();
+    await waitUntil(() => room.statuses(mention.id).includes("completed"));
   });
 
   it("continues automatically on the same session after an upstream failure when nothing was changed", async () => {

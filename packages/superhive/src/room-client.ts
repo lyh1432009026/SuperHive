@@ -57,6 +57,8 @@ export type RoomClientHandlers = {
     first?: boolean,
     /** 没有 @ 任何人、因为是房间的主 Agent 才派来的 */
     lead?: boolean,
+    /** 人点「换个模型重试」选的模型：只对这一次生效 */
+    model?: string,
   ) => void;
   onCancel?: (messageId: string) => void;
   /** 人批了 / 拒了执行中申请的权限 */
@@ -309,6 +311,7 @@ export class RoomClient {
         event.steer === true,
         event.first === true,
         event.lead === true,
+        event.model,
       );
       return;
     }

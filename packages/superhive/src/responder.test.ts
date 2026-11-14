@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSessionInvalid } from "./responder.js";
+import { isModelUnavailable, isSessionInvalid, isUpstreamFailure } from "./responder.js";
 
 describe("isSessionInvalid", () => {
   it("recognizes the ways runtimes report a session that cannot continue", () => {
@@ -27,6 +27,32 @@ describe("isSessionInvalid", () => {
       "file not found: src/a.ts",
     ]) {
       expect(isSessionInvalid(text), text).toBe(false);
+    }
+  });
+});
+
+describe("isModelUnavailable", () => {
+  it("recognizes a model that is missing or retired", () => {
+    for (const text of [
+      '{"error":{"code":"model_not_found","message":"The model gpt-old does not exist"}}',
+      "The model `gpt-old` does not exist or you do not have access to it.",
+      'not_found_error: {"type":"not_found_error","message":"model: claude-old"}',
+      "model gpt-4 has been deprecated",
+      "Unknown model: foo/bar",
+    ]) {
+      expect(isModelUnavailable(text), text).toBe(true);
+    }
+  });
+
+  it("never treats quota or auth problems as a reason to switch models", () => {
+    for (const text of [
+      "insufficient_quota: You exceeded your current quota for model gpt-main",
+      "401 Unauthorized: model gpt-main",
+      "invalid api key for model gpt-main",
+      "billing hard limit reached; model unavailable",
+    ]) {
+      expect(isModelUnavailable(text), text).toBe(false);
+      expect(isUpstreamFailure(text), text).toBe(false);
     }
   });
 });

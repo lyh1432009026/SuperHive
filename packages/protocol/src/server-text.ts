@@ -386,6 +386,14 @@ export const serverTexts = {
     zh: "开了新会话还是失败",
     en: "It still failed in a new session",
   },
+  "bridge.modelUnavailable": {
+    zh: "这个模型用不了，等多久都不会好，可以点「换个模型重试」",
+    en: "This model isn't available and waiting won't help. Try Retry with another model",
+  },
+  "bridge.usingModel": {
+    zh: "这次用 {model} 重试",
+    en: "Retrying with {model}",
+  },
 
   /* ---------- 操作名（嵌进错误提示里） ---------- */
   "action.createRoom": { zh: "新建房间", en: "create rooms" },

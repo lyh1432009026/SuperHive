@@ -19,17 +19,32 @@ export type DiscoveredMcpServer = {
   config: Record<string, unknown>;
 };
 
-/** Agent 设置文件：由本机 Hive Server 写入，Agent 每一轮读取，改动下一轮生效 */
-export type AgentSettings = { mcpDisabled: string[] };
+/**
+ * Agent 设置文件：由本机 Hive Server 写入，Agent 每一轮读取，改动下一轮生效。
+ * - mcpDisabled：关掉的本机 MCP；
+ * - model：这个 Agent 用的模型（不填用启动时的 --model 或运行时自己的默认）。
+ */
+export type AgentSettings = { mcpDisabled: string[]; model?: string };
+
+function modelName(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim().slice(0, 200) : undefined;
+}
 
 export function readAgentSettings(file: string | undefined): AgentSettings {
   if (!file) return { mcpDisabled: [] };
   try {
-    const parsed = JSON.parse(readFileSync(file, "utf8")) as { mcpDisabled?: unknown };
+    const parsed = JSON.parse(readFileSync(file, "utf8")) as {
+      mcpDisabled?: unknown;
+      model?: unknown;
+    };
     const disabled = Array.isArray(parsed.mcpDisabled)
       ? parsed.mcpDisabled.filter((name): name is string => typeof name === "string")
       : [];
-    return { mcpDisabled: [...new Set(disabled)].sort() };
+    const model = modelName(parsed.model);
+    return {
+      mcpDisabled: [...new Set(disabled)].sort(),
+      ...(model ? { model } : {}),
+    };
   } catch {
     // 文件还没写或写坏了：按"全部启用"处理，与没有设置时的行为一致
     return { mcpDisabled: [] };

@@ -341,6 +341,54 @@ describe("AcpResponder", () => {
     );
   });
 
+  it("switches the session model through session/set_config_option when it is offered", async () => {
+    const configOptions = [
+      {
+        id: "model",
+        currentValue: "anthropic/main",
+        options: [
+          { value: "anthropic/main", name: "Main" },
+          { value: "openai/backup", name: "Backup" },
+        ],
+      },
+    ];
+    const { responder, agents, log } = setup(
+      defaultHandlers({
+        "session/new": ok({ sessionId: "ses-new", configOptions }),
+        "session/set_config_option": ok({ configOptions }),
+      }),
+    );
+    await responder.reply({ instructions: "rules", prompt: "hi", model: "openai/backup" });
+    expect(agents[0]!.methods()).toEqual([
+      "initialize",
+      "session/new",
+      "session/set_config_option",
+      "session/prompt",
+    ]);
+    expect(agents[0]!.request("session/set_config_option")?.params).toEqual({
+      sessionId: "ses-new",
+      configId: "model",
+      value: "openai/backup",
+    });
+    // 已经是这个模型：不再切；不在候选里的：照原模型跑并记一笔
+    await responder.reply({
+      instructions: "rules",
+      prompt: "a",
+      threadId: "ses-new",
+      model: "openai/backup",
+    });
+    await responder.reply({
+      instructions: "rules",
+      prompt: "b",
+      threadId: "ses-new",
+      model: "nope/x",
+    });
+    expect(
+      agents[0]!.methods().filter((method: string) => method === "session/set_config_option"),
+    ).toHaveLength(1);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("没有模型 nope/x"));
+  });
+
   it("answers permission requests according to the access mode", async () => {
     const options = [
       { optionId: "yes", name: "Allow once", kind: "allow_once" },

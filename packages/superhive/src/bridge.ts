@@ -36,6 +36,7 @@ import {
 } from "./room-client.js";
 import { StateStore, type AgentState } from "./state-store.js";
 import { isMutatingStep, sanitizeTraceStep } from "./trace.js";
+import { readAgentSettings } from "./mcp-servers.js";
 import type { TraceStep } from "./hive-protocol.js";
 import { AttachmentCache } from "./attachment-cache.js";
 import {
@@ -177,6 +178,8 @@ export class AgentBridge {
   private readonly leadMessages = new Set<string>();
   /** 上游出错后已自动继续的次数 */
   private readonly upstreamRetries = new Map<string, number>();
+  /** 这条消息下一轮用的模型：人点了「换个模型重试」，只对这一次生效 */
+  private readonly modelOverrides = new Map<string, string>();
   /** 已经因为会话失效自动开新会话重跑过一次的消息：再失败就交给人 */
   private readonly sessionRetried = new Set<string>();
   /** 上游出错后正在等待自动继续的消息（及其计时器） */
@@ -209,6 +212,8 @@ export class AgentBridge {
       onArchived?: () => void;
       onShutdown?: () => void;
       tuning?: BridgeTuning;
+      /** 本机 Hive Server 写的 Agent 设置文件：模型每一轮从这里读 */
+      settingsFile?: string;
     },
     private readonly store: StateStore,
     private readonly responder: AgentResponder,
@@ -261,9 +266,12 @@ export class AgentBridge {
       },
       {
         onSnapshot: (snapshot) => this.onSnapshot(snapshot),
-        onMention: (message, _latestSeq, retry, steer, first, lead) => {
+        onMention: (message, _latestSeq, retry, steer, first, lead, model) => {
           if (lead) this.leadMessages.add(message.id);
           else this.leadMessages.delete(message.id);
+          // 人点「换个模型重试」：只对这一次生效
+          if (model) this.modelOverrides.set(message.id, model);
+          else if (retry) this.modelOverrides.delete(message.id);
           this.enqueue(message, {
             retry,
             invited: true,
@@ -747,6 +755,7 @@ export class AgentBridge {
 
   private rememberProcessed(messageId: string): void {
     this.leadMessages.delete(messageId);
+    this.modelOverrides.delete(messageId);
     this.sessionRetried.delete(messageId);
     this.state.processedMessageIds = [
       ...this.state.processedMessageIds.filter((id) => id !== messageId),
@@ -801,7 +810,14 @@ export class AgentBridge {
       };
       await this.store.save(this.state);
 
-      this.reportAll(active.messages, { status: "running", contextSeq: context.latestSeq });
+      // 人点「换个模型重试」选的模型：只对这一次生效，状态里写明用的是哪个
+      const picked = messages.map((message) => this.modelOverrides.get(message.id)).find(Boolean);
+      const using = picked ? bridgeText("bridge.usingModel", { model: picked }) : undefined;
+      this.reportAll(active.messages, {
+        status: "running",
+        contextSeq: context.latestSeq,
+        ...(using ? { ...said(using), progress: bridgeTextZh(using).slice(0, 200) } : {}),
+      });
       this.room.setTyping(true);
       // Bridge 存活不等于 Runtime 在推进；心跳不得刷新最后一次真实进度的时间。
       let lastRuntimeProgressAt = Date.now();
@@ -876,6 +892,8 @@ export class AgentBridge {
         session: this.state.threadId ? "resumed" : "new",
       };
       active.turn = turn;
+      // 这一轮的模型：「换个模型重试」选的优先，其次是网页上设置的；都没有就不传，用启动时的 --model
+      const turnModel = picked ?? this.settings().model;
       const reply = await this.responder.reply({
         onUsage: (usage) => {
           turn.observed = usage;
@@ -883,6 +901,7 @@ export class AgentBridge {
         instructions: this.instructions,
         prompt: prompt.text,
         refreshInstructions: prompt.full,
+        ...(turnModel ? { model: turnModel } : {}),
         signal: active.controller.signal,
         onProgress: (progress) => {
           if (this.active !== active || active.controller.signal.aborted) return;
@@ -1326,6 +1345,10 @@ export class AgentBridge {
     timer.unref?.();
   }
 
+  private settings() {
+    return readAgentSettings(this.options.settingsFile);
+  }
+
   /**
    * 会话坏了（Codex 解不开旧会话里加密的推理内容、找不到之前的 response、恢复会话的文件坏了……）：
    * 丢掉旧会话，下一轮用完整上下文开新会话。这一轮还没执行任何工具就自动重跑一次；
@@ -1391,7 +1414,8 @@ export class AgentBridge {
     const live = active.messages.filter((message) => !active.cancelled.has(message.id));
     for (const message of live) this.resumeNotes.set(message.id, error.reason);
     const used = Math.max(0, ...live.map((message) => this.upstreamRetries.get(message.id) ?? 0));
-    const delay = this.tuning.upstreamRetryDelaysMs[used];
+    // 模型本身用不了（不存在、下线）：等多久都不会好，不自动重试，交给人换个模型
+    const delay = error.kind === "model" ? undefined : this.tuning.upstreamRetryDelaysMs[used];
     if (!active.mutated && delay !== undefined && live.length > 0) {
       for (const message of live) this.upstreamRetries.set(message.id, used + 1);
       await this.store.save(this.state);
@@ -1438,11 +1462,14 @@ export class AgentBridge {
       this.upstreamRetries.delete(message.id);
     }
     await this.store.save(this.state);
-    const why = active.mutated
-      ? bridgeText("bridge.upstreamMutated")
-      : bridgeText("bridge.upstreamExhausted", {
-          count: this.tuning.upstreamRetryDelaysMs.length,
-        });
+    const why =
+      error.kind === "model"
+        ? bridgeText("bridge.modelUnavailable")
+        : active.mutated
+          ? bridgeText("bridge.upstreamMutated")
+          : bridgeText("bridge.upstreamExhausted", {
+              count: this.tuning.upstreamRetryDelaysMs.length,
+            });
     const detail = said(
       bridgeText("bridge.upstreamFailed", { reason: error.reason.slice(0, 360), why }),
     );

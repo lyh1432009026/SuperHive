@@ -883,6 +883,45 @@ describe("CodexAppServerResponder", () => {
     );
   });
 
+  it("uses the per-turn model on turn/start over the startup model", async () => {
+    const { responder, servers } = setup(defaultHandlers(), { model: "gpt-startup" });
+    await responder.reply({ instructions: "r", prompt: "a", model: "gpt-fallback" });
+    await responder.reply({ instructions: "r", prompt: "b", threadId: "thread-new" });
+    const turns = servers[0]!.sent.filter((message: any) => message.method === "turn/start");
+    expect(turns.map((message: any) => message.params.model)).toEqual([
+      "gpt-fallback",
+      "gpt-startup",
+    ]);
+  });
+
+  it("reports a retired model as a model failure the bridge can switch away from", async () => {
+    const { responder } = setup(
+      defaultHandlers({
+        "turn/start": (message, server) => {
+          server.emit({ id: message.id, result: { turn: { id: "t" } } });
+          server.emit({
+            method: "turn/completed",
+            params: {
+              threadId: message.params.threadId,
+              turn: {
+                id: "t",
+                status: "failed",
+                error: {
+                  message: "The model `gpt-old` does not exist or you do not have access to it.",
+                },
+              },
+            },
+          });
+        },
+      }),
+    );
+    const error = (await responder
+      .reply({ instructions: "r", prompt: "p" })
+      .catch((cause: unknown) => cause)) as AgentUpstreamError;
+    expect(error).toBeInstanceOf(AgentUpstreamError);
+    expect(error.kind).toBe("model");
+  });
+
   it("reports progress for started items", async () => {
     const handlers = defaultHandlers({
       "turn/start": (message, server) => {

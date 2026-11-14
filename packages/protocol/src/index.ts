@@ -760,6 +760,8 @@ export const agentMentionedEventSchema = z.object({
   first: z.boolean().optional(),
   /** 这条没有 @ 任何人，派给你是因为你是房间的主 Agent */
   lead: z.boolean().optional(),
+  /** 人点「换个模型重试」选的模型：只对这一次生效 */
+  model: z.string().trim().min(1).max(200).optional(),
 });
 /** 本机 Hive Server 请它拉起的 Agent 自行退出（Windows 上没有可用的结束信号，信号一律是强制结束） */
 export const agentShutdownEventSchema = z.object({

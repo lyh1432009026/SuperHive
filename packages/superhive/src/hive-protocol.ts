@@ -196,6 +196,8 @@ export type ServerEvent =
       first?: boolean;
       /** 这条没有 @ 任何人，派给你是因为你是房间的主 Agent */
       lead?: boolean;
+      /** 人点「换个模型重试」选的模型：只对这一次生效 */
+      model?: string;
     }
   | { type: "agent.cancel"; messageId: string }
   /** 人对 Agent 执行中申请的权限做了决定（或过时） */

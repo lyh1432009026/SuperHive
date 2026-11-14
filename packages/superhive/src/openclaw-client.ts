@@ -45,7 +45,9 @@ export class OpenClawResponder implements AgentResponder {
     ];
     if (this.options.local) args.push("--local");
     if (this.options.agentId) args.push("--agent", this.options.agentId);
-    if (this.options.model) args.push("--model", this.options.model);
+    // 每轮都是新进程：设置里改的模型、「换个模型重试」都按轮生效
+    const model = input.model ?? this.options.model;
+    if (model) args.push("--model", model);
 
     let result;
     try {

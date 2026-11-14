@@ -386,6 +386,24 @@ describe("ClaudeCodeResponder", () => {
     expect(error.threadId).toBe("session-1");
   });
 
+  it("passes the per-turn model to Claude Code over the startup model", async () => {
+    const runner = vi.fn<CommandRunner>(async () => ({
+      stdout: JSON.stringify({ type: "result", is_error: false, result: "ok", session_id: "s" }),
+      stderr: "",
+    }));
+    const responder = new ClaudeCodeResponder({
+      command: "claude",
+      cwd: "/workspace",
+      hive,
+      model: "sonnet",
+      runner,
+    });
+    await responder.reply({ instructions: "r", prompt: "p", model: "opus" });
+    const args = runner.mock.calls[0]![1];
+    expect(args[args.indexOf("--model") + 1]).toBe("opus");
+    expect(args.filter((arg) => arg === "--model")).toHaveLength(1);
+  });
+
   it("reports a resume that finds no conversation as a broken session", async () => {
     // 真实情况（已实测）：--resume 一个不存在的会话，Claude Code 写出这样的结果后以退出码 1 结束
     const result = `${JSON.stringify({

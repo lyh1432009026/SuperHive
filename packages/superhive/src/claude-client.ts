@@ -13,6 +13,7 @@ import {
   AgentExecutionUncertainError,
   AgentSessionInvalidError,
   AgentUpstreamError,
+  isModelUnavailable,
   isSessionInvalid,
   isUpstreamFailure,
   type AgentAccessMode,
@@ -166,7 +167,9 @@ export class ClaudeCodeResponder implements AgentResponder {
         JSON.stringify({ sandbox: { enabled: false } }),
       );
     }
-    if (this.options.model) args.push("--model", this.options.model);
+    // 每轮都是新进程：Agent 设置里改的模型、「换个模型重试」下一轮就生效
+    const model = input.model ?? this.options.model;
+    if (model) args.push("--model", model);
     if (input.threadId) args.push("--resume", input.threadId);
 
     const stream = new ClaudeStream(
@@ -310,6 +313,13 @@ export class ClaudeCodeResponder implements AgentResponder {
           stream.toolStarted,
         );
       }
+      if (payload?.is_error && payload.result?.trim() && isModelUnavailable(payload.result)) {
+        throw new AgentUpstreamError(
+          redactTrace(payload.result.replace(/\s+/g, " ").trim()).slice(0, 240),
+          payload.session_id ?? input.threadId,
+          "model",
+        );
+      }
       if (payload?.is_error && payload.result?.trim() && isUpstreamFailure(payload.result)) {
         throw new AgentUpstreamError(
           redactTrace(payload.result.replace(/\s+/g, " ").trim()).slice(0, 240),
@@ -339,6 +349,13 @@ export class ClaudeCodeResponder implements AgentResponder {
         "Claude Code 返回了无法解析的最终结果，执行结果未知。",
       );
     // 上游模型服务出错（限流、过载……）：进程已正常结束、原因明确，交给 Bridge 决定是否接着继续
+    if (payload.is_error && payload.result?.trim() && isModelUnavailable(payload.result)) {
+      throw new AgentUpstreamError(
+        redactTrace(payload.result.replace(/\s+/g, " ").trim()).slice(0, 240),
+        payload.session_id ?? input.threadId,
+        "model",
+      );
+    }
     if (payload.is_error && payload.result?.trim() && isUpstreamFailure(payload.result)) {
       throw new AgentUpstreamError(
         redactTrace(payload.result.replace(/\s+/g, " ").trim()).slice(0, 240),

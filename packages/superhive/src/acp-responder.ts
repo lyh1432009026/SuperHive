@@ -6,7 +6,10 @@ import { ThinkingTrace } from "./trace.js";
 import {
   AgentCancelledError,
   AgentSessionInvalidError,
+  AgentUpstreamError,
+  isModelUnavailable,
   isSessionInvalid,
+  isUpstreamFailure,
   type AgentAccessMode,
   type AgentReply,
   type AgentReplyInput,
@@ -199,6 +202,8 @@ type AgentProcess = {
   pending: Map<number, PendingRequest>;
   /** 本进程已创建或恢复过的会话 */
   loadedSessions: Set<string>;
+  /** 会话能切的模型（session/new、load、resume 返回的 configOptions 里 id 为 model 的那项） */
+  sessionModels: Map<string, { current?: string; options: string[] }>;
   capabilities: any;
   steering: boolean;
   ready: Promise<void>;
@@ -267,6 +272,8 @@ export class AcpResponder implements AgentResponder {
       this.throwIfAborted(input.signal);
       session = await this.openSession(agent, input.threadId, Boolean(input.refreshInstructions));
       input.onSession?.(session.sessionId);
+      this.throwIfAborted(input.signal);
+      if (input.model) await this.useModel(agent, session.sessionId, input.model);
       this.throwIfAborted(input.signal);
     } catch (error) {
       if (this.active === placeholder) this.active = undefined;
@@ -416,12 +423,52 @@ export class AcpResponder implements AgentResponder {
     this.finishTurn(turn, { text, threadId: turn.sessionId! });
   }
 
-  /** session/prompt 被拒：会话坏了单独归类，Bridge 据此开新会话 */
+  /** session/prompt 被拒：会话坏了、模型用不了单独归类，Bridge 据此开新会话或换模型 */
   private classifyPromptError(turn: ActiveTurn, error: Error): Error {
     const text = error.message;
     if (isSessionInvalid(text))
       return new AgentSessionInvalidError(text.slice(0, 240), turn.toolTitles.size > 0);
+    if (isModelUnavailable(text))
+      return new AgentUpstreamError(text.slice(0, 240), turn.sessionId, "model");
+    if (isUpstreamFailure(text)) return new AgentUpstreamError(text.slice(0, 240), turn.sessionId);
     return error;
+  }
+
+  /**
+   * 按轮切模型：ACP 的会话在 configOptions 里列出能选的模型（opencode、omp 都有），
+   * 用 session/set_config_option 切换当前会话。没列出、或不在候选里的就不切，照原模型跑。
+   */
+  private async useModel(agent: AgentProcess, sessionId: string, model: string): Promise<void> {
+    const known = agent.sessionModels.get(sessionId);
+    if (!known || known.current === model) return;
+    if (!known.options.includes(model)) {
+      this.log(`[hive] ${this.options.label} 的会话里没有模型 ${model}，照原模型继续。`);
+      return;
+    }
+    await this.request(
+      agent,
+      "session/set_config_option",
+      { sessionId, configId: "model", value: model },
+      true,
+    );
+    agent.sessionModels.set(sessionId, { ...known, current: model });
+  }
+
+  private rememberModels(agent: AgentProcess, sessionId: string, result: any): void {
+    const options = Array.isArray(result?.configOptions) ? result.configOptions : [];
+    const model = options.find(
+      (option: any) => option?.id === "model" || option?.category === "model",
+    );
+    if (!model) return;
+    const values = Array.isArray(model.options)
+      ? model.options
+          .map((option: any) => option?.value)
+          .filter((value: unknown): value is string => typeof value === "string")
+      : [];
+    agent.sessionModels.set(sessionId, {
+      ...(typeof model.currentValue === "string" ? { current: model.currentValue } : {}),
+      options: values,
+    });
   }
 
   private async openSession(
@@ -440,8 +487,14 @@ export class AcpResponder implements AgentResponder {
           : undefined;
       if (method) {
         try {
-          await this.request(agent, method, { sessionId: threadId, ...params }, true);
+          const resumed = await this.request(
+            agent,
+            method,
+            { sessionId: threadId, ...params },
+            true,
+          );
           agent.loadedSessions.add(threadId);
+          this.rememberModels(agent, threadId, resumed);
           return { sessionId: threadId, fresh: false };
         } catch (error) {
           if (!(error instanceof AcpRpcError)) throw error;
@@ -459,6 +512,7 @@ export class AcpResponder implements AgentResponder {
       throw new Error(`${this.options.label} session/new 没有返回会话 ID。`);
     }
     agent.loadedSessions.add(sessionId);
+    this.rememberModels(agent, sessionId, result);
     return { sessionId, fresh: true };
   }
 
@@ -475,6 +529,7 @@ export class AcpResponder implements AgentResponder {
       nextId: 1,
       pending: new Map(),
       loadedSessions: new Set(),
+      sessionModels: new Map(),
       capabilities: undefined,
       steering: false,
       ready: Promise.resolve(),

@@ -15,6 +15,7 @@ import {
   AgentExecutionUncertainError,
   AgentUpstreamError,
   AgentSessionInvalidError,
+  isModelUnavailable,
   isSessionInvalid,
   isUpstreamFailure,
   AgentNonRetryableError,
@@ -497,7 +498,10 @@ export class CodexAppServerResponder implements AgentResponder {
       };
 
       const params: Record<string, unknown> = { threadId, input: textInput(input.prompt) };
-      if (this.options.model) params.model = this.options.model;
+      // turn/start 能按轮指定模型：Agent 设置里改的、「换个模型重试」选的都在这里生效
+      const model = input.model ?? this.options.model;
+      if (model) params.model = model;
+      if (model) turn.usage.setModel(model);
       const onResult = (result: any) => {
         const turnId = result?.turn?.id;
         if (typeof turnId !== "string" || !turnId) {
@@ -596,7 +600,8 @@ export class CodexAppServerResponder implements AgentResponder {
       approvalPolicy: access.approvalPolicy,
       developerInstructions: input.instructions,
     };
-    if (this.options.model) common.model = this.options.model;
+    const model = input.model ?? this.options.model;
+    if (model) common.model = model;
 
     if (input.threadId) {
       if (session.loadedThreads.has(input.threadId)) return input.threadId;
@@ -999,6 +1004,14 @@ export class CodexAppServerResponder implements AgentResponder {
             redactTrace(truncate(message, 240)),
             Boolean(turn.toolStarted),
           ),
+        );
+        return;
+      }
+      // 模型本身用不了（不存在、下线）：换个模型才行，等多久都不会好
+      if (isModelUnavailable(detail)) {
+        this.finishTurn(
+          turn,
+          new AgentUpstreamError(redactTrace(truncate(message, 240)), turn.threadId, "model"),
         );
         return;
       }

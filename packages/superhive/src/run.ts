@@ -396,6 +396,7 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
         ...(hooks?.onRoomsChanged ? { onRoomsChanged: hooks.onRoomsChanged } : {}),
         ...(hooks?.onArchived ? { onArchived: hooks.onArchived } : {}),
         ...(process.env.HIVE_SUPERVISOR_PID ? { onShutdown: () => shutdownOnRequest() } : {}),
+        ...(settingsFile ? { settingsFile } : {}),
       },
       store,
       buildResponder(hive, workspace.cwd),

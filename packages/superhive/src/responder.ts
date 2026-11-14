@@ -44,6 +44,12 @@ export type AgentReplyInput = {
    * 据此避免每轮都把同一份长规则写进会话历史；新会话总是需要。
    */
   refreshInstructions?: boolean;
+  /**
+   * 这一轮用的模型（Agent 设置里的「模型」，或人点「换个模型重试」选的）。
+   * 不给就用启动时的模型。各运行时能做到的程度不同：Codex、Claude Code、Copilot、OpenClaw 每轮生效，
+   * opencode、omp 通过 ACP 的 session/set_config_option 切换当前会话的模型。
+   */
+  model?: string;
 };
 
 export type AgentReply = {
@@ -91,6 +97,8 @@ export class AgentUpstreamError extends Error {
   constructor(
     readonly reason: string,
     readonly threadId?: string,
+    /** transient：限流、过载、5xx，等一会儿可能就好；model：模型本身用不了，等也没用，要人换个模型 */
+    readonly kind: "transient" | "model" = "transient",
   ) {
     super(`${UPSTREAM_FAILURE_PREFIX}：${reason}`);
     this.name = "AgentUpstreamError";
@@ -132,6 +140,23 @@ export class AgentSessionInvalidError extends Error {
 /** 运行时报的错误是不是「会话坏了」：只认明确的写法 */
 export function isSessionInvalid(text: string): boolean {
   return /invalid_encrypted_content|encrypted content[^.]*could not be (?:verified|decrypted)|previous_response_not_found|previous response[^.]*not found|no (?:conversation|rollout) found|(?:thread|session|conversation|rollout)[^.]{0,40}(?:not found|does not exist|could not be (?:found|loaded|parsed))|failed to (?:load|parse|read) (?:rollout|session|thread)|corrupt(?:ed)? (?:rollout|session)/i.test(
+    text,
+  );
+}
+
+/**
+ * 模型本身用不了（不存在、下线、没有权限用这个模型）：等多久都不会好，换个模型才行。
+ * 额度用完、key 无效这类换模型也没用的不算。
+ */
+export function isModelUnavailable(text: string): boolean {
+  if (
+    /insufficient_quota|quota exceeded|billing|credit balance|invalid api key|unauthori[sz]ed|\b401\b/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  return /model_not_found|not_found_error[\s\S]{0,80}\bmodel\b|model[^.]{0,40}(?:does not exist|not found|not supported|is not available|unavailable|deprecated|has been (?:deprecated|retired|removed))|unknown model|invalid model|no such model|模型不存在|模型已下线/i.test(
     text,
   );
 }

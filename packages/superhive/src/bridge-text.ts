@@ -37,6 +37,8 @@ export const BRIDGE_TEXTS = {
   "bridge.sessionInvalid": "会话已失效：{reason}。{why}；点「重试」会开新会话。",
   "bridge.sessionExecuted": "这一轮已经开始执行工具，不自动重跑",
   "bridge.sessionRetried": "开了新会话还是失败",
+  "bridge.modelUnavailable": "这个模型用不了，等多久都不会好，可以点「换个模型重试」",
+  "bridge.usingModel": "这次用 {model} 重试",
 } as const;
 
 export type BridgeTextKey = keyof typeof BRIDGE_TEXTS;
