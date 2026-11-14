@@ -1,0 +1,346 @@
+import { randomUUID } from "node:crypto";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ManagedWorktree, Participant } from "@superhive/protocol";
+import { HiveDatabase } from "./database.js";
+import { WorktreeManager, worktreeGit, worktreeRepository } from "./worktrees.js";
+
+describe("managed worktrees", () => {
+  let root: string;
+  let repo: string;
+  let database: HiveDatabase;
+  let agent: Participant;
+  let manager: WorktreeManager;
+  let active: string[];
+
+  async function git(cwd: string, ...args: string[]): Promise<string> {
+    const result = await worktreeGit(cwd, args);
+    if (result.code !== 0) throw new Error(result.stderr);
+    return result.stdout.trim();
+  }
+
+  beforeEach(async () => {
+    root = realpathSync(mkdtempSync(path.join(tmpdir(), "hive-worktree-")));
+    repo = path.join(root, "example repo");
+    mkdirSync(repo);
+    await git(repo, "init", "-b", "main");
+    await git(repo, "config", "user.email", "test@example.invalid");
+    await git(repo, "config", "user.name", "Test");
+    await git(repo, "config", "commit.gpgsign", "false");
+    writeFileSync(path.join(repo, "first.txt"), "first\n");
+    writeFileSync(path.join(repo, "second.txt"), "second\n");
+    writeFileSync(path.join(repo, ".gitignore"), "ignored\n");
+    await git(repo, "add", ".");
+    await git(repo, "commit", "-m", "initial");
+    database = new HiveDatabase(":memory:");
+    agent = database.upsertParticipant({ roomId: "general", username: "agent-a", type: "agent" });
+    active = [];
+    manager = new WorktreeManager({ database, activeInvocations: () => active });
+  });
+
+  afterEach(() => {
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const create = () => manager.create(repo, agent, "Alice", [randomUUID()], { slug: "feature" });
+  async function change(record: ManagedWorktree, file = "first.txt", content = "changed\n") {
+    writeFileSync(path.join(record.path, file), content);
+    await git(record.path, "add", file);
+    await git(record.path, "commit", "-m", `change ${file}`);
+  }
+
+  it("creates from the latest default branch, reserves a claim and reuses the task line", async () => {
+    const [first, second] = await Promise.all([create(), create()]);
+    expect([first.reused, second.reused].sort()).toEqual([false, true]);
+    expect(second.worktree.id).toBe(first.worktree.id);
+    expect([first, second].find((result) => result.reused)?.worktree.invocationIds).toHaveLength(2);
+    expect(first.worktree.path).toBe(path.join(root, "example repo-wt", "agent-a-feature"));
+    expect(first.worktree.baseCommit).toBe(await git(repo, "rev-parse", "refs/heads/main"));
+    expect(await git(first.worktree.path, "branch", "--show-current")).toBe("feat/agent-a-feature");
+    expect(database.listWhiteboard("general")[0]).toMatchObject({
+      slot: "in_progress",
+      claim: { repo, branch: first.worktree.branch },
+    });
+    const other = new WorktreeManager({ database, activeInvocations: () => [] });
+    expect((await other.list(repo))[0]?.worktree.id).toBe(first.worktree.id);
+  });
+
+  it("resolves the same repository from a linked checkout or symlink", async () => {
+    const { worktree } = await create();
+    const link = path.join(root, "repo-link");
+    symlinkSync(repo, link);
+    expect(await worktreeRepository(link)).toEqual(await worktreeRepository(worktree.path));
+  });
+
+  it("supports Unicode agent names without changing the repository or task-line identity", async () => {
+    const helper = database.upsertParticipant({
+      roomId: "general",
+      username: "开发助手",
+      type: "agent",
+    });
+    const result = await manager.create(repo, helper, "Alice", [], { slug: "unicode" });
+    expect(result.worktree.branch).toBe("feat/开发助手-unicode");
+    expect((await manager.list(repo))[0]?.worktree.path).toBe(result.worktree.path);
+  });
+
+  it("does not adopt manually created worktrees or existing branches", async () => {
+    await git(repo, "branch", "feat/agent-a-feature");
+    await expect(create()).rejects.toMatchObject({ code: "WORKTREE_CONFLICT" });
+    const manual = path.join(root, "manual");
+    await git(repo, "worktree", "add", "-b", "manual", manual, "main");
+    await expect(manager.remove(repo, { path: manual })).rejects.toMatchObject({
+      code: "WORKTREE_UNREGISTERED",
+    });
+    expect(existsSync(manual)).toBe(true);
+    expect(await manager.list(repo)).toEqual([]);
+  });
+
+  it("refuses dirty, untracked and ignored files independently", async () => {
+    const { worktree } = await create();
+    writeFileSync(path.join(worktree.path, "first.txt"), "dirty\n");
+    expect((await manager.list(repo))[0]).toMatchObject({ dirty: true, removable: false });
+    await expect(manager.remove(repo, { path: worktree.path })).rejects.toMatchObject({
+      code: "WORKTREE_UNSAFE",
+    });
+    await git(worktree.path, "restore", "first.txt");
+    writeFileSync(path.join(worktree.path, "untracked"), "private\n");
+    expect((await manager.list(repo))[0]).toMatchObject({ untracked: true, removable: false });
+    await expect(manager.remove(repo, { path: worktree.path })).rejects.toMatchObject({
+      code: "WORKTREE_UNSAFE",
+    });
+    rmSync(path.join(worktree.path, "untracked"));
+    writeFileSync(path.join(worktree.path, "ignored"), "private ignored data\n");
+    expect((await manager.list(repo))[0]).toMatchObject({ ignored: true, removable: false });
+    await expect(manager.remove(repo, { path: worktree.path })).rejects.toMatchObject({
+      code: "WORKTREE_UNSAFE",
+    });
+    expect(existsSync(path.join(worktree.path, "ignored"))).toBe(true);
+  });
+
+  it("blocks active and queued task bindings even when merged and clean", async () => {
+    const { worktree } = await create();
+    active = [worktree.invocationIds[0]!];
+    expect((await manager.list(repo))[0]).toMatchObject({
+      merged: true,
+      activeInvocationIds: active,
+      removable: false,
+    });
+    await expect(manager.remove(repo, { path: worktree.path })).rejects.toMatchObject({
+      code: "WORKTREE_UNSAFE",
+    });
+    active = [];
+    expect((await manager.list(repo))[0]?.removable).toBe(true);
+  });
+
+  it("refuses clean but unmerged changes", async () => {
+    const { worktree } = await create();
+    await change(worktree);
+    expect((await manager.list(repo))[0]).toMatchObject({
+      dirty: false,
+      merged: false,
+      removable: false,
+    });
+    await expect(manager.remove(repo, { path: worktree.path })).rejects.toMatchObject({
+      code: "WORKTREE_UNSAFE",
+    });
+  });
+
+  it("removes an ancestor-merged worktree and safely deletes its branch by default", async () => {
+    const { worktree } = await create();
+    await change(worktree);
+    await git(repo, "merge", "--ff-only", worktree.branch);
+    expect((await manager.list(repo))[0]).toMatchObject({
+      mergeMethod: "ancestor",
+      removable: true,
+    });
+    expect(await manager.remove(repo, { path: worktree.path })).toEqual({
+      removed: true,
+      branchDeleted: true,
+    });
+    expect(existsSync(worktree.path)).toBe(false);
+    expect(
+      (
+        await worktreeGit(repo, [
+          "show-ref",
+          "--verify",
+          "--quiet",
+          `refs/heads/${worktree.branch}`,
+        ])
+      ).code,
+    ).toBe(1);
+    expect(await manager.list(repo)).toEqual([]);
+    expect(database.listWhiteboard("general")[0]?.slot).toBe("milestone");
+  });
+
+  it("supports explicitly retaining the branch", async () => {
+    const { worktree } = await create();
+    expect(await manager.remove(repo, { path: worktree.path, deleteBranch: false })).toEqual({
+      removed: true,
+      branchDeleted: false,
+    });
+    expect(await git(repo, "rev-parse", worktree.branch)).toBeTruthy();
+  });
+
+  it("recognizes a multi-commit squash and retains the non-ancestor branch without force", async () => {
+    const { worktree } = await create();
+    await change(worktree);
+    await change(worktree, "second.txt", "also changed\n");
+    await git(repo, "merge", "--squash", worktree.branch);
+    await git(repo, "commit", "-m", "squashed feature");
+    expect((await manager.list(repo))[0]).toMatchObject({
+      mergeMethod: "squash",
+      merged: true,
+      removable: true,
+    });
+    expect(await manager.remove(repo, { path: worktree.path })).toMatchObject({
+      removed: true,
+      branchDeleted: false,
+      branchError: expect.any(String),
+    });
+    expect(existsSync(worktree.path)).toBe(false);
+    expect(await git(repo, "rev-parse", worktree.branch)).toBeTruthy();
+  });
+
+  it("recognizes cherry-picked patches, but not a partially integrated branch", async () => {
+    const { worktree } = await create();
+    await change(worktree);
+    const first = await git(worktree.path, "rev-parse", "HEAD");
+    await change(worktree, "second.txt");
+    const second = await git(worktree.path, "rev-parse", "HEAD");
+    writeFileSync(path.join(repo, "other.txt"), "other\n");
+    await git(repo, "add", "other.txt");
+    await git(repo, "commit", "-m", "other change");
+    await git(repo, "cherry-pick", first);
+    expect((await manager.list(repo))[0]?.merged).toBe(false);
+    await git(repo, "cherry-pick", second);
+    expect((await manager.list(repo))[0]).toMatchObject({ mergeMethod: "patches", merged: true });
+  });
+
+  it("fails closed when a worktree is locked, detached or on a different branch", async () => {
+    const { worktree } = await create();
+    await git(repo, "worktree", "lock", worktree.path);
+    expect((await manager.list(repo))[0]).toMatchObject({
+      removable: false,
+      error: expect.any(String),
+    });
+    await git(repo, "worktree", "unlock", worktree.path);
+    await git(worktree.path, "checkout", "--detach");
+    await expect(manager.remove(repo, { path: worktree.path })).rejects.toMatchObject({
+      code: "WORKTREE_UNSAFE",
+    });
+    await expect(create()).rejects.toMatchObject({ code: "WORKTREE_IDENTITY" });
+  });
+
+  it("rejects path traversal, option-like refs and a substituted worktree parent", async () => {
+    await expect(manager.create(repo, agent, "Alice", [], { slug: "../escape" })).rejects.toThrow();
+    await expect(
+      manager.create(repo, agent, "Alice", [], { slug: "safe", branch: "--orphan" }),
+    ).rejects.toMatchObject({ code: "WORKTREE_INVALID_REF" });
+    await expect(
+      manager.create(repo, agent, "Alice", [], { slug: "safe", base: "--help" }),
+    ).rejects.toMatchObject({ code: "WORKTREE_INVALID_REF" });
+    const outside = path.join(root, "outside");
+    mkdirSync(outside);
+    symlinkSync(outside, path.join(root, "example repo-wt"));
+    await expect(create()).rejects.toMatchObject({ code: "WORKTREE_IDENTITY" });
+  });
+
+  it("rejects non-repositories and bare repositories", async () => {
+    await expect(worktreeRepository(root)).rejects.toMatchObject({
+      code: "WORKTREE_REPOSITORY_INVALID",
+    });
+    const bare = path.join(root, "bare");
+    mkdirSync(bare);
+    await git(bare, "init", "--bare");
+    await expect(worktreeRepository(bare)).rejects.toMatchObject({
+      code: "WORKTREE_REPOSITORY_INVALID",
+    });
+  });
+
+  it("prevents branch claim conflicts across rooms and protects claimed entries from takeover or eviction", () => {
+    database.createRoom({ id: "other", name: "Other" });
+    const other = database.upsertParticipant({
+      roomId: "other",
+      username: "agent-b",
+      type: "agent",
+    });
+    const claim = { repo, branch: "feat/shared" };
+    database.upsertWhiteboardEntry(agent, {
+      key: "feature",
+      slot: "in_progress",
+      summary: "working",
+      claim,
+    });
+    expect(() =>
+      database.upsertWhiteboardEntry(other, {
+        key: "other",
+        slot: "in_progress",
+        summary: "working",
+        claim,
+      }),
+    ).toThrow(/agent-a/);
+    const sameRoom = database.upsertParticipant({
+      roomId: "general",
+      username: "agent-b",
+      type: "agent",
+    });
+    expect(() =>
+      database.upsertWhiteboardEntry(sameRoom, { key: "feature", slot: "ready", summary: "taken" }),
+    ).toThrow(/agent-a/);
+    database.upsertWhiteboardEntry(agent, {
+      key: "feature",
+      slot: "in_progress",
+      summary: "updated",
+    });
+    expect(database.listWhiteboard("general")[0]?.claim).toEqual(claim);
+    for (let count = 0; count < 60; count++)
+      database.upsertWhiteboardEntry(agent, {
+        key: `unclaimed-${count}`,
+        slot: "in_progress",
+        summary: "other",
+      });
+    expect(database.listWhiteboard("general").some((entry) => entry.key === "feature")).toBe(true);
+    database.upsertWhiteboardEntry(agent, { key: "feature", slot: "ready", summary: "delivered" });
+    expect(() =>
+      database.upsertWhiteboardEntry(other, {
+        key: "other",
+        slot: "in_progress",
+        summary: "working",
+        claim,
+      }),
+    ).not.toThrow();
+    expect(
+      database.upsertWhiteboardEntry(sameRoom, {
+        key: "feature",
+        slot: "in_progress",
+        summary: "new owner without a claim",
+      }).entry.claim,
+    ).toBeUndefined();
+    database.upsertWhiteboardEntry(agent, {
+      key: "released",
+      slot: "ready",
+      summary: "released claim",
+      claim: { repo, branch: "feat/released" },
+    });
+    for (let count = 0; count < 60; count++)
+      database.upsertWhiteboardEntry(agent, {
+        key: `ready-${count}`,
+        slot: "ready",
+        summary: "ready",
+      });
+    const ready = database.listWhiteboard("general").filter((entry) => entry.slot === "ready");
+    expect(ready).toHaveLength(50);
+    expect(ready.some((entry) => entry.key === "released")).toBe(false);
+  });
+});

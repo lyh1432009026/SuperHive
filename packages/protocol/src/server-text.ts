@@ -24,6 +24,44 @@ export type ServerTextEntry = { zh: string; en: string | PluralTemplate; plural?
 type Entry = ServerTextEntry;
 
 export const serverTexts = {
+  "action.worktree": { zh: "管理工作区", en: "Manage worktrees" },
+  "error.worktree.localOnly": {
+    zh: "只有本机房主的可写 Agent 能管理工作区；访客、远端和只读 Agent 不行。",
+    en: "Only a writable local owner agent can manage worktrees; guest, remote and read-only agents cannot.",
+  },
+  "error.worktree.repository": {
+    zh: "房间工作区必须是本机非裸 Git 仓库：{reason}",
+    en: "The room workspace must be a local, non-bare Git repository: {reason}",
+  },
+  "error.worktree.invalidRef": {
+    zh: "分支或基线不合法：{ref}",
+    en: "Invalid branch or base: {ref}",
+  },
+  "error.worktree.conflict": {
+    zh: "工作区或分支已存在，不能接管：{path}",
+    en: "The worktree or branch already exists and cannot be adopted: {path}",
+  },
+  "error.worktree.claim": {
+    zh: "分支 {branch} 已由 {agent} 占用（{key}）。",
+    en: "Branch {branch} is claimed by {agent} ({key}).",
+  },
+  "error.worktree.unregistered": {
+    zh: "只能清理 Hive 登记的工作区：{path}",
+    en: "Only Hive-registered worktrees can be removed: {path}",
+  },
+  "error.worktree.identity": {
+    zh: "工作区路径、仓库或分支已改变，拒绝清理：{path}",
+    en: "The worktree path, repository or branch changed; refusing removal: {path}",
+  },
+  "error.worktree.unsafe": {
+    zh: "工作区不能清理：有改动、未跟踪/忽略文件、尚未合入或仍有任务占用。{path}",
+    en: "Cannot remove this worktree: changes, untracked/ignored files, unmerged work or active tasks remain. {path}",
+  },
+  "error.worktree.operation": {
+    zh: "工作区操作失败，未强制删除：{reason}",
+    en: "Worktree operation failed; nothing was forcibly deleted: {reason}",
+  },
+  "worktree.created": { zh: "工作区 {branch}：{path}", en: "Worktree {branch}: {path}" },
   /* ---------- 调用（任务）状态说明 ---------- */
   "invocation.delivered": { zh: "已送达，排队中", en: "Delivered, waiting in queue" },
   "invocation.steerRequested": {

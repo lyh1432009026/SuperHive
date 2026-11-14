@@ -10,6 +10,12 @@ import {
   type RoomSummary,
   type Schedule,
   type WhiteboardEntry,
+  createWorktreeRequestSchema,
+  removeWorktreeRequestSchema,
+  worktreeClaimSchema,
+  type ManagedWorktree,
+  type WorktreeStatus,
+  type CreateWorktreeRequest,
 } from "@superhive/protocol";
 import { z } from "zod";
 import {
@@ -61,9 +67,20 @@ export type HiveMcpContext = {
     summary: string;
     repo?: string | undefined;
     branch?: string | undefined;
+    claim?: { repo: string; branch: string } | undefined;
     commit?: string | undefined;
     unblocks?: string[] | undefined;
-  }) => { entry: WhiteboardEntry; changed: boolean };
+  }) =>
+    | { entry: WhiteboardEntry; changed: boolean }
+    | Promise<{ entry: WhiteboardEntry; changed: boolean }>;
+  createWorktree: (
+    input: CreateWorktreeRequest,
+  ) => Promise<{ worktree: ManagedWorktree; reused: boolean; requiresWorkspaceApproval: boolean }>;
+  listWorktrees: () => Promise<WorktreeStatus[]>;
+  removeWorktree: (input: {
+    path: string;
+    deleteBranch: boolean;
+  }) => Promise<{ removed: true; branchDeleted: boolean; branchError?: string }>;
   /**
    * 取出自上次以来房间里的新消息（不含自己发的），并推进游标。
    * 每个工具结果都会顺带附上，让长任务中途也能看到别人的新消息。
@@ -707,6 +724,9 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
         summary: z.string().trim().min(1).max(500).describe("一句话说明当前状态"),
         repo: z.string().trim().max(200).optional(),
         branch: z.string().trim().max(200).optional(),
+        claim: worktreeClaimSchema
+          .optional()
+          .describe("占用仓库/分支；已有其他进行中的事项占用时拒绝"),
         commit: z.string().trim().max(100).optional(),
         unblocks: z
           .array(z.string().trim().min(1).max(100))
@@ -717,8 +737,60 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
     },
     async (input) => {
       try {
-        const result = context.updateWhiteboard(input);
+        const result = await context.updateWhiteboard(input);
         return toolResult({ ...result }, context.takeInbox());
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hive_worktree_create",
+    {
+      title: "Create or reuse a managed worktree",
+      description:
+        "在房间 Git 仓库里为当前本机 Agent 创建开发任务线的 worktree 并登记分支 claim。只有房主发起的可写本机任务可用；同一 slug 复用原目录。返回路径，不自动切换运行时 cwd，也不安装依赖。workspace 档写入该路径仍需目录授权。",
+      inputSchema: createWorktreeRequestSchema.shape,
+    },
+    async (input) => {
+      try {
+        return toolResult({ ...(await context.createWorktree(input)) }, context.takeInbox());
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hive_worktree_list",
+    {
+      title: "List managed worktrees",
+      description:
+        "列出本房间仓库里 Hive 登记的 worktree：改动、未跟踪/忽略文件、合入情况、任务占用和能否安全清理。手工创建的目录不会接管。仅本机房主 Agent 可用。",
+      annotations: { readOnlyHint: true },
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        return toolResult({ worktrees: await context.listWorktrees() }, context.takeInbox());
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "hive_worktree_remove",
+    {
+      title: "Remove a managed worktree safely",
+      description:
+        "只清理 Hive 登记、已合入、无改动/未跟踪/忽略文件且没有任务占用的 worktree；无 force。默认用 branch -d 尝试删分支，不成功则保留并说明。只能在房主授权清理的本机任务里调用，不要每次回复都清理。",
+      inputSchema: removeWorktreeRequestSchema.shape,
+    },
+    async (input) => {
+      try {
+        return toolResult({ ...(await context.removeWorktree(input)) }, context.takeInbox());
       } catch (error) {
         return toolError(error);
       }

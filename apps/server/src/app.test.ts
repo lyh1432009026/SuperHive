@@ -205,6 +205,9 @@ describe("Hive WebSocket protocol", () => {
       "hive_schedule_create",
       "hive_schedule_list",
       "hive_wait",
+      "hive_worktree_create",
+      "hive_worktree_list",
+      "hive_worktree_remove",
     ]);
     const members = await client.callTool({ name: "hive_members_list", arguments: {} });
     expect(JSON.stringify(members.structuredContent)).toContain("target-agent");

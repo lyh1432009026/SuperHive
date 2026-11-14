@@ -185,6 +185,8 @@ type WhiteboardRow = {
   summary: string;
   repo: string | null;
   branch: string | null;
+  claim_repo: string | null;
+  claim_branch: string | null;
   commit_ref: string | null;
   unblocks: string;
   author_id: string;
@@ -261,6 +263,7 @@ export type WhiteboardInput = {
   summary: string;
   repo?: string | undefined;
   branch?: string | undefined;
+  claim?: { repo: string; branch: string } | undefined;
   commit?: string | undefined;
   unblocks?: string[] | undefined;
 };
@@ -540,6 +543,9 @@ function mapWhiteboard(row: WhiteboardRow): WhiteboardEntry {
     summary: row.summary,
     ...(row.repo ? { repo: row.repo } : {}),
     ...(row.branch ? { branch: row.branch } : {}),
+    ...(row.claim_repo && row.claim_branch
+      ? { claim: { repo: row.claim_repo, branch: row.claim_branch } }
+      : {}),
     ...(row.commit_ref ? { commit: row.commit_ref } : {}),
     unblocks: JSON.parse(row.unblocks) as string[],
     authorId: row.author_id,
@@ -755,6 +761,16 @@ export class HiveDatabase {
     if (!participantColumns.some((column) => column.name === "provider")) {
       this.db.exec("ALTER TABLE participants ADD COLUMN provider TEXT");
     }
+    const boardColumns = this.db.pragma("table_info(whiteboard_entries)") as Array<{
+      name: string;
+    }>;
+    if (!boardColumns.some((column) => column.name === "claim_repo")) {
+      this.db.exec("ALTER TABLE whiteboard_entries ADD COLUMN claim_repo TEXT");
+      this.db.exec("ALTER TABLE whiteboard_entries ADD COLUMN claim_branch TEXT");
+    }
+    this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS whiteboard_branch_claim
+      ON whiteboard_entries(claim_repo, claim_branch)
+      WHERE slot = 'in_progress' AND claim_repo IS NOT NULL AND claim_branch IS NOT NULL`);
     const invocationColumns = this.db.pragma("table_info(invocations)") as Array<{ name: string }>;
     if (!invocationColumns.some((column) => column.name === "runtime")) {
       this.db.exec("ALTER TABLE invocations ADD COLUMN runtime TEXT");
@@ -2050,6 +2066,26 @@ export class HiveDatabase {
    * 按 key 写入白板：同一事项从"进行中"移到"已就绪"只需复用 key。
    * 60 秒内内容完全相同的重复发布视为节流，不产生更新；每个栏目最多保留 50 条。
    */
+  assertBranchClaimAvailable(repo: string, branch: string, entryId?: string): void {
+    const claimed = this.db
+      .prepare(
+        `SELECT * FROM whiteboard_entries
+      WHERE slot = 'in_progress' AND claim_repo = ? AND claim_branch = ?
+      AND (? IS NULL OR id != ?) LIMIT 1`,
+      )
+      .get(repo, branch, entryId ?? null, entryId ?? null) as WhiteboardRow | undefined;
+    if (claimed) {
+      throw new HiveError(
+        "WORKTREE_CLAIM_CONFLICT",
+        serverText("error.worktree.claim", {
+          branch,
+          agent: claimed.author_name,
+          key: claimed.key,
+        }),
+      );
+    }
+  }
+
   upsertWhiteboardEntry(
     author: Participant,
     input: WhiteboardInput,
@@ -2059,6 +2095,28 @@ export class HiveDatabase {
     const existingRow = this.db
       .prepare("SELECT * FROM whiteboard_entries WHERE room_id = ? AND key = ?")
       .get(author.roomId, input.key) as WhiteboardRow | undefined;
+    if (
+      existingRow?.slot === "in_progress" &&
+      existingRow.claim_repo &&
+      existingRow.author_id !== author.id
+    ) {
+      throw new HiveError(
+        "WORKTREE_CLAIM_CONFLICT",
+        serverText("error.worktree.claim", {
+          branch: existingRow.claim_branch ?? "",
+          agent: existingRow.author_name,
+          key: existingRow.key,
+        }),
+      );
+    }
+    const claim =
+      input.claim ??
+      (existingRow?.author_id === author.id && existingRow.claim_repo && existingRow.claim_branch
+        ? { repo: existingRow.claim_repo, branch: existingRow.claim_branch }
+        : undefined);
+    if (claim && input.slot === "in_progress") {
+      this.assertBranchClaimAvailable(claim.repo, claim.branch, existingRow?.id);
+    }
     if (existingRow) {
       const existing = mapWhiteboard(existingRow);
       const unchanged =
@@ -2066,6 +2124,7 @@ export class HiveDatabase {
         existing.summary === input.summary &&
         (existing.repo ?? undefined) === input.repo &&
         (existing.branch ?? undefined) === input.branch &&
+        JSON.stringify(existing.claim) === JSON.stringify(claim) &&
         (existing.commit ?? undefined) === input.commit &&
         JSON.stringify(existing.unblocks) === JSON.stringify(unblocks);
       if (unchanged && now.getTime() - Date.parse(existing.updatedAt) < 60_000) {
@@ -2073,7 +2132,7 @@ export class HiveDatabase {
       }
       this.db
         .prepare(
-          `UPDATE whiteboard_entries SET slot = ?, summary = ?, repo = ?, branch = ?, commit_ref = ?,
+          `UPDATE whiteboard_entries SET slot = ?, summary = ?, repo = ?, branch = ?, claim_repo = ?, claim_branch = ?, commit_ref = ?,
              unblocks = ?, author_id = ?, author_name = ?, updated_at = ? WHERE id = ?`,
         )
         .run(
@@ -2081,6 +2140,8 @@ export class HiveDatabase {
           input.summary,
           input.repo ?? null,
           input.branch ?? null,
+          claim?.repo ?? null,
+          claim?.branch ?? null,
           input.commit ?? null,
           JSON.stringify(unblocks),
           author.id,
@@ -2092,9 +2153,9 @@ export class HiveDatabase {
       this.db
         .prepare(
           `INSERT INTO whiteboard_entries(
-            id, room_id, key, slot, summary, repo, branch, commit_ref, unblocks,
+            id, room_id, key, slot, summary, repo, branch, claim_repo, claim_branch, commit_ref, unblocks,
             author_id, author_name, created_at, updated_at
-          ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           randomUUID(),
@@ -2104,6 +2165,8 @@ export class HiveDatabase {
           input.summary,
           input.repo ?? null,
           input.branch ?? null,
+          claim?.repo ?? null,
+          claim?.branch ?? null,
           input.commit ?? null,
           JSON.stringify(unblocks),
           author.id,
@@ -2115,6 +2178,7 @@ export class HiveDatabase {
     const overflow = this.db
       .prepare(
         `SELECT id FROM whiteboard_entries WHERE room_id = ? AND slot = ?
+         AND (slot != 'in_progress' OR claim_repo IS NULL)
          ORDER BY updated_at DESC, rowid DESC LIMIT -1 OFFSET ?`,
       )
       .all(author.roomId, input.slot, LIMITS.maxWhiteboardEntriesPerSlot) as Array<{ id: string }>;

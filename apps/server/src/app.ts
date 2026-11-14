@@ -64,6 +64,7 @@ import {
 import { createHiveMcpServer, type AttachmentReadResult, type InboxDigest } from "./hive-mcp.js";
 import { readMessageContent } from "./message-content.js";
 import { gitBranch } from "./git-branch.js";
+import { WorktreeManager, worktreeRepository } from "./worktrees.js";
 import {
   LocalAgentSupervisor,
   autoSteerKey,
@@ -1978,6 +1979,64 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     }
     return { parent, requester };
   }
+
+  function localWorktreeAgent(agent: Participant, local: boolean, write: boolean): string {
+    const configured = localAgents?.list().find((item) => item.name === agent.username);
+    if (
+      !local ||
+      guestSessionOf(agent) ||
+      !configured ||
+      (write && configured.access === "read-only")
+    ) {
+      throw new HiveError("WORKTREE_LOCAL_ONLY", serverText("error.worktree.localOnly"));
+    }
+    const workspace = database.getRoom(agent.roomId)?.workspace;
+    if (!workspace)
+      throw new HiveError(
+        "WORKTREE_REPOSITORY_INVALID",
+        serverText("error.worktree.repository", { reason: "No room workspace" }),
+      );
+    return workspace;
+  }
+
+  const worktrees = new WorktreeManager({
+    database,
+    activeInvocations: (record) => {
+      const active = new Set<string>();
+      for (const id of record.invocationIds) {
+        const invocation = database.getInvocation(id);
+        if (
+          invocation &&
+          !invocation.resolution &&
+          ["queued", "running", "cancelling", "waiting_human", "timed_out"].includes(
+            invocation.status,
+          )
+        )
+          active.add(id);
+      }
+      for (const invocation of database.listInvocations(record.roomId)) {
+        if (
+          invocation.resolution ||
+          !["queued", "running", "cancelling", "waiting_human", "timed_out"].includes(
+            invocation.status,
+          )
+        )
+          continue;
+        if (
+          (invocation.agentName === record.agentName && invocation.status === "queued") ||
+          database
+            .invocationAncestors(invocation.id)
+            .some((item) => record.invocationIds.includes(item.id))
+        )
+          active.add(invocation.id);
+      }
+      return [...active];
+    },
+    onBoardChanged: (roomId) => {
+      for (const entry of database.listWhiteboard(roomId))
+        broadcast(roomId, { type: "whiteboard.updated", entry });
+    },
+  });
 
   function createRoomForAgent(
     agent: Participant,
@@ -4101,7 +4160,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         ).message;
       },
       readWhiteboard: () => database.listWhiteboard(participant.roomId),
-      updateWhiteboard: (input) => {
+      updateWhiteboard: async (input) => {
+        if (input.claim) {
+          const workspace = localWorktreeAgent(participant, isLocal(request.raw).local, false);
+          const repository = await worktreeRepository(workspace);
+          const claimed = await worktreeRepository(input.claim.repo);
+          if (repository.commonDir !== claimed.commonDir)
+            throw new HiveError(
+              "WORKTREE_REPOSITORY_INVALID",
+              serverText("error.worktree.repository", { reason: input.claim.repo }),
+            );
+          input.claim = { repo: repository.repo, branch: input.claim.branch };
+        }
         const result = database.upsertWhiteboardEntry(participant, input);
         if (result.changed) {
           broadcast(participant.roomId, { type: "whiteboard.updated", entry: result.entry });
@@ -4114,6 +4184,31 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           }
         }
         return { entry: result.entry, changed: result.changed };
+      },
+      createWorktree: async (input) => {
+        const workspace = localWorktreeAgent(participant, isLocal(request.raw).local, true);
+        const { requester } = ownerTask(participant, serverText("action.worktree"));
+        const ids = database.listExecutingInvocations(participant.id).map((item) => item.id);
+        const created = await worktrees.create(
+          workspace,
+          participant,
+          requester.username,
+          ids,
+          input,
+        );
+        return {
+          ...created,
+          requiresWorkspaceApproval:
+            localAgents!.list().find((item) => item.name === participant.username)!.access ===
+            "workspace",
+        };
+      },
+      listWorktrees: () =>
+        worktrees.list(localWorktreeAgent(participant, isLocal(request.raw).local, false)),
+      removeWorktree: (input) => {
+        const workspace = localWorktreeAgent(participant, isLocal(request.raw).local, true);
+        ownerTask(participant, serverText("action.worktree"));
+        return worktrees.remove(workspace, input);
       },
       takeInbox: () => takeInbox(participant),
       markRead: (seq) =>

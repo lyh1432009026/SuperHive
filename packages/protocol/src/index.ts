@@ -537,6 +537,20 @@ export const invocationSchema = z.object({
 
 export const whiteboardSlotSchema = z.enum(["ready", "in_progress", "blocked", "milestone"]);
 
+export {
+  worktreeClaimSchema,
+  createWorktreeRequestSchema,
+  removeWorktreeRequestSchema,
+  managedWorktreeSchema,
+  worktreeStatusSchema,
+} from "./worktree.js";
+export type {
+  WorktreeClaim,
+  CreateWorktreeRequest,
+  ManagedWorktree,
+  WorktreeStatus,
+} from "./worktree.js";
+
 export const whiteboardEntrySchema = z.object({
   id: z.string().uuid(),
   roomId: z.string().min(1).max(64),
@@ -545,6 +559,9 @@ export const whiteboardEntrySchema = z.object({
   summary: z.string().min(1).max(500),
   repo: z.string().max(200).optional(),
   branch: z.string().max(200).optional(),
+  claim: z
+    .object({ repo: z.string().min(1).max(4096), branch: z.string().min(1).max(200) })
+    .optional(),
   commit: z.string().max(100).optional(),
   unblocks: z.array(z.string().max(100)).max(20).default([]),
   authorId: z.string().uuid(),
