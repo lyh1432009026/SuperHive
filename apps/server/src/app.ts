@@ -50,7 +50,7 @@ import {
   explainInvocationState,
   formatInvocationStateForAgent,
 } from "@superhive/protocol";
-import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import type { WebSocket } from "ws";
 import { z } from "zod";
 import { AGENT_INSTRUCTIONS } from "./agent-instructions.js";
@@ -4201,50 +4201,81 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     return { path: result.item.filePath, sha256: result.item.sha256 };
   });
 
-  app.get<{ Querystring: { messageId?: string } }>(
-    "/api/agent/worktree",
-    async (request, reply) => {
-      const participant = connectedMcpAgent(request);
-      if (!participant) return reply.code(401).send({ error: "Online local agent required" });
-      try {
-        const configured = localAgents?.list().find((item) => item.name === participant.username);
-        if (
-          !isLocal(request.raw).local ||
-          guestSessionOf(participant) ||
-          !configured ||
-          configured.access === "read-only"
-        )
-          return reply.code(403).send({ error: "Writable local agent required" });
-        const messageId = z.string().uuid().parse(request.query.messageId);
+  async function taskWorkspaceResponse(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    messageIds: string[],
+  ) {
+    const participant = connectedMcpAgent(request);
+    if (!participant) {
+      reply.code(401).send({ error: "Online local agent required" });
+      return undefined;
+    }
+    try {
+      const configured = localAgents?.list().find((item) => item.name === participant.username);
+      if (
+        !isLocal(request.raw).local ||
+        guestSessionOf(participant) ||
+        !configured ||
+        configured.access === "read-only"
+      ) {
+        reply.code(403).send({ error: "Writable local agent required" });
+        return undefined;
+      }
+      const tasks: Array<{ messageId: string; invocationId: string; ownerName: string }> = [];
+      for (const messageId of messageIds) {
         const invocation = database.getInvocationFor(messageId, participant.id);
         if (
           !invocation ||
           invocation.resolution ||
           !["queued", "running"].includes(invocation.status)
-        )
-          return reply.code(409).send({ error: "An active task is required" });
+        ) {
+          reply.code(409).send({ error: "An active task is required" });
+          return undefined;
+        }
         const root = [invocation, ...database.invocationAncestors(invocation.id)].find(
           (item) => item.requesterType === "human",
         );
         const owner = root?.requesterId ? database.getParticipant(root.requesterId) : undefined;
-        if (!owner || guestSessionOf(owner)) return { worktree: null };
-        worktreeRuntimeAgents.add(participant.id);
-        const workspace = database.getRoom(participant.roomId)?.workspace;
-        if (!workspace) return { worktree: null };
-        const worktree = await worktrees.runtimeWorkspace(
-          workspace,
-          participant,
-          owner.username,
-          invocation.id,
-        );
-        return { worktree: worktree ?? null };
-      } catch (error) {
-        return reply
-          .code(403)
-          .send({ error: error instanceof Error ? error.message : String(error) });
+        if (owner && !guestSessionOf(owner))
+          tasks.push({ messageId, invocationId: invocation.id, ownerName: owner.username });
       }
+      if (tasks.length) worktreeRuntimeAgents.add(participant.id);
+      const workspace = database.getRoom(participant.roomId)?.workspace;
+      const selections = workspace
+        ? await worktrees.runtimeWorkspaces(workspace, participant, tasks)
+        : new Map();
+      return Object.fromEntries(
+        messageIds.map((id) => {
+          const task = tasks.find((item) => item.messageId === id);
+          return [id, task ? (selections.get(task.invocationId) ?? null) : null];
+        }),
+      );
+    } catch (error) {
+      reply.code(403).send({ error: error instanceof Error ? error.message : String(error) });
+      return undefined;
+    }
+  }
+
+  app.get<{ Querystring: { messageId?: string } }>(
+    "/api/agent/worktree",
+    async (request, reply) => {
+      const parsed = z.string().uuid().safeParse(request.query.messageId);
+      if (!parsed.success) return reply.code(400).send({ error: "Invalid message ID" });
+      const response = await taskWorkspaceResponse(request, reply, [parsed.data]);
+      return response ? { worktree: response[parsed.data] } : reply;
     },
   );
+  app.post<{ Body: unknown }>("/api/agent/worktree", async (request, reply) => {
+    const parsed = z
+      .object({ messageIds: z.array(z.string().uuid()).min(1).max(100) })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "Invalid message IDs" });
+    const response = await taskWorkspaceResponse(request, reply, [
+      ...new Set(parsed.data.messageIds),
+    ]);
+    return response ? { worktrees: response } : reply;
+  });
 
   app.post("/mcp", async (request, reply) => {
     const participant = connectedMcpAgent(request);

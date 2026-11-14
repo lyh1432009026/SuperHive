@@ -444,38 +444,60 @@ export class WorktreeManager {
     ownerName: string,
     invocationId: string,
   ): Promise<ManagedWorktree | undefined> {
+    return (await this.runtimeWorkspaces(workspace, actor, [{ ownerName, invocationId }])).get(
+      invocationId,
+    );
+  }
+
+  async runtimeWorkspaces(
+    workspace: string,
+    actor: Participant,
+    tasks: Array<{ ownerName: string; invocationId: string }>,
+  ): Promise<Map<string, ManagedWorktree | undefined>> {
     const binding = this.options.database
       .connection()
-      .prepare("SELECT worktree_id FROM managed_worktree_bindings WHERE invocation_id = ?")
-      .get(invocationId) as { worktree_id: string } | undefined;
-    const focus =
-      binding ??
-      (this.options.database
-        .connection()
-        .prepare(
-          "SELECT worktree_id FROM managed_worktree_focus WHERE room_id = ? AND agent_name = ?",
-        )
-        .get(actor.roomId, actor.username) as { worktree_id: string } | undefined);
-    if (!focus) return undefined;
+      .prepare("SELECT worktree_id FROM managed_worktree_bindings WHERE invocation_id = ?");
+    const focus = this.options.database
+      .connection()
+      .prepare(
+        "SELECT worktree_id FROM managed_worktree_focus WHERE room_id = ? AND agent_name = ?",
+      )
+      .get(actor.roomId, actor.username) as { worktree_id: string } | undefined;
+    const selections = tasks.map((task) => ({
+      ...task,
+      selected: (binding.get(task.invocationId) as { worktree_id: string } | undefined) ?? focus,
+    }));
+    const result = new Map<string, ManagedWorktree | undefined>(
+      tasks.map((task) => [task.invocationId, undefined]),
+    );
+    if (!selections.some((task) => task.selected)) return result;
     const repository = await worktreeRepository(workspace);
     return this.serial(repository.repo, async () => {
-      const record = this.records(repository.repo).find((item) => item.id === focus.worktree_id);
-      if (!record) return undefined;
-      if (
-        record.ownerName !== ownerName ||
-        record.agentName !== actor.username ||
-        record.roomId !== actor.roomId ||
-        record.phase !== "ready"
-      )
-        throw new HiveError(
-          "WORKTREE_UNSAFE",
-          serverText("error.worktree.unsafe", { path: record.path }),
-        );
-      await this.identity(record);
-      record.invocationIds = [...new Set([...record.invocationIds, invocationId])];
-      this.save(record);
-      this.bind(record, [invocationId]);
-      return record;
+      const records = new Map(this.records(repository.repo).map((record) => [record.id, record]));
+      const occupants = new Map<ManagedWorktree, string[]>();
+      for (const task of selections) {
+        const record = task.selected ? records.get(task.selected.worktree_id) : undefined;
+        if (!record) continue;
+        if (
+          record.ownerName !== task.ownerName ||
+          record.agentName !== actor.username ||
+          record.roomId !== actor.roomId ||
+          record.phase !== "ready"
+        )
+          throw new HiveError(
+            "WORKTREE_UNSAFE",
+            serverText("error.worktree.unsafe", { path: record.path }),
+          );
+        occupants.set(record, [...(occupants.get(record) ?? []), task.invocationId]);
+      }
+      for (const record of occupants.keys()) await this.identity(record);
+      for (const [record, ids] of occupants) {
+        record.invocationIds = [...new Set([...record.invocationIds, ...ids])];
+        this.save(record);
+        this.bind(record, ids);
+        for (const id of ids) result.set(id, record);
+      }
+      return result;
     });
   }
 

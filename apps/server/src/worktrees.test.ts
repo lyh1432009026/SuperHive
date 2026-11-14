@@ -81,6 +81,12 @@ describe("managed worktrees", () => {
     const secondId = randomUUID();
     const first = await manager.create(repo, agent, "Alice", [firstId], { slug: "one" });
     const second = await manager.create(repo, agent, "Alice", [secondId], { slug: "two" });
+    const grouped = await manager.runtimeWorkspaces(repo, agent, [
+      { ownerName: "Alice", invocationId: firstId },
+      { ownerName: "Alice", invocationId: secondId },
+    ]);
+    expect(grouped.get(firstId)?.id).toBe(first.worktree.id);
+    expect(grouped.get(secondId)?.id).toBe(second.worktree.id);
     expect((await manager.runtimeWorkspace(repo, agent, "Alice", firstId))?.id).toBe(
       first.worktree.id,
     );

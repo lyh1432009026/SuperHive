@@ -156,6 +156,77 @@ async function start() {
 }
 
 describe("worktree MCP permissions and bindings", () => {
+  it("resolves several local task bindings together without weakening authorization", async () => {
+    const { app, join, mcp, run, finish } = await start();
+    const owner = await join("Alice", "human");
+    const helper = await join("helper", "agent");
+    const first = await run(owner, helper, "helper");
+    const second = await run(owner, helper, "helper");
+    const headers = {
+      authorization: "Bearer test-token",
+      "x-hive-room": "general",
+      "x-hive-agent-name": "helper",
+    };
+    const payload = { messageIds: [first.id, second.id] };
+    const unbound = await app.inject({
+      method: "POST",
+      url: "/api/agent/worktree",
+      headers,
+      payload,
+    });
+    expect(unbound.statusCode).toBe(200);
+    expect(unbound.json()).toEqual({ worktrees: { [first.id]: null, [second.id]: null } });
+    const call = await mcp("helper");
+    const created = await call("hive_worktree_create", { slug: "batch" });
+    const worktree = created.structuredContent!.worktree as ManagedWorktree;
+    const selected = await app.inject({
+      method: "POST",
+      url: "/api/agent/worktree",
+      headers,
+      payload,
+    });
+    expect(selected.statusCode).toBe(200);
+    expect(selected.json().worktrees).toMatchObject({
+      [first.id]: { path: worktree.path, agentName: "helper" },
+      [second.id]: { path: worktree.path, agentName: "helper" },
+    });
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/agent/worktree",
+          headers: { ...headers, "x-forwarded-for": "203.0.113.1" },
+          payload,
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/agent/worktree",
+          headers: { ...headers, "x-hive-agent-name": "writer" },
+          payload,
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/agent/worktree",
+          headers,
+          payload: { messageIds: [] },
+        })
+      ).statusCode,
+    ).toBe(400);
+    await finish(owner, helper, first);
+    expect(
+      (await app.inject({ method: "POST", url: "/api/agent/worktree", headers, payload }))
+        .statusCode,
+    ).toBe(409);
+  });
+
   it("notifies only the owner, requires owner/device management auth and batch-cleans safely", async () => {
     const { app, repo, git, join, mcp, run, finish } = await start();
     const owner = await join("Alice", "human");

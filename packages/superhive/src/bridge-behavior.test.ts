@@ -746,41 +746,152 @@ describe("AgentBridge", () => {
     });
   });
 
-  it("steers late mentions into the running turn and falls back to queueing", async () => {
+  it.each([false, true])(
+    "steers late mentions and falls back to queueing (managed=%s)",
+    async (managed) => {
+      if (managed) taskWorkspace = { resolve: async () => undefined, responder: () => responder };
+      await startBridge(baseState());
+      const first = chat();
+      room.messages.push(first);
+      room.handlers.onMention(first, first.seq, false);
+      await waitUntil(() => responder.calls.length === 1);
+
+      const late = chat({ content: "@agent-a 顺便看下 README" });
+      room.messages.push(late);
+      room.handlers.onMention(late, late.seq, false, true);
+      await waitUntil(() => responder.steered.length === 1);
+      await flush();
+      expect(responder.steered[0]).toContain("README");
+      expect(room.statuses(late.id)).toContain("running");
+      expect(
+        room.reports.find((report) => report.messageId === late.id && report.status === "running")
+          ?.detail,
+      ).toBe(`已并入当前任务（#${first.seq}）`);
+      // 执行过程里标出引导
+      expect(room.traces.some((trace) => trace.messageId === first.id)).toBe(true);
+
+      responder.steerResult = false;
+      const queued = chat({ content: "@agent-a 第三件事" });
+      room.messages.push(queued);
+      room.handlers.onMention(queued, queued.seq, false, true);
+      await waitUntil(() => responder.steered.length === 2);
+
+      responder.finish();
+      await waitUntil(() => room.statuses(late.id).includes("completed"));
+      // 注入失败的那条在下一轮单独处理
+      await waitUntil(() => responder.calls.length === 2);
+      expect(responder.calls[1]!.prompt).toContain("第三件事");
+      expect(responder.calls[1]!.threadId).toBe("thread-1");
+      responder.finish();
+      await waitUntil(() => room.statuses(queued.id).includes("completed"));
+    },
+  );
+
+  it.each(["unbound", "same checkout", "unbound steer"])(
+    "batches and steers managed messages in %s",
+    async (mode) => {
+      const checkout = mode === "unbound" ? undefined : path.join(directory, "checkout");
+      let unboundSteer: string | undefined;
+      const resolve = vi.fn(async (id: string) => (id === unboundSteer ? undefined : checkout));
+      const resolveMany = vi.fn(
+        async (ids: string[]) =>
+          new Map(ids.map((id) => [id, id === unboundSteer ? undefined : checkout])),
+      );
+      taskWorkspace = { resolve, resolveMany, responder: () => responder };
+      await startBridge(baseState());
+      const first = chat();
+      const second = chat({ content: "@agent-a also update tests" });
+      room.messages.push(first, second);
+      room.handlers.onMention(first, first.seq, false);
+      room.handlers.onMention(second, second.seq, false);
+      await waitUntil(() => responder.calls.length === 1);
+      expect((await store.load())?.inflight?.messageIds).toEqual([first.id, second.id]);
+      expect(resolveMany).toHaveBeenCalledOnce();
+      expect(resolveMany).toHaveBeenCalledWith([first.id, second.id]);
+      expect(resolve).not.toHaveBeenCalled();
+      const late = chat({ content: "@agent-a add one more assertion" });
+      if (mode === "unbound steer") unboundSteer = late.id;
+      room.messages.push(late);
+      room.handlers.onMention(late, late.seq, false, true);
+      await waitUntil(() => room.statuses(late.id).includes("running"));
+      expect(responder.steered).toHaveLength(1);
+      responder.finish();
+      await waitUntil(() => room.statuses(late.id).includes("completed"));
+      expect(room.statuses(first.id)).toContain("completed");
+      expect(room.statuses(second.id)).toContain("completed");
+      expect(responder.calls).toHaveLength(1);
+      expect(resolve).toHaveBeenCalledOnce();
+      expect(resolveMany).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("does not batch or steer messages across different managed checkouts", async () => {
+    const first = chat();
+    const second = chat({ content: "@agent-a unrelated task" });
+    const same = chat({ content: "@agent-a refine the current task" });
+    const paths = new Map([
+      [first.id, path.join(directory, "first-checkout")],
+      [same.id, path.join(directory, "first-checkout")],
+      [second.id, path.join(directory, "second-checkout")],
+    ]);
+    const other = new ControlledResponder();
+    taskWorkspace = {
+      resolve: async (id) => paths.get(id),
+      resolveMany: async (ids) => new Map(ids.map((id) => [id, paths.get(id)])),
+      responder: (cwd) => (cwd === paths.get(second.id) ? other : responder),
+    };
+    await startBridge(baseState());
+    room.messages.push(first, second);
+    room.handlers.onMention(first, first.seq, false);
+    room.handlers.onMention(second, second.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    expect((await store.load())?.inflight?.messageIds).toEqual([first.id]);
+    room.handlers.onMention(second, second.seq, false, true);
+    await waitUntil(() =>
+      room.reports.some(
+        (report) => report.messageId === second.id && report.detail?.includes("另一个工作目录"),
+      ),
+    );
+    expect(responder.steered).toHaveLength(0);
+    expect(other.calls).toHaveLength(0);
+    room.messages.push(same);
+    room.handlers.onMention(same, same.seq, false, true);
+    await waitUntil(() => responder.steered.length === 1);
+    responder.finish();
+    await waitUntil(() => other.calls.length === 1);
+    expect(other.calls[0]?.threadId).toBeUndefined();
+    expect(other.calls[0]?.instructions).toContain(paths.get(second.id));
+    expect(room.statuses(second.id)).not.toContain("completed");
+    other.finish();
+    await waitUntil(() => room.statuses(second.id).includes("completed"));
+    expect(responder.calls).toHaveLength(1);
+  });
+
+  it("queues a managed steer that finishes resolving after the current turn ends", async () => {
+    let resolveSteer!: (value: string | undefined) => void;
+    const waiting = new Promise<string | undefined>((resolve) => {
+      resolveSteer = resolve;
+    });
+    taskWorkspace = {
+      resolve: () => waiting,
+      resolveMany: async (ids) => new Map(ids.map((id) => [id, undefined])),
+      responder: () => responder,
+    };
     await startBridge(baseState());
     const first = chat();
     room.messages.push(first);
     room.handlers.onMention(first, first.seq, false);
     await waitUntil(() => responder.calls.length === 1);
-
-    const late = chat({ content: "@agent-a 顺便看下 README" });
+    const late = chat();
     room.messages.push(late);
     room.handlers.onMention(late, late.seq, false, true);
-    await waitUntil(() => responder.steered.length === 1);
-    await flush();
-    expect(responder.steered[0]).toContain("README");
-    expect(room.statuses(late.id)).toContain("running");
-    expect(
-      room.reports.find((report) => report.messageId === late.id && report.status === "running")
-        ?.detail,
-    ).toBe(`已并入当前任务（#${first.seq}）`);
-    // 执行过程里标出引导
-    expect(room.traces.some((trace) => trace.messageId === first.id)).toBe(true);
-
-    responder.steerResult = false;
-    const queued = chat({ content: "@agent-a 第三件事" });
-    room.messages.push(queued);
-    room.handlers.onMention(queued, queued.seq, false, true);
-    await waitUntil(() => responder.steered.length === 2);
-
+    responder.finish();
+    await waitUntil(() => room.statuses(first.id).includes("completed"));
+    resolveSteer(undefined);
+    await waitUntil(() => responder.calls.length === 2);
+    expect(responder.steered).toHaveLength(0);
     responder.finish();
     await waitUntil(() => room.statuses(late.id).includes("completed"));
-    // 注入失败的那条在下一轮单独处理
-    await waitUntil(() => responder.calls.length === 2);
-    expect(responder.calls[1]!.prompt).toContain("第三件事");
-    expect(responder.calls[1]!.threadId).toBe("thread-1");
-    responder.finish();
-    await waitUntil(() => room.statuses(queued.id).includes("completed"));
   });
 
   it("queues a late mention by default and inserts it only when a human asks", async () => {

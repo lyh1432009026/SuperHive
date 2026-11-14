@@ -1,4 +1,4 @@
-import { bridgeText, bridgeTextZh, said } from "./bridge-text.js";
+import { bridgeText, bridgeTextZh, said, type BridgeText } from "./bridge-text.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   isMentioned,
@@ -138,6 +138,7 @@ type ActiveBatch = {
   cancelled: Set<string>;
   /** Provider 回合仍在进行、可以吸收 steer；回合结束后新消息改为排队 */
   accepting: boolean;
+  workspace: string | undefined;
   /** 这一轮做过可能有副作用的操作（改文件、跑非只读命令、发消息……）：中断后不自动继续 */
   mutated?: boolean;
   /** 这一轮调用过任何工具（只读的也算）：会话失效时不自动重跑 */
@@ -218,6 +219,7 @@ export class AgentBridge {
       settingsFile?: string;
       taskWorkspace?: {
         resolve: (messageId: string) => Promise<string | undefined>;
+        resolveMany?: (messageIds: string[]) => Promise<Map<string, string | undefined>>;
         responder: (cwd: string) => AgentResponder;
       };
     },
@@ -551,17 +553,30 @@ export class AgentBridge {
   /** 有正在执行、还能吸收新消息的一轮，而且这个运行时支持引导 */
   private canSteer(): boolean {
     return Boolean(
-      !this.options.taskWorkspace &&
-      this.active?.accepting &&
-      this.responder.steer &&
-      !this.active.controller.signal.aborted,
+      this.active?.accepting && this.responder.steer && !this.active.controller.signal.aborted,
     );
   }
 
-  private async selectTaskWorkspace(messageId: string): Promise<boolean> {
+  private async taskWorkspaces(messages: ChatMessage[]): Promise<Map<string, string | undefined>> {
+    const runtime = this.options.taskWorkspace;
+    if (!runtime) return new Map(messages.map((message) => [message.id, undefined]));
+    const ids = messages.map((message) => message.id);
+    const selections = runtime.resolveMany
+      ? await runtime.resolveMany(ids)
+      : new Map(await Promise.all(ids.map(async (id) => [id, await runtime.resolve(id)] as const)));
+    if (ids.some((id) => !selections.has(id)))
+      throw new AgentNonRetryableError("Incomplete managed task workspace selection");
+    return selections;
+  }
+
+  private async selectTaskWorkspace(
+    messageId: string,
+    prepared?: { path: string | undefined },
+  ): Promise<boolean> {
     const runtime = this.options.taskWorkspace;
     if (!runtime || !this.defaultCwd) return false;
-    const selected = (await runtime.resolve(messageId)) ?? this.defaultCwd;
+    const selected =
+      (prepared ? prepared.path : await runtime.resolve(messageId)) ?? this.defaultCwd;
     const changed = selected !== this.options.cwd;
     if (changed) {
       await this.responder.close?.();
@@ -607,24 +622,45 @@ export class AgentBridge {
   /** 把新消息插进正在运行的这一轮（Codex turn/steer、Claude 流式输入、ACP steering），插不进去就退回排队 */
   private async steerIntoActive(active: ActiveBatch, message: ChatMessage): Promise<void> {
     this.steering.add(message.id);
-    this.room.report({
-      messageId: message.id,
-      status: "received",
-      ...said(bridgeText("bridge.steering")),
-    });
     let steered = false;
+    let queuedDetail: BridgeText | undefined;
     try {
-      steered = await this.responder.steer!(
-        buildSteerPrompt(message, await this.attachmentPaths([message])),
-      );
+      const selected = this.options.taskWorkspace
+        ? await this.options.taskWorkspace.resolve(message.id)
+        : undefined;
+      if (selected && selected !== active.workspace) {
+        queuedDetail = bridgeText("bridge.worktreeSteerQueued", { path: selected });
+      } else {
+        const runtime = this.responder;
+        const prompt = buildSteerPrompt(message, await this.attachmentPaths([message]));
+        if (
+          this.active === active &&
+          active.accepting &&
+          !active.controller.signal.aborted &&
+          !this.cancelledEarly.has(message.id) &&
+          this.responder === runtime
+        ) {
+          this.room.report({
+            messageId: message.id,
+            status: "received",
+            ...said(bridgeText("bridge.steering")),
+          });
+          steered = await runtime.steer!(prompt);
+        }
+      }
     } catch (error) {
-      if (error instanceof AgentExecutionUncertainError) {
+      if (
+        error instanceof AgentExecutionUncertainError ||
+        error instanceof AgentNonRetryableError
+      ) {
         this.rememberProcessed(message.id);
         await this.store.save(this.state);
         this.room.report({
           messageId: message.id,
-          status: "uncertain",
-          ...said(bridgeText("bridge.steerUnconfirmed")),
+          status: error instanceof AgentNonRetryableError ? "failed" : "uncertain",
+          ...(error instanceof AgentNonRetryableError
+            ? { detail: error.message }
+            : said(bridgeText("bridge.steerUnconfirmed"))),
         });
         return;
       }
@@ -691,7 +727,7 @@ export class AgentBridge {
     this.room.report({
       messageId: message.id,
       status: "received",
-      ...said(bridgeText("bridge.steerLate")),
+      ...said(queuedDetail ?? bridgeText("bridge.steerLate")),
     });
     this.pending.push(message);
     this.scheduleDrain(this.tuning.batchWindowMs);
@@ -710,12 +746,35 @@ export class AgentBridge {
     if (this.draining) return this.draining;
     this.draining = (async () => {
       while (this.pending.length > 0 && !this.stopped) {
-        const solo = this.soloNext.delete(this.pending[0]!.id);
-        const batch = this.pending.splice(
+        const first = this.pending[0]!;
+        const candidates = this.pending.slice(
           0,
-          solo || this.options.taskWorkspace ? 1 : this.tuning.maxBatchSize,
+          this.soloNext.has(first.id) ? 1 : this.tuning.maxBatchSize,
         );
-        await this.runBatch(batch);
+        let prepared: { path: string | undefined } | undefined;
+        let count = candidates.length;
+        if (this.options.taskWorkspace) {
+          try {
+            const selections = await this.taskWorkspaces(candidates);
+            prepared = { path: selections.get(first.id) };
+            const directory = prepared.path ?? this.defaultCwd;
+            const different = candidates.findIndex(
+              (message) => (selections.get(message.id) ?? this.defaultCwd) !== directory,
+            );
+            if (different >= 0) count = different;
+          } catch {
+            count = 1;
+          }
+        }
+        if (this.stopped) break;
+        if (this.pending[0]?.id !== first.id) continue;
+        const batch = candidates
+          .slice(0, count)
+          .filter((message, index) => this.pending[index]?.id === message.id);
+        if (!batch.length) continue;
+        this.soloNext.delete(first.id);
+        this.pending.splice(0, batch.length);
+        await this.runBatch(batch, prepared);
       }
     })().finally(() => {
       this.draining = undefined;
@@ -825,7 +884,10 @@ export class AgentBridge {
     for (const message of messages) this.room.report({ messageId: message.id, ...report });
   }
 
-  private async runBatch(initial: ChatMessage[]): Promise<void> {
+  private async runBatch(
+    initial: ChatMessage[],
+    preparedWorkspace?: { path: string | undefined },
+  ): Promise<void> {
     const skipped = initial.filter(
       (message) =>
         this.recalled.has(message.id) || this.state.processedMessageIds.includes(message.id),
@@ -848,7 +910,8 @@ export class AgentBridge {
       messages: [...messages],
       controller: new AbortController(),
       cancelled: new Set(),
-      accepting: true,
+      accepting: false,
+      workspace: this.options.cwd,
     };
     this.active = active;
     let heartbeat: NodeJS.Timeout | undefined;
@@ -923,14 +986,17 @@ export class AgentBridge {
       }, this.tuning.heartbeatMs);
       heartbeat.unref?.();
 
-      await this.selectTaskWorkspace(messages[0]!.id);
+      await this.selectTaskWorkspace(messages[0]!.id, preparedWorkspace);
       let handoff: string | undefined;
       let handoffs = 0;
       let reply: AgentReply;
       let prompt: PreparedPrompt;
       let usage: AgentUsage | undefined;
       while (true) {
-        const built = await this.buildPrompt(this.applyTopicBoundary(context.messages), messages);
+        const built = await this.buildPrompt(
+          this.applyTopicBoundary(context.messages),
+          active.messages,
+        );
         // 上一轮因上游出错中断：提醒 Agent 接着原会话从断点继续，别把已经做过的再做一遍
         const interrupted = messages
           .map((message) => this.resumeNotes.get(message.id))
@@ -962,6 +1028,8 @@ export class AgentBridge {
         active.turn = turn;
         // 这一轮的模型：「换个模型重试」选的优先，其次是网页上设置的；都没有就不传，用启动时的 --model
         const turnModel = picked ?? this.settings().model;
+        active.workspace = this.options.cwd;
+        active.accepting = true;
         reply = await this.responder.reply({
           onUsage: (usage) => {
             turn.observed = usage;
@@ -1055,7 +1123,20 @@ export class AgentBridge {
         if (reply.threadId) this.state.threadId = reply.threadId;
         this.reportSession();
         this.notePromptSent(prompt);
-        const changed = await this.selectTaskWorkspace(messages[0]!.id);
+        const selections = await this.taskWorkspaces(active.messages);
+        const selected = selections.get(messages[0]!.id);
+        if (
+          this.options.taskWorkspace &&
+          active.messages.some(
+            (message) =>
+              selections.get(message.id) !== undefined &&
+              selections.get(message.id) !== (selected ?? this.defaultCwd),
+          )
+        )
+          throw new AgentNonRetryableError(
+            "Task workspace bindings changed during the turn; confirm before continuing.",
+          );
+        const changed = await this.selectTaskWorkspace(messages[0]!.id, { path: selected });
         if (!changed) break;
         if (handoffUnsafe)
           throw new AgentNonRetryableError(

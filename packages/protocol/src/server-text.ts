@@ -444,6 +444,10 @@ export const serverTexts = {
     zh: "已切到独立目录 {path}，开新会话继续；旧会话不迁移",
     en: "Continuing in a new session in isolated workspace {path}; the old session is not moved",
   },
+  "bridge.worktreeSteerQueued": {
+    zh: "这条消息绑定了另一个工作目录 {path}，不能引导当前任务，已排队",
+    en: "This message belongs to a different workspace, {path}. It cannot steer the current task and has been queued.",
+  },
   "bridge.worktreeCheckBeforeContinue": {
     zh: "已绑定目录 {path}，但本轮已有其它副作用；未自动续跑，请核对原目录的操作后再继续",
     en: "Workspace {path} is bound, but this turn had other side effects. It was not continued automatically; verify operations in the original checkout before continuing",
