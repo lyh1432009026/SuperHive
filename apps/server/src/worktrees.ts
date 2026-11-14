@@ -23,7 +23,7 @@ export type WorktreeCleanupBatch = {
   roomId: string;
   ownerName: string;
   automatic: boolean;
-  state: "available" | "queued" | "running" | "completed";
+  state: "available" | "queued" | "running" | "completed" | "expired";
   items: Array<{ id: string; repo: string; path: string; branch: string; headCommit: string }>;
   results?: Array<{ path: string; removed: boolean; branchDeleted?: boolean; error?: string }>;
 };
@@ -272,15 +272,53 @@ export class WorktreeManager {
     return row ? (JSON.parse(row.record) as WorktreeCleanupBatch) : undefined;
   }
 
-  roomBatches(roomId: string): WorktreeCleanupBatch[] {
-    return (
+  roomBatches(roomId: string, statuses?: WorktreeStatus[]): WorktreeCleanupBatch[] {
+    const batches = (
       this.options.database
         .connection()
         .prepare("SELECT record FROM managed_worktree_cleanup ORDER BY rowid DESC")
         .all() as Array<{ record: string }>
     )
       .map((row) => JSON.parse(row.record) as WorktreeCleanupBatch)
-      .filter((batch) => batch.roomId === roomId && batch.state !== "completed");
+      .filter(
+        (batch) => batch.roomId === roomId && !["completed", "expired"].includes(batch.state),
+      );
+    if (!statuses) return batches;
+    const current = new Map(statuses.map((item) => [item.worktree.id, item]));
+    return batches
+      .filter((batch) => batch.state === "available")
+      .map((batch) => ({
+        ...batch,
+        items: batch.items.filter((item) => {
+          const status = current.get(item.id);
+          return status?.removable && status.headCommit === item.headCommit;
+        }),
+      }))
+      .filter((batch) => batch.items.length > 0);
+  }
+
+  private pruneCleanupBatches(statuses: WorktreeStatus[] = []): void {
+    const records = new Set(this.allRecords().map((item) => item.id));
+    const current = new Map(statuses.map((item) => [item.worktree.id, item]));
+    const rows = this.options.database
+      .connection()
+      .prepare("SELECT record FROM managed_worktree_cleanup")
+      .all() as Array<{ record: string }>;
+    for (const row of rows) {
+      const batch = JSON.parse(row.record) as WorktreeCleanupBatch;
+      if (batch.state !== "available") continue;
+      const items = batch.items.filter(
+        (item) =>
+          records.has(item.id) &&
+          (!current.get(item.id)?.headCommit ||
+            current.get(item.id)?.headCommit === item.headCommit),
+      );
+      if (items.length === batch.items.length) continue;
+      batch.items = items;
+      if (!items.length) batch.state = "expired";
+      this.saveBatch(batch);
+      this.options.onCleanup?.(batch);
+    }
   }
 
   private saveBatch(batch: WorktreeCleanupBatch): void {
@@ -294,7 +332,8 @@ export class WorktreeManager {
 
   requestCleanup(id: string, ownerName: string): boolean {
     const batch = this.cleanupBatch(id);
-    if (!batch || batch.ownerName !== ownerName) return false;
+    if (!batch || batch.ownerName !== ownerName || ["completed", "expired"].includes(batch.state))
+      return false;
     if (batch.state !== "available") return true;
     batch.state = "queued";
     this.saveBatch(batch);
@@ -312,9 +351,11 @@ export class WorktreeManager {
 
   private async scanInner(): Promise<void> {
     const groups = new Map<string, WorktreeCleanupBatch>();
+    const statuses: WorktreeStatus[] = [];
     for (const record of this.allRecords()) {
       if (this.closed) return;
       const status = await this.status(record);
+      statuses.push(status);
       if (!status.removable || !status.headCommit) continue;
       const notice = this.options.database
         .connection()
@@ -340,6 +381,7 @@ export class WorktreeManager {
       });
       groups.set(key, batch);
     }
+    this.pruneCleanupBatches(statuses);
     for (const batch of groups.values()) {
       if (this.closed) return;
       this.options.database.connection().transaction(() => {
@@ -797,6 +839,7 @@ export class WorktreeManager {
       const statuses: WorktreeStatus[] = [];
       for (const record of this.records(repository.repo))
         statuses.push(await this.status(record, repository.target));
+      this.pruneCleanupBatches(statuses);
       return statuses;
     });
   }
@@ -883,6 +926,7 @@ export class WorktreeManager {
           .run(`worktree:${record.id}`, record.repo, record.branch);
       })();
       this.options.onBoardChanged?.(record.roomId);
+      this.pruneCleanupBatches();
       return { removed: true, branchDeleted, ...(branchError ? { branchError } : {}) };
     });
   }

@@ -134,7 +134,8 @@ const localApi: {
   enabled: boolean;
   agents: LocalAgent[];
   requests: Array<{ url: string; method: string; owner: string | null; body?: unknown }>;
-} = { enabled: false, agents: [], requests: [] };
+  cleanupBatch: { id: string; count: number } | null;
+} = { enabled: false, agents: [], requests: [], cleanupBatch: null };
 
 function localAgent(overrides: Partial<LocalAgent> = {}): LocalAgent {
   return {
@@ -170,6 +171,7 @@ describe("App mention autocomplete", () => {
     localApi.enabled = false;
     localApi.agents = [];
     localApi.requests = [];
+    localApi.cleanupBatch = null;
     roomPins.ids = [];
     roomPins.requests = [];
     FakeNotification.permission = "default";
@@ -259,6 +261,12 @@ describe("App mention autocomplete", () => {
             return jsonResponse({ agent }, 201);
           }
           if (url.endsWith("/api/local/agents")) return jsonResponse({ agents: localApi.agents });
+          if (url.includes("/api/local/worktrees/"))
+            return jsonResponse({
+              worktrees: [],
+              autoCleanup: false,
+              cleanupBatch: localApi.cleanupBatch,
+            });
         }
         if (url.includes("/api/mentions")) {
           return jsonResponse({ messages: crossRoom.mentions });
@@ -340,6 +348,77 @@ describe("App mention autocomplete", () => {
     localStorage.setItem("superhive.notify-prompt-dismissed", "true");
     render(<App />);
     await waitFor(() => expect(document.activeElement?.tagName).toBe("TEXTAREA"));
+  });
+
+  it("removes expired worktree notices without dismissing a newer batch", async () => {
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    localApi.enabled = true;
+    const firstId = "00000000-0000-4000-8000-000000000091";
+    const secondId = "00000000-0000-4000-8000-000000000092";
+    localApi.cleanupBatch = { id: firstId, count: 1 };
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self],
+        messages: [],
+        latestSeq: 0,
+      }),
+    );
+    await screen.findByText("1 个 worktree 已合入，可清理。");
+    localApi.cleanupBatch = null;
+    act(() =>
+      socket.serverEvent({
+        type: "worktree.cleanup",
+        roomId: "general",
+        batchId: firstId,
+        count: 0,
+        state: "expired",
+        automatic: false,
+      }),
+    );
+    await waitFor(() => expect(screen.queryByText("清理这批目录")).toBeNull());
+    localApi.cleanupBatch = { id: secondId, count: 2 };
+    act(() =>
+      socket.serverEvent({
+        type: "worktree.cleanup",
+        roomId: "general",
+        batchId: secondId,
+        count: 2,
+        state: "available",
+        automatic: false,
+      }),
+    );
+    await screen.findByText("2 个 worktree 已合入，可清理。");
+    act(() =>
+      socket.serverEvent({
+        type: "worktree.cleanup",
+        roomId: "general",
+        batchId: firstId,
+        count: 1,
+        state: "completed",
+        automatic: false,
+      }),
+    );
+    expect(screen.getByText("2 个 worktree 已合入，可清理。")).toBeTruthy();
+    localApi.cleanupBatch = null;
+    act(() =>
+      socket.serverEvent({
+        type: "worktree.cleanup",
+        roomId: "general",
+        batchId: secondId,
+        count: 0,
+        state: "expired",
+        automatic: false,
+      }),
+    );
+    await waitFor(() => expect(screen.queryByText("清理这批目录")).toBeNull());
   });
 
   it("previews the draft as Markdown, colors its syntax while editing, and expands the composer", async () => {

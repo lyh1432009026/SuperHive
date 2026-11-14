@@ -56,7 +56,7 @@ export const worktreeCleanupEventSchema = z.object({
   roomId: z.string(),
   batchId: z.string().uuid(),
   count: z.number().int().nonnegative(),
-  state: z.enum(["available", "completed"]),
+  state: z.enum(["available", "completed", "expired"]),
   automatic: z.boolean(),
 });
 

@@ -1458,6 +1458,7 @@ export function App({
   const [worktreeNotices, setWorktreeNotices] = useState<
     Map<string, { batchId: string; count: number }>
   >(new Map());
+  const worktreeNoticeVersion = useRef(0);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -1604,20 +1605,30 @@ export function App({
   useEffect(() => {
     if (!isOwner || !local.enabled) return;
     let cancelled = false;
-    void local
-      .worktrees(currentRoomId)
-      .then((inventory) => {
-        if (cancelled || !inventory.cleanupBatch) return;
-        setWorktreeNotices((current) =>
-          new Map(current).set(currentRoomId, {
-            batchId: inventory.cleanupBatch!.id,
-            count: inventory.cleanupBatch!.count,
-          }),
-        );
-      })
-      .catch(() => undefined);
+    const refresh = () => {
+      const version = worktreeNoticeVersion.current;
+      void local
+        .worktrees(currentRoomId)
+        .then((inventory) => {
+          if (cancelled || version !== worktreeNoticeVersion.current) return;
+          setWorktreeNotices((current) => {
+            const next = new Map(current);
+            if (inventory.cleanupBatch)
+              next.set(currentRoomId, {
+                batchId: inventory.cleanupBatch.id,
+                count: inventory.cleanupBatch.count,
+              });
+            else next.delete(currentRoomId);
+            return next;
+          });
+        })
+        .catch(() => undefined);
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 15_000);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, [currentRoomId, isOwner, local.enabled, local.worktrees]);
   const localAgentNames = useMemo(
@@ -2482,11 +2493,12 @@ export function App({
             }
           }
         } else if (event.type === "worktree.cleanup") {
+          worktreeNoticeVersion.current++;
           setWorktreeNotices((current) => {
             const next = new Map(current);
             if (event.state === "available")
               next.set(event.roomId, { batchId: event.batchId, count: event.count });
-            else next.delete(event.roomId);
+            else if (next.get(event.roomId)?.batchId === event.batchId) next.delete(event.roomId);
             return next;
           });
         } else if (event.type === "invocation.updated") {

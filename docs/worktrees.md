@@ -44,6 +44,8 @@ The room's cleanup banner and Feishu card can request cleanup of the displayed b
 
 Automatic cleanup is optional and off by default. Enabling it requires explicit owner/device confirmation; only checkouts passing the same checks are removed. Disabling it prevents subsequent batch items, but cannot undo a Git removal already issued. Queued batches survive a server restart. Review/merge remains the reviewer's responsibility; cleanup does not merge or publish changes.
 
+Manual cleanup also removes those checkouts from pending batch notices. Empty batches or notices for older branch tips expire and cannot be requested again; a partially cleaned batch retains only its remaining checkouts. The web refreshes eligibility and clears expired notices without dismissing a newer batch for the same room. Temporarily occupied or dirty entries are not offered for cleanup.
+
 ## Verification helpers
 
 `pnpm --filter superhive exec tsx ../../scripts/worktree-runtime.smoke.ts` creates an isolated temporary repository and registered checkout, runs a real Codex workspace Agent inside it, commits/merges the proof, waits for an owner notification and requests batch cleanup. The default separates deterministic checkout setup from the live model write test. `--create-with-model` additionally asks the live model to call the creation tool and exercise setup-turn handoff. `--provider=claude` explicitly uses a temporary Claude Agent instead of Codex; it does not change any production Agent or model setting. The helper checks that the checkout starts with a fresh runtime session. Model/network failures are reported, never counted as passed checks. No in-use Agent or user repository is modified.

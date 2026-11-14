@@ -242,6 +242,7 @@ describe("worktree MCP permissions and bindings", () => {
     await (app as unknown as { runWorktreeCleanup(): Promise<void> }).runWorktreeCleanup();
     const notice = await owner.next((event) => event.type === "worktree.cleanup");
     expect(notice).toMatchObject({ type: "worktree.cleanup", count: 1, state: "available" });
+    if (notice.type !== "worktree.cleanup") throw new Error("Missing cleanup notice");
     expect(helper.events.some((event) => event.type === "worktree.cleanup")).toBe(false);
     const session = (await app.inject({ method: "GET", url: "/api/local/session" })).json();
     const ownerHeaders = { "x-hive-owner": session.ownerToken };
@@ -271,6 +272,28 @@ describe("worktree MCP permissions and bindings", () => {
     });
     expect(cleaned.statusCode).toBe(200);
     expect(cleaned.json().results).toMatchObject([{ removed: true, branchDeleted: true }]);
+    await nextEvent(
+      owner,
+      "expired cleanup banner",
+      (event) =>
+        event.type === "worktree.cleanup" &&
+        event.state === "expired" &&
+        event.batchId === notice.batchId,
+    );
+    const refreshed = await app.inject({
+      url: "/api/local/worktrees/general",
+      headers: ownerHeaders,
+    });
+    expect(refreshed.json().cleanupBatch).toBeNull();
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/local/worktrees/general/batches/${notice.batchId}`,
+          headers: ownerHeaders,
+        })
+      ).statusCode,
+    ).toBe(409);
   }, 15_000);
 
   it("creates, reuses, reports occupancy and removes only after the original task finishes", async () => {
@@ -314,7 +337,7 @@ describe("worktree MCP permissions and bindings", () => {
     const removed = await call("hive_worktree_remove", { path: worktree.path });
     expect(removed.isError).toBeFalsy();
     expect(removed.structuredContent).toMatchObject({ removed: true, branchDeleted: true });
-  });
+  }, 15_000);
 
   it("rejects readonly, unconfigured and proxied agents and explicitly marks workspace scope", async () => {
     const { app, join, mcp, run } = await start();

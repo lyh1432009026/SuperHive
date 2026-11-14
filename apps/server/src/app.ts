@@ -487,11 +487,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       list: async (roomId) => {
         const workspace = database.getRoom(roomId)?.workspace;
         if (!workspace) return { worktrees: [], autoCleanup: false };
-        const batches = worktrees.roomBatches(roomId);
+        const statuses = (await worktrees.list(workspace)).filter(
+          (item) => item.worktree.roomId === roomId,
+        );
+        const batches = worktrees.roomBatches(roomId, statuses);
         return {
-          worktrees: (await worktrees.list(workspace)).filter(
-            (item) => item.worktree.roomId === roomId,
-          ),
+          worktrees: statuses,
           autoCleanup: worktrees.autoCleanup(roomId),
           cleanupBatch: batches[0] ? { id: batches[0].id, count: batches[0].items.length } : null,
         };
@@ -2081,7 +2082,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
               batch.state === "completed"
                 ? (batch.results ?? []).filter((item) => item.removed).length
                 : batch.items.length,
-            state: batch.state === "completed" ? "completed" : "available",
+            state:
+              batch.state === "expired"
+                ? "expired"
+                : batch.state === "completed"
+                  ? "completed"
+                  : "available",
             automatic: batch.automatic,
           });
       }

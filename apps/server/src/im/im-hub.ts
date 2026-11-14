@@ -2769,6 +2769,7 @@ export class ImHub {
   }
 
   notifyWorktreeCleanup(batch: WorktreeCleanupBatch): void {
+    if (batch.state === "expired") return;
     for (const connection of this.ownerConnections(
       (item) => item.ownerName === batch.ownerName && Boolean(this.ownerOf(item)),
     )) {

@@ -21,13 +21,16 @@ export function WorktreePanel({ roomId, api }: { roomId: string; api: WorktreeAp
   const [result, setResult] = useState<string>();
   const [batch, setBatch] = useState<{ id: string; count: number } | null>();
   const heads = useRef(new Map<string, string | undefined>());
+  const refreshVersion = useRef(0);
   const refresh = useCallback(async () => {
+    const version = ++refreshVersion.current;
     try {
       const inventory = await api.worktrees(roomId);
       const next = inventory.worktrees ?? [];
+      if (version !== refreshVersion.current) return;
       setRows(next);
       setAutomatic(inventory.autoCleanup);
-      setBatch(inventory.cleanupBatch);
+      setBatch(next.some((item) => item.removable) ? inventory.cleanupBatch : null);
       const previousHeads = heads.current;
       setSelected((current) =>
         current.filter((id) =>
@@ -42,9 +45,10 @@ export function WorktreePanel({ roomId, api }: { roomId: string; api: WorktreeAp
       heads.current = new Map(next.map((item) => [item.worktree.id, item.headCommit]));
       setError(undefined);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      if (version === refreshVersion.current)
+        setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
-      setLoading(false);
+      if (version === refreshVersion.current) setLoading(false);
     }
   }, [api.worktrees, roomId]);
   useEffect(() => {
@@ -59,6 +63,7 @@ export function WorktreePanel({ roomId, api }: { roomId: string; api: WorktreeAp
     (item) => selected.includes(item.worktree.id) && item.removable && item.headCommit,
   );
   const clean = async () => {
+    refreshVersion.current++;
     setBusy(true);
     setResult(undefined);
     try {

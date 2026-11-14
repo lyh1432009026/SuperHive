@@ -175,6 +175,61 @@ describe("managed worktrees", () => {
     expect(notify.mock.calls[0]![0]).toMatchObject({ automatic: true, state: "completed" });
   });
 
+  it("expires an available cleanup notice after its checkout is removed manually", async () => {
+    const notify = vi.fn();
+    manager = new WorktreeManager({ database, activeInvocations: () => active, onCleanup: notify });
+    const { worktree } = await create();
+    await manager.scan();
+    const batch = notify.mock.calls[0]![0];
+    await manager.remove(repo, { path: worktree.path });
+    expect(manager.cleanupBatch(batch.id)?.state).toBe("expired");
+    expect(manager.roomBatches("general")).toEqual([]);
+    expect(manager.requestCleanup(batch.id, "Alice")).toBe(false);
+    expect(notify.mock.calls.at(-1)?.[0]).toMatchObject({
+      id: batch.id,
+      state: "expired",
+      items: [],
+    });
+  });
+
+  it("retains only live entries when part of a notified batch is cleaned manually", async () => {
+    const notify = vi.fn();
+    manager = new WorktreeManager({ database, activeInvocations: () => active, onCleanup: notify });
+    const first = await manager.create(repo, agent, "Alice", [], { slug: "one" });
+    const second = await manager.create(repo, agent, "Alice", [], { slug: "two" });
+    await manager.scan();
+    const batch = notify.mock.calls[0]![0];
+    await manager.remove(repo, { path: first.worktree.path });
+    expect(manager.roomBatches("general", await manager.list(repo))[0]?.items).toMatchObject([
+      { id: second.worktree.id },
+    ]);
+    expect(manager.requestCleanup(batch.id, "Alice")).toBe(true);
+    await manager.scan();
+    expect(manager.cleanupBatch(batch.id)?.results).toMatchObject([
+      { path: second.worktree.path, removed: true },
+    ]);
+    expect(manager.requestCleanup(batch.id, "Alice")).toBe(false);
+  });
+
+  it("expires stale commit notices and hides temporarily unsafe entries", async () => {
+    const notify = vi.fn();
+    manager = new WorktreeManager({ database, activeInvocations: () => active, onCleanup: notify });
+    const { worktree } = await create();
+    await manager.scan();
+    const batch = notify.mock.calls[0]![0];
+    active = [randomUUID()];
+    expect(manager.roomBatches("general", await manager.list(repo))).toEqual([]);
+    active = [];
+    expect(manager.roomBatches("general", await manager.list(repo))).toHaveLength(1);
+    await change(worktree);
+    await manager.list(repo);
+    expect(manager.cleanupBatch(batch.id)?.state).toBe("expired");
+    expect(manager.requestCleanup(batch.id, "Alice")).toBe(false);
+    await git(repo, "merge", "--ff-only", worktree.branch);
+    await manager.scan();
+    expect(manager.roomBatches("general")[0]?.id).not.toBe(batch.id);
+  });
+
   it("resolves the same repository from a linked checkout or symlink", async () => {
     const { worktree } = await create();
     const link = path.join(root, "repo-link");

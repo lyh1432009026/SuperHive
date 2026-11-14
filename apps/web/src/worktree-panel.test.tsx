@@ -37,6 +37,7 @@ const api = (canManage = true) => ({
   worktrees: vi.fn(async () => ({
     worktrees: [row("clean", true), row("dirty", false)],
     autoCleanup: false,
+    cleanupBatch: null as { id: string; count: number } | null,
   })),
   cleanupWorktrees: vi.fn(async () => ({
     results: [{ id: "clean", removed: true, branchDeleted: true }],
@@ -85,6 +86,7 @@ describe("WorktreePanel", () => {
     client.worktrees.mockResolvedValue({
       worktrees: [{ ...row("clean", true), headCommit: "c".repeat(40) }],
       autoCleanup: false,
+      cleanupBatch: null,
     });
     fireEvent.click(screen.getByText("刷新"));
     await waitFor(() =>
@@ -100,5 +102,26 @@ describe("WorktreePanel", () => {
     expect((screen.getByLabelText("选择目录 feat/clean") as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByText("选择可清理项（1）") as HTMLButtonElement).disabled).toBe(true);
     expect(client.cleanupWorktrees).not.toHaveBeenCalled();
+  });
+
+  it("removes a stale batch action after the last eligible checkout is cleaned", async () => {
+    const client = api();
+    let cleaned = false;
+    client.worktrees.mockImplementation(async () => ({
+      worktrees: cleaned ? [row("dirty", false)] : [row("clean", true), row("dirty", false)],
+      autoCleanup: false,
+      cleanupBatch: { id: "batch", count: 1 },
+    }));
+    client.cleanupWorktrees.mockImplementation(async () => {
+      cleaned = true;
+      return { results: [{ id: "clean", removed: true, branchDeleted: true }] };
+    });
+    render(<WorktreePanel roomId="general" api={client} />);
+    await screen.findByText("清理这批目录");
+    fireEvent.click(screen.getByText("选择可清理项（1）"));
+    fireEvent.click(screen.getByText("清理选中（1）"));
+    fireEvent.click(screen.getByText("确认清理"));
+    await waitFor(() => expect(screen.queryByText("清理这批目录")).toBeNull());
+    expect(client.cleanWorktreeBatch).not.toHaveBeenCalled();
   });
 });
