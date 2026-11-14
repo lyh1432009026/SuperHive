@@ -1,6 +1,6 @@
 # Managed worktrees
 
-This implementation checkpoint provides the server-side registry, MCP tools and branch claims. The web/IM cleanup workflow and automatic runtime write-root integration are not part of this checkpoint.
+Hive registers task checkouts, binds local runtime sessions to their working directories and provides owner-controlled cleanup on the web and IM. The room sidebar and primary checkout are unchanged.
 
 ## Create and reuse
 
@@ -16,9 +16,11 @@ Existing manually created directories, including the current `superhive-wt` conv
 
 ## Runtime permissions
 
-Creation does **not** switch an agent's cwd or move its old runtime session. Full-access agents can explicitly execute commands in the returned directory. A workspace-access agent receives `requiresWorkspaceApproval: true`: creating a checkout on its behalf does not grant the running model write access outside its sandbox. It must obtain a local-owner directory approval or be started with that checkout as its workspace before writing. The CLI's existing `--allow-root` controls following room workspaces, not a blanket write grant to every sibling checkout.
+For a server-managed local Bridge, creation selects the checkout but does not move an executing session. The tool returns `runtimeHandoff`: finish the setup turn without editing files. Once the runtime has returned normally, the Bridge closes it and continues the remaining task in a new responder and session with the exact checkout as cwd. It refreshes instructions and attachment publication boundaries, retains the configured access level and supplies full room context plus the setup summary. The original session is never resumed under another cwd. A turn with other possible side effects is not continued automatically; the owner must inspect the original checkout before retrying.
 
-Automatic safe runtime/root integration and its real-Codex workspace-write test remain a separate implementation stage. Do not present this checkpoint as automatic sandbox integration.
+Workspace mode does not grant the entire `-wt` parent or another agent's checkout. Codex uses workspace-write at the new cwd; Claude/ACP use their existing workspace access controls at that cwd. Full mode remains full mode, not an OS sandbox. Existing `--allow-root` still controls room following, not a blanket write grant. Upgrade and restart the managed Agent once to load this Bridge version; later handoffs replace only the provider runtime, not the Bridge. Workspace-mode creation is refused until the new Bridge has verified support. Legacy full-access and manually managed Bridges must explicitly use the returned checkout, as stated in their tool response.
+
+An invocation's explicit checkout binding survives changes to room/agent focus, so retrying an older task does not use a newer task's checkout. Unbound follow-up messages use the current focus; Hive does not infer task lines from natural language. Start a different line by calling create with a new slug. To avoid combining lines accidentally, managed writable Bridges process separate messages individually and queue steering. Switching between checkout directories discards the old thread; returning to a saved thread is allowed only when its recorded workspace matches.
 
 ## Inventory and cleanup
 
@@ -36,7 +38,17 @@ Bound running, queued, cancelling, waiting-human and unresolved timed-out invoca
 
 Branch deletion defaults to `git branch -d`. Squash/cherry-pick equivalence can justify removing the checkout while Git still refuses `-d`; in that case the tool reports `removed: true`, `branchDeleted: false` and `branchError`. The branch is retained. `deleteBranch: false` also retains it. No force option is provided.
 
-The owner should approve cleanup after merge, not after every reply. Batch reminders, a selection/cleanup interface and IM buttons remain to be implemented; there is no background deletion in this checkpoint.
+Every 30 seconds, the server checks registered checkouts and batches newly eligible ones by room and owner. Notifications are persisted once per checkout/branch tip, not sent after every reply. The web room settings show the branch, agent, path and safety states; select eligible entries, review the paths and confirm removal. A changed branch tip invalidates the selection. Local owner tokens or approved owner-device management grants are required for mutations; the shared Agent join token is insufficient.
+
+The room's cleanup banner and Feishu card can request cleanup of the displayed batch. IM callbacks only enqueue the request, returning promptly; the server rechecks each recorded commit and checkout and sends a separate result. Personal WeChat has no buttons: send the batch-specific `/worktree clean <batch-id>` command from the linked owner account, or use the web. Old or changed batches never authorize a newer branch tip. Ignored files, including `.env` and `node_modules`, remain protected and must be handled separately; there is no force-delete or blanket dependency deletion.
+
+Automatic cleanup is optional and off by default. Enabling it requires explicit owner/device confirmation; only checkouts passing the same checks are removed. Disabling it prevents subsequent batch items, but cannot undo a Git removal already issued. Queued batches survive a server restart. Review/merge remains the reviewer's responsibility; cleanup does not merge or publish changes.
+
+## Verification helpers
+
+`pnpm --filter superhive exec tsx ../../scripts/worktree-runtime.smoke.ts` creates an isolated temporary repository and registered checkout, runs a real Codex workspace Agent inside it, commits/merges the proof, waits for an owner notification and requests batch cleanup. The default separates deterministic checkout setup from the live model write test. `--create-with-model` additionally asks the live model to call the creation tool and exercise setup-turn handoff. Model/network failures are reported, never counted as passed checks. No in-use Agent or user repository is modified.
+
+`pnpm --filter superhive exec tsx ../../scripts/worktree-ui.smoke.ts` serves a disposable production-build UI with eligible, unmerged and dirty checkouts. Stop it with SIGINT/SIGTERM to remove the fixture. Unit/integration tests cover setup handoff, stale workspace/session rejection, other-side-effect refusal, real Git safety checks, owner-only APIs, once-only notifications and IM fallbacks.
 
 ## Claims
 

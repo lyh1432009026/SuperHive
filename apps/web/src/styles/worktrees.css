@@ -1,0 +1,138 @@
+.worktree-panel {
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.worktree-panel-heading,
+.worktree-toolbar,
+.worktree-batch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.worktree-panel-heading h3 {
+  margin: 0 0 5px;
+  font-size: 15px;
+}
+
+.worktree-panel p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.worktree-row {
+  display: flex;
+  gap: 12px;
+  padding: 16px 12px;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  align-items: flex-start;
+}
+
+.worktree-row.eligible {
+  border-left-color: var(--accent);
+}
+
+.worktree-row input,
+.worktree-auto input,
+.worktree-confirmation input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.worktree-identity {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.worktree-identity strong {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.worktree-identity small,
+.worktree-auto small {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.worktree-path,
+.worktree-confirmation > code {
+  display: block;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.worktree-statuses {
+  display: flex;
+  gap: 6px 14px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.worktree-statuses .passed {
+  color: var(--accent);
+}
+
+.worktree-toolbar {
+  justify-content: flex-start;
+}
+
+.worktree-panel button,
+.worktree-batch button {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.worktree-panel button:disabled,
+.worktree-batch button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.worktree-confirmation,
+.worktree-batch {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.worktree-confirmation {
+  display: grid;
+  gap: 9px;
+}
+
+.worktree-confirmation label,
+.worktree-auto {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 12px;
+}
+
+.worktree-auto span {
+  display: grid;
+  gap: 5px;
+}
+
+.worktree-result {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -11,6 +11,7 @@ import type {
   LocalDirectoryListing,
   LocalProviderInfo,
   LocalSessionResponse,
+  WorktreeStatus,
 } from "@superhive/protocol";
 import { localized, t } from "./i18n";
 import { McpChecklist } from "./agent-settings-dialog";
@@ -26,6 +27,25 @@ import { McpChecklist } from "./agent-settings-dialog";
 type AgentAction = "start" | "stop" | "restart";
 
 export type LocalAgentsState = {
+  worktrees(roomId: string): Promise<{
+    worktrees: WorktreeStatus[];
+    autoCleanup: boolean;
+    cleanupBatch?: { id: string; count: number } | null;
+  }>;
+  cleanupWorktrees(
+    roomId: string,
+    input: { items: Array<{ id: string; headCommit: string }>; deleteBranch: boolean },
+  ): Promise<{
+    results: Array<{
+      id: string;
+      removed: boolean;
+      branchDeleted?: boolean;
+      branchError?: string;
+      error?: string;
+    }>;
+  }>;
+  configureWorktreeCleanup(roomId: string, autoCleanup: boolean): Promise<void>;
+  cleanWorktreeBatch(roomId: string, batchId: string): Promise<void>;
   /** undefined：还在确认；false：不是本机或房主设备，或服务端已关闭 */
   enabled: boolean | undefined;
   reason?: string | undefined;
@@ -218,6 +238,45 @@ export function useLocalAgents(
       return response;
     },
     [base, mode, loadSession],
+  );
+
+  const worktrees = useCallback(
+    async (roomId: string) => {
+      const response = await request(`/api/local/worktrees/${encodeURIComponent(roomId)}`);
+      return response.json();
+    },
+    [request],
+  );
+  const cleanupWorktrees = useCallback(
+    async (
+      roomId: string,
+      input: { items: Array<{ id: string; headCommit: string }>; deleteBranch: boolean },
+    ) => {
+      const response = await request(`/api/local/worktrees/${encodeURIComponent(roomId)}/cleanup`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+      return response.json();
+    },
+    [request],
+  );
+  const configureWorktreeCleanup = useCallback(
+    async (roomId: string, autoCleanup: boolean) => {
+      await request(`/api/local/worktrees/${encodeURIComponent(roomId)}/settings`, {
+        method: "PUT",
+        body: JSON.stringify({ autoCleanup }),
+      });
+    },
+    [request],
+  );
+  const cleanWorktreeBatch = useCallback(
+    async (roomId: string, batchId: string) => {
+      await request(
+        `/api/local/worktrees/${encodeURIComponent(roomId)}/batches/${encodeURIComponent(batchId)}`,
+        { method: "POST" },
+      );
+    },
+    [request],
   );
 
   const [waitingApproval, setWaitingApproval] = useState<HostApproval>();
@@ -532,6 +591,10 @@ export function useLocalAgents(
   const canManage = mode === "local" || Boolean(manageUntil && Date.parse(manageUntil) > now);
 
   return {
+    worktrees,
+    cleanupWorktrees,
+    configureWorktreeCleanup,
+    cleanWorktreeBatch,
     enabled,
     reason: session && !session.enabled ? session.reason : undefined,
     mode,

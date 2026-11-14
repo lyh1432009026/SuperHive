@@ -13,6 +13,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
+import { WorktreePanel } from "./worktree-panel";
 import type {
   ChatMessage,
   Invocation,
@@ -1454,6 +1455,9 @@ export function App({
   const [roomWorkspacePicking, setRoomWorkspacePicking] = useState(false);
   const [roomDialogError, setRoomDialogError] = useState<string>();
   const [roomDialogBusy, setRoomDialogBusy] = useState(false);
+  const [worktreeNotices, setWorktreeNotices] = useState<
+    Map<string, { batchId: string; count: number }>
+  >(new Map());
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -1597,6 +1601,25 @@ export function App({
   }
   // Hive Server 就在这台电脑上时，可以直接在网页上拉起 Agent
   const local = useLocalAgents(base, agentDialogOpen, authToken);
+  useEffect(() => {
+    if (!isOwner || !local.enabled) return;
+    let cancelled = false;
+    void local
+      .worktrees(currentRoomId)
+      .then((inventory) => {
+        if (cancelled || !inventory.cleanupBatch) return;
+        setWorktreeNotices((current) =>
+          new Map(current).set(currentRoomId, {
+            batchId: inventory.cleanupBatch!.id,
+            count: inventory.cleanupBatch!.count,
+          }),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [currentRoomId, isOwner, local.enabled, local.worktrees]);
   const localAgentNames = useMemo(
     () => new Set(local.agents.map((agent) => agent.name.toLocaleLowerCase())),
     [local.agents],
@@ -2458,6 +2481,14 @@ export function App({
               );
             }
           }
+        } else if (event.type === "worktree.cleanup") {
+          setWorktreeNotices((current) => {
+            const next = new Map(current);
+            if (event.state === "available")
+              next.set(event.roomId, { batchId: event.batchId, count: event.count });
+            else next.delete(event.roomId);
+            return next;
+          });
         } else if (event.type === "invocation.updated") {
           attentionRef.current?.observe(event.invocation);
           globalEventsRef.current.onInvocation(event.invocation);
@@ -4354,8 +4385,40 @@ export function App({
               </button>
             </div>
           </header>
-          {(error || showNotificationPrompt || pausedInvocations.length > 0) && (
+          {(error ||
+            showNotificationPrompt ||
+            pausedInvocations.length > 0 ||
+            worktreeNotices.has(currentRoomId)) && (
             <div className="chat-notices">
+              {isOwner && local.enabled && worktreeNotices.has(currentRoomId) && (
+                <div className="notification-prompt worktree-batch" role="status">
+                  <span>
+                    {t("{0} 个 worktree 已合入，可清理。", {
+                      0: worktreeNotices.get(currentRoomId)!.count,
+                    })}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={!local.canManage}
+                    onClick={async () => {
+                      const notice = worktreeNotices.get(currentRoomId)!;
+                      try {
+                        await local.cleanWorktreeBatch(currentRoomId, notice.batchId);
+                        setWorktreeNotices((current) => {
+                          const next = new Map(current);
+                          next.delete(currentRoomId);
+                          return next;
+                        });
+                        setGotoNotice(t("已提交批量清理请求，完成后通知。"));
+                      } catch (reason) {
+                        setError(reason instanceof Error ? reason.message : String(reason));
+                      }
+                    }}
+                  >
+                    {t("清理这批目录")}
+                  </button>
+                </div>
+              )}
               {error && (
                 <div className="error-banner" role="alert">
                   <span>{error}</span>
@@ -7062,6 +7125,12 @@ export function App({
                   onClose={() => setRoomWorkspacePicking(false)}
                 />
               )}
+              {isOwner &&
+                local.enabled &&
+                roomDialog.mode === "manage" &&
+                roomDialog.room.workspace && (
+                  <WorktreePanel key={roomDialog.room.id} roomId={roomDialog.room.id} api={local} />
+                )}
               {roomDialogError && (
                 <p className="room-dialog-error" role="alert">
                   {roomDialogError}
