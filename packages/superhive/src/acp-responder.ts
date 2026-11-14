@@ -202,8 +202,11 @@ type AgentProcess = {
   pending: Map<number, PendingRequest>;
   /** 本进程已创建或恢复过的会话 */
   loadedSessions: Set<string>;
-  /** 会话能切的模型（session/new、load、resume 返回的 configOptions 里 id 为 model 的那项） */
-  sessionModels: Map<string, { current?: string; options: string[] }>;
+  /**
+   * 会话能切的模型（session/new、load、resume 返回的 configOptions 里 id 为 model 的那项）：
+   * initial 是会话打开时的模型，没指定模型的回合切回它，「换个模型重试」才只管这一次
+   */
+  sessionModels: Map<string, { initial?: string; current?: string; options: string[] }>;
   capabilities: any;
   steering: boolean;
   ready: Promise<void>;
@@ -273,7 +276,7 @@ export class AcpResponder implements AgentResponder {
       session = await this.openSession(agent, input.threadId, Boolean(input.refreshInstructions));
       input.onSession?.(session.sessionId);
       this.throwIfAborted(input.signal);
-      if (input.model) await this.useModel(agent, session.sessionId, input.model);
+      await this.useModel(agent, session.sessionId, input.model);
       this.throwIfAborted(input.signal);
     } catch (error) {
       if (this.active === placeholder) this.active = undefined;
@@ -438,19 +441,38 @@ export class AcpResponder implements AgentResponder {
    * 按轮切模型：ACP 的会话在 configOptions 里列出能选的模型（opencode、omp 都有），
    * 用 session/set_config_option 切换当前会话。没列出、或不在候选里的就不切，照原模型跑。
    */
-  private async useModel(agent: AgentProcess, sessionId: string, model: string): Promise<void> {
+  private async useModel(
+    agent: AgentProcess,
+    sessionId: string,
+    requested: string | undefined,
+  ): Promise<void> {
     const known = agent.sessionModels.get(sessionId);
-    if (!known || known.current === model) return;
+    const model = requested ?? known?.initial;
+    if (!known || !model || known.current === model) return;
     if (!known.options.includes(model)) {
-      this.log(`[hive] ${this.options.label} 的会话里没有模型 ${model}，照原模型继续。`);
+      // 人指定的模型这个运行时没有：明说，别悄悄用原模型跑
+      if (requested) {
+        throw new AgentUpstreamError(
+          `${this.options.label} 没有模型 ${model}（可选：${known.options.slice(0, 8).join("、")}）`,
+          sessionId,
+          "model",
+        );
+      }
       return;
     }
-    await this.request(
-      agent,
-      "session/set_config_option",
-      { sessionId, configId: "model", value: model },
-      true,
-    );
+    try {
+      await this.request(
+        agent,
+        "session/set_config_option",
+        { sessionId, configId: "model", value: model },
+        true,
+      );
+    } catch (error) {
+      if (requested) throw error;
+      // 只是切回会话原来的模型：切不回去不影响这一轮，记一笔照常跑
+      this.log(`[hive] ${this.options.label} 切回模型 ${model} 失败：${(error as Error).message}`);
+      return;
+    }
     agent.sessionModels.set(sessionId, { ...known, current: model });
   }
 
@@ -465,8 +487,11 @@ export class AcpResponder implements AgentResponder {
           .map((option: any) => option?.value)
           .filter((value: unknown): value is string => typeof value === "string")
       : [];
+    const current = typeof model.currentValue === "string" ? model.currentValue : undefined;
+    const initial = agent.sessionModels.get(sessionId)?.initial ?? current;
     agent.sessionModels.set(sessionId, {
-      ...(typeof model.currentValue === "string" ? { current: model.currentValue } : {}),
+      ...(initial ? { initial } : {}),
+      ...(current ? { current } : {}),
       options: values,
     });
   }

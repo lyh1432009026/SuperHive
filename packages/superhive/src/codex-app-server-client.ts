@@ -498,8 +498,9 @@ export class CodexAppServerResponder implements AgentResponder {
       };
 
       const params: Record<string, unknown> = { threadId, input: textInput(input.prompt) };
-      // turn/start 能按轮指定模型：Agent 设置里改的、「换个模型重试」选的都在这里生效
-      const model = input.model ?? this.options.model;
+      // turn/start 能按轮指定模型：Agent 设置里改的、「换个模型重试」选的都在这里生效。
+      // 指定后会一直沿用到这个会话的后续回合，所以没指定时显式传回会话原来的模型，「换个模型重试」才只管这一次
+      const model = input.model ?? this.options.model ?? this.threadModels.get(threadId);
       if (model) params.model = model;
       if (model) turn.usage.setModel(model);
       const onResult = (result: any) => {

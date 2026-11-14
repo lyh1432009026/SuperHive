@@ -894,7 +894,23 @@ describe("CodexAppServerResponder", () => {
     ]);
   });
 
-  it("reports a retired model as a model failure the bridge can switch away from", async () => {
+  it("goes back to the thread's own model after a one-off model", async () => {
+    const { responder, servers } = setup(
+      defaultHandlers({
+        "thread/start": ok({ thread: { id: "thread-new" }, model: "gpt-6-astra" }),
+      }),
+    );
+    await responder.reply({ instructions: "r", prompt: "a", model: "gpt-picked" });
+    await responder.reply({ instructions: "r", prompt: "b", threadId: "thread-new" });
+    const turns = servers[0]!.sent.filter((message: any) => message.method === "turn/start");
+    // turn/start 指定的模型会沿用到后续回合：没指定时要显式传回原来的
+    expect(turns.map((message: any) => message.params.model)).toEqual([
+      "gpt-picked",
+      "gpt-6-astra",
+    ]);
+  });
+
+  it("reports a retired model as a model failure a person can switch away from", async () => {
     const { responder } = setup(
       defaultHandlers({
         "turn/start": (message, server) => {

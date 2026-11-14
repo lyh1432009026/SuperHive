@@ -1,7 +1,7 @@
 import type { TraceStep } from "./hive-protocol.js";
 import { describe, expect, it, vi } from "vitest";
 import { AcpResponder, decideAcpPermission, type AcpResponderOptions } from "./acp-responder.js";
-import { AgentCancelledError, AgentSessionInvalidError } from "./responder.js";
+import { AgentCancelledError, AgentSessionInvalidError, AgentUpstreamError } from "./responder.js";
 import type { StdioExit, StdioTransport } from "./stdio-transport.js";
 
 const hive = {
@@ -60,6 +60,9 @@ class FakeAgent implements StdioTransport {
   }
   request(method: string) {
     return this.sent.find((message) => message.method === method);
+  }
+  requests(method: string) {
+    return this.sent.filter((message) => message.method === method);
   }
   responseTo(id: unknown) {
     return this.sent.find((message) => message.id === id && !message.method);
@@ -352,7 +355,7 @@ describe("AcpResponder", () => {
         ],
       },
     ];
-    const { responder, agents, log } = setup(
+    const { responder, agents } = setup(
       defaultHandlers({
         "session/new": ok({ sessionId: "ses-new", configOptions }),
         "session/set_config_option": ok({ configOptions }),
@@ -370,23 +373,28 @@ describe("AcpResponder", () => {
       configId: "model",
       value: "openai/backup",
     });
-    // 已经是这个模型：不再切；不在候选里的：照原模型跑并记一笔
+    // 已经是这个模型：不再切
     await responder.reply({
       instructions: "rules",
       prompt: "a",
       threadId: "ses-new",
       model: "openai/backup",
     });
-    await responder.reply({
+    const switches = () =>
+      agents[0]!.requests("session/set_config_option").map((message: any) => message.params.value);
+    expect(switches()).toEqual(["openai/backup"]);
+    // 没指定模型的回合切回会话原来的模型：「换个模型重试」只管那一次
+    await responder.reply({ instructions: "rules", prompt: "b", threadId: "ses-new" });
+    expect(switches()).toEqual(["openai/backup", "anthropic/main"]);
+    // 人指定了运行时没有的模型：明说，不悄悄用原模型跑
+    const failure = responder.reply({
       instructions: "rules",
-      prompt: "b",
+      prompt: "c",
       threadId: "ses-new",
       model: "nope/x",
     });
-    expect(
-      agents[0]!.methods().filter((method: string) => method === "session/set_config_option"),
-    ).toHaveLength(1);
-    expect(log).toHaveBeenCalledWith(expect.stringContaining("没有模型 nope/x"));
+    await expect(failure).rejects.toThrow("没有模型 nope/x");
+    expect(((await failure.catch((error) => error)) as AgentUpstreamError).kind).toBe("model");
   });
 
   it("answers permission requests according to the access mode", async () => {
