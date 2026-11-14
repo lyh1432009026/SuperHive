@@ -370,6 +370,22 @@ export const serverTexts = {
       other: "Still failing after {count} automatic retries",
     },
   },
+  "bridge.sessionRetrying": {
+    zh: "会话已失效（{reason}），已开新会话重试",
+    en: "The session stopped working ({reason}). Retrying in a new session",
+  },
+  "bridge.sessionInvalid": {
+    zh: "会话已失效：{reason}。{why}；点「重试」会开新会话。",
+    en: "The session stopped working: {reason}. {why}. Retry starts a new session.",
+  },
+  "bridge.sessionExecuted": {
+    zh: "这一轮已经开始执行工具，不自动重跑",
+    en: "This turn had already started running tools, so it wasn't rerun automatically",
+  },
+  "bridge.sessionRetried": {
+    zh: "开了新会话还是失败",
+    en: "It still failed in a new session",
+  },
 
   /* ---------- 操作名（嵌进错误提示里） ---------- */
   "action.createRoom": { zh: "新建房间", en: "create rooms" },

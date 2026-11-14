@@ -15,6 +15,7 @@ import {
   AgentCancelledError,
   AgentExecutionUncertainError,
   AgentNonRetryableError,
+  AgentSessionInvalidError,
   AgentUpstreamError,
 } from "./responder.js";
 
@@ -420,7 +421,7 @@ describe("CodexAppServerResponder", () => {
     });
   });
 
-  it("starts a new thread when resume fails", async () => {
+  it("starts a new thread when resume fails and the prompt carries the full context", async () => {
     const { responder, servers, log } = setup(
       defaultHandlers({
         "thread/resume": (message, server) =>
@@ -432,7 +433,12 @@ describe("CodexAppServerResponder", () => {
     );
 
     await expect(
-      responder.reply({ instructions: "r", prompt: "a", threadId: "thread-old" }),
+      responder.reply({
+        instructions: "r",
+        prompt: "a",
+        threadId: "thread-old",
+        refreshInstructions: true,
+      }),
     ).resolves.toEqual({ text: "done", threadId: "thread-new" });
     expect(servers[0]!.methods()).toEqual([
       "initialize",
@@ -441,7 +447,28 @@ describe("CodexAppServerResponder", () => {
       "thread/start",
       "turn/start",
     ]);
-    expect(log).toHaveBeenCalledWith(expect.stringContaining("明确报告旧会话不存在"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("旧会话恢复不了"));
+  });
+
+  it("hands a failed resume back to the bridge when the prompt only has new messages", async () => {
+    const { responder, servers } = setup(
+      defaultHandlers({
+        "thread/resume": (message, server) =>
+          server.emit({
+            id: message.id,
+            error: { code: -32603, message: "failed to load rollout: unexpected end of file" },
+          }),
+      }),
+    );
+    const failure = responder.reply({ instructions: "r", prompt: "a", threadId: "thread-old" });
+    await expect(failure).rejects.toBeInstanceOf(AgentSessionInvalidError);
+    await expect(failure).rejects.toThrow("failed to load rollout");
+    expect(((await failure.catch((error) => error)) as AgentSessionInvalidError).executed).toBe(
+      false,
+    );
+    // 没开新会话、也没发执行请求：新会话要等 Bridge 带上完整上下文再开
+    expect(servers[0]!.methods()).toEqual(["initialize", "initialized", "thread/resume"]);
+    expect((responder as any).active).toBeUndefined();
   });
 
   it("prefers the last final_answer over later commentary", async () => {
@@ -802,6 +829,58 @@ describe("CodexAppServerResponder", () => {
     expect(server.responseTo(203)?.result).toMatchObject({ action: "decline" });
     complete();
     await reply;
+  });
+
+  const encryptedFailure = (items: unknown[] = []) =>
+    defaultHandlers({
+      "turn/start": (message, server) => {
+        const threadId = message.params.threadId;
+        server.emit({ id: message.id, result: { turn: { id: "t" } } });
+        for (const item of items) {
+          server.emit({ method: "item/started", params: { threadId, turnId: "t", item } });
+        }
+        server.emit({
+          method: "turn/completed",
+          params: {
+            threadId,
+            turn: {
+              id: "t",
+              status: "failed",
+              error: {
+                message: JSON.stringify({
+                  error: {
+                    code: "invalid_encrypted_content",
+                    message:
+                      "The encrypted content for item rs_1 could not be verified. Reason: Encrypted content could not be decrypted or parsed.",
+                  },
+                }),
+              },
+            },
+          },
+        });
+      },
+    });
+
+  it("reports invalid_encrypted_content as a broken session that ran nothing", async () => {
+    const { responder } = setup(encryptedFailure([{ type: "reasoning" }]));
+    const failure = responder.reply({ instructions: "r", prompt: "p", threadId: "thread-old" });
+    await expect(failure).rejects.toBeInstanceOf(AgentSessionInvalidError);
+    await expect(failure).rejects.toThrow("invalid_encrypted_content");
+    expect(((await failure.catch((error) => error)) as AgentSessionInvalidError).executed).toBe(
+      false,
+    );
+    expect((responder as any).active).toBeUndefined();
+  });
+
+  it("marks a broken session as executed once a tool item started", async () => {
+    const { responder } = setup(
+      encryptedFailure([{ type: "reasoning" }, { type: "commandExecution", command: "ls" }]),
+    );
+    const failure = responder.reply({ instructions: "r", prompt: "p", threadId: "thread-old" });
+    await expect(failure).rejects.toBeInstanceOf(AgentSessionInvalidError);
+    expect(((await failure.catch((error) => error)) as AgentSessionInvalidError).executed).toBe(
+      true,
+    );
   });
 
   it("reports progress for started items", async () => {

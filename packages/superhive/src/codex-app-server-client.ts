@@ -14,6 +14,8 @@ import {
   AgentCancelledError,
   AgentExecutionUncertainError,
   AgentUpstreamError,
+  AgentSessionInvalidError,
+  isSessionInvalid,
   isUpstreamFailure,
   AgentNonRetryableError,
   type AgentAccessMode,
@@ -64,6 +66,14 @@ export type CodexAppServerResponderDependencies = {
 };
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
+/** 这几种条目不算「执行了工具」；没见过的类型一律按工具算（宁可不自动重跑） */
+const NON_TOOL_ITEMS = new Set([
+  "userMessage",
+  "agentMessage",
+  "reasoning",
+  "plan",
+  "contextCompaction",
+]);
 const DEFAULT_INTERRUPT_GRACE_MS = 10_000;
 
 function packageVersion(): string {
@@ -235,6 +245,8 @@ type ActiveTurn = {
   session?: Session;
   threadId: string;
   turnId?: string;
+  /** 这一轮已经开始执行工具（命令、改文件、MCP 调用……）：会话坏了也不能自动重跑 */
+  toolStarted?: boolean;
   signal?: AbortSignal | undefined;
   onProgress?: ((progress: string) => void) | undefined;
   onTrace?: ((step: TraceStep) => void) | undefined;
@@ -423,7 +435,9 @@ export class CodexAppServerResponder implements AgentResponder {
       this.throwIfAborted(input.signal);
     } catch (error) {
       if (this.active === placeholder) this.active = undefined;
-      if (error instanceof AgentCancelledError) throw error;
+      if (error instanceof AgentCancelledError || error instanceof AgentSessionInvalidError) {
+        throw error;
+      }
       throw codexStartupFailure("app-server 会话准备", error);
     }
 
@@ -598,8 +612,18 @@ export class CodexAppServerResponder implements AgentResponder {
         if (typeof result?.model === "string") this.threadModels.set(threadId, result.model);
         return threadId;
       } catch (error) {
-        if (!(error instanceof AppServerRpcError) || !isMissingCodexThread(error)) throw error;
-        this.log("[hive] Codex 明确报告旧会话不存在，在发送执行请求前创建新会话。");
+        // 旧会话不存在、或恢复时文件坏了：还没发执行请求，直接开新会话
+        if (
+          !(error instanceof AppServerRpcError) ||
+          !(isMissingCodexThread(error) || isSessionInvalid(error.message))
+        ) {
+          throw error;
+        }
+        // 这一轮的提示只带了新消息（续接旧会话用的）：新会话看不到房间上下文，交给 Bridge 带完整上下文重来
+        if (!input.refreshInstructions) {
+          throw new AgentSessionInvalidError(redactTrace(truncate(error.message, 240)));
+        }
+        this.log("[hive] Codex 旧会话恢复不了，在发送执行请求前创建新会话。");
       }
     }
 
@@ -826,6 +850,7 @@ export class CodexAppServerResponder implements AgentResponder {
       case "item/started": {
         const turn = this.matchesActive(params);
         const reasoning = params.item?.type === "reasoning" && typeof params.item.id === "string";
+        if (turn && !NON_TOOL_ITEMS.has(params.item?.type)) turn.toolStarted = true;
         if (turn?.onTrace && reasoning) turn.thinking.start(params.item.id);
         const step =
           turn?.onTrace && !reasoning
@@ -962,11 +987,22 @@ export class CodexAppServerResponder implements AgentResponder {
     }
     if (status === "failed" && result?.error) {
       const detail = JSON.stringify(result.error);
+      const message =
+        typeof result.error.message === "string" && result.error.message.trim()
+          ? result.error.message
+          : detail;
+      // 会话坏了（解不开旧会话里加密的推理内容、找不到之前的 response）：开新会话就好
+      if (isSessionInvalid(detail)) {
+        this.finishTurn(
+          turn,
+          new AgentSessionInvalidError(
+            redactTrace(truncate(message, 240)),
+            Boolean(turn.toolStarted),
+          ),
+        );
+        return;
+      }
       if (isUpstreamFailure(detail)) {
-        const message =
-          typeof result.error.message === "string" && result.error.message.trim()
-            ? result.error.message
-            : detail;
         this.finishTurn(
           turn,
           new AgentUpstreamError(redactTrace(truncate(message, 240)), turn.threadId),

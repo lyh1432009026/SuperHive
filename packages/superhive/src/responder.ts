@@ -114,6 +114,28 @@ export function isUpstreamFailure(text: string): boolean {
   );
 }
 
+/**
+ * 会话本身坏了，续不下去：Codex 解不开旧会话里加密的推理内容（换过网关、key、组织后常见）、
+ * 找不到之前的 response / thread、恢复会话的文件损坏。换个新会话就好，跟任务本身无关。
+ * executed：这一轮在出错前是否已经开始执行工具（执行过就不能自动重跑，交给人决定）。
+ */
+export class AgentSessionInvalidError extends Error {
+  constructor(
+    readonly reason: string,
+    readonly executed = false,
+  ) {
+    super(`会话已失效：${reason}`);
+    this.name = "AgentSessionInvalidError";
+  }
+}
+
+/** 运行时报的错误是不是「会话坏了」：只认明确的写法 */
+export function isSessionInvalid(text: string): boolean {
+  return /invalid_encrypted_content|encrypted content[^.]*could not be (?:verified|decrypted)|previous_response_not_found|previous response[^.]*not found|no (?:conversation|rollout) found|(?:thread|session|conversation|rollout)[^.]{0,40}(?:not found|does not exist|could not be (?:found|loaded|parsed))|failed to (?:load|parse|read) (?:rollout|session|thread)|corrupt(?:ed)? (?:rollout|session)/i.test(
+    text,
+  );
+}
+
 export class AgentExecutionUncertainError extends Error {
   constructor(message: string) {
     super(message);

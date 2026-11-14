@@ -13,7 +13,13 @@ const integer = (value: unknown, min: number, max: number): number | undefined =
     ? value
     : undefined;
 
-export type ClaudeResult = { is_error?: boolean; result?: string; session_id?: string };
+export type ClaudeResult = {
+  is_error?: boolean;
+  result?: string;
+  session_id?: string;
+  /** 出错时 Claude Code 给的原因（如恢复会话失败「No conversation found with session ID」） */
+  errors?: string[];
+};
 
 function toolCategory(name: unknown): NonNullable<RuntimeEvent["tool"]> {
   if (name === "Read") return "read";
@@ -184,9 +190,13 @@ export class ClaudeStream {
     this.failed = false;
   }
 
+  /** 这一轮已经开始调用工具：会话坏了也不能自动重跑 */
+  toolStarted = false;
+
   private block(value: unknown): void {
     const block = object(value);
     if (block?.type === "tool_use") {
+      this.toolStarted = true;
       const tool = toolCategory(block.name);
       if (typeof block.id === "string" && this.tools.size < 1024) this.tools.set(block.id, tool);
       this.emit({ kind: "activity", phase: "tool_running", tool });
@@ -213,6 +223,13 @@ export class ClaudeStream {
         ...(typeof event.result === "string" ? { result: event.result } : {}),
         ...(typeof event.session_id === "string" ? { session_id: event.session_id } : {}),
         is_error: event.is_error === true,
+        ...(Array.isArray(event.errors)
+          ? {
+              errors: event.errors
+                .filter((item): item is string => typeof item === "string")
+                .slice(0, 5),
+            }
+          : {}),
       };
       this.accountResult(event);
       this.results.push(this.result);

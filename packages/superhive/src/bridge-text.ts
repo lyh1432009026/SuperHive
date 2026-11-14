@@ -33,6 +33,10 @@ export const BRIDGE_TEXTS = {
     "上游模型服务出错：{reason}。{why}；点「继续」会接着原会话从中断处往下做。",
   "bridge.upstreamMutated": "这一轮已经做过改动，不自动重跑",
   "bridge.upstreamExhausted": "已自动继续 {count} 次仍未成功",
+  "bridge.sessionRetrying": "会话已失效（{reason}），已开新会话重试",
+  "bridge.sessionInvalid": "会话已失效：{reason}。{why}；点「重试」会开新会话。",
+  "bridge.sessionExecuted": "这一轮已经开始执行工具，不自动重跑",
+  "bridge.sessionRetried": "开了新会话还是失败",
 } as const;
 
 export type BridgeTextKey = keyof typeof BRIDGE_TEXTS;
@@ -54,6 +58,11 @@ export function bridgeText(
   params?: Record<string, string | number | BridgeText>,
 ): BridgeText {
   return params ? { key, params } : { key };
+}
+
+/** 中文正文（日志、进度一行） */
+export function bridgeTextZh(text: BridgeText): string {
+  return render(text);
 }
 
 /** 上报用：detail 是中文（截到 limit），detailText 是结构化文案 */

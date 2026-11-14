@@ -5,6 +5,8 @@ import type { TraceStep } from "./hive-protocol.js";
 import { ThinkingTrace } from "./trace.js";
 import {
   AgentCancelledError,
+  AgentSessionInvalidError,
+  isSessionInvalid,
   type AgentAccessMode,
   type AgentReply,
   type AgentReplyInput,
@@ -263,7 +265,7 @@ export class AcpResponder implements AgentResponder {
     try {
       agent = await this.ensureAgent();
       this.throwIfAborted(input.signal);
-      session = await this.openSession(agent, input.threadId);
+      session = await this.openSession(agent, input.threadId, Boolean(input.refreshInstructions));
       input.onSession?.(session.sessionId);
       this.throwIfAborted(input.signal);
     } catch (error) {
@@ -316,7 +318,11 @@ export class AcpResponder implements AgentResponder {
         false,
       ).then(
         (result) => this.completeTurn(turn, result),
-        (error: Error) => this.finishTurn(turn, turn.cancelled ? new AgentCancelledError() : error),
+        (error: Error) =>
+          this.finishTurn(
+            turn,
+            turn.cancelled ? new AgentCancelledError() : this.classifyPromptError(turn, error),
+          ),
       );
     });
   }
@@ -410,9 +416,18 @@ export class AcpResponder implements AgentResponder {
     this.finishTurn(turn, { text, threadId: turn.sessionId! });
   }
 
+  /** session/prompt 被拒：会话坏了单独归类，Bridge 据此开新会话 */
+  private classifyPromptError(turn: ActiveTurn, error: Error): Error {
+    const text = error.message;
+    if (isSessionInvalid(text))
+      return new AgentSessionInvalidError(text.slice(0, 240), turn.toolTitles.size > 0);
+    return error;
+  }
+
   private async openSession(
     agent: AgentProcess,
     threadId: string | undefined,
+    fullPrompt = true,
   ): Promise<{ sessionId: string; fresh: boolean }> {
     const params = { cwd: this.options.cwd, mcpServers: [acpHiveMcpServer(this.options.hive)] };
     if (threadId) {
@@ -430,6 +445,8 @@ export class AcpResponder implements AgentResponder {
           return { sessionId: threadId, fresh: false };
         } catch (error) {
           if (!(error instanceof AcpRpcError)) throw error;
+          // 这一轮的提示只带了新消息（续接旧会话用的）：新会话看不到房间上下文，交给 Bridge 带完整上下文重来
+          if (!fullPrompt) throw new AgentSessionInvalidError(error.message.slice(0, 240));
           this.log(
             `[hive] ${this.options.label} 旧会话 ${threadId} 已失效（${error.message}），自动创建新会话继续处理。`,
           );

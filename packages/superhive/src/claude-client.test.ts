@@ -7,6 +7,7 @@ import type { CommandRunner } from "./command-runner.js";
 import {
   AgentCancelledError,
   AgentExecutionUncertainError,
+  AgentSessionInvalidError,
   AgentUpstreamError,
 } from "./responder.js";
 
@@ -383,6 +384,39 @@ describe("ClaudeCodeResponder", () => {
     const error = (await failure.catch((cause: unknown) => cause)) as AgentUpstreamError;
     expect(error).toBeInstanceOf(AgentUpstreamError);
     expect(error.threadId).toBe("session-1");
+  });
+
+  it("reports a resume that finds no conversation as a broken session", async () => {
+    // 真实情况（已实测）：--resume 一个不存在的会话，Claude Code 写出这样的结果后以退出码 1 结束
+    const result = `${JSON.stringify({
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: true,
+      num_turns: 0,
+      session_id: "fresh-id",
+      errors: ["No conversation found with session ID: 0b1c-gone"],
+    })}\n`;
+    const responder = new ClaudeCodeResponder({
+      command: "claude",
+      cwd: "/workspace",
+      hive,
+      runner: (_command, _args, options) => {
+        options.onStdout?.(result);
+        return Promise.reject(new Error("运行进程异常退出（1）。"));
+      },
+    });
+    const error = (await responder
+      .reply({ instructions: "rules", prompt: "context", threadId: "0b1c-gone" })
+      .catch((cause: unknown) => cause)) as AgentSessionInvalidError;
+    expect(error).toBeInstanceOf(AgentSessionInvalidError);
+    expect(error.reason).toContain("No conversation found");
+    expect(error.executed).toBe(false);
+
+    // 没有续接会话时同样的输出不算会话失效（不是我们的会话坏了）
+    const fresh = await responder
+      .reply({ instructions: "rules", prompt: "context" })
+      .catch((cause: unknown) => cause);
+    expect(fresh).not.toBeInstanceOf(AgentSessionInvalidError);
   });
 
   it("treats a non-zero exit after an upstream error result as an upstream failure, not an interruption", async () => {

@@ -1,4 +1,4 @@
-import { bridgeText, said } from "./bridge-text.js";
+import { bridgeText, bridgeTextZh, said } from "./bridge-text.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   isMentioned,
@@ -11,6 +11,7 @@ import {
 import {
   AgentExecutionUncertainError,
   AgentNonRetryableError,
+  AgentSessionInvalidError,
   AgentUpstreamError,
   UPSTREAM_FAILURE_PREFIX,
   isCancelled,
@@ -138,6 +139,8 @@ type ActiveBatch = {
   accepting: boolean;
   /** 这一轮做过可能有副作用的操作（改文件、跑非只读命令、发消息……）：中断后不自动继续 */
   mutated?: boolean;
+  /** 这一轮调用过任何工具（只读的也算）：会话失效时不自动重跑 */
+  toolUsed?: boolean;
   /** 本轮用量：Provider 交出的原始观测、补全后的结果，以及是否已经随某次上报发出 */
   turn?: {
     startedAt: number;
@@ -174,6 +177,8 @@ export class AgentBridge {
   private readonly leadMessages = new Set<string>();
   /** 上游出错后已自动继续的次数 */
   private readonly upstreamRetries = new Map<string, number>();
+  /** 已经因为会话失效自动开新会话重跑过一次的消息：再失败就交给人 */
+  private readonly sessionRetried = new Set<string>();
   /** 上游出错后正在等待自动继续的消息（及其计时器） */
   private readonly waitingResume = new Map<string, NodeJS.Timeout>();
   /** 上游出错中断的原因：下一轮（自动继续或人点「继续」）开头提示 Agent 从断点接着做 */
@@ -490,6 +495,7 @@ export class AgentBridge {
       );
       this.cancelledEarly.delete(message.id);
       this.attempts.delete(message.id);
+      this.sessionRetried.delete(message.id);
       this.executionIds.delete(message.id);
     }
     if (this.isLocal(message.id) || !this.isEligible(message, options.invited)) return;
@@ -741,6 +747,7 @@ export class AgentBridge {
 
   private rememberProcessed(messageId: string): void {
     this.leadMessages.delete(messageId);
+    this.sessionRetried.delete(messageId);
     this.state.processedMessageIds = [
       ...this.state.processedMessageIds.filter((id) => id !== messageId),
       messageId,
@@ -903,6 +910,7 @@ export class AgentBridge {
         onTrace: (step) => {
           if (this.active !== active || active.controller.signal.aborted) return;
           if (isMutatingStep(step)) active.mutated = true;
+          if (step.kind === "tool") active.toolUsed = true;
           const clean = sanitizeTraceStep(step);
           pendingTrace.set(clean.id, { ...pendingTrace.get(clean.id), ...clean });
           traceTimer ??= setTimeout(flushTrace, this.tuning.traceFlushMs);
@@ -1226,6 +1234,13 @@ export class AgentBridge {
       await this.handleUpstreamError(active, error);
       return;
     }
+    if (
+      error instanceof AgentSessionInvalidError &&
+      !isCancelled(error, active.controller.signal)
+    ) {
+      await this.handleSessionInvalid(active, error);
+      return;
+    }
     const outcome: NonNullable<AgentUsage["outcome"]> =
       error instanceof AgentExecutionUncertainError
         ? "uncertain"
@@ -1309,6 +1324,58 @@ export class AgentBridge {
       1_000 * 2 ** (attempt - 1),
     );
     timer.unref?.();
+  }
+
+  /**
+   * 会话坏了（Codex 解不开旧会话里加密的推理内容、找不到之前的 response、恢复会话的文件坏了……）：
+   * 丢掉旧会话，下一轮用完整上下文开新会话。这一轮还没执行任何工具就自动重跑一次；
+   * 执行过工具、或已经自动重跑过的交给人，点「重试」时一定是新会话。
+   */
+  private async handleSessionInvalid(
+    active: ActiveBatch,
+    error: AgentSessionInvalidError,
+  ): Promise<void> {
+    this.settleUsage(active, "failed");
+    delete this.state.threadId;
+    delete this.state.promptContext;
+    this.reportSession();
+    const live = active.messages.filter((message) => !active.cancelled.has(message.id));
+    const executed = error.executed || active.toolUsed === true || active.mutated === true;
+    const retried = live.some((message) => this.sessionRetried.has(message.id));
+    if (!executed && !retried && live.length > 0) {
+      for (const message of live) this.sessionRetried.add(message.id);
+      await this.store.save(this.state);
+      this.log(`[hive] ${error.message}；这一轮还没执行工具，开新会话重跑`);
+      for (const message of live) {
+        this.room.report({
+          messageId: message.id,
+          status: "running",
+          ...said(bridgeText("bridge.sessionRetrying", { reason: error.reason.slice(0, 200) })),
+          progress: bridgeTextZh(
+            bridgeText("bridge.sessionRetrying", { reason: error.reason.slice(0, 120) }),
+          ).slice(0, 200),
+          ...this.usageReport(active),
+        });
+      }
+      this.pending.unshift(...live);
+      void this.drain();
+      return;
+    }
+    for (const message of active.messages) this.rememberProcessed(message.id);
+    await this.store.save(this.state);
+    const why = bridgeText(executed ? "bridge.sessionExecuted" : "bridge.sessionRetried");
+    const detail = said(
+      bridgeText("bridge.sessionInvalid", { reason: error.reason.slice(0, 360), why }),
+    );
+    this.log(`[hive] ${detail.detail}`);
+    for (const message of live) {
+      this.room.report({
+        messageId: message.id,
+        status: "failed",
+        ...detail,
+        ...this.usageReport(active),
+      });
+    }
   }
 
   /**

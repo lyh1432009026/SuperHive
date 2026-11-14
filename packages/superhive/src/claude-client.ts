@@ -11,7 +11,9 @@ import { enabledClaudeMcpServers, readAgentSettings, type AgentSettings } from "
 import {
   AgentCancelledError,
   AgentExecutionUncertainError,
+  AgentSessionInvalidError,
   AgentUpstreamError,
+  isSessionInvalid,
   isUpstreamFailure,
   type AgentAccessMode,
   type AgentReply,
@@ -300,6 +302,14 @@ export class ClaudeCodeResponder implements AgentResponder {
       // 上游重试用完后，Claude Code 会先写出一条 is_error 的结果（如「API Error: 429 …」）再以非零码退出。
       // 原因明确，不是「中途断了」：按上游出错交给 Bridge，它会看这一轮有没有做过改动再决定自动继续还是等人
       const payload = stream.finish();
+      // 恢复会话失败（会话文件被清掉、换了机器）：Claude Code 写出 is_error 的结果和原因后退出，什么都还没做
+      const errors = payload?.errors?.join("; ") ?? "";
+      if (payload?.is_error && input.threadId && isSessionInvalid(errors)) {
+        throw new AgentSessionInvalidError(
+          redactTrace(errors.replace(/\s+/g, " ").trim()).slice(0, 240),
+          stream.toolStarted,
+        );
+      }
       if (payload?.is_error && payload.result?.trim() && isUpstreamFailure(payload.result)) {
         throw new AgentUpstreamError(
           redactTrace(payload.result.replace(/\s+/g, " ").trim()).slice(0, 240),

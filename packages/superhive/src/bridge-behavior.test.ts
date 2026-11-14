@@ -14,6 +14,7 @@ import {
   AgentCancelledError,
   AgentExecutionUncertainError,
   AgentNonRetryableError,
+  AgentSessionInvalidError,
   AgentUpstreamError,
   type AgentReply,
   type AgentReplyInput,
@@ -884,6 +885,101 @@ describe("AgentBridge", () => {
       expect.objectContaining({ id: "th", text: "最后想到的" }),
     ]);
     expect(room.order.lastIndexOf("trace")).toBeLessThan(room.order.lastIndexOf("completed"));
+  });
+
+  /** 先跑完一轮，让 Bridge 记住会话 old-thread，再对下一条 @ 开始一轮（续接旧会话、只带新消息） */
+  async function resumeTurn(): Promise<ChatMessage> {
+    await completePromptTurn("old-thread");
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    await waitUntil(() => responder.calls.length === 2);
+    expect(responder.calls[1]!.threadId).toBe("old-thread");
+    expect(responder.calls[1]!.refreshInstructions).toBe(false);
+    return mention;
+  }
+
+  const encrypted =
+    "The encrypted content for item rs_1 could not be verified. Reason: Encrypted content could not be decrypted or parsed.";
+
+  it("drops a broken session and reruns once in a new session with the full context", async () => {
+    await startBridge(baseState());
+    const mention = await resumeTurn();
+    responder.fail(new AgentSessionInvalidError(encrypted));
+    await waitUntil(() => responder.calls.length === 3);
+    const rerun = responder.calls[2]!;
+    expect(rerun.threadId).toBeUndefined();
+    expect(rerun.refreshInstructions).toBe(true);
+    expect(rerun.prompt).toContain("<room_members>");
+    expect(rerun.prompt).toContain(mention.content);
+    expect(room.statuses(mention.id)).not.toContain("failed");
+    const retrying = room.reports.find((report) => report.progress?.includes("已开新会话重试"));
+    expect(retrying?.detailText?.key).toBe("bridge.sessionRetrying");
+    expect((await store.load())?.threadId).toBeUndefined();
+    responder.finish("做完了", "new-thread");
+    await waitUntil(() => room.statuses(mention.id).includes("completed"));
+    expect((await store.load())?.threadId).toBe("new-thread");
+  });
+
+  it("marks the task failed when the new session fails too, and a retry starts fresh", async () => {
+    await startBridge(baseState());
+    const mention = await resumeTurn();
+    responder.fail(new AgentSessionInvalidError(encrypted));
+    await waitUntil(() => responder.calls.length === 3);
+    responder.fail(new AgentSessionInvalidError("previous response not found"));
+    await waitUntil(() => room.statuses(mention.id).includes("failed"));
+    const failed = room.reports.find((report) => report.status === "failed");
+    expect(failed?.detail).toMatch(/^会话已失效：previous response not found/);
+    expect(failed?.detail).toContain("开了新会话还是失败");
+    expect(failed?.detail).toContain("点「重试」会开新会话");
+    expect(failed?.detailText?.key).toBe("bridge.sessionInvalid");
+    await flush();
+    expect(responder.calls).toHaveLength(3);
+
+    // 人点「重试」：一定是新会话，而且又可以自动重跑一次
+    room.handlers.onMention(mention, mention.seq, true);
+    await waitUntil(() => responder.calls.length === 4);
+    expect(responder.calls[3]!.threadId).toBeUndefined();
+    expect(responder.calls[3]!.refreshInstructions).toBe(true);
+    responder.finish("好了", "fresh");
+    await waitUntil(() => room.statuses(mention.id).includes("completed"));
+  });
+
+  it("does not rerun a broken session once a tool has run", async () => {
+    await startBridge(baseState());
+    const mention = await resumeTurn();
+    // 只读工具也算：会话坏了说明之前的回复不可信，不能确定重跑不会重复做事
+    responder.calls[1]!.onTrace?.({
+      id: "r",
+      kind: "tool",
+      tool: "read",
+      summary: "a.ts",
+      startedAt: new Date().toISOString(),
+    });
+    responder.fail(new AgentSessionInvalidError(encrypted));
+    await waitUntil(() => room.statuses(mention.id).includes("failed"));
+    const failed = room.reports.find((report) => report.status === "failed");
+    expect(failed?.detail).toContain("这一轮已经开始执行工具，不自动重跑");
+    expect(failed?.detail).toContain("点「重试」会开新会话");
+    await flush();
+    expect(responder.calls).toHaveLength(2);
+    expect((await store.load())?.threadId).toBeUndefined();
+
+    room.handlers.onMention(mention, mention.seq, true);
+    await waitUntil(() => responder.calls.length === 3);
+    expect(responder.calls[2]!.threadId).toBeUndefined();
+    expect(responder.calls[2]!.refreshInstructions).toBe(true);
+    responder.finish();
+    await waitUntil(() => room.statuses(mention.id).includes("completed"));
+  });
+
+  it("does not rerun when the runtime reports it had already started a tool", async () => {
+    await startBridge(baseState());
+    const mention = await resumeTurn();
+    responder.fail(new AgentSessionInvalidError(encrypted, true));
+    await waitUntil(() => room.statuses(mention.id).includes("failed"));
+    await flush();
+    expect(responder.calls).toHaveLength(2);
   });
 
   it("continues automatically on the same session after an upstream failure when nothing was changed", async () => {

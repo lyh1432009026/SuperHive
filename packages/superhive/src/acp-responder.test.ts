@@ -1,7 +1,7 @@
 import type { TraceStep } from "./hive-protocol.js";
 import { describe, expect, it, vi } from "vitest";
 import { AcpResponder, decideAcpPermission, type AcpResponderOptions } from "./acp-responder.js";
-import { AgentCancelledError } from "./responder.js";
+import { AgentCancelledError, AgentSessionInvalidError } from "./responder.js";
 import type { StdioExit, StdioTransport } from "./stdio-transport.js";
 
 const hive = {
@@ -299,10 +299,46 @@ describe("AcpResponder", () => {
     );
 
     await expect(
-      responder.reply({ instructions: "rules", prompt: "hi", threadId: "ses-gone" }),
+      responder.reply({
+        instructions: "rules",
+        prompt: "hi",
+        threadId: "ses-gone",
+        refreshInstructions: true,
+      }),
     ).resolves.toEqual({ text: "done", threadId: "ses-new" });
     expect(agents[0]!.request("session/prompt")?.params.prompt[0].text).toBe("rules\n\n---\n\nhi");
     expect(log).toHaveBeenCalledWith(expect.stringContaining("旧会话 ses-gone 已失效"));
+  });
+
+  it("hands a failed restore back to the bridge when the prompt only has new messages", async () => {
+    const { responder, agents } = setup(
+      defaultHandlers({
+        "session/resume": (message, agent) =>
+          agent.emit({ id: message.id, error: { code: -32602, message: "session not found" } }),
+      }),
+    );
+    const failure = responder.reply({ instructions: "rules", prompt: "hi", threadId: "ses-gone" });
+    await expect(failure).rejects.toBeInstanceOf(AgentSessionInvalidError);
+    // 新会话看不到房间上下文：不在这里开，等 Bridge 带完整上下文重来
+    expect(agents[0]!.methods()).not.toContain("session/new");
+    expect(agents[0]!.methods()).not.toContain("session/prompt");
+  });
+
+  it("reports a prompt rejected for a missing session as a broken session", async () => {
+    const { responder } = setup(
+      defaultHandlers({
+        "session/prompt": (message, agent) =>
+          agent.emit({
+            id: message.id,
+            error: { code: -32603, message: "Session not found: ses-old" },
+          }),
+      }),
+    );
+    const failure = responder.reply({ instructions: "rules", prompt: "hi", threadId: "ses-old" });
+    await expect(failure).rejects.toBeInstanceOf(AgentSessionInvalidError);
+    expect(((await failure.catch((error) => error)) as AgentSessionInvalidError).executed).toBe(
+      false,
+    );
   });
 
   it("answers permission requests according to the access mode", async () => {
