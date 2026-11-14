@@ -6,6 +6,7 @@ import type {
   KeepAwakeState,
   LocalAgent,
   LocalAgentMcpResponse,
+  LocalAgentModelsResponse,
   LocalAgentProvider,
   LocalDirectoryListing,
   LocalProviderInfo,
@@ -76,8 +77,10 @@ export type LocalAgentsState = {
   ): Promise<LocalAgentMcpResponse>;
   updateSettings(
     id: string,
-    settings: { mcpDisabled?: string[]; autoSteer?: boolean },
+    settings: { mcpDisabled?: string[]; autoSteer?: boolean; model?: string | null },
   ): Promise<LocalAgent>;
+  /** 这个 Agent 的运行时能用的模型；refresh 时让 Server 重新拉 */
+  models(id: string, refresh?: boolean): Promise<LocalAgentModelsResponse>;
   /** 熄屏后保持在线：这台电脑的设置与实际状态（不是本机房主时为 undefined） */
   keepAwake: KeepAwakeState | undefined;
   updateKeepAwake(patch: Partial<KeepAwakeSettings>): Promise<void>;
@@ -384,8 +387,21 @@ export function useLocalAgents(
     [request],
   );
 
+  const models = useCallback(
+    async (id: string, refresh = false) => {
+      const response = await request(
+        `/api/local/agents/${id}/models${refresh ? "?refresh=1" : ""}`,
+      );
+      return (await response.json()) as LocalAgentModelsResponse;
+    },
+    [request],
+  );
+
   const updateSettings = useCallback(
-    async (id: string, settings: { mcpDisabled?: string[]; autoSteer?: boolean }) => {
+    async (
+      id: string,
+      settings: { mcpDisabled?: string[]; autoSteer?: boolean; model?: string | null },
+    ) => {
       const response = await request(`/api/local/agents/${id}/settings`, {
         method: "PUT",
         body: JSON.stringify(settings),
@@ -550,6 +566,7 @@ export function useLocalAgents(
     mcpServers,
     mcpCandidates,
     updateSettings,
+    models,
   };
 }
 

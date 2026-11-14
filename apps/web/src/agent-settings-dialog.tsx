@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import type { LocalAgent, LocalAgentMcpResponse, LocalMcpServer } from "@superhive/protocol";
+import type {
+  LocalAgent,
+  LocalAgentMcpResponse,
+  LocalAgentModelsResponse,
+  LocalMcpServer,
+} from "@superhive/protocol";
 import { localized, t } from "./i18n";
 import { LogViewer, localAgentStatusLabels, type LocalAgentsState } from "./local-agents";
+import { ModelPicker } from "./model-picker";
 
 function CloseGlyph() {
   return (
@@ -149,7 +155,7 @@ export function AgentSettingsDialog({
   onOpenTerminal?: () => void;
   local: Pick<
     LocalAgentsState,
-    "mcpServers" | "updateSettings" | "act" | "canManage" | "logs" | "remove"
+    "mcpServers" | "updateSettings" | "act" | "canManage" | "logs" | "remove" | "models"
   >;
   onClose: () => void;
 }) {
@@ -162,6 +168,11 @@ export function AgentSettingsDialog({
   const [autoSteer, setAutoSteer] = useState(agent.autoSteer);
   const [savingSteer, setSavingSteer] = useState(false);
   const [acting, setActing] = useState<"start" | "stop" | "restart" | "remove">();
+  const [models, setModels] = useState<LocalAgentModelsResponse | undefined>();
+  const [model, setModel] = useState(agent.model ?? "");
+  const [savedModel, setSavedModel] = useState(agent.model ?? "");
+  const [savingModel, setSavingModel] = useState(false);
+  const [modelSaved, setModelSaved] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const live = agent.status !== "stopped" && agent.status !== "crashed";
@@ -181,6 +192,42 @@ export function AgentSettingsDialog({
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setActing(undefined);
+    }
+  }
+
+  const loadModels = useCallback(
+    async (refresh: boolean) => {
+      if (refresh) setModels(undefined);
+      try {
+        setModels(await local.models(agent.id, refresh));
+      } catch (cause) {
+        setModels({
+          source: "preset",
+          models: [],
+          error: cause instanceof Error ? cause.message : String(cause),
+        });
+      }
+    },
+    [agent.id, local],
+  );
+
+  useEffect(() => {
+    void loadModels(false);
+  }, [loadModels]);
+
+  /** 模型写进设置文件，下一次回复就按新模型跑，不用重启 */
+  async function saveModel() {
+    setSavingModel(true);
+    setError(undefined);
+    try {
+      const updated = await local.updateSettings(agent.id, { model: model.trim() || null });
+      setModel(updated.model ?? "");
+      setSavedModel(updated.model ?? "");
+      setModelSaved(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSavingModel(false);
     }
   }
 
@@ -366,6 +413,42 @@ export function AgentSettingsDialog({
             </div>
           )}
           {logsOpen && <LogViewer load={local.logs} agentId={agent.id} />}
+          <section className="agent-model" aria-labelledby="agent-model-title">
+            <h3 id="agent-model-title">{t("模型")}</h3>
+            <ModelPicker
+              aria-label={t("模型")}
+              data={models}
+              value={model}
+              allowDefault
+              disabled={savingModel || !local.canManage}
+              onChange={(next) => {
+                setModel(next);
+                setModelSaved(false);
+              }}
+              onRefresh={() => void loadModels(true)}
+            />
+            <div className="agent-model-actions">
+              <small>
+                {agent.settingsPendingRestart
+                  ? t("这个 Agent 是在支持此设置之前启动的，保存后需要重启一次才会生效。")
+                  : t(
+                      "从下一次回复开始生效，不用重启。失败的任务也可以点「换个模型重试」只换这一次。",
+                    )}
+              </small>
+              {modelSaved && (
+                <span className="agent-mcp-saved" role="status">
+                  {t("已保存。")}
+                </span>
+              )}
+              <button
+                type="button"
+                disabled={savingModel || model.trim() === savedModel || !local.canManage}
+                onClick={() => void saveModel()}
+              >
+                {savingModel ? t("保存中…") : t("保存模型")}
+              </button>
+            </div>
+          </section>
           <label className="agent-auto-steer">
             <input
               type="checkbox"

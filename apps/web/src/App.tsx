@@ -152,6 +152,7 @@ import {
 } from "./invite-dialog";
 import { ImDialog } from "./im-dialog";
 import { AgentSettingsDialog, SettingsGlyph } from "./agent-settings-dialog";
+import { RetryModelDialog } from "./model-picker";
 import {
   ComposerAttachments,
   MessageAttachments,
@@ -1601,6 +1602,9 @@ export function App({
     [local.agents],
   );
   const [settingsAgentId, setSettingsAgentId] = useState<string | undefined>();
+  /** 「换个模型重试」正在选模型的那条调用 */
+  const [retryModelFor, setRetryModelFor] = useState<Invocation | undefined>();
+  const retryModelAgent = retryModelFor ? localAgentFor(retryModelFor.agentName) : undefined;
   const settingsAgent = local.agents.find((agent) => agent.id === settingsAgentId);
   function localAgentFor(name: string) {
     const key = name.toLocaleLowerCase();
@@ -3251,8 +3255,11 @@ export function App({
     socket.send(JSON.stringify(payload));
   }
 
-  function retryInvocation(invocation: Invocation) {
-    sendClientEvent({ type: "invocation.retry", invocationId: invocation.id }, t("无法重试。"));
+  function retryInvocation(invocation: Invocation, model?: string) {
+    sendClientEvent(
+      { type: "invocation.retry", invocationId: invocation.id, ...(model ? { model } : {}) },
+      t("无法重试。"),
+    );
   }
 
   // 走 HTTP：「Agent 任务」面板里的调用可能属于其它房间，WebSocket 只作用于当前房间
@@ -4745,7 +4752,8 @@ export function App({
                                 participants={participants}
                                 canJumpTo={(messageId) => loadedMessageIds.has(messageId)}
                                 onJump={jumpToMessage}
-                                onRetry={retryInvocation}
+                                onRetry={(invocation) => retryInvocation(invocation)}
+                                onRetryWithModel={isOwner ? setRetryModelFor : undefined}
                                 onCancel={cancelInvocation}
                                 onDismiss={(invocation) => dismissInvocations([invocation])}
                                 onExtend={extendAgentBudget}
@@ -5900,6 +5908,21 @@ export function App({
           roomId={currentRoomId}
           linkFor={(token) => `${inviteLink()}?invite=${token}`}
           onClose={() => setInviteDialogOpen(false)}
+        />
+      )}
+      {retryModelFor && (
+        <RetryModelDialog
+          key={retryModelFor.id}
+          agentName={retryModelFor.agentName}
+          currentModel={retryModelAgent?.model}
+          load={
+            retryModelAgent ? (refresh) => local.models(retryModelAgent.id, refresh) : undefined
+          }
+          onRetry={(model) => {
+            retryInvocation(retryModelFor, model);
+            setRetryModelFor(undefined);
+          }}
+          onClose={() => setRetryModelFor(undefined)}
         />
       )}
       {settingsAgent && (

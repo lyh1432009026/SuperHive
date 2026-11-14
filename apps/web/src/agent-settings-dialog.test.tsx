@@ -2,7 +2,11 @@
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { LocalAgent, LocalAgentMcpResponse } from "@superhive/protocol";
+import type {
+  LocalAgent,
+  LocalAgentMcpResponse,
+  LocalAgentModelsResponse,
+} from "@superhive/protocol";
 import { AgentSettingsDialog, formatTokens } from "./agent-settings-dialog";
 
 const agent = {
@@ -47,6 +51,11 @@ const listed: LocalAgentMcpResponse = {
   ],
 };
 
+const modelList: LocalAgentModelsResponse = {
+  source: "runtime",
+  models: [{ id: "gpt-a", label: "GPT A", isDefault: true }, { id: "gpt-b" }],
+};
+
 describe("AgentSettingsDialog", () => {
   afterEach(cleanup);
 
@@ -67,6 +76,7 @@ describe("AgentSettingsDialog", () => {
           canManage: true,
           logs: async () => [],
           remove: async () => undefined,
+          models: async () => modelList,
         }}
         onClose={() => undefined}
       />,
@@ -100,6 +110,7 @@ describe("AgentSettingsDialog", () => {
           canManage: false,
           logs: async () => [],
           remove: async () => undefined,
+          models: async () => modelList,
         }}
         onClose={() => undefined}
       />,
@@ -126,6 +137,7 @@ describe("AgentSettingsDialog", () => {
           canManage: true,
           logs: async () => [],
           remove: async () => undefined,
+          models: async () => modelList,
         }}
         onClose={() => undefined}
       />,
@@ -135,6 +147,83 @@ describe("AgentSettingsDialog", () => {
     expect(screen.getByText(/每个新会话开局约 5.2 万 token/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "保存并重启" }));
     await waitFor(() => expect(act).toHaveBeenCalledWith(agent.id, "restart"));
+  });
+
+  it("picks the model from the runtime's list, accepts a typed one and goes back to the default", async () => {
+    const models = vi.fn(async () => modelList);
+    const updateSettings = vi.fn(async (_id: string, settings: { model?: string | null }) => ({
+      ...agent,
+      model: settings.model ?? null,
+    }));
+    render(
+      <AgentSettingsDialog
+        agent={agent}
+        local={{
+          mcpServers: async () => listed,
+          updateSettings,
+          act: async () => undefined,
+          canManage: true,
+          logs: async () => [],
+          remove: async () => undefined,
+          models,
+        }}
+        onClose={() => undefined}
+      />,
+    );
+    const picker = await screen.findByRole("combobox", { name: "模型" });
+    await waitFor(() => expect(picker.textContent).toContain("运行时默认"));
+    const save = screen.getByRole("button", { name: "保存模型" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+
+    fireEvent.click(picker);
+    // 运行时默认那一项写明现在实际是哪个模型
+    expect(screen.getByRole("option", { name: /运行时默认.*现在是 GPT A/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("option", { name: /^gpt-b/ }));
+    fireEvent.click(save);
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledWith(agent.id, { model: "gpt-b" }));
+    expect(await screen.findByText("已保存。")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("combobox", { name: "模型" }));
+    fireEvent.click(screen.getByRole("option", { name: /^手动输入/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "模型名" }), {
+      target: { value: " my/custom-model " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存模型" }));
+    await waitFor(() =>
+      expect(updateSettings).toHaveBeenLastCalledWith(agent.id, { model: "my/custom-model" }),
+    );
+
+    fireEvent.click(screen.getByRole("combobox", { name: "模型" }));
+    fireEvent.click(screen.getByRole("option", { name: /^运行时默认/ }));
+    fireEvent.click(screen.getByRole("button", { name: "保存模型" }));
+    await waitFor(() => expect(updateSettings).toHaveBeenLastCalledWith(agent.id, { model: null }));
+
+    // 刷新：让 Server 重新拉一次
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    await waitFor(() => expect(models).toHaveBeenLastCalledWith(agent.id, true));
+  });
+
+  it("shows why the model list could not be fetched and still allows typing one", async () => {
+    render(
+      <AgentSettingsDialog
+        agent={{ ...agent, model: "legacy-model" }}
+        local={{
+          mcpServers: async () => listed,
+          updateSettings: async () => agent,
+          act: async () => undefined,
+          canManage: true,
+          logs: async () => [],
+          remove: async () => undefined,
+          models: async () => ({ source: "preset", models: [], error: "spawn codex ENOENT" }),
+        }}
+        onClose={() => undefined}
+      />,
+    );
+    expect(await screen.findByText(/没能从运行时拉到模型列表（spawn codex ENOENT）/)).toBeTruthy();
+    // 设置里的模型不在列表里：直接显示在手填框里
+    expect((screen.getByRole("textbox", { name: "模型名" }) as HTMLInputElement).value).toBe(
+      "legacy-model",
+    );
   });
 
   it("formats token counts", () => {
@@ -152,6 +241,7 @@ describe("AgentSettingsDialog", () => {
       canManage: true,
       logs: vi.fn(async () => ["[hive] 已加入 #build"]),
       remove: vi.fn(async () => undefined),
+      models: vi.fn(async () => modelList),
     };
     const { rerender } = render(
       <AgentSettingsDialog agent={agent} local={props} onClose={() => undefined} />,

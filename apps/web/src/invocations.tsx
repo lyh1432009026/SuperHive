@@ -422,7 +422,10 @@ export function InvocationChips({
   onSteer,
   onPreempt,
   onOpenTerminal,
+  onRetryWithModel,
 }: {
+  /** 「换个模型重试」：只有房主能用，失败的任务上才有 */
+  onRetryWithModel?: ((invocation: Invocation) => void) | undefined;
   /** 「在终端打开会话」：本机 Agent 才返回处理函数 */
   onOpenTerminal?: ((invocation: Invocation) => (() => void) | undefined) | undefined;
   /** 「引导」：把排队中的这条插进 Agent 正在执行的这一轮 */
@@ -605,6 +608,17 @@ export function InvocationChips({
                     {retryLabel(invocation)}
                   </button>
                 )
+              )}
+              {onRetryWithModel && isOwner && invocation.status === "failed" && (
+                <button
+                  type="button"
+                  className="invocation-action subtle"
+                  aria-label={t("换个模型重试 @{0}", { 0: invocation.agentName })}
+                  title={t("选一个模型，只对这一次重试生效")}
+                  onClick={() => onRetryWithModel(invocation)}
+                >
+                  {t("换个模型重试")}
+                </button>
               )}
               {onDismiss &&
                 canDismissInvocation(invocation) &&
