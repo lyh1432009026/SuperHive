@@ -394,9 +394,9 @@ export const serverTexts = {
     zh: "开了新会话还是失败",
     en: "It still failed in a new session",
   },
-  "bridge.modelUnavailable": {
-    zh: "这个模型用不了，等多久都不会好，可以点「换个模型重试」",
-    en: "This model isn't available and waiting won't help. Try Retry with another model",
+  "bridge.modelFailed": {
+    zh: "模型用不了：{reason}。等多久都不会好，点「换个模型重试」选别的模型，或者在 Agent 设置里改模型。",
+    en: "The model isn't available: {reason}. Waiting won't help. Use Retry with another model, or change the model in the agent's settings.",
   },
   "bridge.usingModel": {
     zh: "这次用 {model} 重试",

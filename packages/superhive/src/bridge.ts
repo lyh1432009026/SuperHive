@@ -1462,16 +1462,16 @@ export class AgentBridge {
       this.upstreamRetries.delete(message.id);
     }
     await this.store.save(this.state);
-    const why =
-      error.kind === "model"
-        ? bridgeText("bridge.modelUnavailable")
-        : active.mutated
-          ? bridgeText("bridge.upstreamMutated")
-          : bridgeText("bridge.upstreamExhausted", {
-              count: this.tuning.upstreamRetryDelaysMs.length,
-            });
+    const why = active.mutated
+      ? bridgeText("bridge.upstreamMutated")
+      : bridgeText("bridge.upstreamExhausted", {
+          count: this.tuning.upstreamRetryDelaysMs.length,
+        });
+    // 模型本身用不了：接着原会话「继续」还是同一个模型，没用，让人换模型
     const detail = said(
-      bridgeText("bridge.upstreamFailed", { reason: error.reason.slice(0, 360), why }),
+      error.kind === "model"
+        ? bridgeText("bridge.modelFailed", { reason: error.reason.slice(0, 360) })
+        : bridgeText("bridge.upstreamFailed", { reason: error.reason.slice(0, 360), why }),
     );
     this.log(`[hive] ${detail.detail}，等人点「继续」`);
     for (const message of live) {

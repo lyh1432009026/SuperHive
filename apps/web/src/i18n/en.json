@@ -1042,7 +1042,6 @@
   "停止中…": "Stopping…",
   "启动中…": "Starting…",
   "设置（重启、停止、MCP 等）": "Settings (restart, stop, MCP…)",
-  "重启、停止这个 Agent，选择它加载哪些本机 MCP。每个 MCP 的工具说明会在每个会话开局整段发给模型，体积大的会明显增加新会话和缓存过期时的费用。hive 始终加载。": "Restart or stop this agent and choose which local MCP servers it loads. Each MCP's tool descriptions are sent to the model at the start of every session; large ones noticeably raise the cost of new sessions and cache misses. hive is always loaded.",
   "浏览器未允许自动复制。": "The browser blocked copying to the clipboard.",
   "打开": "Open",
   "标为已读": "Mark as read",
@@ -1211,5 +1210,6 @@
   "只对这一次重试生效，之后还是用它设置里的模型 {0}。": "Applies to this retry only. After that it goes back to the model in its settings, {0}.",
   "只对这一次重试生效，之后还是用它设置里的模型。": "Applies to this retry only. After that it goes back to the model in its settings.",
   "这个 Agent 不在这台电脑上，拿不到它的模型列表，请手动输入模型名。": "This agent isn't on this computer, so its model list isn't available. Enter a model name.",
-  "用 {0} 重试": "Retry with {0}"
+  "用 {0} 重试": "Retry with {0}",
+  "重启、停止这个 Agent，选择它用的模型和加载哪些本机 MCP。每个 MCP 的工具说明会在每个会话开局整段发给模型，体积大的会明显增加新会话和缓存过期时的费用。hive 始终加载。": "Restart or stop this agent and choose its model and which local MCP servers it loads. Each MCP's tool descriptions are sent to the model at the start of every session; large ones noticeably raise the cost of new sessions and cache misses. hive is always loaded."
 }

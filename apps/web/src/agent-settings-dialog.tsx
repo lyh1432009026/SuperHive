@@ -326,7 +326,7 @@ export function AgentSettingsDialog({
             <h2 id="agent-settings-title">{t("{0} 的设置", { 0: agent.name })}</h2>
             <p>
               {t(
-                "重启、停止这个 Agent，选择它加载哪些本机 MCP。每个 MCP 的工具说明会在每个会话开局整段发给模型，体积大的会明显增加新会话和缓存过期时的费用。hive 始终加载。",
+                "重启、停止这个 Agent，选择它用的模型和加载哪些本机 MCP。每个 MCP 的工具说明会在每个会话开局整段发给模型，体积大的会明显增加新会话和缓存过期时的费用。hive 始终加载。",
               )}
             </p>
           </div>

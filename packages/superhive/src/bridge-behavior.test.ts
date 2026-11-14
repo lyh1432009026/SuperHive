@@ -1014,7 +1014,11 @@ describe("AgentBridge", () => {
     responder.fail(new AgentUpstreamError("model_not_found: gpt-old", "s1", "model"));
     await waitUntil(() => room.statuses(mention.id).includes("failed"));
     const failed = room.reports.find((report) => report.status === "failed");
-    expect(failed?.detail).toContain("这个模型用不了，等多久都不会好，可以点「换个模型重试」");
+    expect(failed?.detail).toBe(
+      "模型用不了：model_not_found: gpt-old。等多久都不会好，点「换个模型重试」选别的模型，或者在 Agent 设置里改模型。",
+    );
+    // 不是「上游出错、点继续」那种：网页上不会把「继续」当主按钮
+    expect(failed?.detailText?.key).toBe("bridge.modelFailed");
     await flush();
     expect(responder.calls).toHaveLength(1);
   });
