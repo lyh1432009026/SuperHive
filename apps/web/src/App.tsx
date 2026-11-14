@@ -6222,7 +6222,7 @@ export function App({
 
               {agentStep === 2 && (
                 <>
-                  <div className="confirm-popover-anchor">
+                  <div>
                     <div
                       className="access-selector"
                       role="radiogroup"
@@ -6272,8 +6272,7 @@ export function App({
                         confirmLabel={t("我了解风险，开启完全访问")}
                         cancelLabel={t("取消")}
                         anchorRef={fullAccessOptionRef}
-                        placement="bottom"
-                        align="end"
+                        danger
                         onConfirm={confirmFullAccess}
                         onCancel={closeFullAccessConfirmation}
                       />

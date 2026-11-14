@@ -236,7 +236,7 @@ export function WorktreePanel({ roomId, api }: { roomId: string; api: WorktreeAp
         </div>
       )}
       {/* 开启自动清理要确认：就地弹一个轻量确认气泡，确认后才勾上；关闭不用确认 */}
-      <div className="confirm-popover-anchor">
+      <div>
         <label className="worktree-auto">
           <input
             ref={autoRef}
