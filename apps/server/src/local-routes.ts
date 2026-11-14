@@ -2,6 +2,7 @@ import { serverText, zhText, type ServerText } from "@superhive/protocol";
 import { errorText, hiveErrorBody } from "./texts.js";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { hostname } from "node:os";
+import { z } from "zod";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   createLocalAgentRequestSchema,
@@ -79,6 +80,15 @@ export const MANAGE_GRANT_MS = 12 * 60 * 60_000;
 const APPROVAL_HEADER = "x-hive-approval";
 
 export type LocalRoomActions = {
+  worktrees?: {
+    list: (roomId: string) => Promise<unknown>;
+    cleanup: (
+      roomId: string,
+      input: { items: Array<{ id: string; headCommit: string }>; deleteBranch: boolean },
+    ) => Promise<unknown>;
+    configure: (roomId: string, autoCleanup: boolean) => void;
+    request: (roomId: string, batchId: string) => boolean;
+  };
   /** 请求是否来自 Server 所在电脑；默认 checkLocalRequest（不放行别的端口上的网页） */
   isLocal?: (request: FastifyRequest) => LocalCheck;
   clearRoom: (roomId: string, username: string) => { messages: number; invocations: number };
@@ -292,6 +302,82 @@ export function registerLocalAgentRoutes(
     }
     throw error;
   }
+
+  app.get<{ Params: { roomId: string } }>(
+    "/api/local/worktrees/:roomId",
+    async (request, reply) => {
+      if (!authorize(request, reply, "read")) return reply;
+      if (!rooms.worktrees) return reply.code(404).send({ error: "Worktrees unavailable" });
+      try {
+        return await rooms.worktrees.list(request.params.roomId);
+      } catch (error) {
+        return reply
+          .code(409)
+          .send(error instanceof HiveError ? hiveErrorBody(error) : { error: String(error) });
+      }
+    },
+  );
+  app.post<{ Params: { roomId: string }; Body: unknown }>(
+    "/api/local/worktrees/:roomId/cleanup",
+    async (request, reply) => {
+      const caller = authorize(request, reply, "manage");
+      if (!caller) return reply;
+      const input = z
+        .object({
+          items: z
+            .array(
+              z.object({
+                id: z.string().uuid(),
+                headCommit: z.string().regex(/^[a-f0-9]{40,64}$/),
+              }),
+            )
+            .min(1)
+            .max(100),
+          deleteBranch: z.boolean().default(true),
+        })
+        .safeParse(request.body);
+      if (!input.success || !rooms.worktrees)
+        return reply.code(400).send({ error: "Invalid worktree selection" });
+      const result = await rooms.worktrees.cleanup(request.params.roomId, input.data);
+      audit(
+        request,
+        caller,
+        { key: "im.worktree.audit", params: { count: input.data.items.length } },
+        true,
+      );
+      return result;
+    },
+  );
+  app.post<{ Params: { roomId: string; batchId: string } }>(
+    "/api/local/worktrees/:roomId/batches/:batchId",
+    async (request, reply) => {
+      if (!authorize(request, reply, "manage")) return reply;
+      if (!rooms.worktrees?.request(request.params.roomId, request.params.batchId))
+        return reply.code(409).send({ error: "Cleanup batch unavailable" });
+      return { queued: true };
+    },
+  );
+  app.put<{ Params: { roomId: string }; Body: unknown }>(
+    "/api/local/worktrees/:roomId/settings",
+    async (request, reply) => {
+      const caller = authorize(request, reply, "manage");
+      if (!caller) return reply;
+      const input = z.object({ autoCleanup: z.boolean() }).safeParse(request.body);
+      if (!input.success || !rooms.worktrees)
+        return reply.code(400).send({ error: "Invalid cleanup settings" });
+      rooms.worktrees.configure(request.params.roomId, input.data.autoCleanup);
+      audit(
+        request,
+        caller,
+        {
+          key: "im.worktree.autoAudit",
+          params: { enabled: String(input.data.autoCleanup) },
+        },
+        true,
+      );
+      return input.data;
+    },
+  );
 
   app.get("/api/local/owner-devices", async (request, reply) => {
     if (!authorize(request, reply, "read")) return reply;

@@ -73,9 +73,12 @@ export type HiveMcpContext = {
   }) =>
     | { entry: WhiteboardEntry; changed: boolean }
     | Promise<{ entry: WhiteboardEntry; changed: boolean }>;
-  createWorktree: (
-    input: CreateWorktreeRequest,
-  ) => Promise<{ worktree: ManagedWorktree; reused: boolean; requiresWorkspaceApproval: boolean }>;
+  createWorktree: (input: CreateWorktreeRequest) => Promise<{
+    worktree: ManagedWorktree;
+    reused: boolean;
+    requiresWorkspaceApproval: boolean;
+    runtimeHandoff?: string;
+  }>;
   listWorktrees: () => Promise<WorktreeStatus[]>;
   removeWorktree: (input: {
     path: string;

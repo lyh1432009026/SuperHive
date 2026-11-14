@@ -48,6 +48,16 @@ export const worktreeStatusSchema = z.object({
   activeInvocationIds: z.array(z.string()),
   removable: z.boolean(),
   error: z.string().optional(),
+  headCommit: z.string().optional(),
+});
+
+export const worktreeCleanupEventSchema = z.object({
+  type: z.literal("worktree.cleanup"),
+  roomId: z.string(),
+  batchId: z.string().uuid(),
+  count: z.number().int().nonnegative(),
+  state: z.enum(["available", "completed"]),
+  automatic: z.boolean(),
 });
 
 export type WorktreeClaim = z.infer<typeof worktreeClaimSchema>;

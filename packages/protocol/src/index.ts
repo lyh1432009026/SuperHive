@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { serverTextSchema } from "./server-text.js";
+import { worktreeCleanupEventSchema } from "./worktree.js";
 
 export const LIMITS = {
   /** 一条 Agent 转交链的最大深度；人追加轮数时同步放宽，人一发言即恢复默认 */
@@ -877,6 +878,7 @@ export const roomActivityEventSchema = z.object({
 });
 
 export const serverEventSchema = z.discriminatedUnion("type", [
+  worktreeCleanupEventSchema,
   roomSnapshotEventSchema,
   messageCreatedEventSchema,
   messageDeletedEventSchema,

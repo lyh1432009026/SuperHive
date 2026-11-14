@@ -156,6 +156,52 @@ async function start() {
 }
 
 describe("worktree MCP permissions and bindings", () => {
+  it("notifies only the owner, requires owner/device management auth and batch-cleans safely", async () => {
+    const { app, repo, git, join, mcp, run, finish } = await start();
+    const owner = await join("Alice", "human");
+    const helper = await join("helper", "agent");
+    const task = await run(owner, helper, "helper");
+    const created = await (await mcp("helper"))("hive_worktree_create", { slug: "cleanup" });
+    const worktree = created.structuredContent!.worktree as ManagedWorktree;
+    writeFileSync(path.join(worktree.path, "test.txt"), "feature\n");
+    await git(worktree.path, ["add", "."]);
+    await git(worktree.path, ["commit", "-m", "feature"]);
+    await git(repo, ["merge", "--ff-only", worktree.branch]);
+    await finish(owner, helper, task);
+    await (app as unknown as { runWorktreeCleanup(): Promise<void> }).runWorktreeCleanup();
+    const notice = await owner.next((event) => event.type === "worktree.cleanup");
+    expect(notice).toMatchObject({ type: "worktree.cleanup", count: 1, state: "available" });
+    expect(helper.events.some((event) => event.type === "worktree.cleanup")).toBe(false);
+    const session = (await app.inject({ method: "GET", url: "/api/local/session" })).json();
+    const ownerHeaders = { "x-hive-owner": session.ownerToken };
+    const inventory = await app.inject({
+      method: "GET",
+      url: "/api/local/worktrees/general",
+      headers: ownerHeaders,
+    });
+    expect(inventory.statusCode).toBe(200);
+    const item = inventory.json().worktrees[0];
+    expect(item).toMatchObject({ removable: true, merged: true, headCommit: expect.any(String) });
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/local/worktrees/general/cleanup",
+          headers: { authorization: "Bearer test-token" },
+          payload: { items: [{ id: worktree.id, headCommit: item.headCommit }] },
+        })
+      ).statusCode,
+    ).toBe(401);
+    const cleaned = await app.inject({
+      method: "POST",
+      url: "/api/local/worktrees/general/cleanup",
+      headers: ownerHeaders,
+      payload: { items: [{ id: worktree.id, headCommit: item.headCommit }], deleteBranch: true },
+    });
+    expect(cleaned.statusCode).toBe(200);
+    expect(cleaned.json().results).toMatchObject([{ removed: true, branchDeleted: true }]);
+  }, 15_000);
+
   it("creates, reuses, reports occupancy and removes only after the original task finishes", async () => {
     const { repo, git, join, mcp, run, finish } = await start();
     const owner = await join("Alice", "human");
@@ -200,21 +246,69 @@ describe("worktree MCP permissions and bindings", () => {
   });
 
   it("rejects readonly, unconfigured and proxied agents and explicitly marks workspace scope", async () => {
-    const { join, mcp, run } = await start();
+    const { app, join, mcp, run } = await start();
     const owner = await join("Alice", "human");
     for (const name of ["reader", "remote", "writer", "helper"]) {
       const peer = await join(name, "agent");
-      await run(owner, peer, name);
+      const task = await run(owner, peer, name);
+      const resolved = await app.inject({
+        method: "GET",
+        url: `/api/agent/worktree?messageId=${task.id}`,
+        headers: {
+          authorization: "Bearer test-token",
+          "x-hive-room": "general",
+          "x-hive-agent-name": name,
+        },
+      });
+      expect(resolved.statusCode).toBe(["writer", "helper"].includes(name) ? 200 : 403);
       const call = await mcp(name, name === "helper" ? { "x-forwarded-for": "203.0.113.1" } : {});
       const created = await call("hive_worktree_create", { slug: "feature" });
       if (name === "writer") {
         expect(created.isError).toBeFalsy();
-        expect(created.structuredContent?.requiresWorkspaceApproval).toBe(true);
+        expect(created.structuredContent?.requiresWorkspaceApproval).toBe(false);
+        expect(created.structuredContent?.runtimeHandoff).toContain("new session");
       } else {
         expect(created.isError).toBe(true);
         expect(created.content[0]?.text).toContain("本机房主");
       }
     }
+  });
+
+  it("requires a fresh handoff capability after a local agent reconnects", async () => {
+    const { app, join, mcp, run, finish } = await start();
+    const owner = await join("Alice", "human");
+    const writer = await join("writer", "agent");
+    const headers = {
+      authorization: "Bearer test-token",
+      "x-hive-room": "general",
+      "x-hive-agent-name": "writer",
+    };
+    const initial = await run(owner, writer, "writer");
+    expect(
+      (await app.inject({ url: `/api/agent/worktree?messageId=${initial.id}`, headers }))
+        .statusCode,
+    ).toBe(200);
+    const call = await mcp("writer");
+    expect((await call("hive_worktree_create", { slug: "feature" })).isError).toBeFalsy();
+    await finish(owner, writer, initial);
+    writer.socket.close();
+    await nextEvent(
+      owner,
+      "writer disconnected",
+      (event) =>
+        event.type === "presence.changed" &&
+        event.participant.username === "writer" &&
+        event.participant.status === "offline",
+    );
+    const reconnected = await join("writer", "agent");
+    const next = await run(owner, reconnected, "writer");
+    const blocked = await call("hive_worktree_create", { slug: "feature" });
+    expect(blocked.isError).toBe(true);
+    expect(blocked.content[0]?.text).toContain("安全目录交接");
+    expect(
+      (await app.inject({ url: `/api/agent/worktree?messageId=${next.id}`, headers })).statusCode,
+    ).toBe(200);
+    expect((await call("hive_worktree_create", { slug: "feature" })).isError).toBeFalsy();
   });
 
   it("rejects a guest-origin task even when it targets a writable local agent", async () => {

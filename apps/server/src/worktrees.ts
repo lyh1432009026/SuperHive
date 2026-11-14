@@ -18,6 +18,16 @@ type GitResult = { code: number; stdout: string; stderr: string };
 type Checkout = { path: string; branch: string | undefined; locked: boolean };
 type Repository = { repo: string; commonDir: string; target: string };
 
+export type WorktreeCleanupBatch = {
+  id: string;
+  roomId: string;
+  ownerName: string;
+  automatic: boolean;
+  state: "available" | "queued" | "running" | "completed";
+  items: Array<{ id: string; repo: string; path: string; branch: string; headCommit: string }>;
+  results?: Array<{ path: string; removed: boolean; branchDeleted?: boolean; error?: string }>;
+};
+
 export async function worktreeGit(cwd: string, args: string[], input?: string): Promise<GitResult> {
   return new Promise((resolve, reject) => {
     const env = Object.fromEntries(
@@ -182,12 +192,15 @@ export async function worktreeRepository(workspace: string): Promise<Repository>
 
 export class WorktreeManager {
   private readonly queues = new Map<string, Promise<unknown>>();
+  private scanning: Promise<void> | undefined;
+  private closed = false;
 
   constructor(
     private readonly options: {
       database: HiveDatabase;
       activeInvocations: (worktree: ManagedWorktree) => string[];
       onBoardChanged?: (roomId: string) => void;
+      onCleanup?: (batch: WorktreeCleanupBatch) => void;
     },
   ) {
     options.database.connection().exec(`CREATE TABLE IF NOT EXISTS managed_worktrees (
@@ -195,6 +208,201 @@ export class WorktreeManager {
       path TEXT NOT NULL UNIQUE, branch TEXT NOT NULL, record TEXT NOT NULL,
       UNIQUE(repo, agent_name, slug), UNIQUE(repo, branch)
     )`);
+    options.database.connection().exec(`CREATE TABLE IF NOT EXISTS managed_worktree_focus (
+      room_id TEXT NOT NULL, agent_name TEXT NOT NULL, worktree_id TEXT NOT NULL,
+      PRIMARY KEY(room_id, agent_name)
+    )`);
+    options.database.connection().exec(`CREATE TABLE IF NOT EXISTS managed_worktree_bindings (
+      invocation_id TEXT PRIMARY KEY, worktree_id TEXT NOT NULL
+    )`);
+    options.database.connection().exec(`CREATE TABLE IF NOT EXISTS managed_worktree_notices (
+      worktree_id TEXT PRIMARY KEY, head_commit TEXT NOT NULL
+    ); CREATE TABLE IF NOT EXISTS managed_worktree_cleanup (
+      id TEXT PRIMARY KEY, record TEXT NOT NULL
+    ); CREATE TABLE IF NOT EXISTS managed_worktree_preferences (
+      room_id TEXT PRIMARY KEY, auto_cleanup INTEGER NOT NULL DEFAULT 0
+    )`);
+  }
+
+  allRecords(): ManagedWorktree[] {
+    return (
+      this.options.database
+        .connection()
+        .prepare("SELECT record FROM managed_worktrees ORDER BY rowid")
+        .all() as Array<{ record: string }>
+    ).map((row) => managedWorktreeSchema.parse(JSON.parse(row.record)));
+  }
+
+  autoCleanup(roomId: string): boolean {
+    return Boolean(
+      (
+        this.options.database
+          .connection()
+          .prepare("SELECT auto_cleanup FROM managed_worktree_preferences WHERE room_id = ?")
+          .get(roomId) as { auto_cleanup: number } | undefined
+      )?.auto_cleanup,
+    );
+  }
+
+  setAutoCleanup(roomId: string, enabled: boolean): void {
+    this.options.database
+      .connection()
+      .prepare(
+        "INSERT INTO managed_worktree_preferences (room_id, auto_cleanup) VALUES (?, ?) ON CONFLICT(room_id) DO UPDATE SET auto_cleanup = excluded.auto_cleanup",
+      )
+      .run(roomId, enabled ? 1 : 0);
+    for (const batch of this.roomBatches(roomId)) {
+      if (enabled && batch.state === "available") {
+        batch.automatic = true;
+        batch.state = "queued";
+        this.saveBatch(batch);
+      } else if (!enabled && batch.automatic && batch.state === "queued") {
+        batch.automatic = false;
+        batch.state = "available";
+        this.saveBatch(batch);
+      }
+    }
+  }
+
+  cleanupBatch(id: string): WorktreeCleanupBatch | undefined {
+    const row = this.options.database
+      .connection()
+      .prepare("SELECT record FROM managed_worktree_cleanup WHERE id = ?")
+      .get(id) as { record: string } | undefined;
+    return row ? (JSON.parse(row.record) as WorktreeCleanupBatch) : undefined;
+  }
+
+  roomBatches(roomId: string): WorktreeCleanupBatch[] {
+    return (
+      this.options.database
+        .connection()
+        .prepare("SELECT record FROM managed_worktree_cleanup ORDER BY rowid DESC")
+        .all() as Array<{ record: string }>
+    )
+      .map((row) => JSON.parse(row.record) as WorktreeCleanupBatch)
+      .filter((batch) => batch.roomId === roomId && batch.state !== "completed");
+  }
+
+  private saveBatch(batch: WorktreeCleanupBatch): void {
+    this.options.database
+      .connection()
+      .prepare(
+        "INSERT INTO managed_worktree_cleanup (id, record) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET record = excluded.record",
+      )
+      .run(batch.id, JSON.stringify(batch));
+  }
+
+  requestCleanup(id: string, ownerName: string): boolean {
+    const batch = this.cleanupBatch(id);
+    if (!batch || batch.ownerName !== ownerName) return false;
+    if (batch.state !== "available") return true;
+    batch.state = "queued";
+    this.saveBatch(batch);
+    return true;
+  }
+
+  scan(): Promise<void> {
+    if (this.closed) return Promise.resolve();
+    if (this.scanning) return this.scanning;
+    this.scanning = this.scanInner().finally(() => {
+      this.scanning = undefined;
+    });
+    return this.scanning;
+  }
+
+  private async scanInner(): Promise<void> {
+    const groups = new Map<string, WorktreeCleanupBatch>();
+    for (const record of this.allRecords()) {
+      if (this.closed) return;
+      const status = await this.status(record);
+      if (!status.removable || !status.headCommit) continue;
+      const notice = this.options.database
+        .connection()
+        .prepare("SELECT head_commit FROM managed_worktree_notices WHERE worktree_id = ?")
+        .get(record.id) as { head_commit: string } | undefined;
+      if (notice?.head_commit === status.headCommit) continue;
+      const key = `${record.roomId}\0${record.ownerName}`;
+      const automatic = this.autoCleanup(record.roomId);
+      const batch = groups.get(key) ?? {
+        id: randomUUID(),
+        roomId: record.roomId,
+        ownerName: record.ownerName,
+        automatic,
+        state: automatic ? ("queued" as const) : ("available" as const),
+        items: [],
+      };
+      batch.items.push({
+        id: record.id,
+        repo: record.repo,
+        path: record.path,
+        branch: record.branch,
+        headCommit: status.headCommit,
+      });
+      groups.set(key, batch);
+    }
+    for (const batch of groups.values()) {
+      if (this.closed) return;
+      this.options.database.connection().transaction(() => {
+        this.saveBatch(batch);
+        const statement = this.options.database
+          .connection()
+          .prepare(
+            "INSERT INTO managed_worktree_notices (worktree_id, head_commit) VALUES (?, ?) ON CONFLICT(worktree_id) DO UPDATE SET head_commit = excluded.head_commit",
+          );
+        for (const item of batch.items) statement.run(item.id, item.headCommit);
+      })();
+      if (!batch.automatic) this.options.onCleanup?.(batch);
+    }
+    const pending = this.options.database
+      .connection()
+      .prepare("SELECT record FROM managed_worktree_cleanup")
+      .all() as Array<{ record: string }>;
+    for (const row of pending) {
+      if (this.closed) return;
+      const batch = JSON.parse(row.record) as WorktreeCleanupBatch;
+      if (!["queued", "running"].includes(batch.state)) continue;
+      batch.state = "running";
+      this.saveBatch(batch);
+      batch.results ??= [];
+      for (const item of batch.items) {
+        if (this.closed) return;
+        if (batch.automatic && !this.autoCleanup(batch.roomId)) {
+          batch.automatic = false;
+          batch.state = "available";
+          this.saveBatch(batch);
+          break;
+        }
+        if (batch.results.some((result) => result.path === item.path)) continue;
+        try {
+          const result = await this.remove(item.repo, {
+            path: item.path,
+            expectedCommit: item.headCommit,
+          });
+          batch.results.push({
+            path: item.path,
+            removed: true,
+            branchDeleted: result.branchDeleted,
+            ...(result.branchError ? { error: result.branchError } : {}),
+          });
+        } catch (error) {
+          batch.results.push({
+            path: item.path,
+            removed: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        this.saveBatch(batch);
+      }
+      if (batch.state === "available") continue;
+      batch.state = "completed";
+      this.saveBatch(batch);
+      this.options.onCleanup?.(batch);
+    }
+  }
+
+  async close(): Promise<void> {
+    this.closed = true;
+    await this.scanning;
   }
 
   records(repo: string): ManagedWorktree[] {
@@ -210,6 +418,65 @@ export class WorktreeManager {
       .connection()
       .prepare("UPDATE managed_worktrees SET record = ? WHERE id = ?")
       .run(JSON.stringify(record), record.id);
+  }
+
+  private focus(record: ManagedWorktree): void {
+    this.options.database
+      .connection()
+      .prepare(
+        `INSERT INTO managed_worktree_focus (room_id, agent_name, worktree_id) VALUES (?, ?, ?)
+         ON CONFLICT(room_id, agent_name) DO UPDATE SET worktree_id = excluded.worktree_id`,
+      )
+      .run(record.roomId, record.agentName, record.id);
+  }
+
+  private bind(record: ManagedWorktree, invocationIds: string[]): void {
+    const statement = this.options.database.connection().prepare(
+      `INSERT INTO managed_worktree_bindings (invocation_id, worktree_id) VALUES (?, ?)
+       ON CONFLICT(invocation_id) DO UPDATE SET worktree_id = excluded.worktree_id`,
+    );
+    for (const id of invocationIds) statement.run(id, record.id);
+  }
+
+  async runtimeWorkspace(
+    workspace: string,
+    actor: Participant,
+    ownerName: string,
+    invocationId: string,
+  ): Promise<ManagedWorktree | undefined> {
+    const binding = this.options.database
+      .connection()
+      .prepare("SELECT worktree_id FROM managed_worktree_bindings WHERE invocation_id = ?")
+      .get(invocationId) as { worktree_id: string } | undefined;
+    const focus =
+      binding ??
+      (this.options.database
+        .connection()
+        .prepare(
+          "SELECT worktree_id FROM managed_worktree_focus WHERE room_id = ? AND agent_name = ?",
+        )
+        .get(actor.roomId, actor.username) as { worktree_id: string } | undefined);
+    if (!focus) return undefined;
+    const repository = await worktreeRepository(workspace);
+    return this.serial(repository.repo, async () => {
+      const record = this.records(repository.repo).find((item) => item.id === focus.worktree_id);
+      if (!record) return undefined;
+      if (
+        record.ownerName !== ownerName ||
+        record.agentName !== actor.username ||
+        record.roomId !== actor.roomId ||
+        record.phase !== "ready"
+      )
+        throw new HiveError(
+          "WORKTREE_UNSAFE",
+          serverText("error.worktree.unsafe", { path: record.path }),
+        );
+      await this.identity(record);
+      record.invocationIds = [...new Set([...record.invocationIds, invocationId])];
+      this.save(record);
+      this.bind(record, [invocationId]);
+      return record;
+    });
   }
 
   private async serial<Result>(repo: string, operation: () => Promise<Result>): Promise<Result> {
@@ -262,6 +529,8 @@ export class WorktreeManager {
           claim: { repo: existing.repo, branch: existing.branch },
         });
         this.save(existing);
+        this.focus(existing);
+        this.bind(existing, invocationIds);
         if (board.changed) this.options.onBoardChanged?.(actor.roomId);
         return { worktree: existing, reused: true };
       }
@@ -358,6 +627,8 @@ export class WorktreeManager {
         ]);
         await this.identity(record);
         record.phase = "ready";
+        this.focus(record);
+        this.bind(record, invocationIds);
         this.save(record);
         return { worktree: record, reused: false };
       } catch (error) {
@@ -478,6 +749,7 @@ export class WorktreeManager {
         dirty,
         untracked,
         ignored,
+        headCommit: await commit(record.repo, `refs/heads/${record.branch}`),
         ...merged,
         activeInvocationIds,
         removable:
@@ -509,7 +781,7 @@ export class WorktreeManager {
 
   async remove(
     workspace: string,
-    input: { path: string; deleteBranch?: boolean },
+    input: { path: string; deleteBranch?: boolean; expectedCommit?: string },
   ): Promise<{ removed: true; branchDeleted: boolean; branchError?: string }> {
     const repository = await worktreeRepository(workspace);
     return this.serial(repository.repo, async () => {
@@ -526,6 +798,11 @@ export class WorktreeManager {
           serverText("error.worktree.unsafe", { path: input.path }),
         );
       const tip = await commit(record.repo, `refs/heads/${record.branch}`);
+      if (input.expectedCommit && tip !== input.expectedCommit)
+        throw new HiveError(
+          "WORKTREE_UNSAFE",
+          serverText("error.worktree.unsafe", { path: record.path }),
+        );
       record.phase = "removing";
       this.save(record);
       try {
@@ -554,13 +831,24 @@ export class WorktreeManager {
           } else {
             const deletion = await worktreeGit(record.repo, ["branch", "-d", "--", record.branch]);
             branchDeleted = deletion.code === 0;
-            if (!branchDeleted) branchError = deletion.stderr.trim();
+            if (!branchDeleted)
+              branchError = zhText(
+                serverText("error.worktree.branchRetained", { branch: record.branch }),
+              );
           }
         } catch (error) {
           branchError = error instanceof Error ? error.message : String(error);
         }
       }
       this.options.database.connection().transaction(() => {
+        this.options.database
+          .connection()
+          .prepare("DELETE FROM managed_worktree_focus WHERE worktree_id = ?")
+          .run(record.id);
+        this.options.database
+          .connection()
+          .prepare("DELETE FROM managed_worktree_bindings WHERE worktree_id = ?")
+          .run(record.id);
         this.options.database
           .connection()
           .prepare("DELETE FROM managed_worktrees WHERE id = ?")

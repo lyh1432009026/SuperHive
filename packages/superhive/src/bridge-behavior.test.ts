@@ -75,6 +75,10 @@ class FakeRoom {
 
   start() {}
   stop() {}
+  sessions: Array<{ sessionId: string; cwd: string }> = [];
+  reportSession(sessionId: string, cwd: string) {
+    this.sessions.push({ sessionId, cwd });
+  }
   typing: boolean[] = [];
   setTyping(active: boolean) {
     this.typing.push(active);
@@ -135,6 +139,7 @@ class FakeRoom {
 
 /** 可控的 Responder：每次 reply 都挂起，由测试决定何时完成或失败 */
 class ControlledResponder implements AgentResponder {
+  async close() {}
   calls: AgentReplyInput[] = [];
   steered: string[] = [];
   steerResult = true;
@@ -199,6 +204,7 @@ describe("AgentBridge", () => {
 
   /** 本机 Hive Server 写给 Agent 的设置文件（模型、备用模型） */
   let settingsFile: string | undefined;
+  let taskWorkspace: ConstructorParameters<typeof AgentBridge>[0]["taskWorkspace"];
 
   async function startBridge(
     state?: AgentState,
@@ -213,6 +219,7 @@ describe("AgentBridge", () => {
         provider: "codex",
         token: "t",
         ...(settingsFile ? { settingsFile } : {}),
+        ...(taskWorkspace ? { taskWorkspace, cwd: directory, access: "workspace" as const } : {}),
         tuning: {
           batchWindowMs: 20,
           offlineRetryIntervalMs: 5,
@@ -276,12 +283,106 @@ describe("AgentBridge", () => {
     room = new FakeRoom();
     responder = new ControlledResponder();
     settingsFile = undefined;
+    taskWorkspace = undefined;
   });
 
   afterEach(async () => {
     await bridge?.stop();
     vi.useRealTimers();
     await rm(directory, { recursive: true, force: true });
+  });
+
+  it("hands off only after the setup turn ends, with a new cwd, session and full context", async () => {
+    const checkout = path.join(directory, "checkout");
+    const isolated = new ControlledResponder();
+    let selected: string | undefined = undefined;
+    const close = vi.fn(async () => undefined);
+    responder.close = close;
+    const factory = vi.fn(() => isolated);
+    taskWorkspace = { resolve: async () => selected, responder: factory };
+    await startBridge({ ...baseState(), workspace: directory, threadId: "old-thread" });
+    const message = chat();
+    room.messages.push(message);
+    room.handlers.onMention(message, message.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    expect(responder.calls[0]?.threadId).toBe("old-thread");
+    selected = checkout;
+    expect(close).not.toHaveBeenCalled();
+    responder.finish("Created checkout; no files edited", "old-thread");
+    await waitUntil(() => isolated.calls.length === 1);
+    expect(close).toHaveBeenCalledOnce();
+    expect(factory).toHaveBeenCalledWith(checkout);
+    expect(isolated.calls[0]?.threadId).toBeUndefined();
+    expect(isolated.calls[0]?.instructions).toContain(checkout);
+    expect(isolated.calls[0]?.prompt).toContain("Created checkout; no files edited");
+    expect(isolated.calls[0]?.prompt).toContain("不要重放原任务");
+    expect(room.sent).toHaveLength(0);
+    isolated.finish("Finished in isolated checkout", "isolated-thread");
+    await waitUntil(() => room.statuses(message.id).includes("completed"));
+    expect(room.sent.map((item) => item.content)).toEqual(["Finished in isolated checkout"]);
+    expect(await store.load()).toMatchObject({ workspace: checkout, threadId: "isolated-thread" });
+    const followup = chat({ content: "@agent-a review fixes" });
+    room.messages.push(followup);
+    room.handlers.onMention(followup, followup.seq, false);
+    await waitUntil(() => isolated.calls.length === 2);
+    expect(isolated.calls[1]?.threadId).toBe("isolated-thread");
+    isolated.finish();
+    await waitUntil(() => room.statuses(followup.id).includes("completed"));
+  });
+
+  it("does not automatically continue a directory handoff after other side effects", async () => {
+    const isolated = new ControlledResponder();
+    let selected: string | undefined = undefined;
+    taskWorkspace = { resolve: async () => selected, responder: () => isolated };
+    await startBridge(baseState());
+    const message = chat();
+    room.messages.push(message);
+    room.handlers.onMention(message, message.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    responder.calls[0]?.onTrace?.({
+      id: "write",
+      kind: "tool",
+      tool: "write",
+      summary: "write original checkout",
+      startedAt: new Date().toISOString(),
+    });
+    selected = path.join(directory, "checkout");
+    responder.finish("Original checkout changed; worktree prepared");
+    await waitUntil(() => room.statuses(message.id).includes("failed"));
+    expect(isolated.calls).toHaveLength(0);
+    expect(room.reports.find((report) => report.status === "failed")?.detail).toContain(
+      "未自动续跑",
+    );
+    expect(await store.load()).toMatchObject({ workspace: selected });
+  });
+
+  it("refuses to run when the managed workspace cannot be verified", async () => {
+    taskWorkspace = {
+      resolve: async () => {
+        throw new AgentNonRetryableError("checkout identity changed");
+      },
+      responder: () => responder,
+    };
+    await startBridge(baseState());
+    const message = chat();
+    room.messages.push(message);
+    room.handlers.onMention(message, message.seq, false);
+    await waitUntil(() => room.statuses(message.id).includes("failed"));
+    expect(responder.calls).toHaveLength(0);
+  });
+
+  it("drops an old directory's thread when a saved task starts in another checkout", async () => {
+    const isolated = new ControlledResponder();
+    const checkout = path.join(directory, "checkout");
+    taskWorkspace = { resolve: async () => checkout, responder: () => isolated };
+    await startBridge({ ...baseState(), workspace: directory, threadId: "old-thread" });
+    const message = chat();
+    room.messages.push(message);
+    room.handlers.onMention(message, message.seq, false);
+    await waitUntil(() => isolated.calls.length === 1);
+    expect(isolated.calls[0]?.threadId).toBeUndefined();
+    isolated.finish();
+    await waitUntil(() => room.statuses(message.id).includes("completed"));
   });
 
   it("reports the full lifecycle and writes the execution intent before calling the provider", async () => {

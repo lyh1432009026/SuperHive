@@ -15,6 +15,7 @@ import type {
 } from "@superhive/protocol";
 import { renderServerText, serverText, zhText } from "@superhive/protocol";
 import { HiveError, type CreateMessageInput } from "../database.js";
+import type { WorktreeCleanupBatch } from "../worktrees.js";
 import {
   publicConnection,
   type ImStore,
@@ -48,6 +49,7 @@ import {
 } from "./types.js";
 
 export type ImHubDeps = {
+  requestWorktreeCleanup?: (batchId: string, ownerName: string) => boolean;
   store: ImStore;
   drivers: Partial<Record<ImChannel, ImChannelDriver>>;
   getRoom(
@@ -1090,6 +1092,13 @@ export class ImHub {
           return;
         }
         return say(help);
+      case "/worktree": {
+        const accepted =
+          args[0] === "clean" &&
+          Boolean(args[1]) &&
+          this.deps.requestWorktreeCleanup?.(args[1]!, connection.ownerName);
+        return say(this.t(connection, accepted ? "im.worktree.queued" : "im.worktree.unavailable"));
+      }
       case "/status":
         return say(
           this.t(connection, "im.command.status", {
@@ -2221,6 +2230,16 @@ export class ImHub {
       };
     }
     const op = action.value.do;
+    if (op === "worktree_cleanup") {
+      const accepted =
+        this.deps.requestWorktreeCleanup?.(action.value.batch ?? "", connection.ownerName) ?? false;
+      const text = t(accepted ? "im.worktree.queued" : "im.worktree.unavailable");
+      const delivery = this.deps.store.deliveryByExternal(connection.id, action.externalId);
+      return {
+        toast: { type: accepted ? "info" : "error", text },
+        ...(delivery?.rich ? { rich: { ...delivery.rich, resolved: { text, ok: accepted } } } : {}),
+      };
+    }
     if (op === "goto") return this.gotoFromCard(connection, action);
     if (op === "answer" || op === "answer_form") return this.answerFromCard(scoped, owner, action);
     if (op === "retry" || op === "dismiss" || op === "continue") {
@@ -2747,6 +2766,57 @@ export class ImHub {
       seen.add(key);
       return true;
     });
+  }
+
+  notifyWorktreeCleanup(batch: WorktreeCleanupBatch): void {
+    for (const connection of this.ownerConnections(
+      (item) => item.ownerName === batch.ownerName && Boolean(this.ownerOf(item)),
+    )) {
+      const t = (key: ImTextKey, params?: ImTextParams) => this.t(connection, key, params);
+      const complete = batch.state === "completed";
+      const count = complete
+        ? (batch.results ?? []).filter((item) => item.removed).length
+        : batch.items.length;
+      const title = t(complete ? "im.worktree.completed" : "im.worktree.ready", { count });
+      const body = complete
+        ? (batch.results ?? [])
+            .map(
+              (item) =>
+                `${item.path}: ${item.removed ? t("im.worktree.removed") : t("im.worktree.retained")}${item.error ? ` — ${item.error}` : ""}`,
+            )
+            .join("\n")
+        : batch.items.map((item) => `${item.branch}\n${item.path}`).join("\n\n");
+      const rich: ImRich = {
+        title,
+        tone: "reply",
+        body,
+        summary: title,
+        note: t("im.worktree.safety"),
+        ...(!complete && this.cardsEnabled(connection)
+          ? {
+              actions: [
+                {
+                  label: t("im.worktree.cleanAll"),
+                  value: { do: "worktree_cleanup", batch: batch.id },
+                  style: "primary" as const,
+                },
+              ],
+            }
+          : {}),
+      };
+      const url =
+        this.deps.loginUrl?.(connection.id, batch.roomId) ?? this.deps.webUrl(batch.roomId);
+      if (url) rich.link = { label: t("im.worktree.open"), url };
+      const text = `${title}\n\n${body}\n\n${t("im.worktree.safety")}${!complete && !this.cardsEnabled(connection) ? `\n${t("im.worktree.command", { batch: batch.id })}` : ""}`;
+      this.deps.store.enqueue({
+        connectionId: connection.id,
+        eventKey: `worktree:${batch.id}:${batch.state}`,
+        chatId: `${USER_TARGET}${connection.ownerActorId}`,
+        text,
+        rich,
+      });
+    }
+    this.schedulePump();
   }
 
   /** 推一条文字到房主私聊（安全提醒等，不挂在任何房间消息上）；按每个连接的语言渲染 */

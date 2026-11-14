@@ -284,6 +284,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   });
   const connections = new Set<Connection>();
   const onlineByName = new Map<string, Set<Connection>>();
+  const worktreeRuntimeAgents = new Set<string>();
   const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 45_000;
   let shuttingDown = false;
 
@@ -398,6 +399,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     namedConnections?.delete(connection);
     if (namedConnections?.size) return;
     onlineByName.delete(key);
+    worktreeRuntimeAgents.delete(participant.id);
     if (shuttingDown) return;
     setStatus(connection, "offline");
   }
@@ -481,6 +483,68 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   }
 
   registerLocalAgentRoutes(app, localAgents, {
+    worktrees: {
+      list: async (roomId) => {
+        const workspace = database.getRoom(roomId)?.workspace;
+        if (!workspace) return { worktrees: [], autoCleanup: false };
+        const batches = worktrees.roomBatches(roomId);
+        return {
+          worktrees: (await worktrees.list(workspace)).filter(
+            (item) => item.worktree.roomId === roomId,
+          ),
+          autoCleanup: worktrees.autoCleanup(roomId),
+          cleanupBatch: batches[0] ? { id: batches[0].id, count: batches[0].items.length } : null,
+        };
+      },
+      cleanup: async (roomId, input) => {
+        const workspace = database.getRoom(roomId)?.workspace;
+        if (!workspace) throw new HiveError("ROOM_NOT_FOUND", serverText("error.room.notFound"));
+        const results = [];
+        for (const selection of input.items) {
+          const record = worktrees
+            .allRecords()
+            .find((item) => item.id === selection.id && item.roomId === roomId);
+          if (!record) {
+            results.push({
+              id: selection.id,
+              removed: false,
+              error: "Registered worktree no longer exists in this room",
+            });
+            continue;
+          }
+          try {
+            const result = await worktrees.remove(workspace, {
+              path: record.path,
+              expectedCommit: selection.headCommit,
+              deleteBranch: input.deleteBranch,
+            });
+            results.push({ id: selection.id, ...result });
+          } catch (error) {
+            results.push({
+              id: selection.id,
+              removed: false,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+        return { results };
+      },
+      configure: (roomId, enabled) => {
+        if (!database.getRoom(roomId))
+          throw new HiveError("ROOM_NOT_FOUND", serverText("error.room.notFound"));
+        worktrees.setAutoCleanup(roomId, enabled);
+      },
+      request: (roomId, batchId) => {
+        const batch = worktrees.cleanupBatch(batchId);
+        if (!batch || batch.roomId !== roomId) return false;
+        const accepted = worktrees.requestCleanup(batch.id, batch.ownerName);
+        if (accepted)
+          void worktrees
+            .scan()
+            .catch((error) => app.log.warn({ err: error }, "worktree cleanup failed"));
+        return accepted;
+      },
+    },
     clearRoom,
     ...(options.openTerminal ? { openTerminal: options.openTerminal } : {}),
     agentSession: (roomId, agentName) => {
@@ -2001,6 +2065,28 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   const worktrees = new WorktreeManager({
     database,
+    onCleanup: (batch) => {
+      for (const connection of connections) {
+        const person = connection.participant;
+        if (
+          person?.type === "human" &&
+          person.username === batch.ownerName &&
+          !guestSessionOf(person)
+        )
+          send(connection.socket, {
+            type: "worktree.cleanup",
+            roomId: batch.roomId,
+            batchId: batch.id,
+            count:
+              batch.state === "completed"
+                ? (batch.results ?? []).filter((item) => item.removed).length
+                : batch.items.length,
+            state: batch.state === "completed" ? "completed" : "available",
+            automatic: batch.automatic,
+          });
+      }
+      imHub.notifyWorktreeCleanup(batch);
+    },
     activeInvocations: (record) => {
       const active = new Set<string>();
       for (const id of record.invocationIds) {
@@ -3082,6 +3168,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   /* ---------- 外部 IM：房主扫码把飞书 / 个人微信接进房间 ---------- */
 
   const imHub = new ImHub({
+    requestWorktreeCleanup: (batchId, ownerName) => {
+      const accepted = worktrees.requestCleanup(batchId, ownerName);
+      if (accepted)
+        void worktrees
+          .scan()
+          .catch((error) => app.log.warn({ err: error }, "worktree cleanup failed"));
+      return accepted;
+    },
     store: imStore,
     drivers: options.imDrivers ?? {},
     getRoom: (roomId) => database.getRoom(roomId),
@@ -4107,6 +4201,51 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     return { path: result.item.filePath, sha256: result.item.sha256 };
   });
 
+  app.get<{ Querystring: { messageId?: string } }>(
+    "/api/agent/worktree",
+    async (request, reply) => {
+      const participant = connectedMcpAgent(request);
+      if (!participant) return reply.code(401).send({ error: "Online local agent required" });
+      try {
+        const configured = localAgents?.list().find((item) => item.name === participant.username);
+        if (
+          !isLocal(request.raw).local ||
+          guestSessionOf(participant) ||
+          !configured ||
+          configured.access === "read-only"
+        )
+          return reply.code(403).send({ error: "Writable local agent required" });
+        const messageId = z.string().uuid().parse(request.query.messageId);
+        const invocation = database.getInvocationFor(messageId, participant.id);
+        if (
+          !invocation ||
+          invocation.resolution ||
+          !["queued", "running"].includes(invocation.status)
+        )
+          return reply.code(409).send({ error: "An active task is required" });
+        const root = [invocation, ...database.invocationAncestors(invocation.id)].find(
+          (item) => item.requesterType === "human",
+        );
+        const owner = root?.requesterId ? database.getParticipant(root.requesterId) : undefined;
+        if (!owner || guestSessionOf(owner)) return { worktree: null };
+        worktreeRuntimeAgents.add(participant.id);
+        const workspace = database.getRoom(participant.roomId)?.workspace;
+        if (!workspace) return { worktree: null };
+        const worktree = await worktrees.runtimeWorkspace(
+          workspace,
+          participant,
+          owner.username,
+          invocation.id,
+        );
+        return { worktree: worktree ?? null };
+      } catch (error) {
+        return reply
+          .code(403)
+          .send({ error: error instanceof Error ? error.message : String(error) });
+      }
+    },
+  );
+
   app.post("/mcp", async (request, reply) => {
     const participant = connectedMcpAgent(request);
     if (!participant) {
@@ -4188,6 +4327,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       createWorktree: async (input) => {
         const workspace = localWorktreeAgent(participant, isLocal(request.raw).local, true);
         const { requester } = ownerTask(participant, serverText("action.worktree"));
+        const handoff = worktreeRuntimeAgents.has(participant.id);
+        if (
+          !handoff &&
+          localAgents!.list().find((item) => item.name === participant.username)!.access ===
+            "workspace"
+        )
+          throw new HiveError(
+            "WORKTREE_RUNTIME_REQUIRED",
+            serverText("error.worktree.runtimeRequired"),
+          );
         const ids = database.listExecutingInvocations(participant.id).map((item) => item.id);
         const created = await worktrees.create(
           workspace,
@@ -4198,9 +4347,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         );
         return {
           ...created,
-          requiresWorkspaceApproval:
-            localAgents!.list().find((item) => item.name === participant.username)!.access ===
-            "workspace",
+          requiresWorkspaceApproval: false,
+          runtimeHandoff: handoff
+            ? "Finish this setup turn without editing files. The managed local Bridge will close this runtime and continue in a new session whose cwd is this exact checkout, retaining your existing access mode. Workspace mode does not grant the -wt parent or sibling checkouts. Do not cd the existing session into a different checkout."
+            : "This Bridge does not support automatic directory handoff. Full-access agents must explicitly execute commands in the returned path; do not move an old session to another checkout.",
         };
       },
       listWorktrees: () =>
@@ -5064,6 +5214,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   );
   heartbeatTimer.unref();
   const invocationTimer = setInterval(sweepStaleInvocations, options.invocationSweepMs ?? 30_000);
+  const worktreeTimer = setInterval(() => {
+    void worktrees
+      .scan()
+      .catch((error) => app.log.warn({ err: error }, "worktree cleanup scan failed"));
+  }, 30_000);
+  worktreeTimer.unref();
+  app.decorate("runWorktreeCleanup", () => worktrees.scan());
   // 分支是在工作区里切的（Agent 或人在终端里切），没有事件可听：隔一会儿读一下 HEAD
   const branchTimer = setInterval(() => {
     try {
@@ -5111,6 +5268,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   app.addHook("onClose", async () => {
     shuttingDown = true;
+    clearInterval(worktreeTimer);
+    await worktrees.close();
     keepAwake?.close();
     // 换代重启：本机 Agent 交给下一个 Server 接管，正在跑的任务不中断；否则先让它们正常离线
     if (localAgents && consumeHandover(options.handoverFile)) {

@@ -4,6 +4,9 @@
  * （bridge-text.test.ts 核对）；英文只在那边维护。这个包不依赖 protocol，所以这里只放中文。
  */
 export const BRIDGE_TEXTS = {
+  "bridge.worktreeCheckBeforeContinue":
+    "已绑定目录 {path}，但本轮已有其它副作用；未自动续跑，请核对原目录的操作后再继续",
+  "bridge.worktreeHandoff": "已切到独立目录 {path}，开新会话继续；旧会话不迁移",
   "bridge.crashedMidTurn":
     "Agent 在处理途中意外退出，结果未知；未自动重跑，需先核对原执行与工具进程。",
   "bridge.beyondCatchUp": "Agent 首次加入时这条提及已超出补拉范围，未处理；可手动重试。",

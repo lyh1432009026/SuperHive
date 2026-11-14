@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ManagedWorktree, Participant } from "@superhive/protocol";
 import { HiveDatabase } from "./database.js";
 import { WorktreeManager, worktreeGit, worktreeRepository } from "./worktrees.js";
@@ -74,6 +74,99 @@ describe("managed worktrees", () => {
     });
     const other = new WorktreeManager({ database, activeInvocations: () => [] });
     expect((await other.list(repo))[0]?.worktree.id).toBe(first.worktree.id);
+  });
+
+  it("persists exact task bindings across focus changes and releases them on removal", async () => {
+    const firstId = randomUUID();
+    const secondId = randomUUID();
+    const first = await manager.create(repo, agent, "Alice", [firstId], { slug: "one" });
+    const second = await manager.create(repo, agent, "Alice", [secondId], { slug: "two" });
+    expect((await manager.runtimeWorkspace(repo, agent, "Alice", firstId))?.id).toBe(
+      first.worktree.id,
+    );
+    const followupId = randomUUID();
+    expect((await manager.runtimeWorkspace(repo, agent, "Alice", followupId))?.id).toBe(
+      second.worktree.id,
+    );
+    await expect(manager.runtimeWorkspace(repo, agent, "Guest", secondId)).rejects.toThrow();
+    await manager.remove(repo, { path: second.worktree.path });
+    expect(await manager.runtimeWorkspace(repo, agent, "Alice", followupId)).toBeUndefined();
+    const recreated = new WorktreeManager({ database, activeInvocations: () => [] });
+    expect((await recreated.runtimeWorkspace(repo, agent, "Alice", firstId))?.id).toBe(
+      first.worktree.id,
+    );
+  });
+
+  it("does not require a Git workspace when there is no managed task binding", async () => {
+    expect(await manager.runtimeWorkspace(root, agent, "Alice", randomUUID())).toBeUndefined();
+  });
+
+  it("batches merged clean worktrees, reminds only once and rechecks before confirmed cleanup", async () => {
+    const notify = vi.fn();
+    manager = new WorktreeManager({ database, activeInvocations: () => active, onCleanup: notify });
+    const first = await manager.create(repo, agent, "Alice", [randomUUID()], { slug: "one" });
+    const second = await manager.create(repo, agent, "Alice", [randomUUID()], { slug: "two" });
+    await change(first.worktree);
+    await change(second.worktree, "second.txt");
+    await git(repo, "merge", "--no-edit", first.worktree.branch);
+    await git(repo, "merge", "--no-edit", second.worktree.branch);
+    await manager.scan();
+    expect(manager.autoCleanup("general")).toBe(false);
+    expect(notify).toHaveBeenCalledOnce();
+    const batch = notify.mock.calls[0]![0];
+    expect(batch).toMatchObject({ state: "available", automatic: false, ownerName: "Alice" });
+    expect(batch.items).toHaveLength(2);
+    await manager.scan();
+    expect(notify).toHaveBeenCalledOnce();
+    expect(existsSync(first.worktree.path)).toBe(true);
+    expect(manager.requestCleanup(batch.id, "Guest")).toBe(false);
+    expect(manager.requestCleanup(batch.id, "Alice")).toBe(true);
+    await manager.scan();
+    expect(notify).toHaveBeenCalledTimes(2);
+    expect(notify.mock.calls[1]![0]).toMatchObject({
+      state: "completed",
+      results: [{ removed: true }, { removed: true }],
+    });
+    expect(existsSync(first.worktree.path)).toBe(false);
+    expect(existsSync(second.worktree.path)).toBe(false);
+  }, 15_000);
+
+  it("retains a worktree if a cleanup batch becomes stale or a task starts", async () => {
+    const notify = vi.fn();
+    manager = new WorktreeManager({ database, activeInvocations: () => active, onCleanup: notify });
+    const { worktree } = await create();
+    await manager.scan();
+    const batch = notify.mock.calls[0]![0];
+    await change(worktree);
+    await git(repo, "merge", "--ff-only", worktree.branch);
+    manager.requestCleanup(batch.id, "Alice");
+    await manager.scan();
+    expect(existsSync(worktree.path)).toBe(true);
+    expect(manager.cleanupBatch(batch.id)?.results).toMatchObject([{ removed: false }]);
+    const next = notify.mock.calls.find(
+      (call) => call[0].state === "available" && call[0].id !== batch.id,
+    )![0];
+    active = [randomUUID()];
+    manager.requestCleanup(next.id, "Alice");
+    await manager.scan();
+    expect(manager.cleanupBatch(next.id)?.results).toMatchObject([{ removed: false }]);
+    expect(existsSync(worktree.path)).toBe(true);
+  });
+
+  it("only automatically cleans after explicit opt-in and never deletes ignored files", async () => {
+    const notify = vi.fn();
+    manager = new WorktreeManager({ database, activeInvocations: () => active, onCleanup: notify });
+    const { worktree } = await create();
+    manager.setAutoCleanup("general", true);
+    writeFileSync(path.join(worktree.path, "ignored"), "private data");
+    await manager.scan();
+    expect(notify).not.toHaveBeenCalled();
+    expect(existsSync(worktree.path)).toBe(true);
+    rmSync(path.join(worktree.path, "ignored"));
+    await manager.scan();
+    expect(existsSync(worktree.path)).toBe(false);
+    expect(notify).toHaveBeenCalledOnce();
+    expect(notify.mock.calls[0]![0]).toMatchObject({ automatic: true, state: "completed" });
   });
 
   it("resolves the same repository from a linked checkout or symlink", async () => {
@@ -206,7 +299,7 @@ describe("managed worktrees", () => {
     expect(await manager.remove(repo, { path: worktree.path })).toMatchObject({
       removed: true,
       branchDeleted: false,
-      branchError: expect.any(String),
+      branchError: expect.stringContaining("已保留"),
     });
     expect(existsSync(worktree.path)).toBe(false);
     expect(await git(repo, "rev-parse", worktree.branch)).toBeTruthy();

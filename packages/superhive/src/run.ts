@@ -5,6 +5,7 @@ import { superhiveHome } from "./home-dir.js";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { AgentBridge } from "./bridge.js";
+import { resolveTaskWorkspace } from "./task-workspace.js";
 import { AgentManager, type StackHooks } from "./agent-manager.js";
 import { ClaudeCodeResponder } from "./claude-client.js";
 import { CodexResponder, type CodexTransport } from "./codex-responder.js";
@@ -397,6 +398,18 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
         ...(hooks?.onArchived ? { onArchived: hooks.onArchived } : {}),
         ...(process.env.HIVE_SUPERVISOR_PID ? { onShutdown: () => shutdownOnRequest() } : {}),
         ...(settingsFile ? { settingsFile } : {}),
+        ...(settingsFile &&
+        process.env.HIVE_SUPERVISOR_PID &&
+        parsed.values["trust-room-workspace"] === true &&
+        access !== "read-only"
+          ? {
+              taskWorkspace: {
+                resolve: (messageId: string) => resolveTaskWorkspace(hive, messageId),
+                responder: (directory: string) => buildResponder(hive, directory),
+              },
+              tuning: { maxBatchSize: 1 },
+            }
+          : {}),
       },
       store,
       buildResponder(hive, workspace.cwd),

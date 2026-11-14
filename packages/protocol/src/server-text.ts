@@ -440,6 +440,22 @@ export const serverTexts = {
     zh: "这次用 {model} 重试",
     en: "Retrying with {model}",
   },
+  "bridge.worktreeHandoff": {
+    zh: "已切到独立目录 {path}，开新会话继续；旧会话不迁移",
+    en: "Continuing in a new session in isolated workspace {path}; the old session is not moved",
+  },
+  "bridge.worktreeCheckBeforeContinue": {
+    zh: "已绑定目录 {path}，但本轮已有其它副作用；未自动续跑，请核对原目录的操作后再继续",
+    en: "Workspace {path} is bound, but this turn had other side effects. It was not continued automatically; verify operations in the original checkout before continuing",
+  },
+  "error.worktree.runtimeRequired": {
+    zh: "当前 Agent 尚未启用安全目录交接，请升级并重启本机 Agent 后再创建 worktree；不会扩大现有会话的写权限。",
+    en: "This agent has not enabled safe workspace handoff. Upgrade and restart the local agent before creating a worktree; the existing session's write permissions are not expanded.",
+  },
+  "error.worktree.branchRetained": {
+    zh: "目录已清理，但 Git 安全删除未通过，分支 {branch} 已保留；没有强制删除。",
+    en: "The checkout was removed, but Git's safe branch deletion did not pass. Branch {branch} was retained; no force deletion was attempted.",
+  },
 
   /* ---------- 操作名（嵌进错误提示里） ---------- */
   "action.createRoom": { zh: "新建房间", en: "create rooms" },

@@ -161,6 +161,8 @@ export class AgentBridge {
   private stateExisted = false;
   private ownParticipantId = "";
   private instructions = "";
+  private serverRules = "";
+  private readonly defaultCwd: string | undefined;
   private readonly pending: ChatMessage[] = [];
   private active: ActiveBatch | undefined;
   private draining: Promise<void> | undefined;
@@ -191,7 +193,7 @@ export class AgentBridge {
   private readonly room: RoomClient;
   private readonly tuning: Required<BridgeTuning>;
   private readonly attachments: AttachmentCache | undefined;
-  private readonly publisher: AttachmentPublisher | undefined;
+  private publisher: AttachmentPublisher | undefined;
 
   constructor(
     private readonly options: {
@@ -214,15 +216,20 @@ export class AgentBridge {
       tuning?: BridgeTuning;
       /** 本机 Hive Server 写的 Agent 设置文件：模型每一轮从这里读 */
       settingsFile?: string;
+      taskWorkspace?: {
+        resolve: (messageId: string) => Promise<string | undefined>;
+        responder: (cwd: string) => AgentResponder;
+      };
     },
     private readonly store: StateStore,
-    private readonly responder: AgentResponder,
+    private responder: AgentResponder,
     private readonly log: (message: string) => void = console.log,
     createRoom: (
       options: ConstructorParameters<typeof RoomClient>[0],
       handlers: RoomClientHandlers,
     ) => RoomClient = (roomOptions, handlers) => new RoomClient(roomOptions, handlers),
   ) {
+    this.defaultCwd = options.cwd;
     this.tuning = {
       batchWindowMs: 400,
       maxBatchSize: 10,
@@ -316,6 +323,7 @@ export class AgentBridge {
         processedMessageIds: [],
       } satisfies AgentState);
     const serverRules = await this.room.fetchInstructions();
+    this.serverRules = serverRules;
     this.instructions = buildDeveloperInstructions({
       agentName: this.options.username,
       persona: this.options.persona,
@@ -331,7 +339,11 @@ export class AgentBridge {
         : {}),
     });
     // 换了工作目录：旧会话（Codex 线程、Claude 续接）会沿用旧目录，丢掉它从新会话开始；消息游标保留
-    if (this.options.cwd && this.state.workspace !== this.options.cwd) {
+    if (
+      !this.options.taskWorkspace &&
+      this.options.cwd &&
+      this.state.workspace !== this.options.cwd
+    ) {
       if (this.state.threadId && this.state.workspace) {
         this.log(`[hive] 房间工作目录已改为 ${this.options.cwd}，开始新的会话`);
         delete this.state.threadId;
@@ -348,8 +360,9 @@ export class AgentBridge {
 
   /** 告诉服务端这个房间当前的 Provider 会话，人可以在终端里接着它 */
   private reportSession(): void {
-    if (this.state?.threadId && this.options.cwd) {
-      this.room.reportSession(this.state.threadId, this.options.cwd);
+    const cwd = this.state?.workspace ?? this.options.cwd;
+    if (this.state?.threadId && cwd) {
+      this.room.reportSession(this.state.threadId, cwd);
     }
   }
 
@@ -538,8 +551,47 @@ export class AgentBridge {
   /** 有正在执行、还能吸收新消息的一轮，而且这个运行时支持引导 */
   private canSteer(): boolean {
     return Boolean(
-      this.active?.accepting && this.responder.steer && !this.active.controller.signal.aborted,
+      !this.options.taskWorkspace &&
+      this.active?.accepting &&
+      this.responder.steer &&
+      !this.active.controller.signal.aborted,
     );
+  }
+
+  private async selectTaskWorkspace(messageId: string): Promise<boolean> {
+    const runtime = this.options.taskWorkspace;
+    if (!runtime || !this.defaultCwd) return false;
+    const selected = (await runtime.resolve(messageId)) ?? this.defaultCwd;
+    const changed = selected !== this.options.cwd;
+    if (changed) {
+      await this.responder.close?.();
+      this.responder = runtime.responder(selected);
+      this.options.cwd = selected;
+      this.publisher = new AttachmentPublisher({
+        serverUrl: this.options.serverUrl,
+        roomId: this.options.roomId,
+        token: this.options.token,
+        cwd: selected,
+        access: this.options.access ?? "read-only",
+      });
+    }
+    if (selected !== this.state.workspace) {
+      delete this.state.threadId;
+      delete this.state.promptContext;
+      delete this.state.instructionsDigest;
+      delete this.state.lastFullPromptAt;
+      this.state.briefTurns = 0;
+      this.state.workspace = selected;
+    }
+    this.instructions = buildDeveloperInstructions({
+      agentName: this.options.username,
+      persona: this.options.persona,
+      serverRules: this.serverRules,
+      ...(this.options.access ? { access: this.options.access } : {}),
+      workspace: { cwd: selected },
+    });
+    await this.store.save(this.state);
+    return changed;
   }
 
   private reportNotSteered(message: ChatMessage): void {
@@ -659,7 +711,10 @@ export class AgentBridge {
     this.draining = (async () => {
       while (this.pending.length > 0 && !this.stopped) {
         const solo = this.soloNext.delete(this.pending[0]!.id);
-        const batch = this.pending.splice(0, solo ? 1 : this.tuning.maxBatchSize);
+        const batch = this.pending.splice(
+          0,
+          solo || this.options.taskWorkspace ? 1 : this.tuning.maxBatchSize,
+        );
         await this.runBatch(batch);
       }
     })().finally(() => {
@@ -821,6 +876,7 @@ export class AgentBridge {
       this.room.setTyping(true);
       // Bridge 存活不等于 Runtime 在推进；心跳不得刷新最后一次真实进度的时间。
       let lastRuntimeProgressAt = Date.now();
+      let handoffUnsafe = false;
       let lastProgressReportAt: number | undefined;
       let lastRuntimeReportAt: number | undefined;
       let lastProgress: string | undefined;
@@ -867,119 +923,164 @@ export class AgentBridge {
       }, this.tuning.heartbeatMs);
       heartbeat.unref?.();
 
-      const built = await this.buildPrompt(this.applyTopicBoundary(context.messages), messages);
-      // 上一轮因上游出错中断：提醒 Agent 接着原会话从断点继续，别把已经做过的再做一遍
-      const interrupted = messages
-        .map((message) => this.resumeNotes.get(message.id))
-        .find((note) => note !== undefined);
-      for (const message of messages) this.resumeNotes.delete(message.id);
-      // 中途开了新话题、旧会话已丢弃时，就不能说「会话已接上」
-      const prompt = interrupted
-        ? {
-            ...built,
-            text: `（系统提示）你上一轮处理下面这条消息时，因上游模型服务出错在中途中断：${interrupted}\n${
-              this.state.threadId
-                ? "会话已接上。请先根据你已经做过的操作确认进度，从中断处继续把原任务做完；"
-                : "原会话已随新话题丢弃，看不到上一轮的步骤。请先检查工作区和房间里的现状，确认哪些已经做过，再把原任务做完；"
-            }不要重复已经完成的、有副作用的操作（改文件、提交、发消息等）。\n\n${built.text}`,
-          }
-        : built;
-      this.log(
-        `[hive] 正在处理 ${messages.map((message) => `#${message.seq}`).join("、")}（来自 ${[...new Set(messages.map((message) => message.senderName))].join("、")}）`,
-      );
-      const turn: NonNullable<ActiveBatch["turn"]> = {
-        startedAt: Date.now(),
-        session: this.state.threadId ? "resumed" : "new",
-      };
-      active.turn = turn;
-      // 这一轮的模型：「换个模型重试」选的优先，其次是网页上设置的；都没有就不传，用启动时的 --model
-      const turnModel = picked ?? this.settings().model;
-      const reply = await this.responder.reply({
-        onUsage: (usage) => {
-          turn.observed = usage;
-        },
-        instructions: this.instructions,
-        prompt: prompt.text,
-        refreshInstructions: prompt.full,
-        ...(turnModel ? { model: turnModel } : {}),
-        signal: active.controller.signal,
-        onProgress: (progress) => {
-          if (this.active !== active || active.controller.signal.aborted) return;
-          lastRuntimeProgressAt = Date.now();
-          lastProgress = progress.slice(0, 200);
-          if (
-            lastRuntimeReportAt !== undefined &&
-            lastRuntimeProgressAt - lastRuntimeReportAt < this.tuning.progressThrottleMs
-          ) {
-            return;
-          }
-          lastRuntimeReportAt = lastRuntimeProgressAt;
-          lastProgressReportAt = Date.now();
-          this.reportAll(active.messages, {
-            status: "running",
-            progress: lastProgress,
-            runtimeEvent: { kind: "activity", phase: "working" },
-          });
-        },
-        requestApproval: (request) => this.askApproval(active, request),
-        // 第一轮还没结束就能在终端里打开：一拿到会话 ID 就报，不等回合结束
-        onSession: (sessionId) => {
-          if (this.options.cwd) this.room.reportSession(sessionId, this.options.cwd);
-        },
-        onTrace: (step) => {
-          if (this.active !== active || active.controller.signal.aborted) return;
-          if (isMutatingStep(step)) active.mutated = true;
-          if (step.kind === "tool") active.toolUsed = true;
-          const clean = sanitizeTraceStep(step);
-          pendingTrace.set(clean.id, { ...pendingTrace.get(clean.id), ...clean });
-          traceTimer ??= setTimeout(flushTrace, this.tuning.traceFlushMs);
-        },
-        onRuntimeEvent: (event) => {
-          if (this.active !== active || active.controller.signal.aborted) return;
-          const now = Date.now();
-          if (event.kind === "activity" || event.kind === "recovered") lastRuntimeProgressAt = now;
-          if (event.kind === "activity") {
-            const key = `${event.phase}:${event.tool ?? ""}`;
+      await this.selectTaskWorkspace(messages[0]!.id);
+      let handoff: string | undefined;
+      let handoffs = 0;
+      let reply: AgentReply;
+      let prompt: PreparedPrompt;
+      let usage: AgentUsage | undefined;
+      while (true) {
+        const built = await this.buildPrompt(this.applyTopicBoundary(context.messages), messages);
+        // 上一轮因上游出错中断：提醒 Agent 接着原会话从断点继续，别把已经做过的再做一遍
+        const interrupted = messages
+          .map((message) => this.resumeNotes.get(message.id))
+          .find((note) => note !== undefined);
+        for (const message of messages) this.resumeNotes.delete(message.id);
+        // 中途开了新话题、旧会话已丢弃时，就不能说「会话已接上」
+        prompt = interrupted
+          ? {
+              ...built,
+              text: `（系统提示）你上一轮处理下面这条消息时，因上游模型服务出错在中途中断：${interrupted}\n${
+                this.state.threadId
+                  ? "会话已接上。请先根据你已经做过的操作确认进度，从中断处继续把原任务做完；"
+                  : "原会话已随新话题丢弃，看不到上一轮的步骤。请先检查工作区和房间里的现状，确认哪些已经做过，再把原任务做完；"
+              }不要重复已经完成的、有副作用的操作（改文件、提交、发消息等）。\n\n${built.text}`,
+            }
+          : built;
+        if (handoff)
+          prompt = {
+            ...prompt,
+            text: `（系统提示）上一轮已正常结束；现在已在 ${this.options.cwd} 建立独立的新会话和写权限。不要重放原任务或重复已完成的操作；先核对工作区及上一轮摘要，再继续尚未完成的工作。旧会话没有搬到这里。\n<previous_turn_summary untrusted="true">\n${handoff.slice(-12_000)}\n</previous_turn_summary>\n\n${prompt.text}`,
+          };
+        this.log(
+          `[hive] 正在处理 ${messages.map((message) => `#${message.seq}`).join("、")}（来自 ${[...new Set(messages.map((message) => message.senderName))].join("、")}）`,
+        );
+        const turn: NonNullable<ActiveBatch["turn"]> = {
+          startedAt: Date.now(),
+          session: this.state.threadId ? "resumed" : "new",
+        };
+        active.turn = turn;
+        // 这一轮的模型：「换个模型重试」选的优先，其次是网页上设置的；都没有就不传，用启动时的 --model
+        const turnModel = picked ?? this.settings().model;
+        reply = await this.responder.reply({
+          onUsage: (usage) => {
+            turn.observed = usage;
+          },
+          instructions: this.instructions,
+          prompt: prompt.text,
+          refreshInstructions: prompt.full,
+          ...(turnModel ? { model: turnModel } : {}),
+          signal: active.controller.signal,
+          onProgress: (progress) => {
+            if (this.active !== active || active.controller.signal.aborted) return;
+            lastRuntimeProgressAt = Date.now();
+            lastProgress = progress.slice(0, 200);
             if (
-              key === lastActivityKey &&
-              lastActivityReportAt !== undefined &&
-              now - lastActivityReportAt < this.tuning.progressThrottleMs
-            )
+              lastRuntimeReportAt !== undefined &&
+              lastRuntimeProgressAt - lastRuntimeReportAt < this.tuning.progressThrottleMs
+            ) {
               return;
-            lastActivityKey = key;
-            lastActivityReportAt = now;
-            lastProgress =
-              event.phase === "tool_running"
-                ? "Runtime 正在执行工具"
-                : event.phase === "tool_completed"
-                  ? "Runtime 工具已返回（不代表任务完成）"
-                  : event.phase === "starting"
-                    ? "正在启动 Runtime"
-                    : event.phase === "working"
-                      ? "收到 Runtime 执行事件"
-                      : "收到模型响应事件";
-          }
-          if (event.kind === "provider_error") lastProgress = "API 异常，等待恢复证据";
-          if (event.kind === "recovered") lastProgress = "收到模型恢复证据";
-          lastProgressReportAt = now;
-          this.reportAll(
-            active.messages.filter((message) => !active.cancelled.has(message.id)),
-            {
+            }
+            lastRuntimeReportAt = lastRuntimeProgressAt;
+            lastProgressReportAt = Date.now();
+            this.reportAll(active.messages, {
               status: "running",
-              runtimeEvent: event,
-              ...(event.kind !== "capabilities" && lastProgress ? { progress: lastProgress } : {}),
-            },
+              progress: lastProgress,
+              runtimeEvent: { kind: "activity", phase: "working" },
+            });
+          },
+          requestApproval: (request) => this.askApproval(active, request),
+          // 第一轮还没结束就能在终端里打开：一拿到会话 ID 就报，不等回合结束
+          onSession: (sessionId) => {
+            if (this.options.cwd) this.room.reportSession(sessionId, this.options.cwd);
+          },
+          onTrace: (step) => {
+            if (this.active !== active || active.controller.signal.aborted) return;
+            if (isMutatingStep(step)) {
+              active.mutated = true;
+              if (!/(?:^|[._])hive_(?:worktree_create|board_update)$/.test(step.name ?? ""))
+                handoffUnsafe = true;
+            }
+            if (step.kind === "tool") active.toolUsed = true;
+            const clean = sanitizeTraceStep(step);
+            pendingTrace.set(clean.id, { ...pendingTrace.get(clean.id), ...clean });
+            traceTimer ??= setTimeout(flushTrace, this.tuning.traceFlushMs);
+          },
+          onRuntimeEvent: (event) => {
+            if (this.active !== active || active.controller.signal.aborted) return;
+            const now = Date.now();
+            if (event.kind === "activity" || event.kind === "recovered")
+              lastRuntimeProgressAt = now;
+            if (event.kind === "activity") {
+              const key = `${event.phase}:${event.tool ?? ""}`;
+              if (
+                key === lastActivityKey &&
+                lastActivityReportAt !== undefined &&
+                now - lastActivityReportAt < this.tuning.progressThrottleMs
+              )
+                return;
+              lastActivityKey = key;
+              lastActivityReportAt = now;
+              lastProgress =
+                event.phase === "tool_running"
+                  ? "Runtime 正在执行工具"
+                  : event.phase === "tool_completed"
+                    ? "Runtime 工具已返回（不代表任务完成）"
+                    : event.phase === "starting"
+                      ? "正在启动 Runtime"
+                      : event.phase === "working"
+                        ? "收到 Runtime 执行事件"
+                        : "收到模型响应事件";
+            }
+            if (event.kind === "provider_error") lastProgress = "API 异常，等待恢复证据";
+            if (event.kind === "recovered") lastProgress = "收到模型恢复证据";
+            lastProgressReportAt = now;
+            this.reportAll(
+              active.messages.filter((message) => !active.cancelled.has(message.id)),
+              {
+                status: "running",
+                runtimeEvent: event,
+                ...(event.kind !== "capabilities" && lastProgress
+                  ? { progress: lastProgress }
+                  : {}),
+              },
+            );
+          },
+          ...(this.state.threadId ? { threadId: this.state.threadId } : {}),
+        });
+        active.accepting = false;
+        flushPendingTrace();
+        if (reply.usage) turn.observed = reply.usage;
+        usage = this.settleUsage(active, "completed", reply);
+        if (reply.threadId) this.state.threadId = reply.threadId;
+        this.reportSession();
+        this.notePromptSent(prompt);
+        const changed = await this.selectTaskWorkspace(messages[0]!.id);
+        if (!changed) break;
+        if (handoffUnsafe)
+          throw new AgentNonRetryableError(
+            bridgeTextZh(
+              bridgeText("bridge.worktreeCheckBeforeContinue", { path: this.options.cwd! }),
+            ),
           );
-        },
-        ...(this.state.threadId ? { threadId: this.state.threadId } : {}),
-      });
-      active.accepting = false;
-      flushPendingTrace();
-      if (reply.usage) turn.observed = reply.usage;
-      const usage = this.settleUsage(active, "completed", reply);
-      if (reply.threadId) this.state.threadId = reply.threadId;
-      this.reportSession();
-      this.notePromptSent(prompt);
+        const detail = bridgeText("bridge.worktreeHandoff", { path: this.options.cwd! });
+        for (const message of active.messages)
+          this.room.report({
+            messageId: message.id,
+            status: "running",
+            ...said(detail),
+            ...this.usageReport(active),
+          });
+        if (active.controller.signal.aborted)
+          throw new AgentNonRetryableError(
+            "Worktree handoff was stopped; no continuation was started.",
+          );
+        if (++handoffs > 1)
+          throw new AgentNonRetryableError(
+            "Multiple worktree changes in one task; confirm the selected worktree before continuing.",
+          );
+        handoff = reply.text;
+      }
 
       const resolved = resolveReplyText(reply.text);
       const directive = parseAttachmentDirective(resolved.silent ? "" : resolved.text);
