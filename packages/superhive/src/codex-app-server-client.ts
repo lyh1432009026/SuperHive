@@ -64,9 +64,17 @@ export type CodexAppServerResponderDependencies = {
   interruptGraceMs?: number;
   /** initialize 中上报的客户端版本 */
   clientVersion?: string;
+  /** 空闲多久关掉 app-server（下次被叫到再拉起，线程照常续接），默认 10 分钟；0 表示不关 */
+  idleTimeoutMs?: number;
 };
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
+/** 每个用过的房间都有一个 app-server：空闲这么久就关掉，免得 Agent 挂着一堆进程占内存 */
+export const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60_000;
+
+function idleText(ms: number): string {
+  return ms >= 60_000 ? `${Math.round(ms / 60_000)} 分钟` : `${Math.round(ms / 1000)} 秒`;
+}
 /** 这几种条目不算「执行了工具」；没见过的类型一律按工具算（宁可不自动重跑） */
 const NON_TOOL_ITEMS = new Set([
   "userMessage",
@@ -392,6 +400,8 @@ function textInput(text: string) {
 
 export class CodexAppServerResponder implements AgentResponder {
   private session: Session | undefined;
+  private readonly idleTimeoutMs: number;
+  private idleTimer: NodeJS.Timeout | undefined;
   /** thread/start、thread/resume 返回的实际模型，用于用量归属 */
   private readonly threadModels = new Map<string, string>();
   private active: ActiveTurn | undefined;
@@ -410,6 +420,7 @@ export class CodexAppServerResponder implements AgentResponder {
     this.createTransport = dependencies.createTransport ?? spawnAppServerTransport;
     this.requestTimeoutMs = dependencies.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.interruptGraceMs = dependencies.interruptGraceMs ?? DEFAULT_INTERRUPT_GRACE_MS;
+    this.idleTimeoutMs = dependencies.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
     this.clientVersion = dependencies.clientVersion ?? packageVersion();
   }
 
@@ -428,6 +439,7 @@ export class CodexAppServerResponder implements AgentResponder {
     let threadId: string;
     let session: Session;
     try {
+      this.cancelIdleRetire();
       this.retireSessionIfMcpChanged();
       session = await this.ensureSession();
       this.throwIfAborted(input.signal);
@@ -435,7 +447,10 @@ export class CodexAppServerResponder implements AgentResponder {
       input.onSession?.(threadId);
       this.throwIfAborted(input.signal);
     } catch (error) {
-      if (this.active === placeholder) this.active = undefined;
+      if (this.active === placeholder) {
+        this.active = undefined;
+        this.scheduleIdleRetire();
+      }
       if (error instanceof AgentCancelledError || error instanceof AgentSessionInvalidError) {
         throw error;
       }
@@ -554,6 +569,7 @@ export class CodexAppServerResponder implements AgentResponder {
   }
 
   async close(): Promise<void> {
+    this.cancelIdleRetire();
     const session = this.session;
     if (!session) return;
     this.teardown(session, new Error("Codex app-server 已关闭。"));
@@ -581,7 +597,10 @@ export class CodexAppServerResponder implements AgentResponder {
     if (turn.onTrace) turn.thinking.endAll();
     turn.settled = true;
     if (turn.graceTimer) clearTimeout(turn.graceTimer);
-    if (this.active === turn) this.active = undefined;
+    if (this.active === turn) {
+      this.active = undefined;
+      this.scheduleIdleRetire();
+    }
     if (outcome instanceof AgentExecutionUncertainError) this.executionUncertain = true;
     // 成功、失败、停止都交出已观测到的用量
     try {
@@ -646,6 +665,31 @@ export class CodexAppServerResponder implements AgentResponder {
 
   private mcpDisabled(): string[] {
     return readAgentSettings(this.options.settingsFile).mcpDisabled;
+  }
+
+  private cancelIdleRetire(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = undefined;
+  }
+
+  /** 回合结束后开始计时：一直没人叫就关掉 app-server，下次 reply 重新拉起并 thread/resume 续接 */
+  private scheduleIdleRetire(): void {
+    this.cancelIdleRetire();
+    if (this.idleTimeoutMs <= 0 || !this.session || this.session.dead) return;
+    this.idleTimer = setTimeout(() => this.retireIdleSession(), this.idleTimeoutMs);
+    this.idleTimer.unref?.();
+  }
+
+  private retireIdleSession(): void {
+    this.idleTimer = undefined;
+    const session = this.session;
+    // 期间又有回合或请求在跑（比如正在引导）：不动，等它结束再重新计时
+    if (!session || session.dead || this.active || session.pending.size > 0) return;
+    this.log(
+      `[hive] Codex app-server 已空闲 ${idleText(this.idleTimeoutMs)}，先关掉；下次被叫到再启动并续接会话`,
+    );
+    this.teardown(session, new Error("Codex app-server 空闲已关闭"));
+    session.transport.kill();
   }
 
   /** MCP 勾选变了：app-server 只在启动时读配置，空闲时换一个新进程（线程照常续接） */

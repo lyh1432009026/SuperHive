@@ -60,10 +60,18 @@ export type AcpResponderDependencies = {
   /** 发出 session/cancel 后等待 prompt 结束的宽限时间，超时则结束进程，默认 10s */
   cancelGraceMs?: number;
   clientVersion?: string;
+  /** 空闲多久结束 Agent 进程（下次被叫到再拉起，会话照常恢复），默认 10 分钟；0 表示不结束 */
+  idleTimeoutMs?: number;
 };
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
 const DEFAULT_CANCEL_GRACE_MS = 10_000;
+/** 每个用过的房间都有一个 Agent 进程：空闲这么久就结束，免得挂着一堆进程占内存 */
+const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60_000;
+
+function idleText(ms: number): string {
+  return ms >= 60_000 ? `${Math.round(ms / 60_000)} 分钟` : `${Math.round(ms / 1000)} 秒`;
+}
 
 function packageVersion(): string {
   try {
@@ -246,6 +254,8 @@ export class AcpResponder implements AgentResponder {
   private readonly createTransport: StdioTransportFactory;
   private readonly requestTimeoutMs: number;
   private readonly cancelGraceMs: number;
+  private readonly idleTimeoutMs: number;
+  private idleTimer: NodeJS.Timeout | undefined;
   private readonly clientVersion: string;
 
   constructor(
@@ -256,6 +266,7 @@ export class AcpResponder implements AgentResponder {
     this.createTransport = dependencies.createTransport ?? spawnStdioTransport;
     this.requestTimeoutMs = dependencies.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.cancelGraceMs = dependencies.cancelGraceMs ?? DEFAULT_CANCEL_GRACE_MS;
+    this.idleTimeoutMs = dependencies.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
     this.clientVersion = dependencies.clientVersion ?? packageVersion();
   }
 
@@ -268,6 +279,7 @@ export class AcpResponder implements AgentResponder {
     // 先占位，防止并发调用在握手期间重复进入
     const placeholder = { settled: false } as ActiveTurn;
     this.active = placeholder;
+    this.cancelIdleRetire();
     let agent: AgentProcess;
     let session: { sessionId: string; fresh: boolean };
     try {
@@ -279,7 +291,10 @@ export class AcpResponder implements AgentResponder {
       await this.useModel(agent, session.sessionId, input.model);
       this.throwIfAborted(input.signal);
     } catch (error) {
-      if (this.active === placeholder) this.active = undefined;
+      if (this.active === placeholder) {
+        this.active = undefined;
+        this.scheduleIdleRetire();
+      }
       throw error;
     }
 
@@ -359,6 +374,7 @@ export class AcpResponder implements AgentResponder {
   }
 
   async close(): Promise<void> {
+    this.cancelIdleRetire();
     const agent = this.agent;
     if (!agent) return;
     this.teardown(agent, new Error(`${this.options.label} 已关闭。`));
@@ -387,12 +403,39 @@ export class AcpResponder implements AgentResponder {
     }, this.cancelGraceMs);
   }
 
+  private cancelIdleRetire(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = undefined;
+  }
+
+  /** 回合结束后开始计时：一直没人叫就结束进程，下次 reply 重新拉起并 session/resume（或 load）续接 */
+  private scheduleIdleRetire(): void {
+    this.cancelIdleRetire();
+    if (this.idleTimeoutMs <= 0 || !this.agent || this.agent.dead) return;
+    this.idleTimer = setTimeout(() => this.retireIdleAgent(), this.idleTimeoutMs);
+    this.idleTimer.unref?.();
+  }
+
+  private retireIdleAgent(): void {
+    this.idleTimer = undefined;
+    const agent = this.agent;
+    if (!agent || agent.dead || this.active || agent.pending.size > 0) return;
+    this.log(
+      `[hive] ${this.options.label} 已空闲 ${idleText(this.idleTimeoutMs)}，先结束进程；下次被叫到再启动并恢复会话`,
+    );
+    this.teardown(agent, new Error(`${this.options.label} 空闲已结束`));
+    agent.transport.kill();
+  }
+
   private finishTurn(turn: ActiveTurn, outcome: AgentReply | Error) {
     if (turn.settled) return;
     this.endThinking(turn);
     turn.settled = true;
     if (turn.graceTimer) clearTimeout(turn.graceTimer);
-    if (this.active === turn) this.active = undefined;
+    if (this.active === turn) {
+      this.active = undefined;
+      this.scheduleIdleRetire();
+    }
     if (outcome instanceof Error) turn.reject(outcome);
     else turn.resolve(outcome);
   }

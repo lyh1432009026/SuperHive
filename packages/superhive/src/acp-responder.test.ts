@@ -103,7 +103,7 @@ function defaultHandlers(overrides: Record<string, Handler> = {}): Record<string
 function setup(
   handlers: Record<string, Handler> = defaultHandlers(),
   extra: Partial<AcpResponderOptions> = {},
-  deps: { requestTimeoutMs?: number; cancelGraceMs?: number } = {},
+  deps: { requestTimeoutMs?: number; cancelGraceMs?: number; idleTimeoutMs?: number } = {},
 ) {
   const agents: FakeAgent[] = [];
   const createTransport = vi.fn(
@@ -395,6 +395,30 @@ describe("AcpResponder", () => {
     });
     await expect(failure).rejects.toThrow("没有模型 nope/x");
     expect(((await failure.catch((error) => error)) as AgentUpstreamError).kind).toBe("model");
+  });
+
+  it("ends an idle agent process and restores the session in a fresh one next time", async () => {
+    const { responder, agents, createTransport, log } = setup(
+      defaultHandlers(),
+      {},
+      {
+        idleTimeoutMs: 30,
+      },
+    );
+    await expect(responder.reply({ instructions: "rules", prompt: "hi" })).resolves.toMatchObject({
+      threadId: "ses-new",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(agents[0]!.killed).toBe(true);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("已空闲"));
+
+    await expect(
+      responder.reply({ instructions: "rules", prompt: "again", threadId: "ses-new" }),
+    ).resolves.toMatchObject({ text: "done", threadId: "ses-new" });
+    expect(createTransport).toHaveBeenCalledTimes(2);
+    expect(agents[1]!.methods()).toEqual(["initialize", "session/resume", "session/prompt"]);
+    expect(agents[1]!.request("session/resume")?.params).toMatchObject({ sessionId: "ses-new" });
+    await responder.close();
   });
 
   it("answers permission requests according to the access mode", async () => {

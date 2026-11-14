@@ -124,7 +124,7 @@ function setup(
     model?: string;
     settingsFile?: string;
   } = {},
-  deps: { requestTimeoutMs?: number; interruptGraceMs?: number } = {},
+  deps: { requestTimeoutMs?: number; interruptGraceMs?: number; idleTimeoutMs?: number } = {},
 ) {
   const servers: FakeAppServer[] = [];
   const createTransport = vi.fn((command: string, args: string[]) => {
@@ -940,6 +940,65 @@ describe("CodexAppServerResponder", () => {
       .catch((cause: unknown) => cause)) as AgentUpstreamError;
     expect(error).toBeInstanceOf(AgentUpstreamError);
     expect(error.kind).toBe("model");
+  });
+
+  it("closes an idle app-server and resumes the same thread in a fresh one next time", async () => {
+    const { responder, servers, createTransport, log } = setup(
+      defaultHandlers(),
+      {},
+      {
+        idleTimeoutMs: 30,
+      },
+    );
+    await responder.reply({ instructions: "r", prompt: "a", threadId: "thread-old" });
+    expect(servers[0]!.killed).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(servers[0]!.killed).toBe(true);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("已空闲"));
+
+    // 再被叫到：起一个新的 app-server，接着原线程
+    await expect(
+      responder.reply({ instructions: "r", prompt: "b", threadId: "thread-old" }),
+    ).resolves.toMatchObject({ text: "done", threadId: "thread-old" });
+    expect(createTransport).toHaveBeenCalledTimes(2);
+    expect(servers[1]!.methods()).toEqual([
+      "initialize",
+      "initialized",
+      "thread/resume",
+      "turn/start",
+    ]);
+    expect(servers[1]!.sent[2]!.params).toMatchObject({ threadId: "thread-old" });
+    await responder.close();
+  });
+
+  it("never closes the app-server in the middle of a turn", async () => {
+    let finish: (() => void) | undefined;
+    const { responder, servers } = setup(
+      defaultHandlers({
+        "turn/start": (message, server) => {
+          const threadId = message.params.threadId;
+          server.emit({ id: message.id, result: { turn: { id: "t" } } });
+          finish = () =>
+            server.emit({
+              method: "turn/completed",
+              params: {
+                threadId,
+                turn: { id: "t", status: "completed", items: [agentMessage("slow")] },
+              },
+            });
+        },
+      }),
+      {},
+      { idleTimeoutMs: 20 },
+    );
+    const reply = responder.reply({ instructions: "r", prompt: "p" });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(servers[0]!.killed).toBe(false);
+    finish!();
+    await expect(reply).resolves.toMatchObject({ text: "slow" });
+    // 回合结束后才重新计时
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(servers[0]!.killed).toBe(true);
   });
 
   it("reports progress for started items", async () => {
