@@ -643,6 +643,20 @@ export function registerLocalAgentRoutes(
     mcpServers(request, reply, true),
   );
 
+  /** 运行时能用的模型：Agent 设置里选模型、失败任务上「换个模型重试」用；?refresh=1 重新拉 */
+  app.get<{ Params: { id: string }; Querystring: { refresh?: string } }>(
+    "/api/local/agents/:id/models",
+    async (request, reply) => {
+      const caller = authorize(request, reply, "read");
+      if (!caller) return reply;
+      try {
+        return await supervisor!.models(request.params.id, request.query.refresh === "1");
+      } catch (error) {
+        return fail(reply, error);
+      }
+    },
+  );
+
   /** 这个 Agent 在房间里的会话：能不能在终端里接着它、用什么命令 */
   function sessionFor(id: string, roomId: string | undefined) {
     const agent = supervisor!.get(id);
@@ -728,15 +742,19 @@ export function registerLocalAgentRoutes(
       audit(
         request,
         caller,
-        {
-          key:
-            parsed.data.mcpDisabled !== undefined
-              ? "im.audit.mcpChanged"
-              : parsed.data.autoSteer
-                ? "im.audit.autoSteerOn"
-                : "im.audit.autoSteerOff",
-          params: { name: agent.name },
-        },
+        parsed.data.model !== undefined
+          ? agent.model
+            ? { key: "im.audit.modelChanged", params: { name: agent.name, model: agent.model } }
+            : { key: "im.audit.modelDefault", params: { name: agent.name } }
+          : {
+              key:
+                parsed.data.mcpDisabled !== undefined
+                  ? "im.audit.mcpChanged"
+                  : parsed.data.autoSteer
+                    ? "im.audit.autoSteerOn"
+                    : "im.audit.autoSteerOff",
+              params: { name: agent.name },
+            },
         true,
       );
       return { agent };

@@ -16,6 +16,7 @@ import type {
   CreateLocalAgentRequest,
   LocalAgent,
   LocalAgentMcpResponse,
+  LocalAgentModelsResponse,
   LocalAgentProvider,
   LocalAgentStatus,
   LocalProviderInfo,
@@ -80,6 +81,8 @@ export type LocalAgentSupervisorOptions = {
   settingsDir?: string;
   /** 列出 Agent 会加载的本机 MCP（测试注入）；默认运行 `hive mcp list` */
   listMcp?: McpLister;
+  /** 列出运行时能用的模型（测试注入）；默认运行 `hive models --provider X --json` */
+  listModels?: ModelLister;
   probe?: ProviderProbe;
   now?: () => number;
   setTimer?: (callback: () => void, ms: number) => { cancel(): void };
@@ -101,6 +104,9 @@ const LOG_FILE_MAX_BYTES = 5 * 1024 * 1024;
 const TAIL_INTERVAL_MS = 1_000;
 
 export type McpLister = (args: string[]) => Promise<string>;
+export type ModelLister = (provider: LocalAgentProvider) => Promise<LocalAgentModelsResponse>;
+/** 模型列表缓存：起 Codex app-server、跑 opencode models 都要几秒 */
+const MODELS_CACHE_MS = 10 * 60_000;
 
 /** 支持按勾选加载 MCP 的 provider */
 const MCP_SELECTABLE: ReadonlySet<LocalAgentProvider> = new Set(["claude", "codex"]);
@@ -354,6 +360,11 @@ export class LocalAgentSupervisor {
   private probeCache?: { at: number; result: Promise<LocalProviderInfo[]> };
   private readonly measureCache = new Map<string, { at: number; result: LocalAgentMcpResponse }>();
   private readonly listMcp: McpLister;
+  private readonly listModels: ModelLister;
+  private readonly modelsCache = new Map<
+    LocalAgentProvider,
+    { at: number; result: Promise<LocalAgentModelsResponse> }
+  >();
   private shuttingDown = false;
 
   constructor(private readonly options: LocalAgentSupervisorOptions) {
@@ -380,6 +391,18 @@ export class LocalAgentSupervisor {
             (error, stdout) => (error ? reject(error) : resolve(stdout)),
           ),
         ));
+    this.listModels =
+      options.listModels ??
+      (async (provider) => {
+        const stdout = await this.listMcp(["models", "--provider", provider, "--json"]);
+        const line = stdout.trim().split("\n").at(-1) ?? "";
+        const parsed = JSON.parse(line) as LocalAgentModelsResponse;
+        return {
+          source: parsed.source === "runtime" ? "runtime" : "preset",
+          models: Array.isArray(parsed.models) ? parsed.models : [],
+          ...(parsed.error ? { error: parsed.error } : {}),
+        };
+      });
   }
 
   /**
@@ -439,8 +462,9 @@ export class LocalAgentSupervisor {
     }
   }
 
+  /** 所有 provider 都有设置文件：模型每一轮从这里读；MCP 勾选只有 claude、codex 用得上 */
   private settingsFile(config: LocalAgentConfig): string | undefined {
-    return this.options.settingsDir && MCP_SELECTABLE.has(config.provider)
+    return this.options.settingsDir
       ? path.join(this.options.settingsDir, `${config.id}.json`)
       : undefined;
   }
@@ -450,7 +474,14 @@ export class LocalAgentSupervisor {
     if (!file) return undefined;
     mkdirSync(path.dirname(file), { recursive: true });
     const tmp = `${file}.tmp`;
-    writeFileSync(tmp, JSON.stringify({ mcpDisabled: config.mcpDisabled ?? [] }), { mode: 0o600 });
+    writeFileSync(
+      tmp,
+      JSON.stringify({
+        mcpDisabled: config.mcpDisabled ?? [],
+        ...(config.model ? { model: config.model } : {}),
+      }),
+      { mode: 0o600 },
+    );
     // 先写临时文件再改名：Agent 随时可能在读，不能读到写了一半的内容
     renameSync(tmp, file);
     return file;
@@ -459,9 +490,21 @@ export class LocalAgentSupervisor {
   /** 保存网页上的勾选；已带设置文件启动的 Agent 下一轮就按新的勾选加载 */
   updateSettings(
     id: string,
-    settings: { mcpDisabled?: string[] | undefined; autoSteer?: boolean | undefined },
+    settings: {
+      mcpDisabled?: string[] | undefined;
+      autoSteer?: boolean | undefined;
+      model?: string | null | undefined;
+    },
   ): LocalAgent {
     const runtime = this.require(id);
+    // 模型写进设置文件，Agent 下一轮就按新模型跑，不用重启
+    if (settings.model !== undefined) {
+      runtime.config.model = this.options.database.setLocalAgentModel(
+        id,
+        settings.model?.trim() || null,
+      );
+      this.writeSettings(runtime.config);
+    }
     // 自动引导由服务端在派发时判断，不影响进程，随时可改
     if (settings.autoSteer !== undefined) {
       this.options.database.setSetting(
@@ -485,6 +528,29 @@ export class LocalAgentSupervisor {
     );
     this.writeSettings(runtime.config);
     return this.view(runtime);
+  }
+
+  /**
+   * 这个 Agent 的运行时能用的模型（按 provider 缓存 10 分钟，refresh 时重新拉）。
+   * 拉不到不报错：返回空列表和原因，网页上照样可以手填。
+   */
+  async models(id: string, refresh = false): Promise<LocalAgentModelsResponse> {
+    const { provider } = this.require(id).config;
+    const cached = this.modelsCache.get(provider);
+    if (cached && !refresh && this.now() - cached.at < MODELS_CACHE_MS) return cached.result;
+    const result = this.listModels(provider).catch((error: unknown): LocalAgentModelsResponse => ({
+      source: "preset",
+      models: [],
+      error: (error instanceof Error ? error.message : String(error)).slice(0, 300),
+    }));
+    this.modelsCache.set(provider, { at: this.now(), result });
+    // 拉取失败的不缓存：下次打开再试
+    void result.then((value) => {
+      if (value.error && this.modelsCache.get(provider)?.result === result) {
+        this.modelsCache.delete(provider);
+      }
+    });
+    return result;
   }
 
   /** 这个 Agent 会加载的本机 MCP 及启用状态；measure 时逐个连上估算开局 token（结果缓存 10 分钟） */
@@ -731,8 +797,8 @@ export class LocalAgentSupervisor {
       createdAt: config.createdAt,
       mcpDisabled: config.mcpDisabled ?? [],
       autoSteer: this.options.database.getSetting(autoSteerKey(config.name)) === "1",
-      // 正在运行、但启动时没带设置文件（升级前就在跑的进程）：勾选要重启一次才生效
-      ...(runtime.child && !runtime.settingsApplied && MCP_SELECTABLE.has(config.provider)
+      // 正在运行、但启动时没带设置文件（升级前就在跑的进程）：勾选、模型要重启一次才生效
+      ...(runtime.child && !runtime.settingsApplied && this.settingsFile(config)
         ? { settingsPendingRestart: true }
         : {}),
     };
@@ -755,7 +821,8 @@ export class LocalAgentSupervisor {
       "--access",
       config.access,
       ...(config.cwd ? ["--cwd", config.cwd] : []),
-      ...(config.model ? ["--model", config.model] : []),
+      // 有设置文件时模型只从设置文件读（每一轮生效），不再作为启动参数：改回默认才能真的回到默认
+      ...(config.model && !settingsFile ? ["--model", config.model] : []),
       ...(settingsFile ? ["--agent-settings", settingsFile] : []),
       // 本机拉起的 Agent 是房主自己的：房主在网页上给房间设的工作区直接跟随，不用再手动 --allow-root
       "--trust-room-workspace",

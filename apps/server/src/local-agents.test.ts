@@ -652,7 +652,8 @@ describe("local agent routes", () => {
       headers: owner,
       payload: { provider: "opencode", name: "rd-opencode", access: "read-only" },
     });
-    expect(spawner.children[1]!.args).not.toContain("--agent-settings");
+    // 其他 provider 也有设置文件（模型从这里读），只是没有 MCP 可勾选
+    expect(spawner.children[1]!.args).toContain("--agent-settings");
     expect(
       (
         await app.inject({
@@ -663,6 +664,107 @@ describe("local agent routes", () => {
       ).json(),
     ).toEqual({ supported: false, servers: [], baselineTokens: null });
     rmSync(settingsDir, { recursive: true, force: true });
+  });
+
+  it("keeps the model in the settings file so a change applies on the next turn without a restart", async () => {
+    const settingsDir = mkdtempSync(path.join(tmpdir(), "hive-agent-settings-"));
+    const listModels = vi.fn(async () => ({
+      source: "runtime" as const,
+      models: [{ id: "zhipu/glm-5", label: "GLM-5" }, { id: "opencode/big-pickle" }],
+    }));
+    const { app, owner, spawner } = await setup({ settingsDir, listModels });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/local/agents",
+      headers: owner,
+      payload: {
+        provider: "opencode",
+        name: "rd-opencode",
+        access: "read-only",
+        model: "zhipu/glm-5",
+      },
+    });
+    const id = created.json().agent.id as string;
+    const args = spawner.children[0]!.args;
+    // 模型只从设置文件读：改回默认时才能真的回到默认
+    expect(args).not.toContain("--model");
+    const file = args[args.indexOf("--agent-settings") + 1]!;
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({
+      mcpDisabled: [],
+      model: "zhipu/glm-5",
+    });
+
+    const changed = await app.inject({
+      method: "PUT",
+      url: `/api/local/agents/${id}/settings`,
+      headers: owner,
+      payload: { model: " opencode/big-pickle " },
+    });
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json().agent.model).toBe("opencode/big-pickle");
+    expect(JSON.parse(readFileSync(file, "utf8")).model).toBe("opencode/big-pickle");
+    expect(spawner.children).toHaveLength(1);
+
+    const cleared = await app.inject({
+      method: "PUT",
+      url: `/api/local/agents/${id}/settings`,
+      headers: owner,
+      payload: { model: null },
+    });
+    expect(cleared.json().agent.model).toBeNull();
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ mcpDisabled: [] });
+    // 存进库里：重启 Server 后照旧
+    const listedAgents = await app.inject({
+      method: "GET",
+      url: "/api/local/agents",
+      headers: owner,
+    });
+    expect(listedAgents.json().agents[0].model).toBeNull();
+
+    const models = await app.inject({
+      method: "GET",
+      url: `/api/local/agents/${id}/models`,
+      headers: owner,
+    });
+    expect(models.json()).toEqual({
+      source: "runtime",
+      models: [{ id: "zhipu/glm-5", label: "GLM-5" }, { id: "opencode/big-pickle" }],
+    });
+    // 10 分钟内用缓存，refresh=1 重新拉
+    await app.inject({ method: "GET", url: `/api/local/agents/${id}/models`, headers: owner });
+    expect(listModels).toHaveBeenCalledTimes(1);
+    await app.inject({
+      method: "GET",
+      url: `/api/local/agents/${id}/models?refresh=1`,
+      headers: owner,
+    });
+    expect(listModels).toHaveBeenCalledTimes(2);
+    expect(listModels).toHaveBeenCalledWith("opencode");
+    // 不带房主凭证拿不到
+    const anonymous = await app.inject({ method: "GET", url: `/api/local/agents/${id}/models` });
+    expect(anonymous.statusCode).toBeGreaterThanOrEqual(400);
+    rmSync(settingsDir, { recursive: true, force: true });
+  });
+
+  it("reports why the model list could not be fetched instead of failing", async () => {
+    const { app, owner } = await setup({
+      listModels: async () => {
+        throw new Error("spawn hive ENOENT");
+      },
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/local/agents",
+      headers: owner,
+      payload: { provider: "codex", name: "rd-codex", access: "read-only" },
+    });
+    const models = await app.inject({
+      method: "GET",
+      url: `/api/local/agents/${created.json().agent.id}/models`,
+      headers: owner,
+    });
+    expect(models.statusCode).toBe(200);
+    expect(models.json()).toEqual({ source: "preset", models: [], error: "spawn hive ENOENT" });
   });
 
   it("previews MCP servers before launch and starts the agent with the unchecked ones off", async () => {

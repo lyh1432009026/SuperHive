@@ -971,6 +971,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     retry = false,
     steer = false,
     first = false,
+    model?: string,
   ): void {
     const target = onlineAgent(message.roomId, agent.username);
     if (!target) return;
@@ -979,6 +980,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       message,
       latestSeq: database.latestSeq(message.roomId),
       ...(retry ? { retry: true } : {}),
+      ...(model ? { model } : {}),
       ...(steer ? { steer: true } : {}),
       ...(first ? { first: true } : {}),
       ...(asLead(message, agent) ? { lead: true } : {}),
@@ -2477,7 +2479,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     });
   }
 
-  function retryInvocation(actor: Participant, invocationId: string): void {
+  /** 重试；model 是人点「换个模型重试」选的模型，只对这一次生效 */
+  function retryInvocation(actor: Participant, invocationId: string, model?: string): void {
     const invocation = invocationInRoom(actor, invocationId);
     // 结果未知或停止未确认时，上一次执行可能仍在进行；此时重试会让同一任务并行跑两份
     if (invocation.status === "timed_out" || invocation.status === "cancelling") {
@@ -2498,15 +2501,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     emitInvocation(
       resetForRedelivery(
         invocation,
-        serverText(
-          invocation.blockReason === "guest_approval"
-            ? "invocation.approved"
-            : "invocation.retryRequested",
-          { name: actor.username },
-        ),
+        model
+          ? serverText("invocation.retryWithModel", { name: actor.username, model })
+          : serverText(
+              invocation.blockReason === "guest_approval"
+                ? "invocation.approved"
+                : "invocation.retryRequested",
+              { name: actor.username },
+            ),
       ),
     );
-    deliverMention(message, agent, true);
+    deliverMention(message, agent, true, false, false, model);
   }
 
   /**
@@ -4730,6 +4735,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       ) {
         const invocation = database.getInvocation(event.invocationId);
         // 访客只能管自己发起的调用；房主批准访客的请求不能由访客自己点
+        // 换模型要花房主的钱、可能换到更贵的模型：只有房主能指定
+        if (event.type === "invocation.retry" && event.model) {
+          send(socket, {
+            type: "error",
+            code: "OWNER_ONLY",
+            ...wsText(serverText("error.guest.retryModel")),
+          });
+          return;
+        }
         if (
           !invocation ||
           invocation.requesterId !== participant.id ||
@@ -4801,7 +4815,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
               broadcastAll({ type: "invocation.updated", invocation });
             }
           } else if (event.type === "invocation.retry")
-            retryInvocation(participant, event.invocationId);
+            retryInvocation(participant, event.invocationId, event.model);
           else if (event.type === "invocation.cancel") {
             cancelInvocation(participant, event.invocationId);
           } else if (event.type === "budget.extend") extendBudget(participant, event.turns);

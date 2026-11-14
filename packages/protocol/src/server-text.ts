@@ -125,6 +125,14 @@ export const serverTexts = {
   "invocation.reasonRecalled": { zh: "消息已撤回", en: "Message unsent" },
   "invocation.approved": { zh: "{name} 已批准", en: "Approved by {name}" },
   "invocation.retryRequested": { zh: "{name} 请求重试", en: "{name} asked to retry" },
+  "invocation.retryWithModel": {
+    zh: "{name} 请求换成 {model} 重试",
+    en: "{name} asked to retry with {model}",
+  },
+  "error.guest.retryModel": {
+    zh: "只有房主能换模型重试",
+    en: "Only the room owner can retry with another model",
+  },
   "invocation.turnsAdded": {
     plural: "turns",
     zh: "{name} 追加了 {turns} 轮（共 +{total}）",

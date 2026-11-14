@@ -607,6 +607,14 @@ export const imTexts = {
     zh: "打开了本机 Agent {name} 的自动引导",
     en: "turned on auto-steer for local agent {name}",
   },
+  "im.audit.modelChanged": {
+    zh: "把本机 Agent {name} 的模型改成了 {model}",
+    en: "set the model of local agent {name} to {model}",
+  },
+  "im.audit.modelDefault": {
+    zh: "把本机 Agent {name} 的模型改回运行时默认",
+    en: "set local agent {name} back to its runtime's default model",
+  },
   "im.audit.autoSteerOff": {
     zh: "关闭了本机 Agent {name} 的自动引导",
     en: "turned off auto-steer for local agent {name}",

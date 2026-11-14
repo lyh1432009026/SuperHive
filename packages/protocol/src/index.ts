@@ -641,6 +641,8 @@ export const invocationReportEventSchema = z.object({
 export const invocationRetryEventSchema = z.object({
   type: z.literal("invocation.retry"),
   invocationId: z.string().uuid(),
+  /** 「换个模型重试」：这次重试用的模型，只对这一次生效（只有房主能指定） */
+  model: z.string().trim().min(1).max(200).optional(),
 });
 /** 人把不再需要处理的失败、被拦、结果未知的调用标为已处理（可一次多条） */
 export const invocationDismissEventSchema = z.object({
@@ -1154,7 +1156,7 @@ export const localAgentSchema = z.object({
   mcpDisabled: z.array(z.string()).default([]),
   /** 人发给它的消息在它忙时自动用来引导当前任务（默认关，排队） */
   autoSteer: z.boolean().default(false),
-  /** 进程启动时还不支持设置文件（升级前就在运行）：MCP 勾选要重启这个 Agent 一次才生效 */
+  /** 进程启动时还不支持设置文件（升级前就在运行）：MCP 勾选、模型要重启这个 Agent 一次才生效 */
   settingsPendingRestart: z.boolean().optional(),
 });
 
@@ -1162,8 +1164,13 @@ export const updateLocalAgentSettingsRequestSchema = z
   .object({
     mcpDisabled: z.array(z.string().trim().min(1).max(200)).max(200).optional(),
     autoSteer: z.boolean().optional(),
+    /** 这个 Agent 用的模型；null 或空串表示用运行时自己的默认。下一轮生效，不用重启 */
+    model: z.string().trim().max(200).nullable().optional(),
   })
-  .refine((value) => value.mcpDisabled !== undefined || value.autoSteer !== undefined);
+  .refine(
+    (value) =>
+      value.mcpDisabled !== undefined || value.autoSteer !== undefined || value.model !== undefined,
+  );
 
 /** Agent CLI 在本机会加载的一个 MCP（hive 自己不在其中，始终加载） */
 export const localMcpServerSchema = z.object({
@@ -1181,6 +1188,22 @@ export const localMcpServerSchema = z.object({
       z.object({ ok: z.literal(false), error: z.string() }),
     ])
     .optional(),
+});
+
+/** 运行时能用的模型（网页上选模型、「换个模型重试」用） */
+export const localModelSchema = z.object({
+  /** 传给运行时的模型名 */
+  id: z.string(),
+  label: z.string().optional(),
+  /** 运行时自己的默认模型 */
+  isDefault: z.boolean().optional(),
+});
+export const localAgentModelsResponseSchema = z.object({
+  /** runtime：从运行时拉到的；preset：运行时没有列模型的命令，给的常用选项（都可以手填） */
+  source: z.enum(["runtime", "preset"]),
+  models: z.array(localModelSchema),
+  /** 拉取失败的原因 */
+  error: z.string().optional(),
 });
 
 export const localAgentMcpResponseSchema = z.object({
@@ -1292,6 +1315,8 @@ export type CreateLocalAgentRequest = z.infer<typeof createLocalAgentRequestSche
 export type UpdateLocalAgentSettingsRequest = z.infer<typeof updateLocalAgentSettingsRequestSchema>;
 export type LocalMcpServer = z.infer<typeof localMcpServerSchema>;
 export type LocalAgentMcpResponse = z.infer<typeof localAgentMcpResponseSchema>;
+export type LocalModel = z.infer<typeof localModelSchema>;
+export type LocalAgentModelsResponse = z.infer<typeof localAgentModelsResponseSchema>;
 export type LocalAgent = z.infer<typeof localAgentSchema>;
 export type LocalSessionResponse = z.infer<typeof localSessionResponseSchema>;
 

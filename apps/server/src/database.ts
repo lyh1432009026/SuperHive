@@ -2196,6 +2196,11 @@ export class HiveDatabase {
   }
 
   /** 网页上勾掉的本机 MCP；名称排序去重后保存 */
+  setLocalAgentModel(id: string, model: string | null): string | null {
+    this.db.prepare("UPDATE local_agents SET model = ? WHERE id = ?").run(model, id);
+    return model;
+  }
+
   setLocalAgentMcpDisabled(id: string, names: string[]): string[] {
     const normalized = [...new Set(names)].sort();
     this.db

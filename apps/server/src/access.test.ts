@@ -275,6 +275,50 @@ describe("限时邀请与访客会话", () => {
     expect(delivered.type).toBe("agent.mentioned");
   });
 
+  it("换个模型重试：模型带给 Agent、只有房主能指定", async () => {
+    const { invite, redeem, join } = await start();
+    const owner = await join("rd", "human");
+    await owner.next((event) => event.type === "room.snapshot");
+    const worker = await join("worker", "agent");
+    await worker.next((event) => event.type === "room.snapshot");
+    const guestToken = (await redeem((await invite(60, true)).token, "alice")).body.token as string;
+    const alice = await join("alice", "human", guestToken);
+    await alice.next((event) => event.type === "room.snapshot");
+
+    alice.send({ type: "message.send", clientMessageId: "m1", content: "@worker 看一下" });
+    const first = await worker.next((event) => event.type === "agent.mentioned");
+    const messageId = first.type === "agent.mentioned" ? first.message.id : "";
+    worker.send({
+      type: "invocation.report",
+      messageId,
+      status: "failed",
+      detail: "model_not_found",
+    });
+    const failed = await owner.next(
+      (event) => event.type === "invocation.updated" && event.invocation.status === "failed",
+    );
+    const invocation = (failed as Extract<ServerEvent, { type: "invocation.updated" }>)
+      .invocation as Invocation;
+
+    // 访客能重试自己发起的，但不能换模型（花的是房主的钱）
+    alice.send({ type: "invocation.retry", invocationId: invocation.id, model: "gpt-pricey" });
+    expect(errorCode(await alice.next((event) => event.type === "error"))).toBe("OWNER_ONLY");
+
+    owner.send({ type: "invocation.retry", invocationId: invocation.id, model: "gpt-other" });
+    const retried = await worker.next((event) => event.type === "agent.mentioned");
+    expect(retried).toMatchObject({ retry: true, model: "gpt-other" });
+    const queued = await owner.next(
+      (event) =>
+        event.type === "invocation.updated" &&
+        event.invocation.status === "queued" &&
+        event.invocation.attempts === 2,
+    );
+    expect(
+      ((queued as Extract<ServerEvent, { type: "invocation.updated" }>).invocation as Invocation)
+        .detail,
+    ).toBe("rd 请求换成 gpt-other 重试");
+  });
+
   it("允许调度 Agent 的邀请不需要逐次批准", async () => {
     const { invite, redeem, join } = await start();
     const worker = await join("worker", "agent");
