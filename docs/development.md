@@ -318,3 +318,14 @@ pnpm --filter @superhive/server rebuild better-sqlite3
 ```
 
 macOS 可安装 Xcode Command Line Tools；Linux 通常需要 Python、make 和 g++。
+
+## 许可证与外部贡献
+
+自 0.3.0 起整个仓库（含 npm 包 `superhive`）采用 AGPL-3.0-only；npm 上已发布的 0.2.0 及更早版本仍是 MIT，不可追回。
+
+作者保留对外提供商业授权（AGPL 豁免）的权利，这要求作者对代码拥有完整的再授权权。因此在合入第一个外部贡献之前，必须先补上贡献约定，二选一：
+
+- 贡献者签 CLA（如 CLA Assistant），授权作者以其他许可证再发布其贡献；
+- 或在 CONTRIBUTING.md 写明「提交 PR 即同意该贡献按 AGPL-3.0-only 发布，并授权作者以商业许可再授权」，PR 模板里加勾选项。
+
+没有这一步就合入的外部代码，只能按 AGPL 使用，会让后续的商业授权失效。
