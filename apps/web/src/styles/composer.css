@@ -484,6 +484,8 @@
 
 /* 所见即所得输入框：正文排版沿用消息的 .message-body，发出去是什么样，写的时候就是什么样 */
 .rich-composer {
+  display: flex;
+  flex-direction: column;
   min-height: 54px;
   max-height: max(176px, 40vh);
   overflow-y: auto;
@@ -497,7 +499,17 @@
   max-height: max(176px, 70vh);
 }
 
+/* EditorContent 的包装层和编辑器本体都纵向撑满：内容只有一行时编辑器也占满整个框，
+   框内任意位置点下去都能落进 contenteditable 聚焦，不再只有顶部一小条是有效热区 */
+.rich-composer > div {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 .rich-composer .rich-composer-content {
+  flex: 1;
   min-height: 24px;
   margin: 0;
   outline: none;
