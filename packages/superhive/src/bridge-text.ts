@@ -4,6 +4,7 @@
  * （bridge-text.test.ts 核对）；英文只在那边维护。这个包不依赖 protocol，所以这里只放中文。
  */
 export const BRIDGE_TEXTS = {
+  "bridge.worktreeCleaned": "任务目录已被清理，本轮无需继续执行：{path}",
   "bridge.worktreeCheckBeforeContinue":
     "已绑定目录 {path}，但本轮已有其它副作用；未自动续跑，请核对原目录的操作后再继续",
   "bridge.worktreeHandoff": "已切到独立目录 {path}，开新会话继续；旧会话不迁移",

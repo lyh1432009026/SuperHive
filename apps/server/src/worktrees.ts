@@ -17,6 +17,7 @@ import { HiveDatabase, HiveError } from "./database.js";
 type GitResult = { code: number; stdout: string; stderr: string };
 type Checkout = { path: string; branch: string | undefined; locked: boolean };
 type Repository = { repo: string; commonDir: string; target: string };
+type RemovedWorktree = ManagedWorktree & { removed: true };
 
 export type WorktreeCleanupBatch = {
   id: string;
@@ -214,6 +215,9 @@ export class WorktreeManager {
     )`);
     options.database.connection().exec(`CREATE TABLE IF NOT EXISTS managed_worktree_bindings (
       invocation_id TEXT PRIMARY KEY, worktree_id TEXT NOT NULL
+    )`);
+    options.database.connection().exec(`CREATE TABLE IF NOT EXISTS managed_worktree_removals (
+      id TEXT PRIMARY KEY, repo TEXT NOT NULL, record TEXT NOT NULL
     )`);
     options.database.connection().exec(`CREATE TABLE IF NOT EXISTS managed_worktree_notices (
       worktree_id TEXT PRIMARY KEY, head_commit TEXT NOT NULL
@@ -480,12 +484,67 @@ export class WorktreeManager {
     for (const id of invocationIds) statement.run(id, record.id);
   }
 
+  private removedRecords(repo?: string): RemovedWorktree[] {
+    return (
+      this.options.database
+        .connection()
+        .prepare(
+          "SELECT record FROM managed_worktree_removals WHERE (? IS NULL OR repo = ?) ORDER BY rowid DESC",
+        )
+        .all(repo ?? null, repo ?? null) as Array<{ record: string }>
+    ).map((row) => ({ ...managedWorktreeSchema.parse(JSON.parse(row.record)), removed: true }));
+  }
+
+  confirmedRemoval(actor: Participant, invocationIds: string[]): RemovedWorktree | undefined {
+    return this.removedRecords().find(
+      (record) =>
+        record.roomId === actor.roomId &&
+        record.agentName === actor.username &&
+        invocationIds.some((id) => record.invocationIds.includes(id)),
+    );
+  }
+
+  private finishRemoval(record: ManagedWorktree, missing = false): RemovedWorktree {
+    this.options.database.connection().transaction(() => {
+      this.options.database
+        .connection()
+        .prepare("INSERT INTO managed_worktree_removals (id, repo, record) VALUES (?, ?, ?)")
+        .run(record.id, record.repo, JSON.stringify(record));
+      this.options.database
+        .connection()
+        .prepare("DELETE FROM managed_worktree_focus WHERE worktree_id = ?")
+        .run(record.id);
+      this.options.database
+        .connection()
+        .prepare("DELETE FROM managed_worktree_bindings WHERE worktree_id = ?")
+        .run(record.id);
+      this.options.database
+        .connection()
+        .prepare("DELETE FROM managed_worktrees WHERE id = ?")
+        .run(record.id);
+      const summary = zhText(
+        serverText(missing ? "worktree.missingReleased" : "worktree.cleaned", {
+          path: record.path,
+        }),
+      );
+      this.options.database
+        .connection()
+        .prepare(
+          "UPDATE whiteboard_entries SET slot = 'milestone', summary = ? WHERE key = ? AND claim_repo = ? AND claim_branch = ?",
+        )
+        .run(summary, `worktree:${record.id}`, record.repo, record.branch);
+    })();
+    this.options.onBoardChanged?.(record.roomId);
+    this.pruneCleanupBatches();
+    return { ...record, removed: true };
+  }
+
   async runtimeWorkspace(
     workspace: string,
     actor: Participant,
     ownerName: string,
     invocationId: string,
-  ): Promise<ManagedWorktree | undefined> {
+  ): Promise<ManagedWorktree | RemovedWorktree | undefined> {
     return (await this.runtimeWorkspaces(workspace, actor, [{ ownerName, invocationId }])).get(
       invocationId,
     );
@@ -494,8 +553,8 @@ export class WorktreeManager {
   async runtimeWorkspaces(
     workspace: string,
     actor: Participant,
-    tasks: Array<{ ownerName: string; invocationId: string }>,
-  ): Promise<Map<string, ManagedWorktree | undefined>> {
+    tasks: Array<{ ownerName: string; invocationId: string; ancestorIds?: string[] }>,
+  ): Promise<Map<string, ManagedWorktree | RemovedWorktree | undefined>> {
     const binding = this.options.database
       .connection()
       .prepare("SELECT worktree_id FROM managed_worktree_bindings WHERE invocation_id = ?");
@@ -505,35 +564,129 @@ export class WorktreeManager {
         "SELECT worktree_id FROM managed_worktree_focus WHERE room_id = ? AND agent_name = ?",
       )
       .get(actor.roomId, actor.username) as { worktree_id: string } | undefined;
-    const selections = tasks.map((task) => ({
-      ...task,
-      selected: (binding.get(task.invocationId) as { worktree_id: string } | undefined) ?? focus,
-    }));
-    const result = new Map<string, ManagedWorktree | undefined>(
+    const selections = tasks.map((task) => {
+      const bound = binding.get(task.invocationId) as { worktree_id: string } | undefined;
+      return { ...task, bound, selected: bound ?? focus };
+    });
+    const result = new Map<string, ManagedWorktree | RemovedWorktree | undefined>(
       tasks.map((task) => [task.invocationId, undefined]),
     );
-    if (!selections.some((task) => task.selected)) return result;
+    if (
+      !selections.some((task) => task.selected) &&
+      !this.confirmedRemoval(
+        actor,
+        tasks.flatMap((task) => [task.invocationId, ...(task.ancestorIds ?? [])]),
+      )
+    )
+      return result;
     const repository = await worktreeRepository(workspace);
     return this.serial(repository.repo, async () => {
       const records = new Map(this.records(repository.repo).map((record) => [record.id, record]));
+      const removed = this.removedRecords(repository.repo);
       const occupants = new Map<ManagedWorktree, string[]>();
       for (const task of selections) {
-        const record = task.selected ? records.get(task.selected.worktree_id) : undefined;
-        if (!record) continue;
+        const previous = removed.find(
+          (record) =>
+            record.agentName === actor.username &&
+            record.roomId === actor.roomId &&
+            [task.invocationId, ...(task.ancestorIds ?? [])].some((id) =>
+              record.invocationIds.includes(id),
+            ),
+        );
+        const inherited = previous
+          ? (task.ancestorIds ?? [])
+              .map((id) => {
+                const bound = binding.get(id) as { worktree_id: string } | undefined;
+                return bound ? records.get(bound.worktree_id) : undefined;
+              })
+              .find(
+                (record) => record?.agentName === actor.username && record.roomId === actor.roomId,
+              )
+          : undefined;
+        const record =
+          (task.bound ? records.get(task.bound.worktree_id) : undefined) ??
+          inherited ??
+          previous ??
+          (task.selected ? records.get(task.selected.worktree_id) : undefined);
+        if (!record) {
+          if (
+            !task.bound &&
+            task.selected &&
+            removed.some(
+              (item) =>
+                item.id === task.selected!.worktree_id &&
+                item.ownerName === task.ownerName &&
+                item.agentName === actor.username &&
+                item.roomId === actor.roomId,
+            )
+          )
+            continue;
+          if (task.selected)
+            throw new HiveError(
+              "WORKTREE_IDENTITY",
+              serverText("error.worktree.identity", { path: task.selected.worktree_id }),
+            );
+          continue;
+        }
         if (
           record.ownerName !== task.ownerName ||
           record.agentName !== actor.username ||
-          record.roomId !== actor.roomId ||
-          record.phase !== "ready"
+          record.roomId !== actor.roomId
         )
           throw new HiveError(
             "WORKTREE_UNSAFE",
             serverText("error.worktree.unsafe", { path: record.path }),
           );
-        occupants.set(record, [...(occupants.get(record) ?? []), task.invocationId]);
+        if ("removed" in record) result.set(task.invocationId, record);
+        else occupants.set(record, [...(occupants.get(record) ?? []), task.invocationId]);
       }
-      for (const record of occupants.keys()) await this.identity(record);
+      const missing = new Set<ManagedWorktree>();
+      for (const record of occupants.keys()) {
+        if (await this.missingCheckout(record, repository.target)) {
+          if (
+            this.options
+              .activeInvocations(record)
+              .some((id) => !tasks.some((task) => task.invocationId === id))
+          )
+            throw new HiveError(
+              "WORKTREE_UNSAFE",
+              serverText("error.worktree.unsafe", { path: record.path }),
+            );
+          missing.add(record);
+        } else {
+          if (record.phase !== "ready")
+            throw new HiveError(
+              "WORKTREE_UNSAFE",
+              serverText("error.worktree.unsafe", { path: record.path }),
+            );
+          await this.identity(record);
+        }
+      }
       for (const [record, ids] of occupants) {
+        if (missing.has(record)) {
+          if (
+            !(await this.missingCheckout(record, repository.target)) ||
+            this.options
+              .activeInvocations(record)
+              .some((id) => !tasks.some((task) => task.invocationId === id))
+          )
+            throw new HiveError(
+              "WORKTREE_IDENTITY",
+              serverText("error.worktree.identity", { path: record.path }),
+            );
+          const released = this.finishRemoval(record, true);
+          for (const id of ids) {
+            const task = selections.find((task) => task.invocationId === id)!;
+            if (
+              task.bound ||
+              [id, ...(task.ancestorIds ?? [])].some((ancestor) =>
+                record.invocationIds.includes(ancestor),
+              )
+            )
+              result.set(id, released);
+          }
+          continue;
+        }
         record.invocationIds = [...new Set([...record.invocationIds, ...ids])];
         this.save(record);
         this.bind(record, ids);
@@ -727,6 +880,32 @@ export class WorktreeManager {
     }
   }
 
+  private async missingCheckout(record: ManagedWorktree, expectedTarget: string): Promise<boolean> {
+    const present = await lstat(record.path).then(
+      () => true,
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return false;
+        throw error;
+      },
+    );
+    if (present) return false;
+    const repository = await worktreeRepository(record.repo);
+    if (
+      repository.repo !== record.repo ||
+      repository.commonDir !== record.commonDir ||
+      repository.target !== expectedTarget ||
+      record.target !== expectedTarget
+    )
+      throw new HiveError(
+        "WORKTREE_IDENTITY",
+        serverText("error.worktree.identity", { path: record.path }),
+      );
+    return (
+      !(await checkouts(record.repo)).some((checkout) => checkout.path === record.path) &&
+      !(await branchExists(record.repo, record.branch))
+    );
+  }
+
   private async merged(
     record: ManagedWorktree,
   ): Promise<{ merged: boolean; mergeMethod?: WorktreeStatus["mergeMethod"] }> {
@@ -793,6 +972,17 @@ export class WorktreeManager {
           "WORKTREE_IDENTITY",
           serverText("error.worktree.identity", { path: record.path }),
         );
+      if (await this.missingCheckout(record, expectedTarget))
+        return {
+          worktree: record,
+          dirty: false,
+          untracked: false,
+          ignored: false,
+          merged: false,
+          missing: true,
+          activeInvocationIds,
+          removable: activeInvocationIds.length === 0,
+        };
       await this.identity(record);
       const tracked = await git(record.path, [
         "status",
@@ -862,6 +1052,19 @@ export class WorktreeManager {
           "WORKTREE_UNSAFE",
           serverText("error.worktree.unsafe", { path: input.path }),
         );
+      if (status.missing) {
+        if (
+          input.expectedCommit ||
+          !(await this.missingCheckout(record, repository.target)) ||
+          this.options.activeInvocations(record).length
+        )
+          throw new HiveError(
+            "WORKTREE_UNSAFE",
+            serverText("error.worktree.unsafe", { path: record.path }),
+          );
+        this.finishRemoval(record, true);
+        return { removed: true, branchDeleted: true };
+      }
       const tip = await commit(record.repo, `refs/heads/${record.branch}`);
       if (input.expectedCommit && tip !== input.expectedCommit)
         throw new HiveError(
@@ -905,28 +1108,7 @@ export class WorktreeManager {
           branchError = error instanceof Error ? error.message : String(error);
         }
       }
-      this.options.database.connection().transaction(() => {
-        this.options.database
-          .connection()
-          .prepare("DELETE FROM managed_worktree_focus WHERE worktree_id = ?")
-          .run(record.id);
-        this.options.database
-          .connection()
-          .prepare("DELETE FROM managed_worktree_bindings WHERE worktree_id = ?")
-          .run(record.id);
-        this.options.database
-          .connection()
-          .prepare("DELETE FROM managed_worktrees WHERE id = ?")
-          .run(record.id);
-        this.options.database
-          .connection()
-          .prepare(
-            "UPDATE whiteboard_entries SET slot = 'milestone' WHERE key = ? AND claim_repo = ? AND claim_branch = ?",
-          )
-          .run(`worktree:${record.id}`, record.repo, record.branch);
-      })();
-      this.options.onBoardChanged?.(record.roomId);
-      this.pruneCleanupBatches();
+      this.finishRemoval(record);
       return { removed: true, branchDeleted, ...(branchError ? { branchError } : {}) };
     });
   }

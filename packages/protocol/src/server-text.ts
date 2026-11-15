@@ -62,6 +62,14 @@ export const serverTexts = {
     en: "Worktree operation failed; nothing was forcibly deleted: {reason}",
   },
   "worktree.created": { zh: "工作区 {branch}：{path}", en: "Worktree {branch}: {path}" },
+  "worktree.cleaned": {
+    zh: "任务目录已被清理：{path}",
+    en: "The task workspace was cleaned up: {path}",
+  },
+  "worktree.missingReleased": {
+    zh: "目录与分支均已不存在，已释放登记；不代表已验证合入：{path}",
+    en: "The checkout and branch no longer exist; registration was released. This does not confirm a merge: {path}",
+  },
   /* ---------- 调用（任务）状态说明 ---------- */
   "invocation.delivered": { zh: "已送达，排队中", en: "Delivered, waiting in queue" },
   "invocation.steerRequested": {
@@ -443,6 +451,10 @@ export const serverTexts = {
   "bridge.worktreeHandoff": {
     zh: "已切到独立目录 {path}，开新会话继续；旧会话不迁移",
     en: "Continuing in a new session in isolated workspace {path}; the old session is not moved",
+  },
+  "bridge.worktreeCleaned": {
+    zh: "任务目录已被清理，本轮无需继续执行：{path}",
+    en: "The task workspace was cleaned up; no further execution is needed for this turn: {path}",
   },
   "bridge.worktreeSteerQueued": {
     zh: "这条消息绑定了另一个工作目录 {path}，不能引导当前任务，已排队",

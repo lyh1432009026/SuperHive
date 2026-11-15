@@ -96,7 +96,11 @@ describe("managed worktrees", () => {
     );
     await expect(manager.runtimeWorkspace(repo, agent, "Guest", secondId)).rejects.toThrow();
     await manager.remove(repo, { path: second.worktree.path });
-    expect(await manager.runtimeWorkspace(repo, agent, "Alice", followupId)).toBeUndefined();
+    expect(await manager.runtimeWorkspace(repo, agent, "Alice", followupId)).toMatchObject({
+      removed: true,
+      id: second.worktree.id,
+    });
+    expect(await manager.runtimeWorkspace(repo, agent, "Alice", randomUUID())).toBeUndefined();
     const recreated = new WorktreeManager({ database, activeInvocations: () => [] });
     expect((await recreated.runtimeWorkspace(repo, agent, "Alice", firstId))?.id).toBe(
       first.worktree.id,
@@ -105,6 +109,120 @@ describe("managed worktrees", () => {
 
   it("does not require a Git workspace when there is no managed task binding", async () => {
     expect(await manager.runtimeWorkspace(root, agent, "Alice", randomUUID())).toBeUndefined();
+  });
+
+  it("releases a fully vanished checkout on a new wakeup without dropping an unrelated task", async () => {
+    const initial = randomUUID();
+    const { worktree } = await manager.create(repo, agent, "Alice", [initial], { slug: "gone" });
+    await git(repo, "worktree", "remove", worktree.path);
+    await git(repo, "branch", "-d", worktree.branch);
+    const next = randomUUID();
+    active = [next];
+    expect(await manager.runtimeWorkspace(repo, agent, "Alice", next)).toBeUndefined();
+    expect(manager.allRecords()).toEqual([]);
+    expect(database.listWhiteboard("general")[0]).toMatchObject({ slot: "milestone" });
+    expect(database.listWhiteboard("general")[0]?.summary).toContain("不代表已验证合入");
+    const reopened = new WorktreeManager({ database, activeInvocations: () => [] });
+    const receipt = randomUUID();
+    expect(
+      (
+        await reopened.runtimeWorkspaces(repo, agent, [
+          { ownerName: "Alice", invocationId: receipt, ancestorIds: [initial] },
+        ])
+      ).get(receipt),
+    ).toMatchObject({ removed: true, id: worktree.id });
+    await expect(reopened.runtimeWorkspace(repo, agent, "Guest", initial)).rejects.toThrow();
+    expect((await reopened.create(repo, agent, "Alice", [next], { slug: "gone" })).reused).toBe(
+      false,
+    );
+    expect((await reopened.runtimeWorkspace(repo, agent, "Alice", next))?.id).not.toBe(worktree.id);
+  });
+
+  it("allows metadata-only remove after the directory and branch are both gone", async () => {
+    const { worktree } = await create();
+    await git(repo, "worktree", "remove", worktree.path);
+    await git(repo, "branch", "-d", worktree.branch);
+    expect(await manager.status(worktree)).toMatchObject({
+      missing: true,
+      merged: false,
+      removable: true,
+    });
+    active = [randomUUID()];
+    await expect(manager.remove(repo, { path: worktree.path })).rejects.toThrow();
+    active = [];
+    await expect(
+      manager.remove(repo, { path: worktree.path, expectedCommit: worktree.baseCommit }),
+    ).rejects.toThrow();
+    await expect(manager.remove(repo, { path: worktree.path })).resolves.toMatchObject({
+      removed: true,
+      branchDeleted: true,
+    });
+    expect(manager.allRecords()).toEqual([]);
+    expect(database.connection().prepare("SELECT * FROM managed_worktree_focus").all()).toEqual([]);
+    expect(database.connection().prepare("SELECT * FROM managed_worktree_bindings").all()).toEqual(
+      [],
+    );
+  });
+
+  it("does not release damaged directories, retained branches or unverifiable bindings", async () => {
+    const initial = randomUUID();
+    const { worktree } = await manager.create(repo, agent, "Alice", [initial], { slug: "damaged" });
+    rmSync(worktree.path, { recursive: true });
+    await expect(manager.runtimeWorkspace(repo, agent, "Alice", initial)).rejects.toThrow();
+    await expect(manager.remove(repo, { path: worktree.path })).rejects.toThrow();
+    await git(repo, "worktree", "prune");
+    await expect(manager.runtimeWorkspace(repo, agent, "Alice", initial)).rejects.toThrow();
+    await expect(manager.remove(repo, { path: worktree.path })).rejects.toThrow();
+    expect(manager.allRecords()).toHaveLength(1);
+    database.connection().prepare("DELETE FROM managed_worktrees WHERE id = ?").run(worktree.id);
+    await expect(manager.runtimeWorkspace(repo, agent, "Alice", initial)).rejects.toThrow();
+  });
+
+  it("keeps a vanished registration while another invocation is still active", async () => {
+    const { worktree } = await create();
+    await git(repo, "worktree", "remove", worktree.path);
+    await git(repo, "branch", "-d", worktree.branch);
+    active = [randomUUID()];
+    await expect(manager.runtimeWorkspace(repo, agent, "Alice", randomUUID())).rejects.toThrow();
+    expect(manager.allRecords()).toHaveLength(1);
+  });
+
+  it("does not apply another agent's removal receipt to a delegated task", async () => {
+    const upstream = randomUUID();
+    const original = await manager.create(repo, agent, "Alice", [upstream], { slug: "upstream" });
+    await manager.remove(repo, { path: original.worktree.path });
+    const other = database.upsertParticipant({
+      roomId: "general",
+      username: "agent-b",
+      type: "agent",
+    });
+    const own = await manager.create(repo, other, "Alice", [randomUUID()], { slug: "own" });
+    const delegated = randomUUID();
+    expect(
+      (
+        await manager.runtimeWorkspaces(repo, other, [
+          { ownerName: "Alice", invocationId: delegated, ancestorIds: [upstream] },
+        ])
+      ).get(delegated)?.id,
+    ).toBe(own.worktree.id);
+  });
+
+  it("prefers a new live ancestor binding over an older cleanup receipt", async () => {
+    const initial = randomUUID();
+    const original = await manager.create(repo, agent, "Alice", [initial], { slug: "old" });
+    await manager.remove(repo, { path: original.worktree.path });
+    const replacement = await manager.create(repo, agent, "Alice", [initial], { slug: "new" });
+    const receipt = randomUUID();
+    expect(
+      (
+        await manager.runtimeWorkspaces(repo, agent, [
+          { ownerName: "Alice", invocationId: receipt, ancestorIds: [initial] },
+        ])
+      ).get(receipt)?.id,
+    ).toBe(replacement.worktree.id);
+    expect((await manager.runtimeWorkspace(repo, agent, "Alice", initial))?.id).toBe(
+      replacement.worktree.id,
+    );
   });
 
   it("batches merged clean worktrees, reminds only once and rechecks before confirmed cleanup", async () => {

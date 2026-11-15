@@ -356,6 +356,34 @@ describe("AgentBridge", () => {
     expect(await store.load()).toMatchObject({ workspace: selected });
   });
 
+  it("finishes a cleaned task without a provider call and still runs the next unrelated task", async () => {
+    const { TaskWorkspaceRemovedError } = await import("./task-workspace.js");
+    const removed = chat();
+    taskWorkspace = {
+      resolve: async (id) =>
+        id === removed.id ? new TaskWorkspaceRemovedError("/removed") : undefined,
+      responder: () => responder,
+    };
+    await startBridge(baseState());
+    room.messages.push(removed);
+    room.handlers.onMention(removed, removed.seq, false);
+    const next = chat({ seq: removed.seq + 1 });
+    room.messages.push(next);
+    room.handlers.onMention(next, next.seq, false);
+    await waitUntil(() => room.statuses(removed.id).includes("completed"));
+    expect(room.statuses(removed.id)).not.toContain("failed");
+    expect(
+      room.reports.find(
+        (report) => report.messageId === removed.id && report.status === "completed",
+      )?.detailText?.key,
+    ).toBe("bridge.worktreeCleaned");
+    await waitUntil(() => responder.calls.length === 1);
+    expect(room.sent).toEqual([]);
+    responder.finish();
+    await waitUntil(() => room.statuses(next.id).includes("completed"));
+    expect((await store.load())?.processedMessageIds).toContain(removed.id);
+  });
+
   it("refuses to run when the managed workspace cannot be verified", async () => {
     taskWorkspace = {
       resolve: async () => {

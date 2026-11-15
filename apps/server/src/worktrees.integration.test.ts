@@ -156,6 +156,102 @@ async function start() {
 }
 
 describe("worktree MCP permissions and bindings", () => {
+  it("finishes a bound wakeup only after a vanished checkout is verified and keeps unrelated work runnable", async () => {
+    const { app, repo, git, join, mcp, run, finish } = await start();
+    const owner = await join("Alice", "human");
+    const helper = await join("helper", "agent");
+    const initial = await run(owner, helper, "helper");
+    const call = await mcp("helper");
+    const created = await call("hive_worktree_create", { slug: "vanished" });
+    const worktree = created.structuredContent!.worktree as ManagedWorktree;
+    const pending = await run(owner, helper, "helper", "followup");
+    const headers = {
+      authorization: "Bearer test-token",
+      "x-hive-room": "general",
+      "x-hive-agent-name": "helper",
+    };
+    const url = `/api/agent/worktree?messageId=${pending.id}`;
+    expect((await app.inject({ url, headers })).statusCode).toBe(200);
+    await finish(owner, helper, initial);
+    await git(repo, ["worktree", "remove", worktree.path]);
+    expect((await app.inject({ url, headers })).statusCode).toBe(403);
+    await git(repo, ["branch", "-d", worktree.branch]);
+    const removed = await app.inject({ url, headers });
+    expect(removed.statusCode).toBe(200);
+    expect(removed.json().worktree).toMatchObject({ id: worktree.id, removed: true });
+    helper.send({
+      type: "invocation.report",
+      messageId: pending.id,
+      status: "completed",
+      detailText: { key: "bridge.worktreeCleaned", params: { path: worktree.path } },
+    });
+    const resolved = await nextEvent(
+      owner,
+      "cleaned workspace resolved",
+      (event) =>
+        event.type === "invocation.updated" &&
+        event.invocation.messageId === pending.id &&
+        event.invocation.resolution?.kind === "superseded",
+    );
+    expect(resolved.type === "invocation.updated" && resolved.invocation.status).toBe("completed");
+    expect(
+      resolved.type === "invocation.updated" && resolved.invocation.resolution?.noteText?.key,
+    ).toBe("bridge.worktreeCleaned");
+    const next = await run(owner, helper, "helper", "new work");
+    const unbound = await app.inject({
+      method: "POST",
+      url: "/api/agent/worktree",
+      headers,
+      payload: { messageIds: [next.id] },
+    });
+    expect(unbound.json()).toEqual({ worktrees: { [next.id]: null } });
+    helper.send({
+      type: "invocation.report",
+      messageId: next.id,
+      status: "completed",
+      detailText: { key: "bridge.worktreeCleaned", params: { path: worktree.path } },
+    });
+    const unrelated = await nextEvent(
+      owner,
+      "unrelated completed",
+      (event) =>
+        event.type === "invocation.updated" &&
+        event.invocation.messageId === next.id &&
+        event.invocation.status === "completed",
+    );
+    expect(
+      unrelated.type === "invocation.updated" && unrelated.invocation.resolution,
+    ).toBeUndefined();
+  }, 15_000);
+
+  it("lets the safe remove tool release a vanished registration and reuse the same slug", async () => {
+    const { app, repo, git, join, mcp, run, finish } = await start();
+    const owner = await join("Alice", "human");
+    const helper = await join("helper", "agent");
+    const initial = await run(owner, helper, "helper");
+    const call = await mcp("helper");
+    const created = await call("hive_worktree_create", { slug: "gone" });
+    const worktree = created.structuredContent!.worktree as ManagedWorktree;
+    await finish(owner, helper, initial);
+    await git(repo, ["worktree", "remove", worktree.path]);
+    await git(repo, ["branch", "-d", worktree.branch]);
+    const next = await run(owner, helper, "helper", "cleanup");
+    expect(
+      (await call("hive_worktree_remove", { path: worktree.path })).structuredContent,
+    ).toMatchObject({ removed: true, branchDeleted: true });
+    const headers = {
+      authorization: "Bearer test-token",
+      "x-hive-room": "general",
+      "x-hive-agent-name": "helper",
+    };
+    expect(
+      (await app.inject({ url: `/api/agent/worktree?messageId=${next.id}`, headers })).json(),
+    ).toEqual({ worktree: null });
+    expect((await call("hive_worktree_create", { slug: "gone" })).structuredContent).toMatchObject({
+      reused: false,
+    });
+  }, 15_000);
+
   it("resolves several local task bindings together without weakening authorization", async () => {
     const { app, join, mcp, run, finish } = await start();
     const owner = await join("Alice", "human");

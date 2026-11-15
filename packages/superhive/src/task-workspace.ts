@@ -3,10 +3,18 @@ import type { HiveMcpConnection } from "./hive-mcp-config.js";
 import { hiveMcpHeaders } from "./hive-mcp-config.js";
 import { AgentNonRetryableError } from "./responder.js";
 
+export class TaskWorkspaceRemovedError extends Error {
+  constructor(readonly path: string) {
+    super(`The task workspace was cleaned up: ${path}`);
+  }
+}
+
+export type TaskWorkspaceSelection = string | TaskWorkspaceRemovedError | undefined;
+
 export async function resolveTaskWorkspace(
   hive: HiveMcpConnection,
   messageId: string,
-): Promise<string | undefined> {
+): Promise<TaskWorkspaceSelection> {
   try {
     const response = await fetch(
       `${hive.serverUrl}/api/agent/worktree?messageId=${encodeURIComponent(messageId)}`,
@@ -26,9 +34,11 @@ export async function resolveTaskWorkspace(
 async function verifyWorkspace(
   hive: HiveMcpConnection,
   value: unknown,
-): Promise<string | undefined> {
+): Promise<TaskWorkspaceSelection> {
   if (value === null) return undefined;
-  const record = value as { path?: unknown; agentName?: unknown; roomId?: unknown } | undefined;
+  const record = value as
+    | { id?: unknown; path?: unknown; agentName?: unknown; roomId?: unknown; removed?: unknown }
+    | undefined;
   if (
     !record ||
     typeof record.path !== "string" ||
@@ -36,6 +46,14 @@ async function verifyWorkspace(
     record.roomId !== hive.roomId
   )
     throw new Error("Invalid managed task workspace identity");
+  if (record.removed === true) {
+    if (
+      typeof record.id !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(record.id)
+    )
+      throw new Error("Invalid managed task workspace removal receipt");
+    return new TaskWorkspaceRemovedError(record.path);
+  }
   if ((await realpath(record.path)) !== record.path || !(await stat(record.path)).isDirectory())
     throw new Error("Managed task workspace has changed");
   return record.path;
@@ -44,7 +62,7 @@ async function verifyWorkspace(
 export async function resolveTaskWorkspaces(
   hive: HiveMcpConnection,
   messageIds: string[],
-): Promise<Map<string, string | undefined>> {
+): Promise<Map<string, TaskWorkspaceSelection>> {
   try {
     const response = await fetch(`${hive.serverUrl}/api/agent/worktree`, {
       method: "POST",
@@ -54,10 +72,10 @@ export async function resolveTaskWorkspaces(
     });
     if (!response.ok) throw new Error(`Cannot verify managed task workspaces (${response.status})`);
     const value = (await response.json()) as { worktrees?: Record<string, unknown> };
-    const verified = new Map<unknown, Promise<string | undefined>>();
+    const verified = new Map<unknown, Promise<TaskWorkspaceSelection>>();
     return new Map(
       await Promise.all(
-        messageIds.map(async (id): Promise<[string, string | undefined]> => {
+        messageIds.map(async (id): Promise<[string, TaskWorkspaceSelection]> => {
           if (!value.worktrees || !Object.hasOwn(value.worktrees, id))
             throw new Error("Incomplete managed task workspace response");
           const record = value.worktrees[id];

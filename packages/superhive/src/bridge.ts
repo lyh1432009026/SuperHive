@@ -1,4 +1,5 @@
 import { bridgeText, bridgeTextZh, said, type BridgeText } from "./bridge-text.js";
+import { TaskWorkspaceRemovedError, type TaskWorkspaceSelection } from "./task-workspace.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   isMentioned,
@@ -218,8 +219,8 @@ export class AgentBridge {
       /** 本机 Hive Server 写的 Agent 设置文件：模型每一轮从这里读 */
       settingsFile?: string;
       taskWorkspace?: {
-        resolve: (messageId: string) => Promise<string | undefined>;
-        resolveMany?: (messageIds: string[]) => Promise<Map<string, string | undefined>>;
+        resolve: (messageId: string) => Promise<TaskWorkspaceSelection>;
+        resolveMany?: (messageIds: string[]) => Promise<Map<string, TaskWorkspaceSelection>>;
         responder: (cwd: string) => AgentResponder;
       };
     },
@@ -557,7 +558,9 @@ export class AgentBridge {
     );
   }
 
-  private async taskWorkspaces(messages: ChatMessage[]): Promise<Map<string, string | undefined>> {
+  private async taskWorkspaces(
+    messages: ChatMessage[],
+  ): Promise<Map<string, TaskWorkspaceSelection>> {
     const runtime = this.options.taskWorkspace;
     if (!runtime) return new Map(messages.map((message) => [message.id, undefined]));
     const ids = messages.map((message) => message.id);
@@ -571,12 +574,13 @@ export class AgentBridge {
 
   private async selectTaskWorkspace(
     messageId: string,
-    prepared?: { path: string | undefined },
+    prepared?: { path: TaskWorkspaceSelection },
   ): Promise<boolean> {
     const runtime = this.options.taskWorkspace;
     if (!runtime || !this.defaultCwd) return false;
     const selected =
       (prepared ? prepared.path : await runtime.resolve(messageId)) ?? this.defaultCwd;
+    if (selected instanceof TaskWorkspaceRemovedError) throw selected;
     const changed = selected !== this.options.cwd;
     if (changed) {
       await this.responder.close?.();
@@ -628,6 +632,16 @@ export class AgentBridge {
       const selected = this.options.taskWorkspace
         ? await this.options.taskWorkspace.resolve(message.id)
         : undefined;
+      if (selected instanceof TaskWorkspaceRemovedError) {
+        this.rememberProcessed(message.id);
+        await this.store.save(this.state);
+        this.room.report({
+          messageId: message.id,
+          status: "completed",
+          ...said(bridgeText("bridge.worktreeCleaned", { path: selected.path })),
+        });
+        return;
+      }
       if (selected && selected !== active.workspace) {
         queuedDetail = bridgeText("bridge.worktreeSteerQueued", { path: selected });
       } else {
@@ -751,17 +765,18 @@ export class AgentBridge {
           0,
           this.soloNext.has(first.id) ? 1 : this.tuning.maxBatchSize,
         );
-        let prepared: { path: string | undefined } | undefined;
+        let prepared: { path: TaskWorkspaceSelection } | undefined;
         let count = candidates.length;
         if (this.options.taskWorkspace) {
           try {
             const selections = await this.taskWorkspaces(candidates);
             prepared = { path: selections.get(first.id) };
+            if (prepared.path instanceof TaskWorkspaceRemovedError) count = 1;
             const directory = prepared.path ?? this.defaultCwd;
             const different = candidates.findIndex(
               (message) => (selections.get(message.id) ?? this.defaultCwd) !== directory,
             );
-            if (different >= 0) count = different;
+            if (different >= 0) count = Math.min(count, different);
           } catch {
             count = 1;
           }
@@ -886,7 +901,7 @@ export class AgentBridge {
 
   private async runBatch(
     initial: ChatMessage[],
-    preparedWorkspace?: { path: string | undefined },
+    preparedWorkspace?: { path: TaskWorkspaceSelection },
   ): Promise<void> {
     const skipped = initial.filter(
       (message) =>
@@ -1431,6 +1446,20 @@ export class AgentBridge {
 
   private async handleBatchError(active: ActiveBatch, error: unknown): Promise<void> {
     delete this.state.inflight;
+    if (
+      error instanceof TaskWorkspaceRemovedError &&
+      !isCancelled(error, active.controller.signal)
+    ) {
+      this.settleUsage(active, "completed");
+      for (const message of active.messages) this.rememberProcessed(message.id);
+      await this.store.save(this.state);
+      this.reportAll(active.messages, {
+        status: "completed",
+        ...said(bridgeText("bridge.worktreeCleaned", { path: error.path })),
+        ...this.usageReport(active),
+      });
+      return;
+    }
     if (error instanceof AgentUpstreamError && !isCancelled(error, active.controller.signal)) {
       await this.handleUpstreamError(active, error);
       return;

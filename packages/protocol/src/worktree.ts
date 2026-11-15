@@ -49,6 +49,7 @@ export const worktreeStatusSchema = z.object({
   removable: z.boolean(),
   error: z.string().optional(),
   headCommit: z.string().optional(),
+  missing: z.boolean().optional(),
 });
 
 export const worktreeCleanupEventSchema = z.object({

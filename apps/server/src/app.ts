@@ -2869,17 +2869,30 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       );
       return;
     }
+    const finished = database.updateInvocation(invocation.id, {
+      status: invocation.status === "cancelling" ? "cancelled" : report.status,
+      finishedAt: now,
+      progress: null,
+      detail:
+        recalledDetail(invocation, report.status) ??
+        reportDetail(report) ??
+        terminalDetail(invocation, report.status),
+      ...(report.replyMessageId ? { replyMessageId: report.replyMessageId } : {}),
+    });
+    const cleaned =
+      report.detailText?.key === "bridge.worktreeCleaned" && finished.status === "completed"
+        ? worktrees.confirmedRemoval(agent, [
+            invocation.id,
+            ...database.invocationAncestors(invocation.id).map((item) => item.id),
+          ])
+        : undefined;
     emitInvocation(
-      database.updateInvocation(invocation.id, {
-        status: invocation.status === "cancelling" ? "cancelled" : report.status,
-        finishedAt: now,
-        progress: null,
-        detail:
-          recalledDetail(invocation, report.status) ??
-          reportDetail(report) ??
-          terminalDetail(invocation, report.status),
-        ...(report.replyMessageId ? { replyMessageId: report.replyMessageId } : {}),
-      }),
+      cleaned
+        ? database.supersedeCompletedInvocation(
+            invocation.id,
+            serverText("bridge.worktreeCleaned", { path: cleaned.path }),
+          )
+        : finished,
     );
   }
 
@@ -4228,7 +4241,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         reply.code(403).send({ error: "Writable local agent required" });
         return undefined;
       }
-      const tasks: Array<{ messageId: string; invocationId: string; ownerName: string }> = [];
+      const tasks: Array<{
+        messageId: string;
+        invocationId: string;
+        ownerName: string;
+        ancestorIds: string[];
+      }> = [];
       for (const messageId of messageIds) {
         const invocation = database.getInvocationFor(messageId, participant.id);
         if (
@@ -4239,12 +4257,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           reply.code(409).send({ error: "An active task is required" });
           return undefined;
         }
-        const root = [invocation, ...database.invocationAncestors(invocation.id)].find(
-          (item) => item.requesterType === "human",
-        );
+        const ancestors = database.invocationAncestors(invocation.id);
+        const root = [invocation, ...ancestors].find((item) => item.requesterType === "human");
         const owner = root?.requesterId ? database.getParticipant(root.requesterId) : undefined;
         if (owner && !guestSessionOf(owner))
-          tasks.push({ messageId, invocationId: invocation.id, ownerName: owner.username });
+          tasks.push({
+            messageId,
+            invocationId: invocation.id,
+            ownerName: owner.username,
+            ancestorIds: ancestors.map((item) => item.id),
+          });
       }
       if (tasks.length) worktreeRuntimeAgents.add(participant.id);
       const workspace = database.getRoom(participant.roomId)?.workspace;

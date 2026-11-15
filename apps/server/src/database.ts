@@ -1778,6 +1778,16 @@ export class HiveDatabase {
     return changed;
   }
 
+  supersedeCompletedInvocation(id: string, note: ServerText): Invocation {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        "UPDATE invocations SET resolution_kind = 'superseded', resolved_at = ?, resolution_note = ?, resolution_note_text = ? WHERE id = ? AND status = 'completed' AND resolved_at IS NULL",
+      )
+      .run(now, ...detailColumns(note, 200), id);
+    return this.getInvocation(id)!;
+  }
+
   /**
    * 自动收起已经过时的异常：之后同一 Agent 在同一房间又正常完成了任务，或房间开启了新话题。
    * 等房主批准的访客请求（guest_approval）是待决事项，不自动收起。
