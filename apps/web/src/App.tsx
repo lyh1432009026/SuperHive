@@ -111,6 +111,7 @@ import {
   type HostApprover,
   type OwnerDevice,
 } from "./local-agents";
+import { agentNameFor, type SelectableAgentProvider } from "./agent-name";
 import { createFrameClock, easeInOutCubic, easeOutQuint } from "./easing";
 import { ShadowContent } from "./shadow-content";
 import {
@@ -197,7 +198,6 @@ const storedReduceMotionKey = "superhive.reduce-motion";
 const storedAttentionDeliveryKey = "superhive.attention-delivery";
 const storedAttentionSoundKey = "superhive.attention-sound";
 const storedAttentionGroupKey = "superhive.attention-group";
-type SelectableAgentProvider = "codex" | "claude" | "copilot" | "openclaw" | "opencode" | "omp";
 type AgentAccessMode = "read-only" | "workspace" | "full";
 type AgentSetupStep = 1 | 2 | 3;
 type MessageNotificationMode = "off" | "mentions" | "all";
@@ -664,26 +664,14 @@ function agentProviderLabel(provider?: string): string {
   return provider || "Agent";
 }
 
-function agentNameFor(ownerUsername: string, provider: SelectableAgentProvider): string {
-  const suffixes: Record<SelectableAgentProvider, string> = {
-    codex: "-codex",
-    claude: "-claude",
-    copilot: "-copilot",
-    openclaw: "-openclaw",
-    opencode: "-opencode",
-    omp: "-omp",
-  };
-  const suffix = suffixes[provider];
-  return `${ownerUsername.slice(0, 32 - suffix.length)}${suffix}`;
-}
-
 function agentCommandFor(
   meta: MetaResponse,
   provider: SelectableAgentProvider,
   ownerUsername: string,
   access: AgentAccessMode,
+  takenNames?: ReadonlySet<string>,
 ): string {
-  const agentName = agentNameFor(ownerUsername, provider);
+  const agentName = agentNameFor(ownerUsername, provider, takenNames);
   return (meta.agentCommand ?? "")
     .replace(" join ", ` join --provider ${provider} `)
     .replace("--room general ", "")
@@ -1681,10 +1669,15 @@ export function App({
       .getElementById(`mention-option-${activeMentionId}`)
       ?.scrollIntoView({ block: "nearest" });
   }, [activeMentionId]);
+  // 接入默认名要避开房间现有成员（含离线）：服务端按房间大小写不敏感查重，撞名直接 409
+  const takenAgentNames = useMemo(
+    () => new Set(participants.map((participant) => participant.username.toLocaleLowerCase())),
+    [participants],
+  );
   const selectedAgentCommand = useMemo(() => {
     if (!meta) return t("加载中…");
-    return agentCommandFor(meta, agentProvider, username, agentAccess);
-  }, [agentAccess, agentProvider, meta, username]);
+    return agentCommandFor(meta, agentProvider, username, agentAccess, takenAgentNames);
+  }, [agentAccess, agentProvider, meta, takenAgentNames, username]);
   const showNotificationPrompt =
     messageNotifications !== "off" &&
     notificationPermission === "default" &&
@@ -6147,7 +6140,8 @@ export function App({
                 )}
                 {agentStep === 3 && (
                   <p>
-                    {t("将以")} <code>{agentNameFor(username, agentProvider)}</code>{" "}
+                    {t("将以")}{" "}
+                    <code>{agentNameFor(username, agentProvider, takenAgentNames)}</code>{" "}
                     {t("身份加入 · 权限：")}
                     <strong className={`agent-access-label ${agentAccess}`}>
                       {agentAccessOptions.find((option) => option.id === agentAccess)?.label}
@@ -6335,7 +6329,8 @@ export function App({
                           )}
                         </li>
                         <li>
-                          {t("在消息中输入")} <code>@{agentNameFor(username, agentProvider)}</code>{" "}
+                          {t("在消息中输入")}{" "}
+                          <code>@{agentNameFor(username, agentProvider, takenAgentNames)}</code>{" "}
                           {t("即可让它响应；没被 @ 时它只会旁听。")}
                         </li>
                         <li>
@@ -6354,7 +6349,7 @@ export function App({
                         local={local}
                         provider={agentProvider}
                         access={agentAccess}
-                        defaultName={agentNameFor(username, agentProvider)}
+                        defaultName={agentNameFor(username, agentProvider, takenAgentNames)}
                         providerLabel={agentProviderLabel(agentProvider)}
                         onLaunched={() => setAgentConnected(true)}
                       >

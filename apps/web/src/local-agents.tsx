@@ -796,12 +796,21 @@ export function LocalLaunch({
   children: ReactNode;
 }) {
   const [name, setName] = useState(defaultName);
+  // 用户手动改过名字后，自动建议（含重名自增）不再覆盖输入；切换 provider 时重新采用建议
+  const nameEditedRef = useRef(false);
+  const lastProviderRef = useRef(provider);
   const [cwd, setCwd] = useState("");
   const [picking, setPicking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
   const [launchedId, setLaunchedId] = useState<string>();
-  useEffect(() => setName(defaultName), [defaultName]);
+  useEffect(() => {
+    if (provider !== lastProviderRef.current) {
+      lastProviderRef.current = provider;
+      nameEditedRef.current = false;
+    }
+    if (!nameEditedRef.current) setName(defaultName);
+  }, [defaultName, provider]);
   // 默认用启动 Hive 服务的目录，省掉大多数情况下的输入
   const { directories } = local;
   useEffect(() => {
@@ -909,7 +918,10 @@ export function LocalLaunch({
             <span>{t("名称")}</span>
             <input
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(event) => {
+                nameEditedRef.current = true;
+                setName(event.target.value);
+              }}
               maxLength={32}
               required
               aria-label={t("Agent 名称")}
