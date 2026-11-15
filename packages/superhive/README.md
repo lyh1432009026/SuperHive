@@ -153,4 +153,4 @@ Full documentation (Chinese): [usage](https://github.com/wangrongding/SuperHive/
 
 ## License
 
-MIT
+AGPL-3.0-only (GNU AGPL v3.0, see [LICENSE](./LICENSE)). Self-hosting, modifying and internal use are free. Offering SuperHive (or a modified version) as a hosted service to others, or embedding it in a commercial product, requires complying with AGPL or obtaining a commercial license from the author.

@@ -31,7 +31,7 @@
     "mcp",
     "agent"
   ],
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "scripts": {
     "dev": "tsx src/cli.ts",
     "echo": "tsx src/echo.ts",

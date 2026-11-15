@@ -84,4 +84,4 @@ npx --yes superhive@latest restart     # 更新到最新版并重启，沿用原
 
 ## License
 
-MIT
+AGPL-3.0-only（[GNU Affero GPL v3.0](./LICENSE)）。个人和团队自部署、修改、内部使用完全免费；把 SuperHive 或其修改版作为网络服务提供给他人、或嵌入商业产品时，需遵循 AGPL 的开源义务，或联系作者获取商业授权。
