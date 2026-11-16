@@ -1502,6 +1502,41 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
     ).toMatchObject({ status: "completed", detail: "迟到的结果" });
   });
 
+  it("gives running invocations a grace period after the machine wakes from sleep", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.now());
+      const { join } = await startRoom(20);
+      const { peer: alice } = await join("Alice", "human");
+      const { peer: agent } = await join("helper", "agent");
+      alice.send({ type: "message.send", clientMessageId: "sleep", content: "@helper 慢任务" });
+      const mention = await agent.next((event) => event.type === "agent.mentioned");
+      const messageId = mention.type === "agent.mentioned" ? mention.message.id : "";
+      agent.send({ type: "invocation.report", messageId, status: "running" });
+      await alice.next(
+        (event) => event.type === "invocation.updated" && event.invocation.status === "running",
+      );
+      // 合盖睡了很久：醒来时墙钟一下子跳过了超时阈值，扫描定时器补跑
+      vi.setSystemTime(Date.now() + LIMITS.invocationStaleMs + 60_000);
+      await expect(
+        alice.next(
+          (event) => event.type === "invocation.updated" && event.invocation.status === "timed_out",
+          300,
+        ),
+      ).rejects.toThrow();
+      // Agent 醒来后照常报心跳，调用一直是执行中
+      agent.send({ type: "invocation.report", messageId, status: "running", progress: "醒了" });
+      await expect(
+        alice.next(
+          (event) => event.type === "invocation.updated" && event.invocation.status === "timed_out",
+          200,
+        ),
+      ).rejects.toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   describe("hive_invoke delegation", () => {
     /** Alice @ planner，planner 开工后用 hive_invoke 把子任务派给 worker */
     async function delegationRoom(sweepMs?: number, now?: () => number) {

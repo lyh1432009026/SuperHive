@@ -2937,7 +2937,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     return invocation.status === "timed_out" ? serverText("invocation.lateResult") : null;
   }
 
+  // 同上：睡眠醒来后的第一轮扫描不把「执行中」判成超时（睡着的那段时间 Agent 不可能报进度），
+  // 宽限一个超时周期让它重新连上、报心跳；真卡住的，宽限过后照常判超时
+  const sweepIntervalMs = options.invocationSweepMs ?? 30_000;
+  let lastSweepAt = Date.now();
+  let staleGraceUntil = 0;
   function sweepStaleInvocations(): void {
+    const sweptAt = Date.now();
+    if (sweptAt - lastSweepAt > sweepIntervalMs * 3) staleGraceUntil = sweptAt + 2 * 60_000;
+    lastSweepAt = sweptAt;
     // 服务重启前没来得及发出、或因限流暂时失败的回执，在这里补发
     for (const invocation of database.listPendingContinuations())
       deliverContinuation(invocation.id);
@@ -2958,6 +2966,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     supersedeStale();
     for (const invocation of database.listStaleInvocations(options.now?.() ?? Date.now())) {
       if (invocation.status === "running") {
+        if (sweptAt < staleGraceUntil) continue;
         emitInvocation(
           database.updateInvocation(invocation.id, {
             status: "timed_out",
@@ -5325,20 +5334,27 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     socket.on("error", () => disconnect(connection));
   });
 
-  const heartbeatTimer = setInterval(
-    () => {
-      const now = Date.now();
-      for (const connection of connections) {
-        if (connection.participant && now - connection.lastHeartbeat > heartbeatTimeoutMs) {
-          connection.socket.close(1001, "Heartbeat timeout");
-          disconnect(connection);
-        }
+  // 电脑睡眠（合盖）期间整个进程被挂起，醒来时定时器一次性补跑：这时连接的「最后心跳」都很旧，
+  // 但不是对方掉线，只是这边也没在跑。检测到这种时间跳变就先给一轮宽限，等 Agent 重新报到
+  const heartbeatIntervalMs = Math.min(15_000, Math.max(1_000, heartbeatTimeoutMs / 3));
+  let lastHeartbeatCheck = Date.now();
+  const heartbeatTimer = setInterval(() => {
+    const now = Date.now();
+    const resumedFromSleep = now - lastHeartbeatCheck > heartbeatIntervalMs * 3;
+    lastHeartbeatCheck = now;
+    if (resumedFromSleep) {
+      for (const connection of connections) connection.lastHeartbeat = now;
+      return;
+    }
+    for (const connection of connections) {
+      if (connection.participant && now - connection.lastHeartbeat > heartbeatTimeoutMs) {
+        connection.socket.close(1001, "Heartbeat timeout");
+        disconnect(connection);
       }
-    },
-    Math.min(15_000, Math.max(1_000, heartbeatTimeoutMs / 3)),
-  );
+    }
+  }, heartbeatIntervalMs);
   heartbeatTimer.unref();
-  const invocationTimer = setInterval(sweepStaleInvocations, options.invocationSweepMs ?? 30_000);
+  const invocationTimer = setInterval(sweepStaleInvocations, sweepIntervalMs);
   const worktreeTimer = setInterval(() => {
     void worktrees
       .scan()
