@@ -294,13 +294,23 @@ export class RoomClient {
         for (const report of this.outbox.values()) this.sendRaw(report);
       }
       this.outbox.clear();
-      void this.handlers.onSnapshot({
-        self: event.self,
-        latestSeq: event.latestSeq,
-        messages: event.messages,
-        participants: event.participants,
-        ...(event.invocations ? { invocations: event.invocations } : {}),
-      });
+      // 补拉漏掉的消息要再请求服务端：服务端正好重启时会失败。不能让这个 Promise 无人接住
+      // （Node 会把整个 Agent 进程崩掉，正在干的活全变成「结果未知」）；断开连接，重连后拿新快照再补一次
+      const socket = this.socket;
+      void Promise.resolve()
+        .then(() =>
+          this.handlers.onSnapshot({
+            self: event.self,
+            latestSeq: event.latestSeq,
+            messages: event.messages,
+            participants: event.participants,
+            ...(event.invocations ? { invocations: event.invocations } : {}),
+          }),
+        )
+        .catch((error: unknown) => {
+          this.handlers.onError(error instanceof Error ? error : new Error(String(error)));
+          if (!this.stopped && socket === this.socket) socket?.terminate();
+        });
       return;
     }
     if (event.type === "agent.mentioned") {

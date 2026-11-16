@@ -35,6 +35,62 @@ describe("RoomClient", () => {
     vi.unstubAllGlobals();
   });
 
+  it("reports a failed snapshot catch-up instead of crashing, then reconnects for a fresh snapshot", async () => {
+    server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+    await waitFor<void>((resolve) => server!.on("listening", () => resolve()));
+    const port = (server.address() as AddressInfo).port;
+    const self = {
+      id: "00000000-0000-4000-8000-000000000001",
+      roomId: "general",
+      username: "test-agent",
+      type: "agent" as const,
+      status: "online" as const,
+      joinedAt: "2026-07-18T00:00:00.000Z",
+      lastSeenAt: "2026-07-18T00:00:00.000Z",
+    };
+    let connections = 0;
+    server.on("connection", (socket) => {
+      connections += 1;
+      socket.on("message", () =>
+        socket.send(
+          JSON.stringify({
+            type: "room.snapshot",
+            self,
+            participants: [self],
+            messages: [],
+            latestSeq: 1,
+          }),
+        ),
+      );
+    });
+    const errors: Error[] = [];
+    let snapshots = 0;
+    const recovered = waitFor<void>((resolve) => {
+      client = new RoomClient(
+        {
+          serverUrl: `http://127.0.0.1:${port}`,
+          roomId: "general",
+          username: "test-agent",
+          token: "t",
+        },
+        {
+          // 第一次补拉时服务端正在重启：这个拒绝不能变成未处理的 Promise 把进程崩掉
+          onSnapshot: async () => {
+            snapshots += 1;
+            if (snapshots === 1) throw new TypeError("fetch failed");
+            resolve();
+          },
+          onMention: () => undefined,
+          onError: (error) => errors.push(error),
+        },
+      );
+      client.start();
+    }, 5_000);
+    await recovered;
+    expect(errors.map((error) => error.message)).toContain("fetch failed");
+    expect(connections).toBe(2);
+  });
+
   it("dispatches snapshots, rooms.changed, message.deleted, and typed error codes", async () => {
     server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
     await waitFor<void>((resolve) => server!.on("listening", () => resolve()));

@@ -11,6 +11,12 @@ import { restartService, startService, stopService } from "./service.js";
 import { readSkill } from "./skill.js";
 import { skillInstallCommand, skillStatusCommand, skillUninstallCommand } from "./skill-command.js";
 
+// 兜底：某个异步调用漏了 catch（比如服务端正好重启时的一次 fetch）不应该把整个 Agent 进程带走，
+// 那样正在执行的回合全部变成「结果未知」。记下来继续跑；真正的同步异常仍按默认行为退出并由管家重启。
+process.on("unhandledRejection", (reason) => {
+  console.error("[hive] 未处理的异步错误，已记录，进程继续运行：", reason);
+});
+
 const _require = createRequire(import.meta.url);
 const pkg = _require("../package.json") as { name: string; version: string };
 const { version } = pkg;
