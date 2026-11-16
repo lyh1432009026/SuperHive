@@ -29,7 +29,13 @@ describe("mention autocomplete", () => {
   it("finds an empty or partial mention at the caret", () => {
     expect(findMentionContext("hello @", 7)).toEqual({ start: 6, end: 7, query: "" });
     expect(findMentionContext("hello @fro", 10)).toEqual({ start: 6, end: 10, query: "fro" });
-    expect(findMentionContext("mail a@b", 8)).toBeUndefined();
+    // 紧贴英文的 @（邮箱、abc@）标记出来，由调用方决定只按前缀匹配、选中时补空格
+    expect(findMentionContext("mail a@b", 8)).toEqual({
+      start: 6,
+      end: 8,
+      query: "b",
+      attached: true,
+    });
     // 中文后不用先打空格
     expect(findMentionContext("你好@", 3)).toEqual({ start: 2, end: 3, query: "" });
     expect(findMentionContext("请@rd", 4)).toEqual({ start: 1, end: 4, query: "rd" });
@@ -81,6 +87,25 @@ describe("mention autocomplete", () => {
     expect(
       filterMentionParticipants(participants, "rd", "rd", undefined, recent).map((p) => p.username),
     ).toEqual(["rd-codex", "rd-claude", "rd-claude2"]);
+  });
+
+  it("only offers prefix matches after abc@ and inserts a space so the mention really counts", () => {
+    const participants = ["GLM", "glm2", "rd-claude"].map((name) =>
+      participant(name, "online", "agent"),
+    );
+    const context = findMentionContext("abc@g", 5)!;
+    expect(context.attached).toBe(true);
+    expect(
+      filterMentionParticipants(participants, "lm", "rd", undefined, [], true).map(
+        (p) => p.username,
+      ),
+    ).toEqual([]);
+    expect(
+      filterMentionParticipants(participants, "g", "rd", undefined, [], true).map(
+        (p) => p.username,
+      ),
+    ).toEqual(["GLM", "glm2"]);
+    expect(applyMention("abc@g", context, "GLM")).toEqual({ value: "abc @GLM ", cursor: 9 });
   });
 
   it("replaces only the active mention and returns the next caret position", () => {

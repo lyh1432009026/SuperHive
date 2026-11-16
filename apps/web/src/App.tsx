@@ -1284,6 +1284,27 @@ function LoginDialog({ onJoin }: { onJoin: (username: string) => void }) {
   );
 }
 
+/** 纯文本输入框背后的高亮层与输入框排版一致：在它里面找到第 offset 个字符，量出它在屏幕上的横坐标 */
+function highlightOffsetX(layer: HTMLElement | null, offset: number): number | undefined {
+  if (!layer) return undefined;
+  const walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT);
+  let remaining = offset;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const length = node.textContent?.length ?? 0;
+    if (remaining <= length) {
+      const range = document.createRange();
+      range.setStart(node, remaining);
+      range.setEnd(node, Math.min(remaining + 1, length));
+      // jsdom 等环境没有排版信息，量不到就让面板照旧靠左
+      if (typeof range.getBoundingClientRect !== "function") return undefined;
+      const rect = range.getBoundingClientRect();
+      return rect.width || rect.left ? rect.left : undefined;
+    }
+    remaining -= length;
+  }
+  return undefined;
+}
+
 export function App({
   guest,
   ownerToken,
@@ -1674,10 +1695,37 @@ export function App({
             username,
             undefined,
             recentMentions,
+            mentionContext.attached,
           )
         : [],
     [mentionContext, participants, username, recentMentions],
   );
+  // 候选面板贴着 @ 的位置弹出（输入框很宽时不用把视线挪回最左边）；靠右时往回收，不超出输入区
+  const mentionMenuRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const menu = mentionMenuRef.current;
+    const parent = menu?.offsetParent as HTMLElement | null | undefined;
+    if (!menu || !parent) return;
+    const anchorX = mentionContext?.anchorX;
+    if (anchorX === undefined) {
+      menu.style.left = "";
+      return;
+    }
+    const room = parent.clientWidth - menu.offsetWidth;
+    const left = anchorX - parent.getBoundingClientRect().left - 12;
+    menu.style.left = `${Math.max(0, Math.min(left, room))}px`;
+  }, [mentionContext]);
+  // 点输入框和面板以外的地方就收起面板
+  useEffect(() => {
+    if (!mentionContext) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest(".mention-menu, .composer-box")) return;
+      setMentionContext(undefined);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [mentionContext]);
   const activeMentionId = mentionSuggestions[activeMentionIndex]?.id;
   useEffect(() => {
     if (!activeMentionId) return;
@@ -3210,9 +3258,23 @@ export function App({
     window.requestAnimationFrame(() => textareaRef.current?.focus());
   }
 
+  /** 紧贴文字的 @（abc@）名字开头对不上任何在线成员就不弹，打邮箱时不打扰 */
+  function visibleMention(context: MentionContext | undefined) {
+    if (!context?.attached) return context;
+    return filterMentionParticipants(participants, context.query, username, 1, [], true).length
+      ? context
+      : undefined;
+  }
+
   function updateMentionContext(value: string, cursor: number | null) {
-    const nextContext = findMentionContext(value, cursor ?? value.length);
-    setMentionContext(nextContext);
+    const nextContext = visibleMention(findMentionContext(value, cursor ?? value.length));
+    // 纯文本输入框：用背后排版一致的高亮层量出 @ 所在的横坐标，候选面板跟着它
+    const anchorX = nextContext
+      ? highlightOffsetX(highlightRef.current, nextContext.start)
+      : undefined;
+    setMentionContext(
+      nextContext && anchorX !== undefined ? { ...nextContext, anchorX } : nextContext,
+    );
     setActiveMentionIndex(0);
   }
 
@@ -5372,7 +5434,12 @@ export function App({
               </button>
             )}
             {mentionContext && (
-              <div className="mention-menu" id="mention-suggestions" role="listbox">
+              <div
+                ref={mentionMenuRef}
+                className="mention-menu"
+                id="mention-suggestions"
+                role="listbox"
+              >
                 <div className="mention-menu-heading">
                   <span>{t("提及成员")}</span>
                   <small>{t("{0} 个匹配", { 0: mentionSuggestions.length })}</small>
@@ -5523,7 +5590,7 @@ export function App({
                       onMentionContext={(value, context) => {
                         // 翻到的旧消息以 @某人 结尾时不弹成员列表，否则方向键会被列表接走
                         if (value && value === browsingHistoryRef.current) return;
-                        setMentionContext(context);
+                        setMentionContext(visibleMention(context));
                         setActiveMentionIndex(0);
                       }}
                       onKeyDown={handleComposerKey}

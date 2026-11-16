@@ -152,7 +152,18 @@ function mentionAtCursor(editor: Editor) {
   const context = findMentionContext(before, before.length);
   if (!context) return undefined;
   const blockStart = $from.start();
-  return { context, from: blockStart + context.start, to: blockStart + context.end };
+  const from = blockStart + context.start;
+  let anchorX: number | undefined;
+  try {
+    anchorX = editor.view.coordsAtPos(from).left;
+  } catch {
+    anchorX = undefined;
+  }
+  return {
+    context: anchorX === undefined ? context : { ...context, anchorX },
+    from,
+    to: blockStart + context.end,
+  };
 }
 
 export default function RichComposer(props: Props) {
@@ -315,7 +326,8 @@ export default function RichComposer(props: Props) {
           "\n",
           "\n",
         );
-        const text = `@${username}${/\s/u.test(next) ? "" : " "}`;
+        // 紧贴英文的 @（abc@）服务端不认，补一个空格让它真的 @ 到人
+        const text = `${mention.context.attached ? " " : ""}@${username}${/\s/u.test(next) ? "" : " "}`;
         editor
           .chain()
           .focus()

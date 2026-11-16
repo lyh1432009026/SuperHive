@@ -4,6 +4,13 @@ export type MentionContext = {
   start: number;
   end: number;
   query: string;
+  /**
+   * @ 紧贴在英文字母、数字后面（如 abc@）：服务端不把它当提及（避免把邮箱 a@b.com 当成 @b），
+   * 所以只在名字开头对得上时才弹候选，选中后在 @ 前补一个空格，让它真的能 @ 到人
+   */
+  attached?: true;
+  /** @ 在屏幕上的横坐标（clientX）：候选面板贴着它弹出；量不到时面板靠左 */
+  anchorX?: number;
 };
 
 const usernameCharacter = /[\p{L}\p{N}_.-]/u;
@@ -20,13 +27,18 @@ export function findMentionContext(value: string, cursor: number): MentionContex
   if (atIndex < 0) return undefined;
 
   const characterBeforeAt = value[atIndex - 1];
-  if (characterBeforeAt && emailLocalCharacter.test(characterBeforeAt)) return undefined;
+  const attached = Boolean(characterBeforeAt && emailLocalCharacter.test(characterBeforeAt));
 
   const query = beforeCursor.slice(atIndex + 1);
   if (query.length > 32 || [...query].some((character) => !usernameCharacter.test(character))) {
     return undefined;
   }
-  return { start: atIndex, end: safeCursor, query };
+  return {
+    start: atIndex,
+    end: safeCursor,
+    query,
+    ...(attached ? { attached: true as const } : {}),
+  };
 }
 
 /**
@@ -65,8 +77,12 @@ export function filterMentionParticipants(
   currentUsername: string,
   limit = Number.POSITIVE_INFINITY,
   recent: readonly string[] = [],
+  /** 紧贴文字的 @（abc@）只认名字开头对得上的，免得打邮箱时也弹一堆候选 */
+  prefixOnly = false,
 ): Participant[] {
   const normalizedQuery = query.toLocaleLowerCase();
+  const matches = (name: string) =>
+    prefixOnly ? name.startsWith(normalizedQuery) : name.includes(normalizedQuery);
   const rank = new Map(recent.map((name, index) => [name, index]));
   const rankOf = (participant: Participant) =>
     rank.get(participant.username.toLocaleLowerCase()) ?? Number.POSITIVE_INFINITY;
@@ -76,7 +92,7 @@ export function filterMentionParticipants(
       (participant) =>
         participant.status !== "offline" &&
         participant.username.toLocaleLowerCase() !== normalizedCurrentUsername &&
-        participant.username.toLocaleLowerCase().includes(normalizedQuery),
+        matches(participant.username.toLocaleLowerCase()),
     )
     .sort((left, right) => {
       const leftPrefix = left.username.toLocaleLowerCase().startsWith(normalizedQuery) ? 0 : 1;
@@ -96,7 +112,7 @@ export function applyMention(
   username: string,
 ): { value: string; cursor: number } {
   const hasWhitespaceAfter = /\s/u.test(value[context.end] ?? "");
-  const replacement = `@${username}${hasWhitespaceAfter ? "" : " "}`;
+  const replacement = `${context.attached ? " " : ""}@${username}${hasWhitespaceAfter ? "" : " "}`;
   return {
     value: `${value.slice(0, context.start)}${replacement}${value.slice(context.end)}`,
     cursor: context.start + replacement.length + (hasWhitespaceAfter ? 1 : 0),
