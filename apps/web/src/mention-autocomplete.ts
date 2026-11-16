@@ -30,7 +30,32 @@ export function findMentionContext(value: string, cursor: number): MentionContex
 }
 
 /**
- * @ 候选：只列在线（含忙碌）的成员，离线的不出现；名字以输入开头的在前，再按名字排。
+ * 我最近 @ 过谁：从新到旧扫自己发的消息，按第一次出现的顺序排（小写用户名）。
+ * 用来给 @ 候选排序：常找的人排在最上面，不用每次从字母表里翻
+ */
+export function recentMentionOrder(
+  messages: ReadonlyArray<{ senderName: string; mentions: readonly string[] }>,
+  currentUsername: string,
+): string[] {
+  const me = currentUsername.toLocaleLowerCase();
+  const order: string[] = [];
+  const seen = new Set<string>();
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!;
+    if (message.senderName.toLocaleLowerCase() !== me) continue;
+    for (const mention of message.mentions) {
+      const name = mention.toLocaleLowerCase();
+      if (seen.has(name)) continue;
+      seen.add(name);
+      order.push(name);
+    }
+  }
+  return order;
+}
+
+/**
+ * @ 候选：只列在线（含忙碌）的成员，离线的不出现；名字以输入开头的在前，
+ * 同一档里我最近 @ 过的在前（越近越靠上），其余再按名字排。
  * 默认列出全部匹配，菜单本身可滚动（以前只取前 8 个，Agent 一多后面的就看不到）。
  * 离线的名字照样可以手打，@ 不在场的成员会交给主 Agent 接手
  */
@@ -39,8 +64,12 @@ export function filterMentionParticipants(
   query: string,
   currentUsername: string,
   limit = Number.POSITIVE_INFINITY,
+  recent: readonly string[] = [],
 ): Participant[] {
   const normalizedQuery = query.toLocaleLowerCase();
+  const rank = new Map(recent.map((name, index) => [name, index]));
+  const rankOf = (participant: Participant) =>
+    rank.get(participant.username.toLocaleLowerCase()) ?? Number.POSITIVE_INFINITY;
   const normalizedCurrentUsername = currentUsername.toLocaleLowerCase();
   return participants
     .filter(
@@ -53,6 +82,9 @@ export function filterMentionParticipants(
       const leftPrefix = left.username.toLocaleLowerCase().startsWith(normalizedQuery) ? 0 : 1;
       const rightPrefix = right.username.toLocaleLowerCase().startsWith(normalizedQuery) ? 0 : 1;
       if (leftPrefix !== rightPrefix) return leftPrefix - rightPrefix;
+      const leftRank = rankOf(left);
+      const rightRank = rankOf(right);
+      if (leftRank !== rightRank) return leftRank < rightRank ? -1 : 1;
       return left.username.localeCompare(right.username);
     })
     .slice(0, limit);

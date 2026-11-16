@@ -5,6 +5,7 @@ import {
   draftMentions,
   filterMentionParticipants,
   findMentionContext,
+  recentMentionOrder,
   splitDraftMentions,
 } from "./mention-autocomplete";
 
@@ -60,6 +61,26 @@ describe("mention autocomplete", () => {
     expect(listed).toHaveLength(10);
     expect(listed).toContain("rd-omp");
     expect(listed).toContain("rd-opencode");
+  });
+
+  it("puts the members I mentioned most recently first, then the rest alphabetically", () => {
+    const participants = ["GLM", "rd-claude", "rd-claude2", "rd-codex", "glm2"].map((name) =>
+      participant(name, "online", "agent"),
+    );
+    const messages = [
+      { senderName: "rd", mentions: ["rd-codex"] },
+      { senderName: "GLM", mentions: ["rd-claude"] }, // 别人 @ 的不算
+      { senderName: "RD", mentions: ["glm2", "RD-CODEX"] },
+    ];
+    const recent = recentMentionOrder(messages, "rd");
+    expect(recent).toEqual(["glm2", "rd-codex"]);
+    expect(
+      filterMentionParticipants(participants, "", "rd", undefined, recent).map((p) => p.username),
+    ).toEqual(["glm2", "rd-codex", "GLM", "rd-claude", "rd-claude2"]);
+    // 输入了前缀时，以前缀开头的仍排在前面，同一档里再看最近 @ 过谁
+    expect(
+      filterMentionParticipants(participants, "rd", "rd", undefined, recent).map((p) => p.username),
+    ).toEqual(["rd-codex", "rd-claude", "rd-claude2"]);
   });
 
   it("replaces only the active mention and returns the next caret position", () => {

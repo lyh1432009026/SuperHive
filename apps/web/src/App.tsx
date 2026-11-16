@@ -36,6 +36,7 @@ import {
   applyMention,
   draftMentions,
   filterMentionParticipants,
+  recentMentionOrder,
   findMentionContext,
   type MentionContext,
 } from "./mention-autocomplete";
@@ -1660,10 +1661,22 @@ export function App({
     );
   }
   const modifierKeyLabel = useMemo(platformModifierLabel, []);
+  const recentMentions = useMemo(
+    () => recentMentionOrder(messages, username),
+    [messages, username],
+  );
   const mentionSuggestions = useMemo(
     () =>
-      mentionContext ? filterMentionParticipants(participants, mentionContext.query, username) : [],
-    [mentionContext, participants, username],
+      mentionContext
+        ? filterMentionParticipants(
+            participants,
+            mentionContext.query,
+            username,
+            undefined,
+            recentMentions,
+          )
+        : [],
+    [mentionContext, participants, username, recentMentions],
   );
   const activeMentionId = mentionSuggestions[activeMentionIndex]?.id;
   useEffect(() => {
