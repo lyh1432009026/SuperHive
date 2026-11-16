@@ -13,7 +13,6 @@
   "取消选择": "Clear selection",
   "归档所选 ({0})": "Archive selected ({0})",
   "恢复所选 ({0})": "Restore selected ({0})",
-  "进行中、阻塞和工作区占用不可归档；每次最多选择 200 条。": "In-progress items, blocked items and worktree claims cannot be archived. Select up to 200 items at a time.",
   "刷新历史": "Refresh history",
   "正在加载白板历史…": "Loading whiteboard history…",
   "没有历史归档": "No archived items",
@@ -310,7 +309,6 @@
   "将以": "Joins as",
   "将删除这个房间的全部消息和 Agent 调用记录，无法恢复；房间里的 Agent 会从新会话开始。": "This permanently deletes all messages and agent task records in this room. Agents in the room start fresh sessions.",
   "同时归档当前白板（历史可恢复）": "Also archive the current whiteboard (history can be restored)",
-  "进行中、阻塞及工作区占用事项会阻止清空，请先处理。": "Ongoing, blocked and workspace-linked items prevent clearing. Resolve them first.",
   "仅清空聊天与调用记录，保留白板，不解除工作区占用。": "Clear chat and task records only. Keep the whiteboard and workspace claims.",
   "小": "Small",
   "小时": "Hours",
@@ -1263,5 +1261,7 @@
   "用 {0} 重试": "Retry with {0}",
   "重启、停止这个 Agent，选择它用的模型和加载哪些本机 MCP。每个 MCP 的工具说明会在每个会话开局整段发给模型，体积大的会明显增加新会话和缓存过期时的费用。hive 始终加载。": "Restart or stop this agent and choose its model and which local MCP servers it loads. Each MCP's tool descriptions are sent to the model at the start of every session; large ones noticeably raise the cost of new sessions and cache misses. hive is always loaded.",
   "开启后符合安全条件的目录会直接回收，不再逐次询问。": "Eligible checkouts will be reclaimed automatically, without asking each time.",
-  "确认开启自动清理": "Confirm automatic cleanup"
+  "确认开启自动清理": "Confirm automatic cleanup",
+  "进行中和阻塞的事项也会一起归档；仍占用工作区的事项会阻止清空，请先清理对应 worktree。": "In-progress and blocked items are archived too. Items that still hold a worktree prevent clearing; clean up those worktrees first.",
+  "仍占用工作区的事项不可归档；每次最多选择 200 条。": "Items that still hold a worktree cannot be archived. Select up to 200 items at a time."
 }

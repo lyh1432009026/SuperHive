@@ -48,10 +48,14 @@ describe("WhiteboardPanel lifecycle", () => {
       />,
     );
     expect(screen.queryByText("Summary history")).toBeNull();
-    for (const key of ["blocked", "active", "claimed"])
+    // 只有仍占用工作区的不能选；进行中、阻塞的旧条目房主可以手动勾选归档
+    expect(
+      (screen.getByRole("checkbox", { name: "选择事项：claimed" }) as HTMLInputElement).disabled,
+    ).toBe(true);
+    for (const key of ["blocked", "active"])
       expect(
         (screen.getByRole("checkbox", { name: `选择事项：${key}` }) as HTMLInputElement).disabled,
-      ).toBe(true);
+      ).toBe(false);
     await user.selectOptions(screen.getByRole("combobox", { name: "状态筛选" }), "blocked");
     expect(screen.getByText("Summary blocked")).toBeTruthy();
     expect(screen.queryByText("Summary ready")).toBeNull();

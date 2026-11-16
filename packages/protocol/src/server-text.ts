@@ -29,8 +29,8 @@ export const serverTexts = {
     en: "The whiteboard items changed. Refresh and select them again.",
   },
   "error.whiteboard.protected": {
-    zh: "进行中、阻塞或仍有工作区占用的事项不能归档或删除。",
-    en: "Items in progress, blocked items and worktree claims cannot be archived or deleted.",
+    zh: "仍有工作区占用的事项不能归档或删除。",
+    en: "Items that still hold a worktree claim cannot be archived or deleted.",
   },
   "error.whiteboard.notFound": {
     zh: "这个房间里没有所选白板事项。",
@@ -936,8 +936,8 @@ export const serverTexts = {
     en: "Only human members of this room can clear it.",
   },
   "error.room.whiteboardProtected": {
-    zh: "白板还有 {count} 条进行中、阻塞或工作区占用事项，请先处理后再清空房间；也可以选择仅清空聊天、保留白板。本次未删除任何记录。",
-    en: "The whiteboard has {count} ongoing, blocked or workspace-linked items. Resolve them before clearing the room, or choose to clear chat only and keep the whiteboard. No records were deleted.",
+    zh: "白板还有 {count} 条仍占用工作区的事项，请先清理对应 worktree 再清空房间；也可以选择仅清空聊天、保留白板。本次未删除任何记录。",
+    en: "The whiteboard has {count} items that still hold a worktree. Clean up those worktrees before clearing the room, or choose to clear chat only and keep the whiteboard. No records were deleted.",
   },
   "error.room.defaultProtected": {
     zh: "默认房间不能归档。",

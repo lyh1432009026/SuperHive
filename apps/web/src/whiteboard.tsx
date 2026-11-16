@@ -111,12 +111,12 @@ export function WhiteboardPanel({
     .filter((entry) => Boolean(entry.archivedAt) === (view === "archived"))
     .filter((entry) => slotFilter === "all" || entry.slot === slotFilter)
     .sort((first, second) => second.updatedAt.localeCompare(first.updatedAt));
-  const selectable = sorted.filter(
-    (entry) =>
-      view === "archived" ||
-      (!entry.archiveProtected && entry.slot !== "blocked" && entry.slot !== "in_progress"),
-  );
+  const selectable = sorted.filter((entry) => view === "archived" || !entry.archiveProtected);
   const canSelect = (entry: WhiteboardEntry) => selectable.some((item) => item.id === entry.id);
+  // 一键全选只挑已经收尾的成果；进行中、阻塞的要房主逐条勾，免得把还在推进的活一起归档
+  const bulkSelectable = selectable.filter(
+    (entry) => view === "archived" || (entry.slot !== "in_progress" && entry.slot !== "blocked"),
+  );
 
   async function changeArchive(items: WhiteboardEntry[]) {
     const archive = view === "current";
@@ -189,9 +189,9 @@ export function WhiteboardPanel({
           <div className="whiteboard-bulk">
             <button
               type="button"
-              disabled={busy || !selectable.length}
+              disabled={busy || !bulkSelectable.length}
               onClick={() =>
-                setSelected(new Map(selectable.slice(0, 200).map((entry) => [entry.id, entry])))
+                setSelected(new Map(bulkSelectable.slice(0, 200).map((entry) => [entry.id, entry])))
               }
             >
               {view === "current" ? t("选择可归档事项") : t("选择历史事项")}
@@ -214,7 +214,7 @@ export function WhiteboardPanel({
         )}
         {canManage && view === "current" && (
           <p className="whiteboard-hint">
-            {t("进行中、阻塞和工作区占用不可归档；每次最多选择 200 条。")}
+            {t("仍占用工作区的事项不可归档；每次最多选择 200 条。")}
           </p>
         )}
         {view === "archived" && (

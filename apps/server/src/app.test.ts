@@ -2103,8 +2103,6 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
     expect((await clear({ username: "Alice", entries: [entry] })).json().code).toBe(
       "WHITEBOARD_CONFLICT",
     );
-    await update("blocked", "waiting");
-    expect((await clear({ username: "Alice" })).json().code).toBe("WHITEBOARD_PROTECTED");
     const headers = { authorization: "Bearer test-token" };
     expect(
       (await app.inject({ url: "/api/rooms/general/messages", headers })).json().messages,
@@ -2119,7 +2117,7 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
     });
     expect(
       (await app.inject({ url: "/api/rooms/general/whiteboard", headers })).json().entries,
-    ).toMatchObject([{ slot: "blocked", archiveProtected: true }]);
+    ).toMatchObject([{ slot: "ready", summary: "new" }]);
     await mcp.client.close();
   });
 
@@ -2208,8 +2206,6 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
         ).structuredContent as { entry: WhiteboardEntry }
       ).entry;
     const ready = await update("ready", "ready");
-    const active = await update("active", "in_progress");
-    const blocked = await update("blocked", "blocked");
     const request = (
       selected: Array<{ id: string; updatedAt: string }>,
       room = "general",
@@ -2226,11 +2222,6 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
     expect((await request([ready, ready])).statusCode).toBe(400);
     expect((await request([{ id: ready.id, updatedAt: "invalid" }])).statusCode).toBe(400);
     expect((await request([ready], "other")).statusCode).toBe(404);
-    for (const entry of [active, blocked]) {
-      const response = await request([ready, entry]);
-      expect(response.statusCode).toBe(409);
-      expect(response.json().code).toBe("WHITEBOARD_PROTECTED");
-    }
     await update("ready", "ready", "changed");
     expect((await request([ready])).json().code).toBe("WHITEBOARD_CONFLICT");
     const headers = { authorization: "Bearer test-token" };

@@ -530,9 +530,16 @@ export class WorktreeManager {
       this.options.database
         .connection()
         .prepare(
-          "UPDATE whiteboard_entries SET slot = 'milestone', summary = ? WHERE key = ? AND claim_repo = ? AND claim_branch = ?",
+          // updated_at 是白板归档/清空的版本号：状态变了就得跟着变
+          "UPDATE whiteboard_entries SET slot = 'milestone', summary = ?, updated_at = ? WHERE key = ? AND claim_repo = ? AND claim_branch = ?",
         )
-        .run(summary, `worktree:${record.id}`, record.repo, record.branch);
+        .run(
+          summary,
+          new Date().toISOString(),
+          `worktree:${record.id}`,
+          record.repo,
+          record.branch,
+        );
     })();
     this.options.onBoardChanged?.(record.roomId);
     this.pruneCleanupBatches();

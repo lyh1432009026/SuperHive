@@ -189,7 +189,7 @@ GET  /ws                       WebSocket（发消息、调用状态回报、实�
 POST /mcp                      Streamable HTTP MCP
 ```
 
-白板 `GET` 默认只返回当前事项；`?view=archived` 只返回归档，`?view=all` 返回两者，读取仍按房间隔离。归档／恢复请求为 `{ entries: [{ id, updatedAt }] }`，最多 200 条且 ID 不重复；房主权限、状态保护和版本校验全部通过才在同一事务写入，否则整批失败（400 参数错误、401 未认证、403 非房主、404 房间内不存在、409 活跃占用或版本冲突）。归档广播兼容旧客户端的 `whiteboard.removed`，附带可选 `archivedEntry` 供新客户端保存历史；恢复沿用 `whiteboard.updated`。旧数据库迁移仅增加可空 `archived_at`，已有条目保持当前。新网页历史删除带 `updatedAt`，已恢复或被更新的旧选择不能误删当前事项；旧客户端不带版本的删除保留兼容，但同样不能删除活跃／阻塞／工作区占用事项。
+白板 `GET` 默认只返回当前事项；`?view=archived` 只返回归档，`?view=all` 返回两者，读取仍按房间隔离。归档／恢复请求为 `{ entries: [{ id, updatedAt }] }`，最多 200 条且 ID 不重复；房主权限、工作区占用保护和版本校验全部通过才在同一事务写入，否则整批失败（400 参数错误、401 未认证、403 非房主、404 房间内不存在、409 工作区占用或版本冲突）。归档广播兼容旧客户端的 `whiteboard.removed`，附带可选 `archivedEntry` 供新客户端保存历史；恢复沿用 `whiteboard.updated`。旧数据库迁移仅增加可空 `archived_at`，已有条目保持当前。新网页历史删除带 `updatedAt`，已恢复或被更新的旧选择不能误删当前事项；旧客户端不带版本的删除保留兼容，但同样不能删除仍占用已登记工作区的事项。
 
 清空接口为 `{ username, whiteboard?: "archive" | "keep", entries?: [{ id, updatedAt }] }`；默认 `archive`，`keep` 只清聊天与调用记录，不接受 `entries`。新网页提交清空前读取的完整当前白板版本，空白板提交空数组；新增、删除或更新导致集合／版本变化时返回 409，未做任何清理。旧客户端省略 `entries` 时仍对事务内完整当前白板检查保护。归档与删除聊天／调用、取消定时任务在同一数据库事务内完成，历史白板、用量账本和工作区登记不删除。受保护事项导致 409，必须先解决或显式选择 `keep`，不能静默跳过。每条归档沿用 `whiteboard.removed`，然后广播 `room.cleared`，可选 `whiteboardArchived` 用于新网页失效旧历史请求；旧事件没有该字段时保留原白板行为。
 

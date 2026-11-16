@@ -2128,7 +2128,9 @@ describe("App mention autocomplete", () => {
       }).checked,
     ).toBe(true);
     expect(
-      within(dialog).getByText("进行中、阻塞及工作区占用事项会阻止清空，请先处理。"),
+      within(dialog).getByText(
+        "进行中和阻塞的事项也会一起归档；仍占用工作区的事项会阻止清空，请先清理对应 worktree。",
+      ),
     ).toBeTruthy();
     localApi.clearFailure = "受保护事项未处理，本次未删除任何记录。";
     await user.click(within(dialog).getByRole("button", { name: "确认清空" }));
@@ -2323,7 +2325,7 @@ describe("App mention autocomplete", () => {
 
     expect(
       (within(board).getByRole("checkbox", { name: "选择事项：db" }) as HTMLInputElement).disabled,
-    ).toBe(true);
+    ).toBe(false);
     expect(
       within(board).queryByRole("button", { name: "从白板移除：等待数据库迁移权限" }),
     ).toBeNull();

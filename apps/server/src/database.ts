@@ -2113,8 +2113,11 @@ export class HiveDatabase {
     return rows.map((row) => this.mapWhiteboardEntry(row));
   }
 
+  /**
+   * 只有还挂着已登记 worktree（目录或分支占用）的条目不能归档或删除：归档会让占用从白板上消失。
+   * 单纯的进行中/阻塞不算：Agent 崩了、换了 key 或忘了收尾，留下的旧条目房主得能清掉。
+   */
   private whiteboardProtected(row: WhiteboardRow): boolean {
-    if (row.slot === "in_progress" || row.slot === "blocked") return true;
     if (!row.key.startsWith("worktree:") && !row.claim_repo) return false;
     if (!this.db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'managed_worktrees'").get())
       return false;

@@ -25,6 +25,8 @@ import {
   readMessageContent,
 } from "./message-content.js";
 
+const BOARD_READ_PER_SLOT = 50;
+
 export type InboxDigest = {
   messages: Array<{
     seq: number;
@@ -698,8 +700,19 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
     },
     async () => {
       try {
+        // 白板不再自动删旧条目：每栏只给最近的 50 条，免得撑大 Agent 上下文，被省略的数量照实告知
+        const all = context.readWhiteboard();
+        const kept = new Map<string, number>();
+        const entries = [...all]
+          .sort((first, second) => second.updatedAt.localeCompare(first.updatedAt))
+          .filter((entry) => {
+            const count = kept.get(entry.slot) ?? 0;
+            kept.set(entry.slot, count + 1);
+            return count < BOARD_READ_PER_SLOT;
+          });
+        const omitted = all.length - entries.length;
         return toolResult(
-          { roomId: context.roomId, entries: context.readWhiteboard() },
+          { roomId: context.roomId, entries, ...(omitted ? { omitted } : {}) },
           context.takeInbox(),
         );
       } catch (error) {

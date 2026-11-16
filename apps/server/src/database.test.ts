@@ -552,16 +552,27 @@ describe("HiveDatabase", () => {
       status: "queued",
     }).invocation;
     const invocation = db.updateInvocation(queued.id, { status: "running" });
-    for (const slot of ["in_progress", "blocked"] as const) {
-      db.upsertWhiteboardEntry(agentA, { key: "protected", slot, summary: "active" });
-      const before = db.listWhiteboard("general", "all");
-      expect(() => db.clearRoom("general")).toThrowError(
-        expect.objectContaining({ code: "WHITEBOARD_PROTECTED" }),
-      );
-      expect(db.listWhiteboard("general", "all")).toEqual(before);
-      expect(db.getMessage(message.id)).toEqual(message);
-      expect(db.getInvocation(invocation.id)).toEqual(invocation);
-    }
+    // 还挂着已登记 worktree 的条目：整次清空拒绝，什么都不删
+    db.connection().exec("CREATE TABLE managed_worktrees (id TEXT, repo TEXT, branch TEXT)");
+    db.connection()
+      .prepare("INSERT INTO managed_worktrees VALUES (?, ?, ?)")
+      .run("managed", "/repo", "feat/task");
+    const occupied = db.upsertWhiteboardEntry(agentA, {
+      key: "worktree:managed",
+      slot: "milestone",
+      summary: "still registered",
+    }).entry;
+    const kept = db.listWhiteboard("general", "all");
+    expect(() => db.clearRoom("general")).toThrowError(
+      expect.objectContaining({ code: "WHITEBOARD_PROTECTED" }),
+    );
+    expect(db.listWhiteboard("general", "all")).toEqual(kept);
+    expect(db.getMessage(message.id)).toEqual(message);
+    expect(db.getInvocation(invocation.id)).toEqual(invocation);
+    db.connection().exec("DELETE FROM managed_worktrees");
+    expect(
+      db.listWhiteboard("general").find((entry) => entry.id === occupied.id),
+    ).not.toHaveProperty("archiveProtected");
     const finished = db.upsertWhiteboardEntry(agentA, {
       key: "protected",
       slot: "ready",
@@ -724,19 +735,14 @@ describe("HiveDatabase", () => {
     expect(db.listWhiteboard("general", "archived")).toEqual(archived);
   });
 
-  it("protects active and blocked tasks and registered worktree claims", () => {
-    const ready = db.upsertWhiteboardEntry(agentA, {
-      key: "ready",
-      slot: "ready",
-      summary: "done",
-    }).entry;
+  it("lets stale active or blocked tasks be archived but protects registered worktree claims", () => {
+    // Agent 崩了或忘了收尾留下的进行中/阻塞条目，房主得能清掉
     for (const slot of ["in_progress", "blocked"] as const) {
-      const active = db.upsertWhiteboardEntry(agentA, { key: slot, slot, summary: "active" }).entry;
-      expect(active.archiveProtected).toBe(true);
-      expect(() => db.changeWhiteboardArchive("general", [ready, active], true)).toThrowError(
-        "不能归档或删除",
-      );
-      expect(() => db.removeWhiteboardEntry("general", active.id)).toThrowError("不能归档或删除");
+      const stale = db.upsertWhiteboardEntry(agentA, { key: slot, slot, summary: "stale" }).entry;
+      expect(stale.archiveProtected).toBeUndefined();
+      const [archived] = db.changeWhiteboardArchive("general", [stale], true);
+      expect(archived!.archivedAt).toBeTruthy();
+      db.removeWhiteboardEntry("general", stale.id);
     }
     db.connection().exec("CREATE TABLE managed_worktrees (id TEXT, repo TEXT, branch TEXT)");
     db.connection()
