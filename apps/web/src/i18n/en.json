@@ -1126,7 +1126,6 @@
   "先选一个 Agent": "Pick an agent first",
   "推荐。可在指定目录内读写文件、运行命令；越界的操作会被拦下或先问你。": "Recommended. Can edit files and run commands inside the chosen folder; anything beyond that is blocked or asks you first.",
   "删除 {0}？它会退出所有房间，之后要用得重新接入。": "Delete {0}? It leaves every room; you'll need to add it again to use it.",
-  "点一个就进下一步；接入命令会按所选 Agent 的运行环境自动调整。": "Pick one to continue. The join command adapts to that agent's runtime.",
   "权限只在 Agent 所在电脑生效，Hive Server 始终只转发消息。默认工作区档。": "Permissions apply on the agent's computer only; Hive Server just relays messages. Defaults to Workspace.",
   "点一下回到编辑": "Click to keep editing",
   "还没有内容": "Nothing yet",
@@ -1263,5 +1262,6 @@
   "开启后符合安全条件的目录会直接回收，不再逐次询问。": "Eligible checkouts will be reclaimed automatically, without asking each time.",
   "确认开启自动清理": "Confirm automatic cleanup",
   "进行中和阻塞的事项也会一起归档；仍占用工作区的事项会阻止清空，请先清理对应 worktree。": "In-progress and blocked items are archived too. Items that still hold a worktree prevent clearing; clean up those worktrees first.",
-  "仍占用工作区的事项不可归档；每次最多选择 200 条。": "Items that still hold a worktree cannot be archived. Select up to 200 items at a time."
+  "仍占用工作区的事项不可归档；每次最多选择 200 条。": "Items that still hold a worktree cannot be archived. Select up to 200 items at a time.",
+  "选好后点「下一步」；接入命令会按所选 Agent 的运行环境自动调整。": "Pick one, then click Next. The setup command adapts to the selected agent's runtime."
 }

@@ -843,8 +843,10 @@ describe("App mention autocomplete", () => {
     const nextStep = () => user.click(screen.getByRole("button", { name: "下一步" }));
     const previousStep = () => user.click(screen.getByRole("button", { name: "上一步" }));
 
-    // 点一下 Agent 就到第 2 步，默认工作区档
+    // 点 Agent 只是选中，不自动跳步；点「下一步」才到第 2 步，默认工作区档
     await user.click(screen.getByRole("radio", { name: /Claude Code/ }));
+    expect(screen.queryByRole("heading", { name: /允许 Claude Code 在本机做什么/ })).toBeNull();
+    await nextStep();
     expect(screen.getByRole("heading", { name: /允许 Claude Code 在本机做什么/ })).toBeTruthy();
     expect(screen.getByRole("radio", { name: /^工作区/ }).getAttribute("aria-checked")).toBe(
       "true",
@@ -863,9 +865,11 @@ describe("App mention autocomplete", () => {
     expect(await navigator.clipboard.readText()).toContain("--access workspace --cwd .");
     expect(screen.getByRole("button", { name: "已复制到剪贴板" })).toBeTruthy();
 
-    // 点一下权限也直接到第 3 步
+    // 选权限也只是选中，点「下一步」才到第 3 步
     await previousStep();
     await user.click(screen.getByRole("radio", { name: /^只读/ }));
+    expect(screen.queryByRole("button", { name: "复制命令" })).toBeNull();
+    await nextStep();
     await user.click(screen.getByRole("button", { name: "复制命令" }));
     expect(await navigator.clipboard.readText()).toContain("--access read-only");
 
@@ -883,10 +887,15 @@ describe("App mention autocomplete", () => {
     // 重新点开，这次确认，才切到完全访问
     await user.click(screen.getByRole("radio", { name: /^完全访问/ }));
     await user.click(screen.getByRole("button", { name: "我了解风险，开启完全访问" }));
+    expect(screen.getByRole("radio", { name: /^完全访问/ }).getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    await nextStep();
     expect(commandText()).toContain("--access full --cwd .");
 
     await user.click(screen.getByRole("button", { name: "返回第 1 步：选择 Agent" }));
     await user.click(screen.getByRole("radio", { name: /GitHub Copilot/ }));
+    await nextStep();
     await nextStep();
     await user.click(screen.getByRole("button", { name: "复制命令" }));
     expect(await navigator.clipboard.readText()).toContain(
@@ -913,8 +922,8 @@ describe("App mention autocomplete", () => {
     // omp 的工作区档无法把写入限制在当前目录，需要明确提示
     await user.click(screen.getByRole("button", { name: "返回第 1 步：选择 Agent" }));
     await user.click(screen.getByRole("radio", { name: /omp/ }));
+    await nextStep();
     await user.click(screen.getByRole("radio", { name: /^工作区/ }));
-    await previousStep();
     expect(screen.getByText(/omp 不会把文件写入限制在当前目录内/)).toBeTruthy();
     await nextStep();
     await user.click(screen.getByRole("button", { name: "复制命令" }));
@@ -923,6 +932,7 @@ describe("App mention autocomplete", () => {
 
     await user.click(screen.getByRole("button", { name: "返回第 1 步：选择 Agent" }));
     await user.click(screen.getByRole("radio", { name: /OpenClaw/ }));
+    await nextStep();
     await nextStep();
     await user.click(screen.getByRole("button", { name: "复制命令" }));
     expect(await navigator.clipboard.readText()).toContain("--name Alice-openclaw");
@@ -1275,6 +1285,7 @@ describe("App mention autocomplete", () => {
 
     await user.click(screen.getByRole("button", { name: "接入 Agent" }));
     await user.click(screen.getByRole("radio", { name: /Codex/ }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
     await user.click(screen.getByRole("button", { name: "下一步" }));
     expect(
       screen.getByText((_, element) =>
@@ -2032,7 +2043,9 @@ describe("App mention autocomplete", () => {
     expect(screen.getByRole("radio", { name: /OpenCode.*1\.19\.4/ })).toBeTruthy();
 
     await user.click(screen.getByRole("radio", { name: /OpenCode/ }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
     await user.click(screen.getByRole("radio", { name: /^只读/ }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
     expect(screen.getByRole("heading", { name: "在本机启动" })).toBeTruthy();
     expect(screen.getByText("或复制命令，到其他终端运行")).toBeTruthy();
     expect((screen.getByRole("textbox", { name: "Agent 名称" }) as HTMLInputElement).value).toBe(
@@ -2058,6 +2071,7 @@ describe("App mention autocomplete", () => {
     await user.click(screen.getByRole("button", { name: "返回第 2 步：设置权限" }));
     await user.click(screen.getByRole("radio", { name: /^完全访问/ }));
     await user.click(screen.getByRole("button", { name: "我了解风险，开启完全访问" }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
     expect(screen.getByRole("heading", { name: "在本机启动" })).toBeTruthy();
     expect(screen.getByRole("note").textContent).toContain("完全访问没有任何沙箱");
     // 工作目录预填启动 Hive 的目录，不用手输
@@ -2085,6 +2099,7 @@ describe("App mention autocomplete", () => {
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "接入 Agent" }));
     await user.click(screen.getByRole("radio", { name: /OpenCode/ }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
     expect(screen.getByRole("radio", { name: /^工作区/ }).getAttribute("aria-checked")).toBe(
       "true",
     );

@@ -2204,8 +2204,9 @@ export function App({
 
   const confirmFullAccess = useCallback(() => {
     setAgentAccess("full");
-    goToAgentStep(3);
-  }, [goToAgentStep]);
+    setFullAccessConfirmationOpen(false);
+    fullAccessOptionRef.current?.focus();
+  }, []);
   useEffect(() => {
     if (!agentDialogOpen) return;
     window.requestAnimationFrame(() => agentDialogCloseRef.current?.focus());
@@ -6333,7 +6334,7 @@ export function App({
                         : t("复制命令，到终端运行")}
                 </h3>
                 {agentStep === 1 && (
-                  <p>{t("点一个就进下一步；接入命令会按所选 Agent 的运行环境自动调整。")}</p>
+                  <p>{t("选好后点「下一步」；接入命令会按所选 Agent 的运行环境自动调整。")}</p>
                 )}
                 {agentStep === 2 && (
                   <p>
@@ -6385,11 +6386,10 @@ export function App({
                       ]
                         .filter(Boolean)
                         .join(" ")}
-                      // 点一下就进下一步，不用再点「下一步」
+                      // 只选中，不自动跳步：选好后由人点「下一步」，可以先比较、改主意
                       onClick={() => {
                         setAgentProvider(provider);
                         setAgentProviderChosen(true);
-                        goToAgentStep(2);
                       }}
                       key={provider}
                     >
@@ -6442,11 +6442,8 @@ export function App({
                           }
                           tabIndex={agentAccess === option.id ? 0 : -1}
                           className={`${option.id} ${agentAccess === option.id ? "active" : ""}`}
-                          // 点一下就进下一步；完全访问要先在选项旁的气泡里确认风险
-                          onClick={() => {
-                            chooseAgentAccess(option.id);
-                            if (option.id !== "full" || agentAccess === "full") goToAgentStep(3);
-                          }}
+                          // 只选中，不自动跳步；完全访问要先在选项旁的气泡里确认风险
+                          onClick={() => chooseAgentAccess(option.id)}
                           key={option.id}
                         >
                           <span className="access-indicator" aria-hidden="true">
