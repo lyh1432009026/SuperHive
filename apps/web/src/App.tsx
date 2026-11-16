@@ -4286,6 +4286,18 @@ export function App({
                 </span>
               )}
             </button>
+            {isOwner && (
+              <button
+                type="button"
+                className="sidebar-action"
+                aria-haspopup="dialog"
+                title={t("扫码接入飞书或微信，在手机上给房间发消息")}
+                onClick={() => setImDialogOpen(true)}
+              >
+                <Icon name="message" size={16} />
+                <span>{t("连接 IM")}</span>
+              </button>
+            )}
           </nav>
           {attentionGroup && (
             <AttentionRoomGroup
@@ -5959,18 +5971,19 @@ export function App({
                   </div>
                 ))}
               </div>
+              {/* 成员栏底部只留一行：邀请成员、接入 Agent 并排，说明放到悬停提示里 */}
               <div className="member-invite" role="group" aria-label={t("添加成员")}>
                 {isOwner ? (
                   <button
                     type="button"
                     className="member-invite-action"
                     aria-haspopup="dialog"
+                    title={t("生成限时链接，到期后自动失效")}
                     onClick={() => setInviteDialogOpen(true)}
                   >
                     <Icon name="user-plus" size={16} />
                     <span>
                       <strong>{t("邀请成员")}</strong>
-                      <small>{t("生成限时链接，到期后自动失效")}</small>
                     </span>
                   </button>
                 ) : (
@@ -5979,12 +5992,12 @@ export function App({
                       type="button"
                       className="member-invite-action"
                       aria-haspopup="dialog"
+                      title={t("只能进本房间，和你同时到期")}
                       onClick={() => setGuestAgentDialogOpen(true)}
                     >
                       <Icon name="plug" size={16} />
                       <span>
                         <strong>{t("带入我的 Agent")}</strong>
-                        <small>{t("只能进本房间，和你同时到期")}</small>
                       </span>
                     </button>
                   )
@@ -5996,26 +6009,12 @@ export function App({
                     aria-label={t("接入 Agent")}
                     aria-haspopup="dialog"
                     aria-expanded={agentDialogOpen}
+                    title={t("选择运行时并复制接入命令")}
                     onClick={(event) => openAgentDialog(event.currentTarget)}
                   >
                     <Icon name="plug" size={16} />
                     <span>
                       <strong>{t("接入 Agent")}</strong>
-                      <small>{t("选择运行时并复制接入命令")}</small>
-                    </span>
-                  </button>
-                )}
-                {isOwner && (
-                  <button
-                    type="button"
-                    className="member-invite-action"
-                    aria-haspopup="dialog"
-                    onClick={() => setImDialogOpen(true)}
-                  >
-                    <Icon name="message" size={16} />
-                    <span>
-                      <strong>{t("连接 IM")}</strong>
-                      <small>{t("扫码接入飞书或微信，在手机上给房间发消息")}</small>
                     </span>
                   </button>
                 )}
