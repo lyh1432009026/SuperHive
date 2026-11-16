@@ -195,6 +195,20 @@ const readOnlyCommands = new Set([
   "jq",
   "nl",
   "true",
+  "false",
+  "printf",
+  "test",
+  "[",
+  "type",
+  "basename",
+  "dirname",
+  "realpath",
+  "readlink",
+  "tr",
+  "sha256sum",
+  "shasum",
+  "md5",
+  "od",
 ]);
 /** 带什么参数都只读的 git 子命令；branch、remote 只认列出用法（见 readOnlyGitCommand） */
 const readOnlyGit = new Set([
@@ -207,6 +221,10 @@ const readOnlyGit = new Set([
   "describe",
   "shortlog",
   "grep",
+  "merge-base",
+  "rev-list",
+  "cat-file",
+  "ls-tree",
 ]);
 
 function readOnlyGitCommand(args: string[]): boolean {
@@ -221,54 +239,194 @@ function readOnlyGitCommand(args: string[]): boolean {
     return false;
   }
   if (sub === "diff") return true;
+  if (sub === "worktree") return rest[0] === "list";
   if (sub === "branch") {
-    return rest.every((arg) =>
-      /^(?:-a|-r|-v|-vv|--all|--remotes|--list|--show-current|--verbose|--no-color|--contains|--merged|--no-merged)$/.test(
-        arg,
-      ),
+    // git branch --list 后面跟的是匹配模式，不会建分支
+    const listing = rest.includes("--list");
+    return rest.every(
+      (arg) =>
+        (listing && !arg.startsWith("-")) ||
+        /^(?:-a|-r|-v|-vv|--all|--remotes|--list|--show-current|--verbose|--no-color|--contains|--merged|--no-merged)$/.test(
+          arg,
+        ),
     );
   }
   if (sub === "remote") return rest.every((arg) => arg === "-v" || arg === "--verbose");
   return readOnlyGit.has(sub);
 }
 
+type ShellParse = { segments: string[][]; unsafe: boolean };
+
+/**
+ * 按 POSIX shell 的引号规则把一行命令拆成若干段（按未加引号的 ; && || | & 换行 括号分开），每段是去掉引号的词。
+ * 引号里的 | ; > 只是普通字符（比如 `rg 'a|b'`）；命令替换、进程替换、heredoc、写文件的重定向直接判为不安全。
+ */
+function parseShell(command: string): ShellParse {
+  const segments: string[][] = [];
+  let words: string[] = [];
+  let word = "";
+  let inWord = false;
+  const endWord = () => {
+    if (inWord) words.push(word);
+    word = "";
+    inWord = false;
+  };
+  const endSegment = () => {
+    endWord();
+    if (words.length) segments.push(words);
+    words = [];
+  };
+  const unsafe = { segments, unsafe: true };
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i]!;
+    if (c === "'") {
+      const close = command.indexOf("'", i + 1);
+      if (close < 0) return unsafe;
+      word += command.slice(i + 1, close);
+      inWord = true;
+      i = close;
+    } else if (c === '"') {
+      let j = i + 1;
+      for (; j < command.length && command[j] !== '"'; j++) {
+        const d = command[j]!;
+        // 双引号里命令替换照样会执行
+        if (d === "`" || (d === "$" && command[j + 1] === "(")) return unsafe;
+        if (d === "\\" && j + 1 < command.length) {
+          word += command[++j];
+          continue;
+        }
+        word += d;
+      }
+      if (j >= command.length) return unsafe;
+      inWord = true;
+      i = j;
+    } else if (c === "\\") {
+      if (command[i + 1] === "\n") i++;
+      else if (i + 1 < command.length) {
+        word += command[++i];
+        inWord = true;
+      }
+    } else if (c === "`" || (c === "$" && command[i + 1] === "(")) {
+      return unsafe;
+    } else if (c === ">" || c === "<") {
+      if (command[i + 1] === "(") return unsafe;
+      if (c === "<") {
+        // heredoc 的正文会被当成命令拆开，宁严勿松
+        if (command[i + 1] === "<") return unsafe;
+        endWord();
+        continue;
+      }
+      // 只放过丢弃输出（>/dev/null）和合并文件描述符（2>&1）
+      const fd = /^\d+$/.test(word) || word === "&" ? word : undefined;
+      if (fd === undefined) endWord();
+      else {
+        word = "";
+        inWord = false;
+      }
+      let j = i + 1;
+      if (command[j] === ">") j++;
+      if (command[j] === "&") {
+        const dup = command.slice(j + 1).match(/^\d+|^-/);
+        if (!dup) return unsafe;
+        i = j + dup[0].length;
+        continue;
+      }
+      while (command[j] === " " || command[j] === "\t") j++;
+      if (!command.startsWith("/dev/null", j) || /[^\s;&|)]/.test(command[j + 9] ?? " "))
+        return unsafe;
+      i = j + 8;
+    } else if (c === "&" && command[i + 1] === ">") {
+      word = "&";
+      inWord = true;
+    } else if ("\n;|&()".includes(c)) {
+      endSegment();
+    } else if (c === " " || c === "\t") {
+      endWord();
+    } else {
+      word += c;
+      inWord = true;
+    }
+  }
+  endSegment();
+  return { segments, unsafe: false };
+}
+
 /** Codex 常把命令包一层 `/bin/zsh -lc '…'`：剥掉这层再判断 */
 function unwrapShell(command: string): string {
-  const match = command
-    .trim()
-    .match(/^(?:\/\S*\/)?(?:ba|z)?sh\s+-l?c\s+(?:'([\s\S]*)'|"([\s\S]*)")\s*$/);
-  return match ? (match[1] ?? match[2] ?? command) : command;
+  const { segments, unsafe } = parseShell(command);
+  const words = segments.length === 1 && !unsafe ? segments[0]! : [];
+  if (
+    words.length === 3 &&
+    /^(?:\/\S*\/)?(?:ba|z)?sh$/.test(words[0]!) &&
+    /^-l?c$|^-cl$/.test(words[1]!)
+  ) {
+    return words[2]!;
+  }
+  return command;
+}
+
+/** shell 关键字本身不执行东西，后面跟的才是命令 */
+const shellKeywords = new Set([
+  "if",
+  "then",
+  "else",
+  "elif",
+  "do",
+  "while",
+  "until",
+  "!",
+  "{",
+  "}",
+]);
+const shellEnds = new Set(["fi", "done", "}"]);
+
+/** sed 只认按行号打印（`sed -n '10,20p' f`），脚本里的 w/e/r 能写文件或执行命令 */
+function readOnlySed(args: string[]): boolean {
+  let script: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "-e") script = (script ?? "") + (args[++i] ?? "x");
+    else if (/^-[nEr]+$/.test(arg) || arg === "--quiet") continue;
+    else if (arg.startsWith("-")) return false;
+    else if (script === undefined) script = arg;
+  }
+  return script !== undefined && /^[\d\s,$;p]+$/.test(script);
+}
+
+function readOnlyFind(args: string[]): boolean {
+  return !args.some((arg) =>
+    /^-(?:exec|execdir|ok|okdir|delete|fprint|fprint0|fprintf|fls)$/.test(arg),
+  );
+}
+
+function readOnlySegment(segment: string[]): boolean {
+  const words = [...segment];
+  // 环境变量前缀会改变命令行为（GIT_EXTERNAL_DIFF、PAGER……）：只放过语言、颜色这类无害的
+  while (words[0] && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) {
+    if (!/^(?:LANG|LANGUAGE|LC_[A-Z]+|NO_COLOR|TERM|COLUMNS)=/.test(words[0])) return false;
+    words.shift();
+  }
+  while (words[0] && shellKeywords.has(words[0])) words.shift();
+  const [head, ...args] = words;
+  if (!head || head === "cd" || shellEnds.has(head)) return true;
+  // for x in a b c：后面只是数据
+  if (head === "for") return args[1] === "in" || args.length === 1;
+  if (head === "git") return readOnlyGitCommand(args);
+  // rg --pre 会对每个文件执行指定的程序
+  if (head === "rg") return !args.some((arg) => arg.startsWith("--pre"));
+  if (head === "sed") return readOnlySed(args);
+  if (head === "find") return readOnlyFind(args);
+  // command -v / type 只是查命令在哪；command foo 会真的执行 foo
+  if (head === "command") return args[0] === "-v" || args[0] === "-V";
+  if (head === "sort") return !args.some((arg) => /^(?:-o|--output)/.test(arg));
+  if (head === "date") return !args.some((arg) => /^(?:-s|--set)/.test(arg));
+  return readOnlyCommands.has(head);
 }
 
 /** 只读命令：每一段都在白名单里，且没有命令替换、写文件的重定向、后台执行 */
 export function readOnlyCommand(raw: string): boolean {
-  const command = unwrapShell(raw);
-  // 命令替换、进程替换可以执行任意命令
-  if (/\$\(|`|<\(|>\(/.test(command)) return false;
-  // 重定向只放过丢弃错误输出和合并输出
-  const withoutSafe = command.replace(/\b2>\s*\/dev\/null|\b2>&1|&>\s*\/dev\/null/g, "");
-  if (/>|\btee\b/.test(withoutSafe)) return false;
-  return (
-    withoutSafe
-      // 单独的 & 也是命令分隔（后台执行），各段都要判断
-      .split(/\n|&&|\|\||;|\||&/)
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .every((part) => {
-        const words = part.split(/\s+/);
-        // 环境变量前缀会改变命令行为（GIT_EXTERNAL_DIFF、PAGER……）：只放过语言、颜色这类无害的
-        while (words[0] && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) {
-          if (!/^(?:LANG|LANGUAGE|LC_[A-Z]+|NO_COLOR|TERM|COLUMNS)=/.test(words[0])) return false;
-          words.shift();
-        }
-        const [head, ...args] = words;
-        if (!head || head === "cd") return true;
-        if (head === "git") return readOnlyGitCommand(args);
-        // rg --pre 会对每个文件执行指定的程序
-        if (head === "rg" && args.some((arg) => arg.startsWith("--pre"))) return false;
-        return readOnlyCommands.has(head);
-      })
-  );
+  const { segments, unsafe } = parseShell(unwrapShell(raw));
+  return !unsafe && segments.every(readOnlySegment);
 }
 
 /** 不改东西的 Hive 工具（按工具名判断，不看参数正文） */

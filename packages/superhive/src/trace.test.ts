@@ -215,6 +215,19 @@ describe("isMutatingStep", () => {
       "tree -o out.txt",
       "GIT_EXTERNAL_DIFF=./x git diff",
       "PAGER=./x git log",
+      // 引号外的 | 才是管道：引号里藏着的东西不能逃过检查
+      "rg 'a|b' src | sh",
+      "sed -n '1,5p;w out' f",
+      "sed -n -i '1,5p' f",
+      "cat <<EOF\nrm a\nEOF",
+      'echo "$(rm a)"',
+      "command rm a",
+      "if true; then rm a; fi",
+      "for f in *; do rm $f; done",
+      "git branch new-branch",
+      "git worktree add ../x",
+      "ls > /dev/nullx",
+      "/bin/zsh -lc 'ls '\\''a'\\''; rm a'",
     ]) {
       expect(isMutatingStep(step("command", command)), command).toBe(true);
     }
@@ -226,6 +239,15 @@ describe("isMutatingStep", () => {
       "/bin/zsh -lc 'git status && git log --oneline -3'",
       "LANG=C git status",
       "NO_COLOR=1 git diff",
+      // Codex 只读探查的常见写法：引号里的 | ; > 不是管道或重定向
+      "rg -n '连接 IM|右下|bottom-.*right' apps/web/src | head -80",
+      "rg -n 'a>b;c' src",
+      "printf '\\nSIDEBAR\\n'; sed -n '5670,5945p' apps/web/src/App.tsx",
+      "pwd; git status --short; if [ -d .codegraph ]; then printf 'yes\\n'; command -v codegraph; else printf 'no\\n'; fi",
+      "for f in a b; do wc -l $f; done",
+      "git worktree list; git branch --list 'feat/*'; git merge-base main HEAD",
+      "ls >/dev/null 2>&1 && echo ok",
+      "/bin/zsh -lc 'rg -n '\\''a|b'\\'' src; sed -n '\\''1,20p'\\'' f'",
     ]) {
       expect(isMutatingStep(step("command", command)), command).toBe(false);
     }
