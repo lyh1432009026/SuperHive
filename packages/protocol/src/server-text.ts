@@ -473,8 +473,8 @@ export const serverTexts = {
     en: "This message belongs to a different workspace, {path}. It cannot steer the current task and has been queued.",
   },
   "bridge.worktreeCheckBeforeContinue": {
-    zh: "已绑定目录 {path}，但本轮已有其它副作用；未自动续跑，请核对原目录的操作后再继续",
-    en: "Workspace {path} is bound, but this turn had other side effects. It was not continued automatically; verify operations in the original checkout before continuing",
+    zh: "已绑定目录 {path}，但本轮已有其它副作用（{step}）；未自动续跑，请核对原目录的操作后再继续",
+    en: "Workspace {path} is bound, but this turn had other side effects ({step}). It was not continued automatically; verify operations in the original checkout before continuing",
   },
   "error.worktree.runtimeRequired": {
     zh: "当前 Agent 尚未启用安全目录交接，请升级并重启本机 Agent 后再创建 worktree；不会扩大现有会话的写权限。",

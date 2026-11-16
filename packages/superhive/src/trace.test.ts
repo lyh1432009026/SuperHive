@@ -226,6 +226,8 @@ describe("isMutatingStep", () => {
       "for f in *; do rm $f; done",
       "git branch new-branch",
       "git worktree add ../x",
+      "git fetch --upload-pack=./x origin",
+      "git ls-remote -u ./x origin",
       "ls > /dev/nullx",
       "/bin/zsh -lc 'ls '\\''a'\\''; rm a'",
     ]) {
@@ -246,6 +248,7 @@ describe("isMutatingStep", () => {
       "pwd; git status --short; if [ -d .codegraph ]; then printf 'yes\\n'; command -v codegraph; else printf 'no\\n'; fi",
       "for f in a b; do wc -l $f; done",
       "git worktree list; git branch --list 'feat/*'; git merge-base main HEAD",
+      "git status --short; git fetch origin release/2.5.0 feat/x; git rev-parse origin/release/2.5.0",
       "ls >/dev/null 2>&1 && echo ok",
       "/bin/zsh -lc 'rg -n '\\''a|b'\\'' src; sed -n '\\''1,20p'\\'' f'",
     ]) {

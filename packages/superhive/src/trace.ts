@@ -225,6 +225,9 @@ const readOnlyGit = new Set([
   "rev-list",
   "cat-file",
   "ls-tree",
+  // 只更新远端跟踪分支，不碰工作区，重复执行也一样：建 worktree 前常先 fetch 一下基线
+  "fetch",
+  "ls-remote",
 ]);
 
 function readOnlyGitCommand(args: string[]): boolean {
@@ -233,13 +236,17 @@ function readOnlyGitCommand(args: string[]): boolean {
   // 写文件或调用外部程序的参数：任何子命令带上都算改动
   if (
     rest.some((arg) =>
-      /^(?:--output|-O|--open-files-in-pager|--ext-diff|--exec|-c\b|--config)/.test(arg),
+      /^(?:--output|-O|--open-files-in-pager|--ext-diff|--exec|-c\b|--config|--upload-pack)/.test(
+        arg,
+      ),
     )
   ) {
     return false;
   }
   if (sub === "diff") return true;
   if (sub === "worktree") return rest[0] === "list";
+  // ls-remote 的 -u 等同 --upload-pack，会执行指定的程序
+  if (sub === "ls-remote" && rest.some((arg) => /^-u/.test(arg))) return false;
   if (sub === "branch") {
     // git branch --list 后面跟的是匹配模式，不会建分支
     const listing = rest.includes("--list");

@@ -954,7 +954,8 @@ export class AgentBridge {
       this.room.setTyping(true);
       // Bridge 存活不等于 Runtime 在推进；心跳不得刷新最后一次真实进度的时间。
       let lastRuntimeProgressAt = Date.now();
-      let handoffUnsafe = false;
+      // 第一步让交接变得不安全的操作：失败说明里写出来，误判时一眼能看出是哪条命令
+      let handoffBlockedBy: string | undefined;
       let lastProgressReportAt: number | undefined;
       let lastRuntimeReportAt: number | undefined;
       let lastProgress: string | undefined;
@@ -1082,9 +1083,10 @@ export class AgentBridge {
             if (isMutatingStep(step)) {
               active.mutated = true;
             }
-            if (!isHandoffSafeStep(step)) handoffUnsafe = true;
             if (step.kind === "tool") active.toolUsed = true;
             const clean = sanitizeTraceStep(step);
+            if (handoffBlockedBy === undefined && !isHandoffSafeStep(step))
+              handoffBlockedBy = (clean.summary || clean.name || clean.tool || "?").slice(0, 120);
             pendingTrace.set(clean.id, { ...pendingTrace.get(clean.id), ...clean });
             traceTimer ??= setTimeout(flushTrace, this.tuning.traceFlushMs);
           },
@@ -1152,10 +1154,13 @@ export class AgentBridge {
           );
         const changed = await this.selectTaskWorkspace(messages[0]!.id, { path: selected });
         if (!changed) break;
-        if (handoffUnsafe)
+        if (handoffBlockedBy !== undefined)
           throw new AgentNonRetryableError(
             bridgeTextZh(
-              bridgeText("bridge.worktreeCheckBeforeContinue", { path: this.options.cwd! }),
+              bridgeText("bridge.worktreeCheckBeforeContinue", {
+                path: this.options.cwd!,
+                step: handoffBlockedBy,
+              }),
             ),
           );
         const detail = bridgeText("bridge.worktreeHandoff", { path: this.options.cwd! });

@@ -374,9 +374,10 @@ describe("AgentBridge", () => {
     responder.finish("Original checkout changed; worktree prepared");
     await waitUntil(() => room.statuses(message.id).includes("failed"));
     expect(isolated.calls).toHaveLength(0);
-    expect(room.reports.find((report) => report.status === "failed")?.detail).toContain(
-      "未自动续跑",
-    );
+    const detail = room.reports.find((report) => report.status === "failed")?.detail;
+    expect(detail).toContain("未自动续跑");
+    // 写出是哪一步拦下了交接，误判时能直接定位
+    expect(detail).toContain("（write original checkout）");
     expect(await store.load()).toMatchObject({ workspace: selected });
   });
 
