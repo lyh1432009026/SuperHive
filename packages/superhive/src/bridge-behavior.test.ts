@@ -205,6 +205,7 @@ describe("AgentBridge", () => {
   /** 本机 Hive Server 写给 Agent 的设置文件（模型、备用模型） */
   let settingsFile: string | undefined;
   let taskWorkspace: ConstructorParameters<typeof AgentBridge>[0]["taskWorkspace"];
+  let extraTuning: ConstructorParameters<typeof AgentBridge>[0]["tuning"];
 
   async function startBridge(
     state?: AgentState,
@@ -225,6 +226,7 @@ describe("AgentBridge", () => {
           offlineRetryIntervalMs: 5,
           traceFlushMs: 5,
           upstreamRetryDelaysMs: [30, 60],
+          ...extraTuning,
         },
       },
       store,
@@ -284,6 +286,7 @@ describe("AgentBridge", () => {
     responder = new ControlledResponder();
     settingsFile = undefined;
     taskWorkspace = undefined;
+    extraTuning = undefined;
   });
 
   afterEach(async () => {
@@ -1046,11 +1049,16 @@ describe("AgentBridge", () => {
         executionId: "exec-1",
         messageIds: [pendingMention.id],
         startedAt: new Date().toISOString(),
+        mutated: true,
       },
     });
     await flush();
     expect(room.reports).toContainEqual(
-      expect.objectContaining({ messageId: pendingMention.id, status: "uncertain" }),
+      expect.objectContaining({
+        messageId: pendingMention.id,
+        status: "uncertain",
+        detailText: { key: "bridge.crashedMidTurn" },
+      }),
     );
     expect(responder.calls).toHaveLength(0);
     expect((await store.load())?.inflight).toBeUndefined();
@@ -1060,6 +1068,284 @@ describe("AgentBridge", () => {
     await waitUntil(() => responder.calls.length === 1);
     responder.finish();
     await waitUntil(() => room.statuses(pendingMention.id).includes("completed"));
+  });
+
+  describe("resuming after the bridge process dies mid-turn", () => {
+    const invocationFor = (
+      message: ChatMessage,
+      status: Invocation["status"],
+      extra: Partial<Invocation> = {},
+    ): Invocation => ({
+      id: message.id.replace(/0000$/, "ffff"),
+      roomId: "general",
+      messageId: message.id,
+      agentId: SELF,
+      agentName: "agent-a",
+      status,
+      attempts: 1,
+      ...extra,
+    });
+    const crashed = (
+      messageIds: string[],
+      extra: Partial<NonNullable<AgentState["inflight"]>> = {},
+    ) => ({
+      executionId: "exec-crash",
+      messageIds,
+      startedAt: new Date().toISOString(),
+      ...extra,
+    });
+
+    it("reruns a side-effect-free turn after a crash and says so on the card", async () => {
+      const mention = chat();
+      room.messages.push(mention);
+      await startBridge({ ...baseState(), inflight: crashed([mention.id]) }, [
+        invocationFor(mention, "running"),
+      ]);
+      await waitUntil(() => responder.calls.length === 1);
+      // 不报结果未知，改为重新执行，并在状态和执行过程里写明是中断后自动恢复
+      expect(room.statuses(mention.id)).not.toContain("uncertain");
+      expect(room.reports).toContainEqual(
+        expect.objectContaining({
+          messageId: mention.id,
+          status: "running",
+          detailText: { key: "bridge.crashResumed", params: { count: 1, limit: 2 } },
+        }),
+      );
+      expect(JSON.stringify(room.traces)).toContain("已自动重新执行（第 1/2 次）");
+      expect(responder.calls[0]!.prompt).toContain("Agent 进程意外退出");
+      expect((await store.load())?.crashResumes).toEqual({ [mention.id]: 1 });
+      responder.finish();
+      await waitUntil(() => room.statuses(mention.id).includes("completed"));
+      expect(room.reports.at(-1)).toMatchObject({
+        status: "completed",
+        detailText: { key: "bridge.crashResumedDone", params: { count: 1 } },
+      });
+      const saved = await store.load();
+      expect(saved?.crashResumes).toBeUndefined();
+      expect(saved?.inflight).toBeUndefined();
+      expect(saved?.processedMessageIds).toContain(mention.id);
+    });
+
+    it("keeps a crashed turn with side effects as uncertain, also on reconnect", async () => {
+      const mention = chat();
+      room.messages.push(mention);
+      await startBridge({ ...baseState(), inflight: crashed([mention.id], { mutated: true }) }, [
+        invocationFor(mention, "running"),
+      ]);
+      await flush();
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(responder.calls).toHaveLength(0);
+      expect(room.reports).toEqual([
+        expect.objectContaining({
+          messageId: mention.id,
+          status: "uncertain",
+          detailText: { key: "bridge.crashedMidTurn" },
+        }),
+      ]);
+      // 重连拿到新快照：服务端仍是 running，也不会再被当成可以重跑
+      await room.handlers.onSnapshot({
+        self,
+        latestSeq: mention.seq,
+        messages: [],
+        participants: [self],
+        invocations: [invocationFor(mention, "running")],
+      });
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(responder.calls).toHaveLength(0);
+    });
+
+    it("still reports reconnectedGone for a running call it knows nothing about", async () => {
+      const mention = chat();
+      room.messages.push(mention);
+      await startBridge(baseState(), [invocationFor(mention, "running")]);
+      await flush();
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(responder.calls).toHaveLength(0);
+      expect(room.reports).toContainEqual(
+        expect.objectContaining({
+          messageId: mention.id,
+          status: "uncertain",
+          detailText: { key: "bridge.reconnectedGone" },
+        }),
+      );
+    });
+
+    it("gives up after the resume limit and says how many times it resumed", async () => {
+      const mention = chat();
+      room.messages.push(mention);
+      await startBridge(
+        {
+          ...baseState(),
+          crashResumes: { [mention.id]: 2 },
+          inflight: crashed([mention.id]),
+        },
+        [invocationFor(mention, "running")],
+      );
+      await flush();
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(responder.calls).toHaveLength(0);
+      expect(room.reports).toContainEqual(
+        expect.objectContaining({
+          messageId: mention.id,
+          status: "uncertain",
+          detail: expect.stringContaining("已自动恢复过 2 次"),
+          detailText: { key: "bridge.crashedAfterResume", params: { count: 2 } },
+        }),
+      );
+      expect((await store.load())?.crashResumes).toBeUndefined();
+    });
+
+    it("crashes again during the resumed run count towards the limit", async () => {
+      extraTuning = { crashResumeLimit: 1 };
+      const mention = chat();
+      room.messages.push(mention);
+      await startBridge({ ...baseState(), inflight: crashed([mention.id]) }, [
+        invocationFor(mention, "running"),
+      ]);
+      await waitUntil(() => responder.calls.length === 1);
+      // 重跑途中进程又退出：模拟直接丢掉这个 Bridge，用落盘的状态再起一个
+      const saved = (await store.load())!;
+      expect(saved.inflight?.messageIds).toEqual([mention.id]);
+      expect(saved.crashResumes).toEqual({ [mention.id]: 1 });
+      room.reports = [];
+      responder = new ControlledResponder();
+      await startBridge(undefined, [invocationFor(mention, "running")]);
+      await flush();
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(responder.calls).toHaveLength(0);
+      expect(room.reports).toContainEqual(
+        expect.objectContaining({
+          messageId: mention.id,
+          status: "uncertain",
+          detailText: { key: "bridge.crashedAfterResume", params: { count: 1 } },
+        }),
+      );
+    });
+
+    it("does not rerun while the old runtime process is still alive", async () => {
+      extraTuning = { runtimeExitGraceMs: 50 };
+      const { spawn } = await import("node:child_process");
+      const orphan = spawn(process.execPath, ["-e", "setTimeout(() => {}, 10000)"], {
+        stdio: "ignore",
+      });
+      try {
+        const mention = chat();
+        room.messages.push(mention);
+        await startBridge(
+          { ...baseState(), inflight: crashed([mention.id], { runtimePids: [orphan.pid!] }) },
+          [invocationFor(mention, "running")],
+        );
+        await flush();
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        expect(responder.calls).toHaveLength(0);
+        expect(room.reports).toContainEqual(
+          expect.objectContaining({
+            messageId: mention.id,
+            status: "uncertain",
+            detailText: { key: "bridge.crashedRuntimeAlive" },
+          }),
+        );
+      } finally {
+        orphan.kill();
+      }
+    });
+
+    it("leaves calls the human already stopped or dismissed alone", async () => {
+      const stopped = chat();
+      const dismissed = chat();
+      const finished = chat();
+      room.messages.push(stopped, dismissed, finished);
+      await startBridge(
+        { ...baseState(), inflight: crashed([stopped.id, dismissed.id, finished.id]) },
+        [
+          invocationFor(stopped, "cancelling"),
+          invocationFor(dismissed, "timed_out", { resolution: { kind: "dismissed" } }),
+          // 已经落定的调用不在快照里
+        ],
+      );
+      await flush();
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(responder.calls).toHaveLength(0);
+      expect(room.reports).toEqual([
+        expect.objectContaining({
+          messageId: stopped.id,
+          status: "cancelled",
+          detailText: { key: "bridge.crashResumeStopped" },
+        }),
+      ]);
+      expect((await store.load())?.processedMessageIds).toEqual(
+        expect.arrayContaining([stopped.id, dismissed.id, finished.id]),
+      );
+    });
+
+    it("fetches the original text even when the cursor is already past it", async () => {
+      const mention = chat({ content: "@agent-a 光标之前的提及" });
+      const later = chat({ content: "别的消息", mentions: [] });
+      room.messages.push(mention, later);
+      await startBridge(
+        {
+          ...baseState(),
+          lastProcessedSeq: later.seq,
+          inflight: crashed([mention.id], { minSeq: mention.seq }),
+        },
+        [invocationFor(mention, "timed_out")],
+      );
+      await waitUntil(() => responder.calls.length === 1);
+      expect(responder.calls[0]!.prompt).toContain("光标之前的提及");
+    });
+
+    it("does not start a second run when the human retries during the automatic one", async () => {
+      const mention = chat();
+      room.messages.push(mention);
+      await startBridge({ ...baseState(), inflight: crashed([mention.id]) }, [
+        invocationFor(mention, "running"),
+      ]);
+      await waitUntil(() => responder.calls.length === 1);
+      room.handlers.onMention(mention, mention.seq, true);
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(responder.calls).toHaveLength(1);
+      responder.finish();
+      await waitUntil(() => room.statuses(mention.id).includes("completed"));
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(responder.calls).toHaveLength(1);
+    });
+
+    it("persists the first side effect of a turn, not read-only steps", async () => {
+      await startBridge(baseState());
+      const mention = chat();
+      room.messages.push(mention);
+      room.handlers.onMention(mention, mention.seq, false);
+      await waitUntil(() => responder.calls.length === 1);
+      const at = new Date().toISOString();
+      responder.calls[0]!.onTrace?.({
+        id: "r1",
+        kind: "tool",
+        tool: "command",
+        summary: "git status",
+        startedAt: at,
+      });
+      responder.calls[0]!.onTrace?.({
+        id: "h1",
+        kind: "tool",
+        tool: "collaboration",
+        name: "hive.hive_room_read",
+        startedAt: at,
+      });
+      await flush();
+      expect((await store.load())?.inflight?.mutated).toBeUndefined();
+      responder.calls[0]!.onTrace?.({
+        id: "w1",
+        kind: "tool",
+        tool: "write",
+        summary: "src/a.ts",
+        startedAt: at,
+      });
+      await waitUntil(() => room.traces.length > 0);
+      await flush();
+      expect((await store.load())?.inflight?.mutated).toBe(true);
+      responder.finish();
+      await waitUntil(() => room.statuses(mention.id).includes("completed"));
+    });
   });
 
   it("only replays queued mentions on reconnect and leaves blocked ones alone", async () => {

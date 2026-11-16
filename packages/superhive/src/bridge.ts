@@ -38,6 +38,7 @@ import {
 import { StateStore, type AgentState } from "./state-store.js";
 import { isHandoffSafeStep, isMutatingStep, sanitizeTraceStep } from "./trace.js";
 import { readAgentSettings } from "./mcp-servers.js";
+import { anyProcessAlive, liveRuntimePids, onRuntimeSpawn } from "./runtime-processes.js";
 import type { TraceStep } from "./hive-protocol.js";
 import { AttachmentCache } from "./attachment-cache.js";
 import {
@@ -120,6 +121,10 @@ export type BridgeTuning = {
    */
   offlineRetryMs?: number;
   offlineRetryIntervalMs?: number;
+  /** 进程中途退出、这一轮又没有副作用时，同一条提及最多自动重跑几次 */
+  crashResumeLimit?: number;
+  /** 重启时旧运行时子进程还活着，最多等它们自己退出多久（管道断了它们通常很快退出） */
+  runtimeExitGraceMs?: number;
 };
 
 /** 连不上 Server 一类的错误：可以等 Server 回来再试，不代表这一轮做错了 */
@@ -190,6 +195,12 @@ export class AgentBridge {
   private readonly waitingResume = new Map<string, NodeJS.Timeout>();
   /** 上游出错中断的原因：下一轮（自动继续或人点「继续」）开头提示 Agent 从断点接着做 */
   private readonly resumeNotes = new Map<string, string>();
+  /**
+   * 进程中途退出、可以安全重跑的提及（值为这是第几次自动恢复）：等拿到服务端快照、
+   * 确认调用仍在执行或已判超时（没被人停止、收起）后再重新排队
+   */
+  private readonly crashResumable = new Map<string, number>();
+  private crashResumeMinSeq: number | undefined;
   // 同一组触发消息在本地重试时复用 executionId，保证回复的幂等键不变
   private readonly executionIds = new Map<string, string>();
   private readonly room: RoomClient;
@@ -246,6 +257,8 @@ export class AgentBridge {
       fullPromptEveryMs: 30 * 60_000,
       offlineRetryMs: 5 * 60_000,
       offlineRetryIntervalMs: 2_000,
+      crashResumeLimit: 2,
+      runtimeExitGraceMs: 3_000,
       ...options.tuning,
     };
     this.attachments =
@@ -389,24 +402,119 @@ export class AgentBridge {
   }
 
   /**
-   * 上次进程在执行途中退出（崩溃、断电、kill -9）：结果未知，不自动重跑，
-   * 只把这些提及回报为失败并标记已处理，由人在 UI 中决定是否重试。
+   * 上次进程在执行途中退出（崩溃、断电、kill -9）。这一轮确认没有任何副作用（只读、思考、只读 Hive 工具）、
+   * 旧运行时子进程也都退出了、自动恢复次数没用完，就等连上服务端后按原消息重跑；
+   * 否则结果未知，不自动重跑，只把这些提及回报为结果未知并标记已处理，由人在 UI 中决定是否重试。
    */
   private async recoverInterruptedExecution(): Promise<void> {
     const inflight = this.state.inflight;
     if (!inflight) return;
-    this.log(
-      `[hive] 检测到上次执行中断（${inflight.messageIds.length} 条提及，开始于 ${inflight.startedAt}），结果未知，不会自动重跑。`,
-    );
-    for (const messageId of inflight.messageIds) {
-      this.room.report({
-        messageId,
-        status: "uncertain",
-        ...said(bridgeText("bridge.crashedMidTurn")),
-      });
-      this.rememberProcessed(messageId);
+    const pids = inflight.runtimePids ?? [];
+    const deadline = Date.now() + this.tuning.runtimeExitGraceMs;
+    while (anyProcessAlive(pids) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    const runtimeAlive = anyProcessAlive(pids);
+    const resumes = this.state.crashResumes ?? {};
+    const used = Math.max(0, ...inflight.messageIds.map((id) => resumes[id] ?? 0));
+    const resumable = !inflight.mutated && !runtimeAlive && used < this.tuning.crashResumeLimit;
+    if (resumable) {
+      this.log(
+        `[hive] 检测到上次执行中断（${inflight.messageIds.length} 条提及，开始于 ${inflight.startedAt}），这一轮没有副作用，连上后自动重新执行（第 ${used + 1}/${this.tuning.crashResumeLimit} 次）。`,
+      );
+      for (const messageId of inflight.messageIds) {
+        this.crashResumable.set(messageId, used + 1);
+        resumes[messageId] = used + 1;
+      }
+      this.state.crashResumes = resumes;
+      this.crashResumeMinSeq = inflight.minSeq;
+    } else {
+      const why = runtimeAlive
+        ? "原运行时进程还没退出"
+        : inflight.mutated
+          ? "这一轮已有副作用"
+          : `已自动恢复过 ${used} 次`;
+      this.log(
+        `[hive] 检测到上次执行中断（${inflight.messageIds.length} 条提及，开始于 ${inflight.startedAt}），${why}，结果未知，不会自动重跑。`,
+      );
+      const text =
+        used > 0
+          ? bridgeText("bridge.crashedAfterResume", { count: used })
+          : runtimeAlive
+            ? bridgeText("bridge.crashedRuntimeAlive")
+            : bridgeText("bridge.crashedMidTurn");
+      for (const messageId of inflight.messageIds) {
+        this.room.report({ messageId, status: "uncertain", ...said(text) });
+        this.rememberProcessed(messageId);
+      }
     }
     delete this.state.inflight;
+    await this.store.save(this.state);
+  }
+
+  /**
+   * 重连拿到快照后，处理上次进程退出时可以安全重跑的提及：调用还在执行或已判超时（没被人收起）就按原消息重新排队；
+   * 已被人停止的回报为已停止；已经落定的（人处理过、别处已完成）不再管。拿不到原文的报结果未知。
+   */
+  private async resumeCrashedMentions(
+    known: Map<string, Invocation>,
+    fetched: ChatMessage[],
+    snapshot: Snapshot,
+  ): Promise<void> {
+    if (this.crashResumable.size === 0) return;
+    const byId = new Map<string, ChatMessage>();
+    for (const message of [...snapshot.messages, ...fetched]) byId.set(message.id, message);
+    const missing = [...this.crashResumable.keys()].filter((id) => !byId.has(id));
+    if (missing.length > 0) {
+      const from = Math.max(0, (this.crashResumeMinSeq ?? 1) - 1);
+      // 补拉失败直接抛出：待恢复记录还在，onSnapshot 的调用方断开重连后再来一次
+      for (const message of (await this.room.fetchMessages(from)).messages) {
+        byId.set(message.id, message);
+      }
+    }
+    for (const [messageId, count] of [...this.crashResumable]) {
+      const invocation = known.get(messageId);
+      const message = byId.get(messageId);
+      this.crashResumable.delete(messageId);
+      if (this.isLocal(messageId) || this.state.processedMessageIds.includes(messageId)) continue;
+      const status = invocation?.status;
+      if (status === "cancelling") {
+        this.rememberProcessed(messageId);
+        this.room.report({
+          messageId,
+          status: "cancelled",
+          ...said(bridgeText("bridge.crashResumeStopped")),
+        });
+        continue;
+      }
+      const resolved = Boolean(invocation?.resolution);
+      // 快照总带着所有没落定的调用：找不到说明早已落定（完成、失败、被人收起）
+      if (
+        (snapshot.invocations && !invocation) ||
+        !message ||
+        message.deletedAt ||
+        resolved ||
+        (status !== undefined &&
+          status !== "running" &&
+          status !== "timed_out" &&
+          status !== "queued")
+      ) {
+        // 人已经收起或停止、调用已经落定、原消息撤回：不再自动重跑
+        if (!message && !resolved && (status === "running" || status === "timed_out")) {
+          this.room.report({
+            messageId,
+            status: "uncertain",
+            ...said(bridgeText("bridge.crashedMidTurn")),
+          });
+        }
+        this.rememberProcessed(messageId);
+        continue;
+      }
+      this.log(
+        `[hive] #${message.seq} 上次处理中途进程退出，自动重新执行（第 ${count}/${this.tuning.crashResumeLimit} 次）`,
+      );
+      this.enqueue(message, { invited: true });
+    }
     await this.store.save(this.state);
   }
 
@@ -445,6 +553,8 @@ export class AgentBridge {
       if (invocation.agentId === this.ownParticipantId) known.set(invocation.messageId, invocation);
     }
     const missed = await this.room.fetchMessages(this.state.lastProcessedSeq);
+    // 先把上次进程退出时可以安全重跑的排回队里：它们算作本地在办，下面就不会被当成「已不在进行」
+    await this.resumeCrashedMentions(known, missed.messages, snapshot);
     for (const message of missed.messages) {
       const invocation = known.get(message.id);
       if (!this.isEligible(message, Boolean(invocation))) continue;
@@ -716,6 +826,13 @@ export class AgentBridge {
     }
     if (steered && this.active === active && active.accepting) {
       active.messages.push(message);
+      // 并入的消息也写进执行意图：进程这时退出，重启后和本轮其它提及一起判断能否重跑
+      const inflight = this.state.inflight;
+      if (inflight?.executionId === active.executionId) {
+        inflight.messageIds = [...inflight.messageIds, message.id];
+        inflight.minSeq = Math.min(inflight.minSeq ?? message.seq, message.seq);
+        void this.store.save(this.state).catch(() => undefined);
+      }
       const host = active.messages[0]!;
       this.log(`[hive] #${message.seq} 已并入正在进行的 #${host.seq}`);
       this.room.report({
@@ -893,6 +1010,11 @@ export class AgentBridge {
     this.attempts.delete(messageId);
     this.upstreamRetries.delete(messageId);
     this.executionIds.delete(messageId);
+    this.crashResumable.delete(messageId);
+    if (this.state.crashResumes && messageId in this.state.crashResumes) {
+      delete this.state.crashResumes[messageId];
+      if (Object.keys(this.state.crashResumes).length === 0) delete this.state.crashResumes;
+    }
   }
 
   private reportAll(messages: ChatMessage[], report: Omit<InvocationReport, "type" | "messageId">) {
@@ -933,6 +1055,7 @@ export class AgentBridge {
     let traceTimer: NodeJS.Timeout | undefined;
     // 回合结束前把攒着的执行过程发出去：Server 在调用结束后就不再收，最后一段思考、最后一步的结果会丢
     let flushPendingTrace: () => void = () => undefined;
+    let stopWatchingRuntime: () => void = () => undefined;
     try {
       const context = await this.room.fetchMessages(this.state.lastProcessedSeq);
       // 先落盘执行意图，再调用 Provider：崩溃后据此判定"结果未知"而不是重跑
@@ -940,18 +1063,59 @@ export class AgentBridge {
         executionId,
         messageIds: messages.map((message) => message.id),
         startedAt: new Date().toISOString(),
+        minSeq: Math.min(...messages.map((message) => message.seq)),
+        runtimePids: liveRuntimePids(),
       };
       await this.store.save(this.state);
+      // 本轮新起的运行时子进程也记下：进程退出后它们可能还在跑
+      stopWatchingRuntime = onRuntimeSpawn((pid) => {
+        const inflight = this.state.inflight;
+        if (inflight?.executionId !== executionId) return;
+        inflight.runtimePids = [...(inflight.runtimePids ?? []), pid];
+        void this.store.save(this.state).catch(() => undefined);
+      });
+      const resumedCount = Math.max(
+        0,
+        ...messages.map((message) => this.state.crashResumes?.[message.id] ?? 0),
+      );
 
       // 人点「换个模型重试」选的模型：只对这一次生效，状态里写明用的是哪个
       const picked = messages.map((message) => this.modelOverrides.get(message.id)).find(Boolean);
-      const using = picked ? bridgeText("bridge.usingModel", { model: picked }) : undefined;
+      const using = picked
+        ? bridgeText("bridge.usingModel", { model: picked })
+        : resumedCount > 0
+          ? bridgeText("bridge.crashResumed", {
+              count: resumedCount,
+              limit: this.tuning.crashResumeLimit,
+            })
+          : undefined;
       this.reportAll(active.messages, {
         status: "running",
         contextSeq: context.latestSeq,
         ...(using ? { ...said(using), progress: bridgeTextZh(using).slice(0, 200) } : {}),
       });
       this.room.setTyping(true);
+      // 执行过程里标出这是中断后自动恢复的一轮：重跑不是悄悄发生的
+      if (resumedCount > 0) {
+        const at = new Date().toISOString();
+        const note = bridgeTextZh(
+          bridgeText("bridge.crashResumed", {
+            count: resumedCount,
+            limit: this.tuning.crashResumeLimit,
+          }),
+        );
+        for (const message of active.messages) {
+          this.room.trace(message.id, [
+            {
+              id: `crash-resume:${executionId}`,
+              kind: "text",
+              text: `↻ ${note}`,
+              startedAt: at,
+              endedAt: at,
+            },
+          ]);
+        }
+      }
       // Bridge 存活不等于 Runtime 在推进；心跳不得刷新最后一次真实进度的时间。
       let lastRuntimeProgressAt = Date.now();
       // 第一步让交接变得不安全的操作：失败说明里写出来，误判时一眼能看出是哪条命令
@@ -1029,6 +1193,12 @@ export class AgentBridge {
               }不要重复已经完成的、有副作用的操作（改文件、提交、发消息等）。\n\n${built.text}`,
             }
           : built;
+        // 上一轮 Agent 进程中途退出（那一轮没有任何副作用）：照常把任务做完，不必担心重复
+        if (resumedCount > 0 && !interrupted && !handoff)
+          prompt = {
+            ...prompt,
+            text: `（系统提示）你上一轮处理下面这条消息时，Agent 进程意外退出、在中途中断；那一轮只做过只读操作，没有改动任何东西。请照常把原任务完整做完。\n\n${prompt.text}`,
+          };
         if (handoff)
           prompt = {
             ...prompt,
@@ -1080,8 +1250,14 @@ export class AgentBridge {
           },
           onTrace: (step) => {
             if (this.active !== active || active.controller.signal.aborted) return;
-            if (isMutatingStep(step)) {
+            if (isMutatingStep(step) && !active.mutated) {
               active.mutated = true;
+              // 第一次出现副作用就落盘：进程这时退出，重启后不会把这一轮当成可以重跑
+              const inflight = this.state.inflight;
+              if (inflight?.executionId === executionId) {
+                inflight.mutated = true;
+                void this.store.save(this.state).catch(() => undefined);
+              }
             }
             if (step.kind === "tool") active.toolUsed = true;
             const clean = sanitizeTraceStep(step);
@@ -1259,6 +1435,9 @@ export class AgentBridge {
           );
         }
       }
+      const resumedFor = new Map(
+        active.messages.map((message) => [message.id, this.state.crashResumes?.[message.id] ?? 0]),
+      );
       for (const message of active.messages) {
         this.recalled.delete(message.id);
         this.rememberProcessed(message.id);
@@ -1284,18 +1463,33 @@ export class AgentBridge {
       }
       // 一轮合并处理多条消息时，用量只随第一条上报，避免按消息重复计费
       const [usageCarrier, ...others] = live;
+      // 中断后自动恢复过的：完成说明里写明恢复了几次，事后也看得出来
+      const doneDetail = (messageId: string) => {
+        const count = resumedFor.get(messageId) ?? 0;
+        if (count === 0) return replyMessageId ? {} : said(bridgeText("bridge.noReply"));
+        return said(
+          bridgeText(replyMessageId ? "bridge.crashResumedDone" : "bridge.crashResumedNoReply", {
+            count,
+          }),
+        );
+      };
       if (usageCarrier) {
         this.room.report({
           messageId: usageCarrier.id,
           status: "completed",
-          ...(replyMessageId ? { replyMessageId } : said(bridgeText("bridge.noReply"))),
+          ...(replyMessageId ? { replyMessageId } : {}),
+          ...doneDetail(usageCarrier.id),
           ...this.usageReport(active),
         });
       }
-      this.reportAll(others, {
-        status: "completed",
-        ...(replyMessageId ? { replyMessageId } : said(bridgeText("bridge.noReply"))),
-      });
+      for (const message of others) {
+        this.room.report({
+          messageId: message.id,
+          status: "completed",
+          ...(replyMessageId ? { replyMessageId } : {}),
+          ...doneDetail(message.id),
+        });
+      }
       this.log(
         `[hive] ${replyMessageId ? "已回复" : "已处理"} ${active.messages.map((message) => `#${message.seq}`).join("、")}`,
       );
@@ -1304,6 +1498,7 @@ export class AgentBridge {
       await this.handleBatchError(active, error);
     } finally {
       active.accepting = false;
+      stopWatchingRuntime();
       if (heartbeat) clearInterval(heartbeat);
       if (traceTimer) clearTimeout(traceTimer);
       traceTimer = undefined;

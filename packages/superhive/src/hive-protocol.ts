@@ -91,6 +91,8 @@ export type Invocation = {
   blockReason?: string;
   detail?: string;
   attempts: number;
+  /** 人已收起（标为已处理）或被后来的结果取代：这类调用不再自动重跑 */
+  resolution?: { kind: string };
 };
 
 export type WhiteboardEntry = {

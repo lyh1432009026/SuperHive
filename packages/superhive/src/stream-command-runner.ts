@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { AgentCancelledError } from "./responder.js";
 import type { CommandRunner } from "./command-runner.js";
+import { trackRuntimeProcess } from "./runtime-processes.js";
 import { commandFor } from "./windows-command.js";
 
 /** Consume stdout incrementally, without buffering private tool output or forwarding stderr. */
@@ -14,6 +15,7 @@ export const streamCommandRunner: CommandRunner = (command, args, options) =>
       windowsHide: true,
       ...(options.signal ? { signal: options.signal } : {}),
     });
+    trackRuntimeProcess(child);
     let failure: Error | undefined;
     child.on("error", () => {
       failure = new Error("运行进程无法启动或已中断。");

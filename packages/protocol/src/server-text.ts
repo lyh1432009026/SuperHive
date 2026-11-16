@@ -429,6 +429,41 @@ export const serverTexts = {
     zh: "这一轮已经做过改动，不自动重跑",
     en: "This turn already made changes, so it won't rerun automatically",
   },
+  "bridge.crashResumed": {
+    zh: "Agent 中途意外退出，这一轮还没做过任何改动，已自动重新执行（第 {count}/{limit} 次）",
+    en: "The agent exited unexpectedly mid-task before changing anything, so it's running again automatically (attempt {count}/{limit})",
+  },
+  "bridge.crashResumedDone": {
+    zh: "中途意外退出后已自动恢复 {count} 次",
+    en: {
+      one: "Resumed automatically {count} time after the agent exited unexpectedly",
+      other: "Resumed automatically {count} times after the agent exited unexpectedly",
+    },
+  },
+  "bridge.crashResumedNoReply": {
+    zh: "无需回复（中途意外退出后已自动恢复 {count} 次）",
+    en: {
+      one: "No reply needed (resumed automatically {count} time after the agent exited unexpectedly)",
+      other:
+        "No reply needed (resumed automatically {count} times after the agent exited unexpectedly)",
+    },
+  },
+  "bridge.crashedAfterResume": {
+    zh: "Agent 在处理途中再次意外退出（已自动恢复过 {count} 次），结果未知；不再自动重跑，需先核对原执行与工具进程。",
+    en: {
+      one: "The agent exited unexpectedly mid-task again (already resumed automatically {count} time), so the outcome is unknown. It won't be rerun again; check what the previous run and its tools did first.",
+      other:
+        "The agent exited unexpectedly mid-task again (already resumed automatically {count} times), so the outcome is unknown. It won't be rerun again; check what the previous run and its tools did first.",
+    },
+  },
+  "bridge.crashedRuntimeAlive": {
+    zh: "Agent 在处理途中意外退出，原运行时进程还没退出、可能仍在执行；未自动重跑，需先核对原执行与工具进程。",
+    en: "The agent exited unexpectedly mid-task and its runtime process is still alive, so it may still be running. It wasn't rerun; check what the previous run and its tools did first.",
+  },
+  "bridge.crashResumeStopped": {
+    zh: "Agent 中途意外退出后、自动恢复前已被停止，未重新执行",
+    en: "Stopped after the agent exited unexpectedly, before it could resume; not run again",
+  },
   "bridge.upstreamExhausted": {
     zh: "已自动继续 {count} 次仍未成功",
     en: {

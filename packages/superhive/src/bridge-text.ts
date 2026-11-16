@@ -45,6 +45,15 @@ export const BRIDGE_TEXTS = {
   "bridge.modelFailed":
     "模型用不了：{reason}。等多久都不会好，点「换个模型重试」选别的模型，或者在 Agent 设置里改模型。",
   "bridge.usingModel": "这次用 {model} 重试",
+  "bridge.crashResumed":
+    "Agent 中途意外退出，这一轮还没做过任何改动，已自动重新执行（第 {count}/{limit} 次）",
+  "bridge.crashResumedDone": "中途意外退出后已自动恢复 {count} 次",
+  "bridge.crashResumedNoReply": "无需回复（中途意外退出后已自动恢复 {count} 次）",
+  "bridge.crashedAfterResume":
+    "Agent 在处理途中再次意外退出（已自动恢复过 {count} 次），结果未知；不再自动重跑，需先核对原执行与工具进程。",
+  "bridge.crashedRuntimeAlive":
+    "Agent 在处理途中意外退出，原运行时进程还没退出、可能仍在执行；未自动重跑，需先核对原执行与工具进程。",
+  "bridge.crashResumeStopped": "Agent 中途意外退出后、自动恢复前已被停止，未重新执行",
 } as const;
 
 export type BridgeTextKey = keyof typeof BRIDGE_TEXTS;

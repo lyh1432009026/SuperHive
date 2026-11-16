@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { commandFor } from "./windows-command.js";
+import { trackRuntimeProcess } from "./runtime-processes.js";
 import { createInterface } from "node:readline";
 
 /**
@@ -41,6 +42,7 @@ export const spawnStdioTransport: StdioTransportFactory = (command, args, option
     windowsHide: true,
     ...(options.env ? { env: { ...process.env, ...options.env } } : {}),
   });
+  trackRuntimeProcess(child);
   const lineListeners: Array<(line: string) => void> = [];
   const exitListeners: Array<(exit: StdioExit) => void> = [];
   let stderrTail = "";

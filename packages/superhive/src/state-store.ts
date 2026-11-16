@@ -19,7 +19,15 @@ export type AgentState = {
     executionId: string;
     messageIds: string[];
     startedAt: string;
+    /** 这些提及里最小的 seq：重启后补拉原文从它之前开始，不受 lastProcessedSeq 已越过它影响 */
+    minSeq?: number;
+    /** 本轮第一次出现可能有副作用的操作时落盘；没有它，重启后才敢自动重跑 */
+    mutated?: boolean;
+    /** 本轮期间活着的运行时子进程；重启时还有没退出的，说明旧回合可能仍在执行 */
+    runtimePids?: number[];
   };
+  /** 进程中途退出后已自动重跑的次数（按触发消息），用于封顶并写进状态说明；处理完即删 */
+  crashResumes?: Record<string, number>;
   /** 距上次发送完整上下文（成员、白板、规则提示）以来的轮数与时间，用于提示节流 */
   briefTurns?: number;
   lastFullPromptAt?: string;
