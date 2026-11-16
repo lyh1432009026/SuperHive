@@ -1263,5 +1263,8 @@
   "确认开启自动清理": "Confirm automatic cleanup",
   "进行中和阻塞的事项也会一起归档；仍占用工作区的事项会阻止清空，请先清理对应 worktree。": "In-progress and blocked items are archived too. Items that still hold a worktree prevent clearing; clean up those worktrees first.",
   "仍占用工作区的事项不可归档；每次最多选择 200 条。": "Items that still hold a worktree cannot be archived. Select up to 200 items at a time.",
-  "选好后点「下一步」；接入命令会按所选 Agent 的运行环境自动调整。": "Pick one, then click Next. The setup command adapts to the selected agent's runtime."
+  "选好后点「下一步」；接入命令会按所选 Agent 的运行环境自动调整。": "Pick one, then click Next. The setup command adapts to the selected agent's runtime.",
+  "数量": "Count",
+  "一次接入几个": "How many to add at once",
+  "将依次启动：{0}": "Will start: {0}"
 }

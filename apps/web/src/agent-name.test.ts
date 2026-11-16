@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentNameFor } from "./agent-name";
+import { agentBatchNames, agentNameFor } from "./agent-name";
 
 const taken = (...names: string[]) => new Set(names.map((name) => name.toLocaleLowerCase()));
 
@@ -32,5 +32,20 @@ describe("agentNameFor", () => {
     const incremented = agentNameFor(longOwner, "claude", taken(agentNameFor(longOwner, "claude")));
     expect(incremented.length).toBeLessThanOrEqual(32);
     expect(incremented.endsWith("2")).toBe(true);
+  });
+});
+
+describe("agentBatchNames", () => {
+  it("numbers the rest of a batch after the first name, skipping names already in the room", () => {
+    expect(agentBatchNames("rd-claude", 3)).toEqual(["rd-claude", "rd-claude2", "rd-claude3"]);
+    // 第一个已经是自增出来的 rd-claude5：后面接着找没被占的号
+    const taken = new Set(["rd-claude", "rd-claude2", "rd-claude3", "rd-claude4", "rd-claude6"]);
+    expect(agentBatchNames("rd-claude5", 3, taken)).toEqual([
+      "rd-claude5",
+      "rd-claude7",
+      "rd-claude8",
+    ]);
+    expect(agentBatchNames("Bot", 2, new Set(["bot2"]))).toEqual(["Bot", "Bot3"]);
+    expect(agentBatchNames("x", 1)).toEqual(["x"]);
   });
 });

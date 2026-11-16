@@ -98,3 +98,32 @@ describe("LocalLaunch 默认名建议", () => {
     expect(nameField().value).toBe("rd-codex");
   });
 });
+
+describe("LocalLaunch 一次接入多个", () => {
+  afterEach(cleanup);
+
+  it("按数量依次启动，名字从第一个往后自增并跳过房间里已有的", async () => {
+    let next = 0;
+    const { local, create } = makeLocal();
+    create.mockImplementation(async () => ({ id: `a${++next}` }) as LocalAgent);
+    render(
+      <LocalLaunch
+        local={local}
+        provider="claude"
+        access="read-only"
+        defaultName="rd-claude"
+        takenNames={new Set(["rd-claude2"])}
+        providerLabel="Claude Code"
+      >
+        <span />
+      </LocalLaunch>,
+    );
+    fireEvent.change(screen.getByLabelText("一次接入几个"), { target: { value: "3" } });
+    expect(screen.getByText("将依次启动：rd-claude、rd-claude3、rd-claude4")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /在本机启动 ×3/ }));
+    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(3));
+    expect(
+      (create.mock.calls as unknown as Array<[{ name: string }]>).map(([body]) => body.name),
+    ).toEqual(["rd-claude", "rd-claude3", "rd-claude4"]);
+  });
+});

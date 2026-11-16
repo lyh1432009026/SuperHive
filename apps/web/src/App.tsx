@@ -6549,6 +6549,7 @@ export function App({
                         provider={agentProvider}
                         access={agentAccess}
                         defaultName={agentNameFor(username, agentProvider, takenAgentNames)}
+                        takenNames={takenAgentNames}
                         providerLabel={agentProviderLabel(agentProvider)}
                         onLaunched={() => setAgentConnected(true)}
                       >

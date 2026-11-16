@@ -134,6 +134,25 @@
   gap: 6px;
 }
 
+/* 名称和数量一行：一次接入几个同类 Agent，名字按第一个往后自增 */
+.local-launch-name-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 84px;
+  gap: 10px;
+}
+
+.local-launch-batch {
+  margin: -2px 0 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.local-launch-results {
+  display: grid;
+  gap: 6px;
+}
+
 .local-launch-form label span {
   color: var(--text-secondary);
   font-size: var(--text-xs);

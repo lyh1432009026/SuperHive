@@ -16,6 +16,7 @@ import type {
 } from "@superhive/protocol";
 import { localized, t } from "./i18n";
 import { McpChecklist } from "./agent-settings-dialog";
+import { agentBatchNames } from "./agent-name";
 
 /**
  * 管理 Hive Server 所在电脑（本机 Agent、目录、保持在线…）：
@@ -777,15 +778,21 @@ export function LogViewer({
 }
 
 /** 第 3 步：在本机启动；下方保留"复制命令"作为备选 */
+/** 一次最多接入几个：再多就该考虑别的方式了，也避免手滑一次拉起几十个进程 */
+const MAX_BATCH = 5;
+
 export function LocalLaunch({
   local,
   provider,
   access,
   defaultName,
+  takenNames,
   providerLabel,
   children,
   onLaunched,
 }: {
+  /** 房间里已有的成员名（小写）：一次接入多个时给后面几个自增取名用 */
+  takenNames?: ReadonlySet<string>;
   /** 已经在本机启动：弹窗据此显示「完成」 */
   onLaunched?: () => void;
   local: LocalAgentsState;
@@ -804,7 +811,9 @@ export function LocalLaunch({
   const [picking, setPicking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
-  const [launchedId, setLaunchedId] = useState<string>();
+  const [launchedIds, setLaunchedIds] = useState<string[]>([]);
+  // 一次接入几个同类 Agent（同样的权限、目录和 MCP 设置），名字按第一个往后自增
+  const [count, setCount] = useState(1);
   useEffect(() => {
     if (provider !== lastProviderRef.current) {
       lastProviderRef.current = provider;
@@ -827,7 +836,10 @@ export function LocalLaunch({
   }, [access, directories]);
 
   const info = providerInfo(local, provider);
-  const launched = local.agents.find((agent) => agent.id === launchedId);
+  const launchedAgents = launchedIds
+    .map((id) => local.agents.find((agent) => agent.id === id))
+    .filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
+  const batchNames = name.trim() ? agentBatchNames(name.trim(), count, takenNames) : [];
 
   // Claude Code / Codex 接入时就能选加载哪些本机 MCP，不必先接入再去设置里改
   const mcpSelectable = provider === "claude" || provider === "codex";
@@ -869,45 +881,66 @@ export function LocalLaunch({
   const submit = async () => {
     setSubmitting(true);
     setError(undefined);
+    const created: string[] = [];
     try {
-      const agent = await local.create({
-        provider,
-        name: name.trim(),
-        access,
-        ...(access === "read-only" ? {} : { cwd: cwd.trim() }),
-        ...(mcpSelectable && mcpDisabled.size > 0 ? { mcpDisabled: [...mcpDisabled] } : {}),
-      });
-      setLaunchedId(agent.id);
-      onLaunched?.();
+      // 逐个创建：某一个失败（比如重名）就停下，已经启动的照常显示
+      for (const agentName of batchNames) {
+        const agent = await local.create({
+          provider,
+          name: agentName,
+          access,
+          ...(access === "read-only" ? {} : { cwd: cwd.trim() }),
+          ...(mcpSelectable && mcpDisabled.size > 0 ? { mcpDisabled: [...mcpDisabled] } : {}),
+        });
+        created.push(agent.id);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
+      if (created.length) {
+        setLaunchedIds(created);
+        onLaunched?.();
+      }
       setSubmitting(false);
     }
   };
 
   return (
     <div className="local-launch">
-      {launched ? (
-        <div className={`local-launch-result ${launched.status}`} role="status">
-          {launched.status === "running" ? (
-            <p>
-              <strong>{launched.name}</strong> {t("已上线，在消息里输入")}{" "}
-              <code>@{launched.name}</code> {t("试试。")}
-            </p>
-          ) : launched.status === "crashed" ? (
-            <p>
-              <strong>{launched.name}</strong> {t("启动失败：")}
-              {launched.lastError ?? t("请查看上方的日志")}
-            </p>
-          ) : (
-            <p>
-              {t("正在启动")} <strong>{launched.name}</strong>
-              {t("…首次启动可能需要十几秒。")}
+      {launchedAgents.length > 0 && (
+        <div className="local-launch-results">
+          {launchedAgents.map((launched) => (
+            <div
+              key={launched.id}
+              className={`local-launch-result ${launched.status}`}
+              role="status"
+            >
+              {launched.status === "running" ? (
+                <p>
+                  <strong>{launched.name}</strong> {t("已上线，在消息里输入")}{" "}
+                  <code>@{launched.name}</code> {t("试试。")}
+                </p>
+              ) : launched.status === "crashed" ? (
+                <p>
+                  <strong>{launched.name}</strong> {t("启动失败：")}
+                  {launched.lastError ?? t("请查看上方的日志")}
+                </p>
+              ) : (
+                <p>
+                  {t("正在启动")} <strong>{launched.name}</strong>
+                  {t("…首次启动可能需要十几秒。")}
+                </p>
+              )}
+            </div>
+          ))}
+          {error && (
+            <p className="local-agent-error" role="alert">
+              {error}
             </p>
           )}
         </div>
-      ) : (
+      )}
+      {launchedAgents.length === 0 && (
         <form
           className="local-launch-form"
           onSubmit={(event) => {
@@ -915,19 +948,41 @@ export function LocalLaunch({
             void submit();
           }}
         >
-          <label>
-            <span>{t("名称")}</span>
-            <input
-              value={name}
-              onChange={(event) => {
-                nameEditedRef.current = true;
-                setName(event.target.value);
-              }}
-              maxLength={32}
-              required
-              aria-label={t("Agent 名称")}
-            />
-          </label>
+          <div className="local-launch-name-row">
+            <label>
+              <span>{t("名称")}</span>
+              <input
+                value={name}
+                onChange={(event) => {
+                  nameEditedRef.current = true;
+                  setName(event.target.value);
+                }}
+                maxLength={32}
+                required
+                aria-label={t("Agent 名称")}
+              />
+            </label>
+            <label className="local-launch-count">
+              <span>{t("数量")}</span>
+              <input
+                type="number"
+                min={1}
+                max={MAX_BATCH}
+                value={count}
+                onChange={(event) =>
+                  setCount(
+                    Math.max(1, Math.min(MAX_BATCH, Math.round(Number(event.target.value)) || 1)),
+                  )
+                }
+                aria-label={t("一次接入几个")}
+              />
+            </label>
+          </div>
+          {count > 1 && batchNames.length > 1 && (
+            <p className="local-launch-batch">
+              {t("将依次启动：{0}", { 0: batchNames.join("、") })}
+            </p>
+          )}
           {access === "full" && (
             <p className="local-launch-warning" role="note">
               {t(
@@ -1022,6 +1077,7 @@ export function LocalLaunch({
               : local.mode === "device"
                 ? t("在 {0} 上启动", { 0: local.hostLabel ?? t("Server 所在电脑") })
                 : t("在本机启动")}
+            {!submitting && count > 1 ? ` ×${count}` : ""}
           </button>
         </form>
       )}

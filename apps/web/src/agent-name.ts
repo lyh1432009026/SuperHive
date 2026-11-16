@@ -33,3 +33,25 @@ export function agentNameFor(
   // 房间里不可能有上千个同名成员；真到这一步交回服务端报错
   return base;
 }
+
+/**
+ * 一次接入多个同类 Agent 时的名字：第一个用输入框里的名字，后面去掉末尾数字再按 2、3、4… 往后排，
+ * 跳过房间里已有的和这一批里已经用掉的（大小写不敏感），总长不超过 32
+ */
+export function agentBatchNames(
+  first: string,
+  count: number,
+  takenNames: ReadonlySet<string> = new Set(),
+): string[] {
+  const names = [first];
+  const used = new Set([...takenNames, first.toLocaleLowerCase()]);
+  const base = first.replace(/\d+$/, "") || first;
+  for (let index = 2; names.length < count && index < 1000; index++) {
+    const digits = String(index);
+    const candidate = `${base.slice(0, 32 - digits.length)}${digits}`;
+    if (used.has(candidate.toLocaleLowerCase())) continue;
+    used.add(candidate.toLocaleLowerCase());
+    names.push(candidate);
+  }
+  return names;
+}
