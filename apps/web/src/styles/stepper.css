@@ -1,0 +1,52 @@
+/* 整数步进器（Stepper）：与输入框同高，−/+ 两个按钮夹着数字，一体的圆角边框 */
+.stepper {
+  display: inline-grid;
+  grid-template-columns: 32px minmax(28px, 1fr) 32px;
+  align-items: stretch;
+  height: 38px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-main);
+}
+
+.stepper:focus-within {
+  border-color: var(--border-heavy);
+}
+
+.stepper > button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast),
+    color var(--duration-fast);
+}
+
+.stepper > button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.stepper > button:disabled {
+  color: var(--text-tertiary);
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.stepper > [role="spinbutton"] {
+  display: grid;
+  place-items: center;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-medium);
+  user-select: none;
+}
+
+.stepper.disabled {
+  opacity: 0.6;
+}

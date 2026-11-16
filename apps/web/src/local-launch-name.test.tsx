@@ -118,7 +118,16 @@ describe("LocalLaunch 一次接入多个", () => {
         <span />
       </LocalLaunch>,
     );
-    fireEvent.change(screen.getByLabelText("一次接入几个"), { target: { value: "3" } });
+    // 步进器：点两次「+」到 3，方向键也能调，到上限后「+」不可点
+    fireEvent.click(screen.getByRole("button", { name: "增加" }));
+    fireEvent.click(screen.getByRole("button", { name: "增加" }));
+    const spin = screen.getByRole("spinbutton", { name: "一次接入几个" });
+    expect(spin.getAttribute("aria-valuenow")).toBe("3");
+    fireEvent.keyDown(spin, { key: "End" });
+    expect(spin.getAttribute("aria-valuenow")).toBe("5");
+    expect((screen.getByRole("button", { name: "增加" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(spin, { key: "ArrowDown" });
+    fireEvent.keyDown(spin, { key: "ArrowDown" });
     expect(screen.getByText("将依次启动：rd-claude、rd-claude3、rd-claude4")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /在本机启动 ×3/ }));
     await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(3));

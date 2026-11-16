@@ -137,7 +137,7 @@
 /* 名称和数量一行：一次接入几个同类 Agent，名字按第一个往后自增 */
 .local-launch-name-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 84px;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
 }
 
@@ -408,4 +408,19 @@
   cursor: pointer;
   color: var(--text-secondary);
   font-size: var(--text-sm);
+}
+
+.local-launch-count {
+  display: grid;
+  gap: 6px;
+}
+
+.local-launch-count > span {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.local-launch-count .stepper {
+  width: 104px;
 }

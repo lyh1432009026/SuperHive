@@ -17,6 +17,7 @@ import type {
 import { localized, t } from "./i18n";
 import { McpChecklist } from "./agent-settings-dialog";
 import { agentBatchNames } from "./agent-name";
+import { Stepper } from "./stepper";
 
 /**
  * 管理 Hive Server 所在电脑（本机 Agent、目录、保持在线…）：
@@ -962,21 +963,17 @@ export function LocalLaunch({
                 aria-label={t("Agent 名称")}
               />
             </label>
-            <label className="local-launch-count">
-              <span>{t("数量")}</span>
-              <input
-                type="number"
+            <div className="local-launch-count">
+              <span aria-hidden="true">{t("数量")}</span>
+              <Stepper
+                value={count}
                 min={1}
                 max={MAX_BATCH}
-                value={count}
-                onChange={(event) =>
-                  setCount(
-                    Math.max(1, Math.min(MAX_BATCH, Math.round(Number(event.target.value)) || 1)),
-                  )
-                }
-                aria-label={t("一次接入几个")}
+                onChange={setCount}
+                label={t("一次接入几个")}
+                disabled={submitting}
               />
-            </label>
+            </div>
           </div>
           {count > 1 && batchNames.length > 1 && (
             <p className="local-launch-batch">
