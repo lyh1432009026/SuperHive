@@ -1,5 +1,54 @@
 import { describe, expect, it } from "vitest";
-import { roomWorkspaceSchema, isMentioned, parseMentions, stripUnsafeCharacters } from "./index.js";
+import {
+  roomWorkspaceSchema,
+  isMentioned,
+  parseMentions,
+  stripUnsafeCharacters,
+  whiteboardArchiveRequestSchema,
+  whiteboardRemovedEventSchema,
+  roomClearRequestSchema,
+} from "./index.js";
+
+describe("whiteboard lifecycle wire compatibility", () => {
+  const entry = { id: "00000000-0000-4000-8000-000000000001", updatedAt: "2026-11-16T00:00:00Z" };
+  it("requires bounded, unique versioned selections", () => {
+    expect(whiteboardArchiveRequestSchema.safeParse({ entries: [entry] }).success).toBe(true);
+    for (const entries of [
+      [],
+      [entry, entry],
+      [{ id: entry.id }],
+      Array.from({ length: 201 }, () => entry),
+    ]) {
+      expect(whiteboardArchiveRequestSchema.safeParse({ entries }).success).toBe(false);
+    }
+  });
+  it("still accepts legacy removal events without archive metadata", () => {
+    expect(
+      whiteboardRemovedEventSchema.parse({
+        type: "whiteboard.removed",
+        roomId: "general",
+        entryId: entry.id,
+      }),
+    ).toEqual({ type: "whiteboard.removed", roomId: "general", entryId: entry.id });
+  });
+  it("defaults room clears to archive and validates optional complete-board versions", () => {
+    expect(roomClearRequestSchema.parse({ username: " Alice " })).toEqual({
+      username: "Alice",
+      whiteboard: "archive",
+    });
+    expect(roomClearRequestSchema.safeParse({ username: "Alice", entries: [] }).success).toBe(true);
+    expect(
+      roomClearRequestSchema.safeParse({ username: "Alice", whiteboard: "keep" }).success,
+    ).toBe(true);
+    for (const input of [
+      { username: "Alice", whiteboard: "delete" },
+      { username: "Alice", entries: [entry, entry] },
+      { username: "Alice", entries: [{ id: entry.id }] },
+      { username: "Alice", whiteboard: "keep", entries: [] },
+    ])
+      expect(roomClearRequestSchema.safeParse(input).success).toBe(false);
+  });
+});
 
 describe("mentions", () => {
   it("parses unicode names, de-duplicates case-insensitively, and ignores @all semantics", () => {

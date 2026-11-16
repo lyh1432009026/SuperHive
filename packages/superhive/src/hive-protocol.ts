@@ -104,6 +104,7 @@ export type WhiteboardEntry = {
   unblocks: string[];
   authorName: string;
   updatedAt: string;
+  archivedAt?: string;
 };
 
 /** Keep in sync with runtimeEventSchema in @superhive/protocol; contains no arbitrary runtime text. */

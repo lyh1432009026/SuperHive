@@ -1,4 +1,4 @@
-import { serverText } from "@superhive/protocol";
+import { serverText, type RoomClearOptions } from "@superhive/protocol";
 import { errorText, hiveErrorBody, wsText } from "./texts.js";
 import { observeRuntime } from "./runtime-observation.js";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -20,6 +20,7 @@ import {
   createRoomRequestSchema,
   updateRoomRequestSchema,
   roomPinsRequestSchema,
+  whiteboardArchiveRequestSchema,
   createGuestAgentRequestSchema,
   createInviteRequestSchema,
   redeemInviteRequestSchema,
@@ -443,14 +444,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
    * 清空房间：删除消息和调用记录后插入一条话题分隔，各 Agent 据此丢弃旧会话。
    * 只经本机房主接口调用（见 local-routes.ts），操作人必须是该房间里的人类成员。
    */
-  function clearRoom(roomId: string, username: string) {
+  function clearRoom(
+    roomId: string,
+    username: string,
+    options: RoomClearOptions = { whiteboard: "archive" },
+  ) {
     if (!database.getRoom(roomId))
       throw new HiveError("ROOM_NOT_FOUND", serverText("error.room.notFound"));
     const actor = database.findParticipant(roomId, username);
     if (!actor || actor.type !== "human") {
       throw new HiveError("NOT_A_MEMBER", serverText("error.room.clearMembersOnly"));
     }
-    const removed = database.clearRoom(roomId, actor.username);
+    const { archivedEntries, ...removed } = database.clearRoom(roomId, actor.username, options);
     for (const [invocationId, trace] of traces)
       if (trace.roomId === roomId) traces.delete(invocationId);
     forgetAgentSessions(roomId);
@@ -461,12 +466,23 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       clientMessageId: `room-clear-${randomUUID()}`,
       kind: "topic",
     }).message;
-    broadcast(roomId, { type: "room.cleared", message });
+    for (const entry of archivedEntries)
+      broadcast(roomId, {
+        type: "whiteboard.removed",
+        roomId,
+        entryId: entry.id,
+        archivedEntry: entry,
+      });
+    broadcast(roomId, {
+      type: "room.cleared",
+      message,
+      whiteboardArchived: options.whiteboard === "archive",
+    });
     broadcastRoomActivity(roomId);
     supersedeStale(roomId);
     for (const schedule of database.listSchedules(roomId)) emitSchedule(schedule);
     armScheduleTimer();
-    return removed;
+    return { ...removed, whiteboard: archivedEntries.length };
   }
   /** 登记过、且账号没变的可批准 IM 连接 */
   function isHostApprover(connection: { id: string; ownerActorId: string }): boolean {
@@ -4573,16 +4589,61 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     return { dismissed: changed.map((invocation) => invocation.id) };
   });
 
-  app.get<{ Params: { roomId: string } }>(
+  app.get<{ Params: { roomId: string }; Querystring: { view?: string } }>(
     "/api/rooms/:roomId/whiteboard",
     async (request, reply) => {
       const params = roomParamsSchema.safeParse(request.params);
       if (!params.success)
         return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
       if (!guard(request, reply, params.data.roomId)) return reply;
-      return { entries: database.listWhiteboard(params.data.roomId) };
+      const view = z
+        .enum(["current", "archived", "all"])
+        .safeParse(request.query.view ?? "current");
+      if (!view.success)
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      return { entries: database.listWhiteboard(params.data.roomId, view.data) };
     },
   );
+
+  for (const action of ["archive", "restore"] as const) {
+    app.post<{ Params: { roomId: string } }>(
+      `/api/rooms/:roomId/whiteboard/${action}`,
+      async (request, reply) => {
+        if (!adminOnly(request, reply)) return reply;
+        const params = roomParamsSchema.safeParse(request.params);
+        const body = whiteboardArchiveRequestSchema.safeParse(request.body);
+        if (!params.success || !body.success)
+          return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+        try {
+          const entries = database.changeWhiteboardArchive(
+            params.data.roomId,
+            body.data.entries,
+            action === "archive",
+          );
+          for (const entry of entries) {
+            broadcast(
+              entry.roomId,
+              action === "archive"
+                ? {
+                    type: "whiteboard.removed",
+                    roomId: entry.roomId,
+                    entryId: entry.id,
+                    archivedEntry: entry,
+                  }
+                : { type: "whiteboard.updated", entry },
+            );
+          }
+          return { entries };
+        } catch (error) {
+          if (error instanceof HiveError)
+            return reply
+              .code(error.code === "WHITEBOARD_NOT_FOUND" ? 404 : 409)
+              .send(hiveErrorBody(error));
+          throw error;
+        }
+      },
+    );
+  }
 
   app.get<{ Params: { roomId: string } }>(
     "/api/rooms/:roomId/invocations",
@@ -5129,7 +5190,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             steerInvocation(participant, event.invocationId);
           else if (event.type === "invocation.preempt") {
             preemptInvocation(participant, event.invocationId);
-          } else if (database.removeWhiteboardEntry(participant.roomId, event.entryId)) {
+          } else if (
+            database.removeWhiteboardEntry(participant.roomId, event.entryId, event.updatedAt)
+          ) {
             broadcast(participant.roomId, {
               type: "whiteboard.removed",
               roomId: participant.roomId,

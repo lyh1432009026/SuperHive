@@ -139,7 +139,7 @@ const slotLabels: Record<WhiteboardEntry["slot"], string> = {
 export function snapshotWhiteboard(entries: WhiteboardEntry[]): PromptContextSnapshot {
   const visible: PromptContextEntry[] = [];
   for (const slot of ["blocked", "in_progress", "ready", "milestone"] as const) {
-    const inSlot = entries.filter((entry) => entry.slot === slot).slice(0, 10);
+    const inSlot = entries.filter((entry) => !entry.archivedAt && entry.slot === slot).slice(0, 10);
     for (const entry of inSlot) {
       const refs = [entry.repo, entry.branch, entry.commit?.slice(0, 12)].filter(Boolean);
       const unblocks = entry.unblocks.length ? ` → 解除：${entry.unblocks.join("、")}` : "";

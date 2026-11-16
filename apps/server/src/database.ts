@@ -12,6 +12,7 @@ import {
   zhText,
   type ServerText,
   type WireServerText,
+  type RoomClearOptions,
 } from "@superhive/protocol";
 import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
@@ -193,6 +194,7 @@ type WhiteboardRow = {
   author_name: string;
   created_at: string;
   updated_at: string;
+  archived_at: string | null;
 };
 
 type ScheduleRow = {
@@ -552,6 +554,7 @@ function mapWhiteboard(row: WhiteboardRow): WhiteboardEntry {
     authorName: row.author_name,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
   };
 }
 
@@ -764,6 +767,11 @@ export class HiveDatabase {
     const boardColumns = this.db.pragma("table_info(whiteboard_entries)") as Array<{
       name: string;
     }>;
+    if (!boardColumns.some((column) => column.name === "archived_at")) {
+      this.db.exec("ALTER TABLE whiteboard_entries ADD COLUMN archived_at TEXT");
+    }
+    this.db.exec(`CREATE INDEX IF NOT EXISTS whiteboard_archive
+      ON whiteboard_entries(room_id, archived_at, updated_at)`);
     if (!boardColumns.some((column) => column.name === "claim_repo")) {
       this.db.exec("ALTER TABLE whiteboard_entries ADD COLUMN claim_repo TEXT");
       this.db.exec("ALTER TABLE whiteboard_entries ADD COLUMN claim_branch TEXT");
@@ -1152,11 +1160,39 @@ export class HiveDatabase {
   }
 
   /**
-   * 清空房间的消息和调用记录；白板是跨话题的长期共识，保留。
+   * 清空房间的消息和调用记录，默认同时归档当前白板。
    * seq 由 AUTOINCREMENT 保证继续递增，Agent 记录的处理进度不会因此错乱。
    */
-  clearRoom(roomId: string, by?: string): { messages: number; invocations: number } {
+  clearRoom(
+    roomId: string,
+    by?: string,
+    options: RoomClearOptions = { whiteboard: "archive" },
+  ): { messages: number; invocations: number; archivedEntries: WhiteboardEntry[] } {
     return this.db.transaction(() => {
+      let archivedEntries: WhiteboardEntry[] = [];
+      if (options.whiteboard === "archive") {
+        const current = this.listWhiteboard(roomId);
+        const protectedCount = current.filter((entry) => entry.archiveProtected).length;
+        if (protectedCount)
+          throw new HiveError(
+            "WHITEBOARD_PROTECTED",
+            serverText("error.room.whiteboardProtected", { count: protectedCount }),
+          );
+        const currentVersions = new Map(current.map((entry) => [entry.id, entry.updatedAt]));
+        if (
+          options.entries &&
+          (options.entries.length !== current.length ||
+            new Set(options.entries.map((entry) => entry.id)).size !== current.length ||
+            options.entries.some((entry) => currentVersions.get(entry.id) !== entry.updatedAt))
+        )
+          throw new HiveError("WHITEBOARD_CONFLICT", serverText("error.whiteboard.conflict"));
+        if (current.length)
+          archivedEntries = this.changeWhiteboardArchive(
+            roomId,
+            current.map(({ id, updatedAt }) => ({ id, updatedAt })),
+            true,
+          );
+      }
       const invocations = this.db.prepare("DELETE FROM invocations WHERE room_id = ?").run(roomId);
       const messages = this.db.prepare("DELETE FROM messages WHERE room_id = ?").run(roomId);
       // 消息和调用都没了：待执行的定时任务一并取消，已发出的不再补发说明（界面上仍留着记录）
@@ -1172,7 +1208,7 @@ export class HiveDatabase {
           "UPDATE schedules SET reported_at = ?, updated_at = ? WHERE room_id = ? AND reported_at IS NULL",
         )
         .run(now, now, roomId);
-      return { messages: messages.changes, invocations: invocations.changes };
+      return { messages: messages.changes, invocations: invocations.changes, archivedEntries };
     })();
   }
 
@@ -2063,18 +2099,77 @@ export class HiveDatabase {
     return { sets: sets.join(", "), values };
   }
 
-  listWhiteboard(roomId: string): WhiteboardEntry[] {
+  listWhiteboard(
+    roomId: string,
+    view: "current" | "archived" | "all" = "current",
+  ): WhiteboardEntry[] {
+    const filter =
+      view === "all" ? "" : ` AND archived_at IS ${view === "archived" ? "NOT " : ""}NULL`;
     const rows = this.db
       .prepare(
-        "SELECT * FROM whiteboard_entries WHERE room_id = ? ORDER BY updated_at DESC, rowid DESC",
+        `SELECT * FROM whiteboard_entries WHERE room_id = ?${filter} ORDER BY updated_at DESC, rowid DESC`,
       )
       .all(roomId) as WhiteboardRow[];
-    return rows.map(mapWhiteboard);
+    return rows.map((row) => this.mapWhiteboardEntry(row));
+  }
+
+  private whiteboardProtected(row: WhiteboardRow): boolean {
+    if (row.slot === "in_progress" || row.slot === "blocked") return true;
+    if (!row.key.startsWith("worktree:") && !row.claim_repo) return false;
+    if (!this.db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'managed_worktrees'").get())
+      return false;
+    return Boolean(
+      this.db
+        .prepare("SELECT 1 FROM managed_worktrees WHERE id = ? OR (repo = ? AND branch = ?)")
+        .get(row.key.slice("worktree:".length), row.claim_repo, row.claim_branch),
+    );
+  }
+
+  private mapWhiteboardEntry(row: WhiteboardRow): WhiteboardEntry {
+    return {
+      ...mapWhiteboard(row),
+      ...(this.whiteboardProtected(row) ? { archiveProtected: true } : {}),
+    };
+  }
+
+  changeWhiteboardArchive(
+    roomId: string,
+    entries: Array<{ id: string; updatedAt: string }>,
+    archive: boolean,
+  ): WhiteboardEntry[] {
+    return this.db.transaction(() => {
+      if (!entries.length || new Set(entries.map((entry) => entry.id)).size !== entries.length)
+        throw new HiveError("WHITEBOARD_CONFLICT", serverText("error.whiteboard.conflict"));
+      const rows = entries.map((entry) => {
+        const row = this.db
+          .prepare("SELECT * FROM whiteboard_entries WHERE room_id = ? AND id = ?")
+          .get(roomId, entry.id) as WhiteboardRow | undefined;
+        if (!row)
+          throw new HiveError("WHITEBOARD_NOT_FOUND", serverText("error.whiteboard.notFound"));
+        if (row.updated_at !== entry.updatedAt || Boolean(row.archived_at) === archive)
+          throw new HiveError("WHITEBOARD_CONFLICT", serverText("error.whiteboard.conflict"));
+        if (archive && this.whiteboardProtected(row))
+          throw new HiveError("WHITEBOARD_PROTECTED", serverText("error.whiteboard.protected"));
+        if (!archive && row.slot === "in_progress" && row.claim_repo && row.claim_branch)
+          this.assertBranchClaimAvailable(row.claim_repo, row.claim_branch, row.id);
+        return row;
+      });
+      return rows.map((row) => {
+        const updatedAt = new Date(
+          Math.max(Date.now(), Date.parse(row.updated_at) + 1),
+        ).toISOString();
+        const archivedAt = archive ? updatedAt : null;
+        this.db
+          .prepare("UPDATE whiteboard_entries SET archived_at = ?, updated_at = ? WHERE id = ?")
+          .run(archivedAt, updatedAt, row.id);
+        return this.mapWhiteboardEntry({ ...row, archived_at: archivedAt, updated_at: updatedAt });
+      });
+    })();
   }
 
   /**
    * 按 key 写入白板：同一事项从"进行中"移到"已就绪"只需复用 key。
-   * 60 秒内内容完全相同的重复发布视为节流，不产生更新；每个栏目最多保留 50 条。
+   * 60 秒内内容完全相同的重复发布视为节流，不产生更新；不按数量自动删除。
    */
   assertBranchClaimAvailable(repo: string, branch: string, entryId?: string): void {
     const claimed = this.db
@@ -2128,8 +2223,9 @@ export class HiveDatabase {
       this.assertBranchClaimAvailable(claim.repo, claim.branch, existingRow?.id);
     }
     if (existingRow) {
-      const existing = mapWhiteboard(existingRow);
+      const existing = this.mapWhiteboardEntry(existingRow);
       const unchanged =
+        !existing.archivedAt &&
         existing.slot === input.slot &&
         existing.summary === input.summary &&
         (existing.repo ?? undefined) === input.repo &&
@@ -2143,7 +2239,7 @@ export class HiveDatabase {
       this.db
         .prepare(
           `UPDATE whiteboard_entries SET slot = ?, summary = ?, repo = ?, branch = ?, claim_repo = ?, claim_branch = ?, commit_ref = ?,
-             unblocks = ?, author_id = ?, author_name = ?, updated_at = ? WHERE id = ?`,
+             unblocks = ?, author_id = ?, author_name = ?, updated_at = ?, archived_at = NULL WHERE id = ?`,
         )
         .run(
           input.slot,
@@ -2156,7 +2252,7 @@ export class HiveDatabase {
           JSON.stringify(unblocks),
           author.id,
           author.username,
-          now.toISOString(),
+          new Date(Math.max(now.getTime(), Date.parse(existing.updatedAt) + 1)).toISOString(),
           existing.id,
         );
     } else {
@@ -2185,23 +2281,20 @@ export class HiveDatabase {
           now.toISOString(),
         );
     }
-    const overflow = this.db
-      .prepare(
-        `SELECT id FROM whiteboard_entries WHERE room_id = ? AND slot = ?
-         AND (slot != 'in_progress' OR claim_repo IS NULL)
-         ORDER BY updated_at DESC, rowid DESC LIMIT -1 OFFSET ?`,
-      )
-      .all(author.roomId, input.slot, LIMITS.maxWhiteboardEntriesPerSlot) as Array<{ id: string }>;
-    for (const { id } of overflow) {
-      this.db.prepare("DELETE FROM whiteboard_entries WHERE id = ?").run(id);
-    }
     const row = this.db
       .prepare("SELECT * FROM whiteboard_entries WHERE room_id = ? AND key = ?")
       .get(author.roomId, input.key) as WhiteboardRow;
-    return { entry: mapWhiteboard(row), changed: true, evicted: overflow.map(({ id }) => id) };
+    return { entry: this.mapWhiteboardEntry(row), changed: true, evicted: [] };
   }
 
-  removeWhiteboardEntry(roomId: string, entryId: string): boolean {
+  removeWhiteboardEntry(roomId: string, entryId: string, updatedAt?: string): boolean {
+    const row = this.db
+      .prepare("SELECT * FROM whiteboard_entries WHERE room_id = ? AND id = ?")
+      .get(roomId, entryId) as WhiteboardRow | undefined;
+    if (row && updatedAt && (row.updated_at !== updatedAt || !row.archived_at))
+      throw new HiveError("WHITEBOARD_CONFLICT", serverText("error.whiteboard.conflict"));
+    if (row && this.whiteboardProtected(row))
+      throw new HiveError("WHITEBOARD_PROTECTED", serverText("error.whiteboard.protected"));
     return (
       this.db
         .prepare("DELETE FROM whiteboard_entries WHERE room_id = ? AND id = ?")

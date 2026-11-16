@@ -24,6 +24,18 @@ export type ServerTextEntry = { zh: string; en: string | PluralTemplate; plural?
 type Entry = ServerTextEntry;
 
 export const serverTexts = {
+  "error.whiteboard.conflict": {
+    zh: "白板事项已变化，请刷新后重新选择。",
+    en: "The whiteboard items changed. Refresh and select them again.",
+  },
+  "error.whiteboard.protected": {
+    zh: "进行中、阻塞或仍有工作区占用的事项不能归档或删除。",
+    en: "Items in progress, blocked items and worktree claims cannot be archived or deleted.",
+  },
+  "error.whiteboard.notFound": {
+    zh: "这个房间里没有所选白板事项。",
+    en: "The selected whiteboard item was not found in this room.",
+  },
   "action.worktree": { zh: "管理工作区", en: "Manage worktrees" },
   "error.worktree.localOnly": {
     zh: "只有本机房主的可写 Agent 能管理工作区；访客、远端和只读 Agent 不行。",
@@ -922,6 +934,10 @@ export const serverTexts = {
   "error.room.clearMembersOnly": {
     zh: "只有房间里的人类成员可以清空房间。",
     en: "Only human members of this room can clear it.",
+  },
+  "error.room.whiteboardProtected": {
+    zh: "白板还有 {count} 条进行中、阻塞或工作区占用事项，请先处理后再清空房间；也可以选择仅清空聊天、保留白板。本次未删除任何记录。",
+    en: "The whiteboard has {count} ongoing, blocked or workspace-linked items. Resolve them before clearing the room, or choose to clear chat only and keep the whiteboard. No records were deleted.",
   },
   "error.room.defaultProtected": {
     zh: "默认房间不能归档。",

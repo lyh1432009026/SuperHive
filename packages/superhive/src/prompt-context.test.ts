@@ -38,6 +38,14 @@ const trigger: ChatMessage = {
 };
 
 describe("semantic prompt context", () => {
+  it("excludes archived entries from the current whiteboard summary window", () => {
+    const entries = Array.from({ length: 12 }, (_, index) =>
+      board(`archived-${index}`, { archivedAt: "2026-10-31T00:01:00Z" }),
+    );
+    expect(
+      snapshotWhiteboard([...entries, board("current")]).entries.map((entry) => entry.id),
+    ).toEqual(["board-current"]);
+  });
   it("ignores timestamps, response order and text beyond the displayed summary limit", () => {
     const before = snapshotWhiteboard([
       board("a", { summary: "x".repeat(500) + "old" }),

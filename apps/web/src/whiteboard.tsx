@@ -41,31 +41,225 @@ function shortCommit(commit: string): string {
 export function WhiteboardPanel({
   entries,
   onRemove,
+  canManage,
+  onArchive,
+  loadHistory,
+  historyEpoch = 0,
 }: {
   entries: ReadonlyMap<string, WhiteboardEntry>;
   onRemove: (entry: WhiteboardEntry) => void;
+  canManage: boolean;
+  onArchive: (entries: WhiteboardEntry[], archive: boolean) => Promise<void>;
+  loadHistory: () => Promise<void>;
+  historyEpoch?: number;
 }) {
   const [now, setNow] = useState(() => Date.now());
+  const [view, setView] = useState<"current" | "archived">("current");
+  const [slotFilter, setSlotFilter] = useState<WhiteboardSlot | "all">("all");
+  const [selected, setSelected] = useState(new Map<string, WhiteboardEntry>());
+  const [busy, setBusy] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [error, setError] = useState<string>();
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
 
-  if (entries.size === 0) {
-    return (
-      <div className="whiteboard-empty">
-        <strong>{t("白板还是空的")}</strong>
-        <p>
-          {t("Agent 会通过")} <code>hive_board_update</code>{" "}
-          {t("在这里登记进行中的工作、可交接的成果、阻塞与里程碑，方便所有人对齐进度。")}
-        </p>
-      </div>
-    );
+  useEffect(() => {
+    setSelected((current) => {
+      const next = new Map(
+        [...current].filter(
+          ([entryId, entry]) => entries.get(entryId)?.updatedAt === entry.updatedAt,
+        ),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [entries]);
+
+  useEffect(() => {
+    setHistoryLoaded(false);
+  }, [historyEpoch]);
+
+  useEffect(() => {
+    if (view !== "archived") {
+      setHistoryLoading(false);
+      return;
+    }
+    if (historyLoaded) return;
+    let active = true;
+    setHistoryLoading(true);
+    setError(undefined);
+    loadHistory()
+      .then(
+        () => {
+          if (active) setHistoryLoaded(true);
+        },
+        (reason: unknown) => {
+          if (active) setError(reason instanceof Error ? reason.message : String(reason));
+        },
+      )
+      .finally(() => {
+        if (active) setHistoryLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [view, historyLoaded, loadHistory, historyEpoch]);
+
+  const sorted = [...entries.values()]
+    .filter((entry) => Boolean(entry.archivedAt) === (view === "archived"))
+    .filter((entry) => slotFilter === "all" || entry.slot === slotFilter)
+    .sort((first, second) => second.updatedAt.localeCompare(first.updatedAt));
+  const selectable = sorted.filter(
+    (entry) =>
+      view === "archived" ||
+      (!entry.archiveProtected && entry.slot !== "blocked" && entry.slot !== "in_progress"),
+  );
+  const canSelect = (entry: WhiteboardEntry) => selectable.some((item) => item.id === entry.id);
+
+  async function changeArchive(items: WhiteboardEntry[]) {
+    const archive = view === "current";
+    if (
+      archive &&
+      !window.confirm(
+        t("归档所选 {0} 条事项？请保留待 review 或仍用于当前协作的成果。归档后可从历史恢复。", {
+          0: items.length,
+        }),
+      )
+    )
+      return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      await onArchive(items, archive);
+      setSelected(new Map());
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(false);
+    }
   }
 
-  const sorted = [...entries.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return (
     <div className="whiteboard">
+      <div className="whiteboard-toolbar">
+        <div className="whiteboard-views" role="group" aria-label={t("白板视图")}>
+          <button
+            type="button"
+            disabled={busy}
+            aria-pressed={view === "current"}
+            onClick={() => {
+              setView("current");
+              setSelected(new Map());
+            }}
+          >
+            {t("当前事项")}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            aria-pressed={view === "archived"}
+            onClick={() => {
+              setView("archived");
+              setSelected(new Map());
+            }}
+          >
+            {t("历史归档")}
+          </button>
+        </div>
+        <label className="whiteboard-filter">
+          {t("状态筛选")}
+          <select
+            value={slotFilter}
+            onChange={(event) => {
+              setSlotFilter(event.target.value as WhiteboardSlot | "all");
+              setSelected(new Map());
+            }}
+          >
+            <option value="all">{t("全部状态")}</option>
+            {whiteboardSlots.map(({ slot, label }) => (
+              <option key={slot} value={slot}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {canManage && sorted.length > 0 && (
+          <div className="whiteboard-bulk">
+            <button
+              type="button"
+              disabled={busy || !selectable.length}
+              onClick={() =>
+                setSelected(new Map(selectable.slice(0, 200).map((entry) => [entry.id, entry])))
+              }
+            >
+              {view === "current" ? t("选择可归档事项") : t("选择历史事项")}
+            </button>
+            <button
+              type="button"
+              disabled={busy || !selected.size}
+              onClick={() => void changeArchive([...selected.values()])}
+            >
+              {view === "current"
+                ? t("归档所选 ({0})", { 0: selected.size })
+                : t("恢复所选 ({0})", { 0: selected.size })}
+            </button>
+            {selected.size > 0 && (
+              <button type="button" disabled={busy} onClick={() => setSelected(new Map())}>
+                {t("取消选择")}
+              </button>
+            )}
+          </div>
+        )}
+        {canManage && view === "current" && (
+          <p className="whiteboard-hint">
+            {t("进行中、阻塞和工作区占用不可归档；每次最多选择 200 条。")}
+          </p>
+        )}
+        {view === "archived" && (
+          <button
+            type="button"
+            disabled={historyLoading}
+            onClick={() => {
+              setHistoryLoading(true);
+              setError(undefined);
+              loadHistory()
+                .then(
+                  () => setHistoryLoaded(true),
+                  (reason: unknown) =>
+                    setError(reason instanceof Error ? reason.message : String(reason)),
+                )
+                .finally(() => setHistoryLoading(false));
+            }}
+          >
+            {t("刷新历史")}
+          </button>
+        )}
+        {historyLoading && <p role="status">{t("正在加载白板历史…")}</p>}
+        {error && (
+          <p className="whiteboard-error" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+      {sorted.length === 0 && !historyLoading && (
+        <div className="whiteboard-empty">
+          <strong>
+            {view === "archived"
+              ? t("没有历史归档")
+              : slotFilter !== "all"
+                ? t("没有符合筛选的事项")
+                : t("白板还是空的")}
+          </strong>
+          {view === "current" && slotFilter === "all" && (
+            <p>
+              {t("Agent 会通过")} <code>hive_board_update</code>{" "}
+              {t("在这里登记进行中的工作、可交接的成果、阻塞与里程碑，方便所有人对齐进度。")}
+            </p>
+          )}
+        </div>
+      )}
       {whiteboardSlots.map(({ slot, label }) => {
         const slotEntries = sorted.filter((entry) => entry.slot === slot);
         if (slotEntries.length === 0) return null;
@@ -80,6 +274,30 @@ export function WhiteboardPanel({
             <ul>
               {slotEntries.map((entry) => (
                 <li key={entry.id} className="whiteboard-entry">
+                  {canManage && (
+                    <label className="whiteboard-select">
+                      <input
+                        type="checkbox"
+                        aria-label={t("选择事项：{0}", { 0: entry.key })}
+                        checked={selected.has(entry.id)}
+                        disabled={
+                          busy ||
+                          !canSelect(entry) ||
+                          (!selected.has(entry.id) && selected.size >= 200)
+                        }
+                        onChange={(event) => {
+                          const checked = event.target.checked;
+                          setSelected((current) => {
+                            const next = new Map(current);
+                            if (checked) next.set(entry.id, entry);
+                            else next.delete(entry.id);
+                            return next;
+                          });
+                        }}
+                      />
+                      <span>{entry.key}</span>
+                    </label>
+                  )}
                   <p className="whiteboard-summary">{entry.summary}</p>
                   {(entry.repo || entry.branch || entry.commit) && (
                     <p className="whiteboard-ref">
@@ -108,26 +326,40 @@ export function WhiteboardPanel({
                       {formatRelativeTime(entry.updatedAt, now)}
                     </time>
                   </p>
-                  <button
-                    type="button"
-                    className="whiteboard-remove"
-                    aria-label={t("从白板移除：{0}", { 0: entry.summary })}
-                    title={t("从白板移除")}
-                    onClick={() => onRemove(entry)}
-                  >
-                    <svg
-                      width="13"
-                      height="13"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      aria-hidden="true"
+                  {canManage && canSelect(entry) && (
+                    <button
+                      className="whiteboard-entry-action"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void changeArchive([entry])}
                     >
-                      <path d="m6 6 12 12M18 6 6 18" />
-                    </svg>
-                  </button>
+                      {view === "current"
+                        ? t("归档事项：{0}", { 0: entry.key })
+                        : t("恢复事项：{0}", { 0: entry.key })}
+                    </button>
+                  )}
+                  {canManage && view === "archived" && (
+                    <button
+                      type="button"
+                      className="whiteboard-remove"
+                      aria-label={t("从白板移除：{0}", { 0: entry.summary })}
+                      title={t("从白板移除")}
+                      onClick={() => onRemove(entry)}
+                    >
+                      <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        aria-hidden="true"
+                      >
+                        <path d="m6 6 12 12M18 6 6 18" />
+                      </svg>
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

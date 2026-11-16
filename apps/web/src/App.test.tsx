@@ -9,6 +9,7 @@ import type {
   Invocation,
   Participant,
   ServerEvent,
+  WhiteboardEntry,
 } from "@superhive/protocol";
 import { App } from "./App";
 import { setLocalePreference } from "./i18n";
@@ -122,6 +123,11 @@ const crossRoom: {
   searchable: ChatMessage[];
 } = { mentions: [], invocations: [], invocationMessages: [], searchable: [] };
 
+const whiteboardApi: {
+  entries: WhiteboardEntry[];
+  requests: Array<{ action: string; entries: Array<{ id: string; updatedAt: string }> }>;
+} = { entries: [], requests: [] };
+
 /** 房主的置顶房间（服务端存的那份）和收到的 PUT /api/room-pins */
 const roomPins: { ids: string[]; requests: string[][] } = { ids: [], requests: [] };
 const pinnedSummary = (id: string) => {
@@ -135,6 +141,7 @@ const localApi: {
   agents: LocalAgent[];
   requests: Array<{ url: string; method: string; owner: string | null; body?: unknown }>;
   cleanupBatch: { id: string; count: number } | null;
+  clearFailure?: string;
 } = { enabled: false, agents: [], requests: [], cleanupBatch: null };
 
 function localAgent(overrides: Partial<LocalAgent> = {}): LocalAgent {
@@ -168,9 +175,12 @@ describe("App mention autocomplete", () => {
     crossRoom.invocations = [];
     crossRoom.invocationMessages = [];
     crossRoom.searchable = [];
+    whiteboardApi.entries = [];
+    whiteboardApi.requests = [];
     localApi.enabled = false;
     localApi.agents = [];
     localApi.requests = [];
+    localApi.clearFailure = undefined;
     localApi.cleanupBatch = null;
     roomPins.ids = [];
     roomPins.requests = [];
@@ -231,6 +241,10 @@ describe("App mention autocomplete", () => {
             });
           }
           if (owner !== "owner-secret") return jsonResponse({ error: "unauthorized" }, 401);
+          if (/\/api\/local\/rooms\/[^/]+\/clear$/.test(url))
+            return localApi.clearFailure
+              ? jsonResponse({ code: "WHITEBOARD_PROTECTED", error: localApi.clearFailure }, 409)
+              : jsonResponse({ removed: { messages: 0, invocations: 0, whiteboard: 0 } });
           if (url.includes("/api/local/directories")) {
             const target = new URL(url).searchParams.get("path");
             const launch = "/Users/alice/hive";
@@ -285,6 +299,36 @@ describe("App mention autocomplete", () => {
         }
         if (/\/api\/rooms\/[^/]+\/messages/.test(url)) {
           return jsonResponse({ messages: [], latestSeq: 0 });
+        }
+        if (url.includes("/whiteboard")) {
+          if (init?.method === "POST") {
+            const action = url.endsWith("/archive") ? "archive" : "restore";
+            const body = JSON.parse(String(init.body)) as {
+              entries: Array<{ id: string; updatedAt: string }>;
+            };
+            whiteboardApi.requests.push({ action, entries: body.entries });
+            const changed = body.entries.map(({ id }) => {
+              const previous = whiteboardApi.entries.find((entry) => entry.id === id)!;
+              const updatedAt = new Date(Date.parse(previous.updatedAt) + 1).toISOString();
+              const entry = { ...previous };
+              delete entry.archivedAt;
+              return {
+                ...entry,
+                updatedAt,
+                ...(action === "archive" ? { archivedAt: updatedAt } : {}),
+              };
+            });
+            whiteboardApi.entries = whiteboardApi.entries.map(
+              (entry) => changed.find((updated) => updated.id === entry.id) ?? entry,
+            );
+            return jsonResponse({ entries: changed });
+          }
+          const view = new URL(url).searchParams.get("view") ?? "current";
+          return jsonResponse({
+            entries: whiteboardApi.entries.filter((entry) =>
+              view === "all" ? true : view === "archived" ? entry.archivedAt : !entry.archivedAt,
+            ),
+          });
         }
         if (url.includes("/api/rooms") && init?.method === "POST") {
           const body = JSON.parse(String(init.body)) as { id: string; name?: string };
@@ -2046,6 +2090,152 @@ describe("App mention autocomplete", () => {
     );
   });
 
+  it("defaults clear-room confirmation to archiving and offers an explicit chat-only choice", async () => {
+    const user = userEvent.setup();
+    localApi.enabled = true;
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self],
+        messages: [],
+        latestSeq: 0,
+      }),
+    );
+    await waitFor(() =>
+      expect(localApi.requests.some((request) => request.url.endsWith("/api/local/session"))).toBe(
+        true,
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "管理房间 general" }));
+    const dialog = screen.getByRole("dialog", { name: "房间设置 · # general" });
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole<HTMLButtonElement>("button", { name: "清空房间" }).disabled,
+      ).toBe(false),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "清空房间" }));
+    expect(
+      within(dialog).getByRole<HTMLInputElement>("checkbox", {
+        name: "同时归档当前白板（历史可恢复）",
+      }).checked,
+    ).toBe(true);
+    expect(
+      within(dialog).getByText("进行中、阻塞及工作区占用事项会阻止清空，请先处理。"),
+    ).toBeTruthy();
+    localApi.clearFailure = "受保护事项未处理，本次未删除任何记录。";
+    await user.click(within(dialog).getByRole("button", { name: "确认清空" }));
+    await waitFor(() => expect(within(dialog).getByText(localApi.clearFailure!)).toBeTruthy());
+    expect(screen.getByRole("dialog", { name: "房间设置 · # general" })).toBe(dialog);
+    localApi.clearFailure = undefined;
+    await user.click(within(dialog).getByRole("button", { name: "确认清空" }));
+    await waitFor(() =>
+      expect(
+        localApi.requests.find((request) => request.url.endsWith("/rooms/general/clear"))?.body,
+      ).toEqual({ username: "Alice", whiteboard: "archive", entries: [] }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "房间设置 · # general" })).toBeNull(),
+    );
+    await user.click(screen.getByRole("button", { name: "管理房间 frontend" }));
+    const otherDialog = screen.getByRole("dialog", { name: "房间设置 · # frontend" });
+    await user.click(within(otherDialog).getByRole("button", { name: "清空房间" }));
+    await user.click(
+      within(otherDialog).getByRole("checkbox", { name: "同时归档当前白板（历史可恢复）" }),
+    );
+    expect(
+      within(otherDialog).getByText("仅清空聊天与调用记录，保留白板，不解除工作区占用。"),
+    ).toBeTruthy();
+    await user.click(within(otherDialog).getByRole("button", { name: "确认清空" }));
+    await waitFor(() =>
+      expect(
+        localApi.requests.find((request) => request.url.endsWith("/rooms/frontend/clear"))?.body,
+      ).toEqual({ username: "Alice", whiteboard: "keep" }),
+    );
+  });
+
+  it("clears only current board state on linked events and preserves boards for chat-only and other rooms", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    const now = "2026-11-16T00:00:00.000Z";
+    const entry: WhiteboardEntry = {
+      id: "00000000-0000-4000-8000-0000000000b1",
+      roomId: "general",
+      key: "done",
+      slot: "ready",
+      summary: "board item",
+      authorId: self.id,
+      authorName: self.username,
+      unblocks: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    const message: ChatMessage = {
+      id: "00000000-0000-4000-8000-000000000010",
+      roomId: "general",
+      seq: 1,
+      senderId: self.id,
+      senderName: self.username,
+      senderType: "human",
+      content: "cleared",
+      kind: "topic",
+      mentions: [],
+      traceId: "00000000-0000-4000-8000-000000000011",
+      hopCount: 0,
+      createdAt: now,
+    };
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self],
+        messages: [],
+        latestSeq: 0,
+        whiteboard: [entry],
+      }),
+    );
+    const panel = screen.getByLabelText("成员列表");
+    const tab = within(panel).getByRole("tab", { name: /白板/ });
+    await user.click(tab);
+    act(() => socket.serverEvent({ type: "room.cleared", message, whiteboardArchived: false }));
+    expect(within(panel).getByText(entry.summary)).toBeTruthy();
+    act(() =>
+      socket.serverEvent({
+        type: "room.cleared",
+        message: { ...message, roomId: "frontend" },
+        whiteboardArchived: true,
+      }),
+    );
+    expect(within(panel).getByText(entry.summary)).toBeTruthy();
+    act(() => {
+      socket.serverEvent({
+        type: "whiteboard.removed",
+        roomId: "general",
+        entryId: entry.id,
+        archivedEntry: { ...entry, archivedAt: now },
+      });
+      socket.serverEvent({ type: "room.cleared", message, whiteboardArchived: true });
+    });
+    expect(within(panel).queryByText(entry.summary)).toBeNull();
+    expect(tab.textContent).toBe("白板");
+    whiteboardApi.entries = [{ ...entry, archivedAt: now }];
+    await user.click(within(panel).getByRole("button", { name: "历史归档" }));
+    await waitFor(() => expect(within(panel).getByText(entry.summary)).toBeTruthy());
+  });
+
   it("shows the room whiteboard grouped by slot and keeps it in sync", async () => {
     const user = userEvent.setup();
     localStorage.setItem("superhive.username", "Alice");
@@ -2084,6 +2274,8 @@ describe("App mention autocomplete", () => {
       slot: "blocked" as const,
       summary: "等待数据库迁移权限",
     };
+    whiteboardApi.entries = [ready, blockedEntry];
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     act(() =>
       socket.serverEvent({
         type: "room.snapshot",
@@ -2129,22 +2321,45 @@ describe("App mention autocomplete", () => {
         .map((heading) => heading.textContent),
     ).toEqual(["阻塞1", "进行中的工作1", "已就绪1"]);
 
-    await user.click(within(board).getByRole("button", { name: "从白板移除：等待数据库迁移权限" }));
+    expect(
+      (within(board).getByRole("checkbox", { name: "选择事项：db" }) as HTMLInputElement).disabled,
+    ).toBe(true);
+    expect(
+      within(board).queryByRole("button", { name: "从白板移除：等待数据库迁移权限" }),
+    ).toBeNull();
+    await user.click(within(board).getByRole("button", { name: "归档事项：api" }));
+    await waitFor(() => expect(within(board).queryByText(ready.summary)).toBeNull());
+    expect(whiteboardApi.requests).toEqual([
+      { action: "archive", entries: [{ id: ready.id, updatedAt: ready.updatedAt }] },
+    ]);
+    expect(tab.textContent).toBe("白板2");
+    await user.click(within(board).getByRole("button", { name: "历史归档" }));
+    await waitFor(() => expect(within(board).getByText(ready.summary)).toBeTruthy());
+    expect(within(board).queryByText(blockedEntry.summary)).toBeNull();
+    await user.click(
+      within(board).getByRole("button", { name: "从白板移除：登录 API 已合入，可以接前端" }),
+    );
     expect(JSON.parse(socket.sent.at(-1)!)).toEqual({
       type: "whiteboard.remove",
-      entryId: blockedEntry.id,
+      entryId: ready.id,
+      updatedAt: whiteboardApi.entries.find((entry) => entry.id === ready.id)!.updatedAt,
     });
     act(() =>
       socket.serverEvent({
         type: "whiteboard.removed",
         roomId: "general",
-        entryId: blockedEntry.id,
+        entryId: ready.id,
       }),
     );
-    expect(within(board).queryByText("等待数据库迁移权限")).toBeNull();
+    expect(within(board).queryByText(ready.summary)).toBeNull();
+    await user.click(within(board).getByRole("button", { name: "当前事项" }));
 
     act(() => {
-      socket.serverEvent({ type: "whiteboard.removed", roomId: "general", entryId: ready.id });
+      socket.serverEvent({
+        type: "whiteboard.removed",
+        roomId: "general",
+        entryId: blockedEntry.id,
+      });
       socket.serverEvent({
         type: "whiteboard.removed",
         roomId: "general",
@@ -2154,6 +2369,165 @@ describe("App mention autocomplete", () => {
     expect(within(panel).getByText("白板还是空的")).toBeTruthy();
     expect(within(panel).getByText("hive_board_update")).toBeTruthy();
   });
+
+  it("does not let a stale history response resurrect deleted items or overwrite a restore", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    const updatedAt = "2026-11-16T00:00:00.000Z";
+    const baseEntry = {
+      roomId: "general",
+      authorId: "00000000-0000-4000-8000-000000000002",
+      authorName: "helper",
+      unblocks: [],
+      createdAt: updatedAt,
+      updatedAt,
+      archivedAt: updatedAt,
+      slot: "ready" as const,
+    };
+    const restored = {
+      ...baseEntry,
+      id: "00000000-0000-4000-8000-0000000000b1",
+      key: "restored",
+      summary: "restored item",
+    };
+    const deleted = {
+      ...baseEntry,
+      id: "00000000-0000-4000-8000-0000000000b2",
+      key: "deleted",
+      summary: "deleted item",
+    };
+    let resolveHistory!: (response: Response) => void;
+    const originalFetch = (fetch as ReturnType<typeof vi.fn>).getMockImplementation()!;
+    (fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) =>
+        String(input).includes("/whiteboard?view=all")
+          ? new Promise<Response>((resolve) => {
+              resolveHistory = resolve;
+            })
+          : originalFetch(input, init),
+    );
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self],
+        messages: [],
+        latestSeq: 0,
+        whiteboard: [],
+      }),
+    );
+    const panel = screen.getByLabelText("成员列表");
+    const tab = within(panel).getByRole("tab", { name: /白板/ });
+    await user.click(tab);
+    await user.click(within(panel).getByRole("button", { name: "历史归档" }));
+    await waitFor(() => expect(resolveHistory).toBeTypeOf("function"));
+    const current: WhiteboardEntry = { ...restored };
+    delete current.archivedAt;
+    act(() => {
+      socket.serverEvent({
+        type: "whiteboard.updated",
+        entry: { ...current, updatedAt: "2026-11-16T00:01:00.000Z" },
+      });
+      socket.serverEvent({ type: "whiteboard.removed", roomId: "general", entryId: deleted.id });
+      resolveHistory(jsonResponse({ entries: [restored, deleted] }));
+    });
+    await waitFor(() => expect(within(panel).queryByText("正在加载白板历史…")).toBeNull());
+    expect(within(panel).queryByText(deleted.summary)).toBeNull();
+    expect(within(panel).queryByText(restored.summary)).toBeNull();
+    await user.click(within(panel).getByRole("button", { name: "当前事项" }));
+    expect(within(panel).getByText(restored.summary)).toBeTruthy();
+    expect(tab.textContent).toBe("白板1");
+  });
+
+  it.each(["snapshot", "clear"])(
+    "discards a history request after a room %s",
+    async (eventType) => {
+      const user = userEvent.setup();
+      localStorage.setItem("superhive.username", "Alice");
+      localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+      let resolveHistory!: (response: Response) => void;
+      let historyRequests = 0;
+      const originalFetch = (fetch as ReturnType<typeof vi.fn>).getMockImplementation()!;
+      (fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        (input: RequestInfo | URL, init?: RequestInit) =>
+          String(input).includes("/whiteboard?view=all")
+            ? historyRequests++ === 0
+              ? new Promise<Response>((resolve) => {
+                  resolveHistory = resolve;
+                })
+              : Promise.resolve(jsonResponse({ entries: [] }))
+            : originalFetch(input, init),
+      );
+      render(<App />);
+      await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+      const socket = FakeWebSocket.instances[0]!;
+      act(() => socket.open());
+      const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+      const snapshot = {
+        type: "room.snapshot" as const,
+        self,
+        participants: [self],
+        messages: [],
+        latestSeq: 0,
+        whiteboard: [],
+      };
+      act(() => socket.serverEvent(snapshot));
+      const panel = screen.getByLabelText("成员列表");
+      await user.click(within(panel).getByRole("tab", { name: /白板/ }));
+      await user.click(within(panel).getByRole("button", { name: "历史归档" }));
+      await waitFor(() => expect(resolveHistory).toBeTypeOf("function"));
+      act(() => {
+        if (eventType === "snapshot") socket.serverEvent(snapshot);
+        else
+          socket.serverEvent({
+            type: "room.cleared",
+            whiteboardArchived: true,
+            message: {
+              id: "00000000-0000-4000-8000-000000000010",
+              roomId: "general",
+              seq: 1,
+              senderId: self.id,
+              senderName: self.username,
+              senderType: "human",
+              content: "cleared",
+              kind: "topic",
+              mentions: [],
+              traceId: "00000000-0000-4000-8000-000000000011",
+              hopCount: 0,
+              createdAt: "2026-11-16T00:00:00.000Z",
+            },
+          });
+        resolveHistory(
+          jsonResponse({
+            entries: [
+              {
+                id: "00000000-0000-4000-8000-0000000000b1",
+                key: "old",
+                roomId: "general",
+                slot: "ready",
+                summary: "stale history",
+                archivedAt: "2026-11-16T00:00:00.000Z",
+                updatedAt: "2026-11-16T00:00:00.000Z",
+                createdAt: "2026-11-16T00:00:00.000Z",
+                authorId: self.id,
+                authorName: "Alice",
+                unblocks: [],
+              },
+            ],
+          }),
+        );
+      });
+      await waitFor(() => expect(within(panel).queryByText("正在加载白板历史…")).toBeNull());
+      expect(within(panel).queryByText("stale history")).toBeNull();
+      expect(historyRequests).toBe(2);
+    },
+  );
 
   it("shows a thinking card in the conversation while an agent works and folds it above the reply", async () => {
     localStorage.setItem("superhive.username", "Alice");

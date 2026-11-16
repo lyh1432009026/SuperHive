@@ -14,6 +14,8 @@ import {
   type LocalAgent,
   type LocalSessionResponse,
   resumeCommand,
+  roomClearRequestSchema,
+  type RoomClearOptions,
 } from "@superhive/protocol";
 import QRCode from "qrcode";
 import { HiveError } from "./database.js";
@@ -51,6 +53,8 @@ const ERROR_STATUS: Record<string, number> = {
   LOCAL_DIRECTORY_NOT_FOUND: 404,
   ROOM_NOT_FOUND: 404,
   NOT_A_MEMBER: 403,
+  WHITEBOARD_CONFLICT: 409,
+  WHITEBOARD_PROTECTED: 409,
   LOCAL_AGENT_MCP_UNSUPPORTED: 400,
   LOCAL_AGENT_MCP_LIST_FAILED: 502,
   LOCAL_AGENT_BUSY: 409,
@@ -91,7 +95,11 @@ export type LocalRoomActions = {
   };
   /** 请求是否来自 Server 所在电脑；默认 checkLocalRequest（不放行别的端口上的网页） */
   isLocal?: (request: FastifyRequest) => LocalCheck;
-  clearRoom: (roomId: string, username: string) => { messages: number; invocations: number };
+  clearRoom: (
+    roomId: string,
+    username: string,
+    options: RoomClearOptions,
+  ) => { messages: number; invocations: number };
   /** 房主在其他设备上的登录 */
   ownerDevices?: {
     list(): OwnerDevice[];
@@ -877,8 +885,12 @@ export function registerLocalAgentRoutes(
       if (typeof username !== "string" || !username.trim()) {
         return reply.code(400).send({ ...errorText(serverText("error.request.missingActor")) });
       }
+      const body = roomClearRequestSchema.safeParse(request.body);
+      if (!body.success)
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
       try {
-        const removed = rooms.clearRoom(request.params.roomId, username.trim());
+        const { username: actor, ...options } = body.data;
+        const removed = rooms.clearRoom(request.params.roomId, actor, options);
         audit(
           request,
           caller,

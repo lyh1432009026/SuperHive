@@ -11,6 +11,7 @@ import type {
   LocalDirectoryListing,
   LocalProviderInfo,
   LocalSessionResponse,
+  RoomClearOptions,
   WorktreeStatus,
 } from "@superhive/protocol";
 import { localized, t } from "./i18n";
@@ -85,8 +86,8 @@ export type LocalAgentsState = {
   remove(id: string): Promise<void>;
   logs(id: string): Promise<string[]>;
   directories(path?: string): Promise<LocalDirectoryListing>;
-  /** 清空房间的消息和调用记录（白板保留）；只有本机房主可用 */
-  clearRoom(roomId: string, username: string): Promise<void>;
+  /** 清空房间的消息和调用记录，默认同时归档白板；只有本机房主可用 */
+  clearRoom(roomId: string, username: string, options?: RoomClearOptions): Promise<void>;
   /** Agent 会加载的本机 MCP；measure 时逐个连上估算开局 token */
   mcpServers(id: string, measure?: boolean): Promise<LocalAgentMcpResponse>;
   /** 接入前预览：provider 在该目录下会加载的本机 MCP */
@@ -411,10 +412,10 @@ export function useLocalAgents(
   );
 
   const clearRoom = useCallback(
-    async (roomId: string, username: string) => {
+    async (roomId: string, username: string, options?: RoomClearOptions) => {
       await request(`/api/local/rooms/${encodeURIComponent(roomId)}/clear`, {
         method: "POST",
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ username, ...options }),
       });
     },
     [request],

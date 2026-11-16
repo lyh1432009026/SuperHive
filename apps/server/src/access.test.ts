@@ -248,7 +248,7 @@ describe("限时邀请与访客会话", () => {
   });
 
   it("访客 @ 房主的 Agent 需要房主批准；访客自己不能批准", async () => {
-    const { invite, redeem, join } = await start();
+    const { invite, redeem, join, api, guestHeaders } = await start();
     const owner = await join("rd", "human");
     await owner.next((event) => event.type === "room.snapshot");
     const worker = await join("worker", "agent");
@@ -269,6 +269,36 @@ describe("限时邀请与访客会话", () => {
     expect(errorCode(await alice.next((event) => event.type === "error"))).toBe("OWNER_ONLY");
     alice.send({ type: "topic.start" });
     expect(errorCode(await alice.next((event) => event.type === "error"))).toBe("OWNER_ONLY");
+    for (const action of ["archive", "restore"]) {
+      const response = await api(
+        "POST",
+        `/api/rooms/general/whiteboard/${action}`,
+        { entries: [{ id: invocation.id, updatedAt: new Date().toISOString() }] },
+        guestHeaders(guestToken),
+      );
+      expect(response.status).toBe(403);
+      expect(response.body.code).toBe("OWNER_ONLY");
+    }
+    expect(
+      (
+        await api(
+          "GET",
+          "/api/rooms/general/whiteboard?view=archived",
+          undefined,
+          guestHeaders(guestToken),
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await api(
+          "GET",
+          "/api/rooms/other/whiteboard?view=archived",
+          undefined,
+          guestHeaders(guestToken),
+        )
+      ).status,
+    ).toBe(403);
 
     owner.send({ type: "invocation.retry", invocationId: invocation.id });
     const delivered = await worker.next((event) => event.type === "agent.mentioned");

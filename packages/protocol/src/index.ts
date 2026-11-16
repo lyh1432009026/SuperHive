@@ -569,7 +569,28 @@ export const whiteboardEntrySchema = z.object({
   authorName: z.string(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  archivedAt: z.string().datetime().optional(),
+  archiveProtected: z.boolean().optional(),
 });
+
+export const whiteboardArchiveRequestSchema = z.object({
+  entries: z
+    .array(z.object({ id: z.string().uuid(), updatedAt: z.string().datetime() }))
+    .min(1)
+    .max(200)
+    .refine((entries) => new Set(entries.map((entry) => entry.id)).size === entries.length),
+});
+
+export const roomClearRequestSchema = z
+  .object({
+    username: z.string().trim().min(1),
+    whiteboard: z.enum(["archive", "keep"]).default("archive"),
+    entries: z
+      .array(z.object({ id: z.string().uuid(), updatedAt: z.string().datetime() }))
+      .refine((entries) => new Set(entries.map((entry) => entry.id)).size === entries.length)
+      .optional(),
+  })
+  .refine((input) => input.whiteboard !== "keep" || input.entries === undefined);
 
 /**
  * 定时任务（hive_schedule_create 创建）。到点后服务端代发起人发一条触发消息 @ 执行的 Agent，
@@ -679,6 +700,7 @@ export const budgetExtendEventSchema = z.object({
 export const whiteboardRemoveEventSchema = z.object({
   type: z.literal("whiteboard.remove"),
   entryId: z.string().uuid(),
+  updatedAt: z.string().datetime().optional(),
 });
 /** Agent 上报执行过程（只在执行中有意义；服务端转给房主的页面，不落库） */
 export const invocationTraceEventSchema = z.object({
@@ -767,6 +789,7 @@ export const messageDeletedEventSchema = z.object({
 export const roomClearedEventSchema = z.object({
   type: z.literal("room.cleared"),
   message: chatMessageSchema,
+  whiteboardArchived: z.boolean().optional(),
 });
 export const agentMentionedEventSchema = z.object({
   type: z.literal("agent.mentioned"),
@@ -804,6 +827,7 @@ export const whiteboardRemovedEventSchema = z.object({
   type: z.literal("whiteboard.removed"),
   roomId: z.string(),
   entryId: z.string().uuid(),
+  archivedEntry: whiteboardEntrySchema.optional(),
 });
 export const scheduleUpdatedEventSchema = z.object({
   type: z.literal("schedule.updated"),
@@ -1327,6 +1351,7 @@ export type TraceStep = z.infer<typeof traceStepSchema>;
 export type ScheduleStatus = z.infer<typeof scheduleStatusSchema>;
 export type WhiteboardSlot = z.infer<typeof whiteboardSlotSchema>;
 export type WhiteboardEntry = z.infer<typeof whiteboardEntrySchema>;
+export type RoomClearOptions = Omit<z.infer<typeof roomClearRequestSchema>, "username">;
 export type LocalAgentProvider = z.infer<typeof localAgentProviderSchema>;
 export type LocalAgentAccess = z.infer<typeof localAgentAccessSchema>;
 export type LocalAgentStatus = z.infer<typeof localAgentStatusSchema>;

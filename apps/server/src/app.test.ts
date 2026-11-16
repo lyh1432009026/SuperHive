@@ -6,7 +6,12 @@ import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { LIMITS, type Invocation, type ServerEvent } from "@superhive/protocol";
+import {
+  LIMITS,
+  type Invocation,
+  type ServerEvent,
+  type WhiteboardEntry,
+} from "@superhive/protocol";
 import WebSocket from "ws";
 import { buildApp } from "./app.js";
 import { HiveDatabase } from "./database.js";
@@ -773,13 +778,22 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
     closeApp = undefined;
   });
 
-  async function startRoom(sweepMs?: number, now?: () => number) {
+  async function startRoom(sweepMs?: number, now?: () => number, enableLocal = false) {
     const app = await buildApp({
       databasePath: ":memory:",
       token: "test-token",
       staticDir: "/definitely-not-present",
       ...(sweepMs ? { invocationSweepMs: sweepMs } : {}),
       ...(now ? { now } : {}),
+      ...(enableLocal
+        ? {
+            localAgents: {
+              cli: { command: "/usr/bin/node", args: ["/opt/superhive/dist/cli.js"] },
+              serverUrl: "http://127.0.0.1:8787",
+              probe: async () => ({ installed: false, version: null }),
+            },
+          }
+        : {}),
     });
     await app.listen({ host: "127.0.0.1", port: 0 });
     closeApp = () => app.close();
@@ -1989,6 +2003,245 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
       expect(cancelled.detail).toContain("不再回答");
       await helperMcp.client.close();
     });
+  });
+
+  it("links default room clears to recoverable archives, legacy events and current-only Agent reads", async () => {
+    const { app, port, join } = await startRoom(undefined, undefined, true);
+    const { peer: alice } = await join("Alice", "human");
+    await join("helper", "agent");
+    const mcp = mcpClient(port, "helper");
+    await mcp.connect();
+    const result = await mcp.client.callTool({
+      name: "hive_board_update",
+      arguments: { key: "done", slot: "ready", summary: "done" },
+    });
+    const entry = (result.structuredContent as { entry: WhiteboardEntry }).entry;
+    await alice.next((event) => event.type === "whiteboard.updated");
+    alice.send({ type: "message.send", clientMessageId: "room-clear-chat", content: "old chat" });
+    await alice.next((event) => event.type === "message.created");
+    const { ownerToken } = (await app.inject({ url: "/api/local/session" })).json();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/local/rooms/general/clear",
+      headers: { "x-hive-owner": ownerToken },
+      payload: { username: "Alice" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().removed).toMatchObject({ messages: 1, whiteboard: 1 });
+    expect(await alice.next((event) => event.type === "whiteboard.removed")).toMatchObject({
+      entryId: entry.id,
+      archivedEntry: { archivedAt: expect.any(String) },
+    });
+    expect(await alice.next((event) => event.type === "room.cleared")).toMatchObject({
+      whiteboardArchived: true,
+    });
+    const headers = { authorization: "Bearer test-token" };
+    const archived = (
+      await app.inject({ url: "/api/rooms/general/whiteboard?view=archived", headers })
+    ).json().entries;
+    expect(archived).toHaveLength(1);
+    expect(
+      (await app.inject({ url: "/api/rooms/general/whiteboard", headers })).json().entries,
+    ).toEqual([]);
+    expect(
+      (
+        (await mcp.client.callTool({ name: "hive_board_read", arguments: {} }))
+          .structuredContent as { entries: WhiteboardEntry[] }
+      ).entries,
+    ).toEqual([]);
+    const { snapshot } = await join("Bob", "human");
+    expect(snapshot.type === "room.snapshot" && snapshot.whiteboard).toEqual([]);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/rooms/general/whiteboard/restore",
+          headers,
+          payload: {
+            entries: archived.map(({ id, updatedAt }: WhiteboardEntry) => ({ id, updatedAt })),
+          },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(await alice.next((event) => event.type === "whiteboard.updated")).toMatchObject({
+      entry: { id: entry.id },
+    });
+    await mcp.client.close();
+  });
+
+  it("rejects malformed, unauthorized, protected and stale clears before deleting records", async () => {
+    const { app, port, join } = await startRoom(undefined, undefined, true);
+    const { peer: alice } = await join("Alice", "human");
+    await join("helper", "agent");
+    const mcp = mcpClient(port, "helper");
+    await mcp.connect();
+    const update = async (slot: string, summary: string) =>
+      (
+        (
+          await mcp.client.callTool({
+            name: "hive_board_update",
+            arguments: { key: "task", slot, summary },
+          })
+        ).structuredContent as { entry: WhiteboardEntry }
+      ).entry;
+    const entry = await update("ready", "old");
+    alice.send({ type: "message.send", clientMessageId: "protected-chat", content: "keep chat" });
+    await alice.next((event) => event.type === "message.created");
+    const { ownerToken } = (await app.inject({ url: "/api/local/session" })).json();
+    const clear = (payload: object, credential = ownerToken) =>
+      app.inject({
+        method: "POST",
+        url: "/api/local/rooms/general/clear",
+        headers: { "x-hive-owner": credential },
+        payload,
+      });
+    expect((await clear({ username: "Alice" }, "test-token")).statusCode).toBe(401);
+    expect((await clear({ username: "helper" })).statusCode).toBe(403);
+    expect((await clear({ username: "absent" })).statusCode).toBe(403);
+    expect((await clear({ username: "Alice", whiteboard: "delete" })).statusCode).toBe(400);
+    await update("ready", "new");
+    expect((await clear({ username: "Alice", entries: [entry] })).json().code).toBe(
+      "WHITEBOARD_CONFLICT",
+    );
+    await update("blocked", "waiting");
+    expect((await clear({ username: "Alice" })).json().code).toBe("WHITEBOARD_PROTECTED");
+    const headers = { authorization: "Bearer test-token" };
+    expect(
+      (await app.inject({ url: "/api/rooms/general/messages", headers })).json().messages,
+    ).toHaveLength(1);
+    expect(
+      (await app.inject({ url: "/api/rooms/general/whiteboard?view=archived", headers })).json()
+        .entries,
+    ).toEqual([]);
+    expect((await clear({ username: "Alice", whiteboard: "keep" })).statusCode).toBe(200);
+    expect(await alice.next((event) => event.type === "room.cleared")).toMatchObject({
+      whiteboardArchived: false,
+    });
+    expect(
+      (await app.inject({ url: "/api/rooms/general/whiteboard", headers })).json().entries,
+    ).toMatchObject([{ slot: "blocked", archiveProtected: true }]);
+    await mcp.client.close();
+  });
+
+  it("archives and restores batches while keeping legacy peers and Agent reads current-only", async () => {
+    const { app, port, join } = await startRoom();
+    const { peer: alice } = await join("Alice", "human");
+    await join("helper", "agent");
+    const mcp = mcpClient(port, "helper");
+    await mcp.connect();
+    const entries: WhiteboardEntry[] = [];
+    for (const key of ["first", "second"]) {
+      const result = await mcp.client.callTool({
+        name: "hive_board_update",
+        arguments: { key, slot: "ready", summary: "done" },
+      });
+      entries.push((result.structuredContent as { entry: WhiteboardEntry }).entry);
+      await alice.next((event) => event.type === "whiteboard.updated");
+    }
+    const request = (action: string, selected: WhiteboardEntry[]) =>
+      app.inject({
+        method: "POST",
+        url: `/api/rooms/general/whiteboard/${action}`,
+        headers: { authorization: "Bearer test-token" },
+        payload: { entries: selected.map(({ id, updatedAt }) => ({ id, updatedAt })) },
+      });
+    const archive = await request("archive", entries);
+    expect(archive.statusCode).toBe(200);
+    const archived = archive.json<{ entries: WhiteboardEntry[] }>().entries;
+    for (const entry of archived) {
+      const event = await alice.next(
+        (event) => event.type === "whiteboard.removed" && event.entryId === entry.id,
+      );
+      expect(event).toMatchObject({ archivedEntry: entry });
+    }
+    const read = async (query = "") =>
+      (
+        await app.inject({
+          url: `/api/rooms/general/whiteboard${query}`,
+          headers: { authorization: "Bearer test-token" },
+        })
+      ).json<{ entries: WhiteboardEntry[] }>().entries;
+    expect(await read()).toEqual([]);
+    expect(await read("?view=archived")).toHaveLength(2);
+    expect(await read("?view=all")).toHaveLength(2);
+    expect(
+      (
+        (await mcp.client.callTool({ name: "hive_board_read", arguments: {} }))
+          .structuredContent as { entries: WhiteboardEntry[] }
+      ).entries,
+    ).toEqual([]);
+    const { snapshot } = await join("Bob", "human");
+    expect(snapshot.type === "room.snapshot" && snapshot.whiteboard).toEqual([]);
+    const restoredResponse = await request("restore", archived);
+    expect(restoredResponse.statusCode).toBe(200);
+    const restored = restoredResponse.json<{ entries: WhiteboardEntry[] }>().entries;
+    for (const entry of restored)
+      await alice.next(
+        (event) => event.type === "whiteboard.updated" && event.entry.id === entry.id,
+      );
+    expect(await read()).toHaveLength(2);
+    expect((await request("restore", archived)).statusCode).toBe(409);
+    alice.send({
+      type: "whiteboard.remove",
+      entryId: archived[0]!.id,
+      updatedAt: archived[0]!.updatedAt,
+    });
+    expect(await alice.next((event) => event.type === "error")).toMatchObject({
+      code: "WHITEBOARD_CONFLICT",
+    });
+    expect(await read()).toHaveLength(2);
+    await mcp.client.close();
+  });
+
+  it("rejects unauthorized, malformed, protected, stale and foreign-room archive requests", async () => {
+    const { app, port, join } = await startRoom();
+    await join("helper", "agent");
+    const mcp = mcpClient(port, "helper");
+    await mcp.connect();
+    const update = async (key: string, slot: string, summary = "task") =>
+      (
+        (
+          await mcp.client.callTool({
+            name: "hive_board_update",
+            arguments: { key, slot, summary },
+          })
+        ).structuredContent as { entry: WhiteboardEntry }
+      ).entry;
+    const ready = await update("ready", "ready");
+    const active = await update("active", "in_progress");
+    const blocked = await update("blocked", "blocked");
+    const request = (
+      selected: Array<{ id: string; updatedAt: string }>,
+      room = "general",
+      token = "test-token",
+    ) =>
+      app.inject({
+        method: "POST",
+        url: `/api/rooms/${room}/whiteboard/archive`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { entries: selected },
+      });
+    expect((await request([ready], "general", "wrong-token")).statusCode).toBe(401);
+    expect((await request([])).statusCode).toBe(400);
+    expect((await request([ready, ready])).statusCode).toBe(400);
+    expect((await request([{ id: ready.id, updatedAt: "invalid" }])).statusCode).toBe(400);
+    expect((await request([ready], "other")).statusCode).toBe(404);
+    for (const entry of [active, blocked]) {
+      const response = await request([ready, entry]);
+      expect(response.statusCode).toBe(409);
+      expect(response.json().code).toBe("WHITEBOARD_PROTECTED");
+    }
+    await update("ready", "ready", "changed");
+    expect((await request([ready])).json().code).toBe("WHITEBOARD_CONFLICT");
+    const headers = { authorization: "Bearer test-token" };
+    expect(
+      (await app.inject({ url: "/api/rooms/general/whiteboard?view=archived", headers })).json()
+        .entries,
+    ).toEqual([]);
+    expect(
+      (await app.inject({ url: "/api/rooms/general/whiteboard?view=invalid", headers })).statusCode,
+    ).toBe(400);
+    await mcp.client.close();
   });
 
   it("shares a throttled whiteboard and piggybacks new room messages on MCP results", async () => {

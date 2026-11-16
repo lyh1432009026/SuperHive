@@ -504,7 +504,149 @@ describe("HiveDatabase", () => {
     expect(db.updateInvocation(first.invocation.id, { progress: null }).progress).toBeUndefined();
   });
 
-  it("keeps at most fifty whiteboard entries per slot", () => {
+  it("clears rooms by archiving the entire current board and preserves old history and other rooms", () => {
+    const old = db.upsertWhiteboardEntry(agentA, {
+      key: "old",
+      slot: "ready",
+      summary: "old history",
+    }).entry;
+    const oldHistory = db.changeWhiteboardArchive("general", [old], true);
+    const other = db.upsertParticipant({ roomId: "other", username: "Alice", type: "human" });
+    const foreign = db.upsertWhiteboardEntry(other, {
+      key: "foreign",
+      slot: "ready",
+      summary: "other room",
+    }).entry;
+    for (let index = 0; index < 201; index += 1)
+      db.upsertWhiteboardEntry(agentA, { key: `clear-${index}`, slot: "ready", summary: "done" });
+    const message = db.createMessage(human, { content: "chat", clientMessageId: "clear" }).message;
+    const queued = db.createInvocation({ message, agent: agentA, status: "queued" }).invocation;
+    db.updateInvocation(queued.id, { status: "completed" });
+    const current = db.listWhiteboard("general");
+    const removed = db.clearRoom("general", human.username, {
+      whiteboard: "archive",
+      entries: current,
+    });
+    expect(removed).toMatchObject({ messages: 1, invocations: 1 });
+    expect(removed.archivedEntries).toHaveLength(201);
+    expect(db.listWhiteboard("general")).toEqual([]);
+    expect(db.listWhiteboard("general", "archived")).toHaveLength(202);
+    expect(db.listWhiteboard("general", "archived")).toContainEqual(oldHistory[0]);
+    expect(db.listWhiteboard("other")).toEqual([foreign]);
+    expect(db.changeWhiteboardArchive("general", removed.archivedEntries, false)).toHaveLength(201);
+  });
+
+  it("keeps every record on protected or stale room clears, and allows explicit chat-only clears", () => {
+    const ready = db.upsertWhiteboardEntry(agentA, {
+      key: "ready",
+      slot: "ready",
+      summary: "done",
+    }).entry;
+    const message = db.createMessage(human, {
+      content: "chat",
+      clientMessageId: "protected-clear",
+    }).message;
+    const queued = db.createInvocation({
+      message,
+      agent: agentA,
+      status: "queued",
+    }).invocation;
+    const invocation = db.updateInvocation(queued.id, { status: "running" });
+    for (const slot of ["in_progress", "blocked"] as const) {
+      db.upsertWhiteboardEntry(agentA, { key: "protected", slot, summary: "active" });
+      const before = db.listWhiteboard("general", "all");
+      expect(() => db.clearRoom("general")).toThrowError(
+        expect.objectContaining({ code: "WHITEBOARD_PROTECTED" }),
+      );
+      expect(db.listWhiteboard("general", "all")).toEqual(before);
+      expect(db.getMessage(message.id)).toEqual(message);
+      expect(db.getInvocation(invocation.id)).toEqual(invocation);
+    }
+    const finished = db.upsertWhiteboardEntry(agentA, {
+      key: "protected",
+      slot: "ready",
+      summary: "finished",
+    }).entry;
+    for (const entries of [
+      [],
+      [ready],
+      [ready, ready],
+      [ready, { ...finished, updatedAt: "2000-01-01T00:00:00.000Z" }],
+    ]) {
+      expect(() =>
+        db.clearRoom("general", "Alice", { whiteboard: "archive", entries }),
+      ).toThrowError(expect.objectContaining({ code: "WHITEBOARD_CONFLICT" }));
+      expect(db.getMessage(message.id)).toEqual(message);
+      expect(db.getInvocation(invocation.id)).toEqual(invocation);
+      expect(db.listWhiteboard("general", "archived")).toEqual([]);
+    }
+    const active = db.upsertWhiteboardEntry(agentA, {
+      key: "protected",
+      slot: "in_progress",
+      summary: "still active",
+      claim: { repo: "/repo", branch: "feat/active" },
+    }).entry;
+    const before = db.listWhiteboard("general", "all");
+    expect(db.clearRoom("general", "Alice", { whiteboard: "keep" })).toEqual({
+      messages: 1,
+      invocations: 1,
+      archivedEntries: [],
+    });
+    expect(db.listWhiteboard("general", "all")).toEqual(before);
+    expect(db.listWhiteboard("general")).toContainEqual(active);
+    expect(db.getMessage(message.id)).toBeUndefined();
+  });
+
+  it("rolls back archives and invocation deletion if chat deletion fails", () => {
+    const entry = db.upsertWhiteboardEntry(agentA, {
+      key: "done",
+      slot: "ready",
+      summary: "done",
+    }).entry;
+    const message = db.createMessage(human, {
+      content: "chat",
+      clientMessageId: "rollback-clear",
+    }).message;
+    const queued = db.createInvocation({
+      message,
+      agent: agentA,
+      status: "queued",
+    }).invocation;
+    const invocation = db.updateInvocation(queued.id, { status: "completed" });
+    db.connection().exec(
+      "CREATE TRIGGER prevent_clear BEFORE DELETE ON messages BEGIN SELECT RAISE(ABORT, 'test failure'); END",
+    );
+    expect(() => db.clearRoom("general")).toThrowError("test failure");
+    expect(db.listWhiteboard("general")).toEqual([entry]);
+    expect(db.getMessage(message.id)).toEqual(message);
+    expect(db.getInvocation(invocation.id)).toEqual(invocation);
+  });
+
+  it("does not clear chat or release registered workspace claims", () => {
+    db.connection().exec("CREATE TABLE managed_worktrees (id TEXT, repo TEXT, branch TEXT)");
+    db.connection()
+      .prepare("INSERT INTO managed_worktrees VALUES (?, ?, ?)")
+      .run("managed", "/repo", "feat/task");
+    const message = db.createMessage(human, {
+      content: "chat",
+      clientMessageId: "worktree-clear",
+    }).message;
+    db.upsertWhiteboardEntry(agentA, {
+      key: "worktree:managed",
+      slot: "milestone",
+      summary: "registered",
+    });
+    expect(() => db.clearRoom("general")).toThrowError(
+      expect.objectContaining({ code: "WHITEBOARD_PROTECTED" }),
+    );
+    expect(db.getMessage(message.id)).toEqual(message);
+    expect(db.listWhiteboard("general", "archived")).toEqual([]);
+    expect(
+      db.connection().prepare("SELECT COUNT(*) AS count FROM managed_worktrees").get(),
+    ).toEqual({ count: 1 });
+  });
+
+  it("retains whiteboard entries instead of silently deleting overflow", () => {
     for (let index = 0; index < 52; index += 1) {
       db.upsertWhiteboardEntry(agentA, {
         key: `task-${index}`,
@@ -513,10 +655,161 @@ describe("HiveDatabase", () => {
       });
     }
     const entries = db.listWhiteboard("general");
-    expect(entries).toHaveLength(50);
-    expect(entries.map((entry) => entry.key)).not.toContain("task-0");
+    expect(entries).toHaveLength(52);
+    expect(entries.map((entry) => entry.key)).toContain("task-0");
     expect(db.removeWhiteboardEntry("general", entries[0]!.id)).toBe(true);
     expect(db.removeWhiteboardEntry("other", entries[1]!.id)).toBe(false);
+  });
+
+  it("archives and restores batches without losing their identities or authors", () => {
+    const first = db.upsertWhiteboardEntry(agentA, {
+      key: "first",
+      slot: "ready",
+      summary: "done",
+      unblocks: ["ui"],
+    }).entry;
+    const second = db.upsertWhiteboardEntry(agentB, {
+      key: "second",
+      slot: "milestone",
+      summary: "released",
+    }).entry;
+    const archived = db.changeWhiteboardArchive("general", [first, second], true);
+    expect(archived.every((entry) => entry.archivedAt === entry.updatedAt)).toBe(true);
+    expect(db.listWhiteboard("general")).toEqual([]);
+    expect(db.listWhiteboard("general", "archived")).toHaveLength(2);
+    expect(db.listWhiteboard("general", "all")).toHaveLength(2);
+    const restored = db.changeWhiteboardArchive("general", archived, false);
+    expect(restored.map((entry) => entry.id)).toEqual([first.id, second.id]);
+    expect(restored[0]).toMatchObject({
+      authorId: agentA.id,
+      unblocks: ["ui"],
+      createdAt: first.createdAt,
+    });
+    expect(restored.every((entry) => !entry.archivedAt)).toBe(true);
+    expect(db.listWhiteboard("general", "archived")).toEqual([]);
+    expect(() =>
+      db.removeWhiteboardEntry("general", first.id, archived[0]!.updatedAt),
+    ).toThrowError("白板事项已变化");
+  });
+
+  it("rejects stale, duplicate and foreign-room batches atomically", () => {
+    const first = db.upsertWhiteboardEntry(agentA, {
+      key: "first",
+      slot: "ready",
+      summary: "old",
+    }).entry;
+    const second = db.upsertWhiteboardEntry(agentA, {
+      key: "second",
+      slot: "ready",
+      summary: "old",
+    }).entry;
+    db.upsertWhiteboardEntry(agentA, { key: "second", slot: "ready", summary: "changed" });
+    expect(() => db.changeWhiteboardArchive("general", [first, second], true)).toThrowError(
+      "白板事项已变化",
+    );
+    expect(() => db.changeWhiteboardArchive("general", [first, first], true)).toThrowError(
+      "白板事项已变化",
+    );
+    expect(() => db.changeWhiteboardArchive("other", [first], true)).toThrowError(
+      "没有所选白板事项",
+    );
+    expect(db.listWhiteboard("general", "archived")).toEqual([]);
+    const archived = db.changeWhiteboardArchive("general", [first], true);
+    expect(() => db.changeWhiteboardArchive("general", [first], true)).toThrowError(
+      "白板事项已变化",
+    );
+    expect(() => db.changeWhiteboardArchive("general", [first], false)).toThrowError(
+      "白板事项已变化",
+    );
+    expect(db.listWhiteboard("general", "archived")).toEqual(archived);
+  });
+
+  it("protects active and blocked tasks and registered worktree claims", () => {
+    const ready = db.upsertWhiteboardEntry(agentA, {
+      key: "ready",
+      slot: "ready",
+      summary: "done",
+    }).entry;
+    for (const slot of ["in_progress", "blocked"] as const) {
+      const active = db.upsertWhiteboardEntry(agentA, { key: slot, slot, summary: "active" }).entry;
+      expect(active.archiveProtected).toBe(true);
+      expect(() => db.changeWhiteboardArchive("general", [ready, active], true)).toThrowError(
+        "不能归档或删除",
+      );
+      expect(() => db.removeWhiteboardEntry("general", active.id)).toThrowError("不能归档或删除");
+    }
+    db.connection().exec("CREATE TABLE managed_worktrees (id TEXT, repo TEXT, branch TEXT)");
+    db.connection()
+      .prepare("INSERT INTO managed_worktrees VALUES (?, ?, ?)")
+      .run("managed", "/repo", "feat/task");
+    const registered = db.upsertWhiteboardEntry(agentA, {
+      key: "worktree:managed",
+      slot: "milestone",
+      summary: "still registered",
+    }).entry;
+    const claimed = db.upsertWhiteboardEntry(agentA, {
+      key: "task",
+      slot: "ready",
+      summary: "review",
+      claim: { repo: "/repo", branch: "feat/task" },
+    }).entry;
+    for (const entry of [registered, claimed]) {
+      expect(entry.archiveProtected).toBe(true);
+      expect(() => db.changeWhiteboardArchive("general", [entry], true)).toThrowError(
+        "不能归档或删除",
+      );
+      expect(() => db.removeWhiteboardEntry("general", entry.id)).toThrowError("不能归档或删除");
+    }
+    expect(db.listWhiteboard("general", "archived")).toEqual([]);
+    db.connection().exec("DELETE FROM managed_worktrees");
+    expect(db.changeWhiteboardArchive("general", [registered, claimed], true)).toHaveLength(2);
+  });
+
+  it("reactivates the same archived key even for an identical update within the throttle window", () => {
+    const input = { key: "task", slot: "ready" as const, summary: "done" };
+    const entry = db.upsertWhiteboardEntry(agentA, input).entry;
+    const archived = db.changeWhiteboardArchive("general", [entry], true)[0]!;
+    const updated = db.upsertWhiteboardEntry(agentA, input);
+    expect(updated.changed).toBe(true);
+    expect(updated.entry.id).toBe(entry.id);
+    expect(updated.entry.archivedAt).toBeUndefined();
+    expect(updated.entry.updatedAt > archived.updatedAt).toBe(true);
+    expect(db.listWhiteboard("general")).toEqual([updated.entry]);
+    expect(() => db.changeWhiteboardArchive("general", [archived], false)).toThrowError(
+      "白板事项已变化",
+    );
+  });
+
+  it("migrates legacy board rows and persists history across a restart", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "hive-whiteboard-"));
+    const filename = path.join(directory, "board.sqlite");
+    let disk: HiveDatabase | undefined;
+    try {
+      disk = new HiveDatabase(filename);
+      const entry = disk.upsertWhiteboardEntry(agentA, {
+        key: "legacy",
+        slot: "ready",
+        summary: "preserved",
+      }).entry;
+      disk.close();
+      disk = undefined;
+      const legacy = new Database(filename);
+      legacy.exec(
+        "DROP INDEX whiteboard_archive; ALTER TABLE whiteboard_entries DROP COLUMN archived_at",
+      );
+      legacy.close();
+      disk = new HiveDatabase(filename);
+      expect(disk.listWhiteboard("general")).toEqual([entry]);
+      const archived = disk.changeWhiteboardArchive("general", [entry], true);
+      disk.close();
+      disk = new HiveDatabase(filename);
+      expect(disk.listWhiteboard("general")).toEqual([]);
+      expect(disk.listWhiteboard("general", "archived")).toEqual(archived);
+      expect(disk.changeWhiteboardArchive("general", archived, false)).toHaveLength(1);
+    } finally {
+      disk?.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("searches messages across rooms with the trigram index and keeps recalled text out", () => {

@@ -612,7 +612,7 @@ describe("managed worktrees", () => {
         summary: "ready",
       });
     const ready = database.listWhiteboard("general").filter((entry) => entry.slot === "ready");
-    expect(ready).toHaveLength(50);
-    expect(ready.some((entry) => entry.key === "released")).toBe(false);
+    expect(ready).toHaveLength(61);
+    expect(ready.some((entry) => entry.key === "released")).toBe(true);
   });
 });

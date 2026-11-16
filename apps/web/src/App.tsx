@@ -1341,6 +1341,8 @@ export function App({
   const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [invocations, setInvocations] = useState<ReadonlyMap<string, Invocation>>(new Map());
   const [whiteboard, setWhiteboard] = useState<ReadonlyMap<string, WhiteboardEntry>>(new Map());
+  const whiteboardEpochRef = useRef(0);
+  const whiteboardChangesRef = useRef(new Map<string, number>());
   const [schedules, setSchedules] = useState<ReadonlyMap<string, Schedule>>(new Map());
   /** 还在等人批的权限申请（提问消息 ID） */
   const [pendingApprovals, setPendingApprovals] = useState<ReadonlySet<string>>(new Set());
@@ -1450,6 +1452,7 @@ export function App({
   const worktreeNoticeVersion = useRef(0);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [clearWhiteboard, setClearWhiteboard] = useState(true);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuHoverTimer = useRef<number | undefined>(undefined);
   const [pendingNewMessages, setPendingNewMessages] = useState(0);
@@ -1830,7 +1833,13 @@ export function App({
     [invocations, messages],
   );
   const whiteboardBlockedCount = useMemo(
-    () => [...whiteboard.values()].filter((entry) => entry.slot === "blocked").length,
+    () =>
+      [...whiteboard.values()].filter((entry) => !entry.archivedAt && entry.slot === "blocked")
+        .length,
+    [whiteboard],
+  );
+  const whiteboardCurrentCount = useMemo(
+    () => [...whiteboard.values()].filter((entry) => !entry.archivedAt).length,
     [whiteboard],
   );
   const pausedAgentNames = useMemo(
@@ -2305,6 +2314,8 @@ export function App({
       setMessagesLoaded(false);
       setInvocations(new Map());
       setWhiteboard(new Map());
+      whiteboardEpochRef.current += 1;
+      whiteboardChangesRef.current.clear();
       setSchedules(new Map());
       setPendingApprovals(new Set());
       setTraces(new Map());
@@ -2431,6 +2442,8 @@ export function App({
             new Map((event.invocations ?? []).map((invocation) => [invocation.id, invocation])),
           );
           setWhiteboard(new Map((event.whiteboard ?? []).map((entry) => [entry.id, entry])));
+          whiteboardEpochRef.current += 1;
+          whiteboardChangesRef.current.clear();
           setSchedules(new Map((event.schedules ?? []).map((schedule) => [schedule.id, schedule])));
           setPendingApprovals(new Set(event.approvals ?? []));
           // 重连后服务端会重新补发执行中调用的过程；已经结束的留着汇总
@@ -2455,6 +2468,12 @@ export function App({
             void catchUp(beforeReconnect).catch((reason: unknown) => setError(String(reason)));
         } else if (event.type === "room.cleared") {
           if (event.message.roomId !== currentRoomId) return;
+          if (event.whiteboardArchived) {
+            whiteboardEpochRef.current += 1;
+            setWhiteboard(
+              (current) => new Map([...current].filter(([, entry]) => entry.archivedAt)),
+            );
+          }
           // 房主清空了房间：本地的消息和调用记录一并丢弃，只留清空后的话题分隔
           setMessages([event.message]);
           setInvocations(new Map());
@@ -2512,6 +2531,10 @@ export function App({
           setInvocations((current) => upsertInvocation(current, event.invocation));
         } else if (event.type === "whiteboard.updated") {
           if (event.entry.roomId !== currentRoomId) return;
+          whiteboardChangesRef.current.set(
+            event.entry.id,
+            (whiteboardChangesRef.current.get(event.entry.id) ?? 0) + 1,
+          );
           setWhiteboard((current) => upsertWhiteboardEntry(current, event.entry));
         } else if (event.type === "invocation.trace") {
           if (event.roomId !== currentRoomId) return;
@@ -2544,7 +2567,12 @@ export function App({
           setSchedules((current) => upsertSchedule(current, event.schedule));
         } else if (event.type === "whiteboard.removed") {
           if (event.roomId !== currentRoomId) return;
+          whiteboardChangesRef.current.set(
+            event.entryId,
+            (whiteboardChangesRef.current.get(event.entryId) ?? 0) + 1,
+          );
           setWhiteboard((current) => {
+            if (event.archivedEntry) return upsertWhiteboardEntry(current, event.archivedEntry);
             if (!current.has(event.entryId)) return current;
             const next = new Map(current);
             next.delete(event.entryId);
@@ -2954,6 +2982,35 @@ export function App({
     };
   }, [authToken, base, currentRoomId, imDialogOpen, showOnboarding]);
 
+  const loadWhiteboardHistory = useCallback(async () => {
+    const epoch = whiteboardEpochRef.current;
+    const changes = new Map(whiteboardChangesRef.current);
+    const response = await fetch(
+      `${base}/api/rooms/${encodeURIComponent(currentRoomId)}/whiteboard?view=all`,
+      {
+        headers: { Authorization: `Bearer ${authToken}` },
+      },
+    );
+    if (!response.ok) throw new Error(t("无法加载白板历史。"));
+    const payload = (await response.json()) as { entries: WhiteboardEntry[] };
+    setWhiteboard((current) => {
+      if (whiteboardEpochRef.current !== epoch) return current;
+      const next = new Map<string, WhiteboardEntry>();
+      for (const [entryId, entry] of current) {
+        if (changes.get(entryId) !== whiteboardChangesRef.current.get(entryId))
+          next.set(entryId, entry);
+      }
+      for (const entry of payload.entries) {
+        if (
+          entry.roomId === currentRoomId &&
+          changes.get(entry.id) === whiteboardChangesRef.current.get(entry.id)
+        )
+          next.set(entry.id, entry);
+      }
+      return next;
+    });
+  }, [base, authToken, currentRoomId]);
+
   if (!username) {
     return (
       <LoginDialog
@@ -3358,7 +3415,49 @@ export function App({
   }
 
   function removeWhiteboardEntry(entry: WhiteboardEntry) {
-    sendClientEvent({ type: "whiteboard.remove", entryId: entry.id }, t("无法移除白板条目。"));
+    if (!window.confirm(t("永久删除这条历史事项？此操作无法恢复。"))) return;
+    sendClientEvent(
+      { type: "whiteboard.remove", entryId: entry.id, updatedAt: entry.updatedAt },
+      t("无法移除白板条目。"),
+    );
+  }
+
+  async function changeWhiteboardArchive(entries: WhiteboardEntry[], archive: boolean) {
+    const epoch = whiteboardEpochRef.current;
+    const changes = new Map(whiteboardChangesRef.current);
+    const response = await fetch(
+      `${base}/api/rooms/${encodeURIComponent(currentRoomId)}/whiteboard/${archive ? "archive" : "restore"}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ entries: entries.map(({ id, updatedAt }) => ({ id, updatedAt })) }),
+      },
+    );
+    if (!response.ok) {
+      const failure: unknown = await response.json().catch(() => ({}));
+      throw new Error(serverError(failure) ?? t("白板操作失败，请刷新后重试。"));
+    }
+    const payload = (await response.json()) as { entries: WhiteboardEntry[] };
+    if (whiteboardEpochRef.current !== epoch) return;
+    const changedDuringRequest = new Set<string>();
+    for (const entry of payload.entries) {
+      if (changes.get(entry.id) !== whiteboardChangesRef.current.get(entry.id))
+        changedDuringRequest.add(entry.id);
+      whiteboardChangesRef.current.set(
+        entry.id,
+        (whiteboardChangesRef.current.get(entry.id) ?? 0) + 1,
+      );
+    }
+    setWhiteboard((current) => {
+      if (whiteboardEpochRef.current !== epoch) return current;
+      return payload.entries.reduce(
+        (next, entry) =>
+          changedDuringRequest.has(entry.id) && !next.has(entry.id)
+            ? next
+            : upsertWhiteboardEntry(next, entry),
+        current,
+      );
+    });
   }
 
   function jumpToMessage(messageId: string) {
@@ -3918,7 +4017,23 @@ export function App({
     setRoomDialogBusy(true);
     setRoomDialogError(undefined);
     try {
-      await local.clearRoom(room.id, username);
+      if (clearWhiteboard) {
+        const response = await fetch(
+          `${base}/api/rooms/${encodeURIComponent(room.id)}/whiteboard`,
+          { headers: { Authorization: `Bearer ${authToken}` } },
+        );
+        if (!response.ok) {
+          const failure: unknown = await response.json().catch(() => ({}));
+          throw new Error(serverError(failure) ?? t("无法加载白板历史。"));
+        }
+        const payload = (await response.json()) as { entries: WhiteboardEntry[] };
+        await local.clearRoom(room.id, username, {
+          whiteboard: "archive",
+          entries: payload.entries.map(({ id, updatedAt }) => ({ id, updatedAt })),
+        });
+      } else {
+        await local.clearRoom(room.id, username, { whiteboard: "keep" });
+      }
       closeRoomDialog();
     } catch (reason) {
       setRoomDialogError(reason instanceof Error ? reason.message : String(reason));
@@ -5585,19 +5700,19 @@ export function App({
               >
                 <Icon name="board" size={15} />
                 <span className="side-tab-label">{t("白板")}</span>
-                {whiteboard.size > 0 && (
+                {whiteboardCurrentCount > 0 && (
                   <span
                     className={`side-tab-count ${whiteboardBlockedCount > 0 ? "warning" : ""}`}
                     aria-label={
                       whiteboardBlockedCount > 0
                         ? t("{0} 条，其中 {1} 条阻塞", {
-                            0: whiteboard.size,
+                            0: whiteboardCurrentCount,
                             1: whiteboardBlockedCount,
                           })
-                        : t("{0} 条", { 0: whiteboard.size })
+                        : t("{0} 条", { 0: whiteboardCurrentCount })
                     }
                   >
-                    {whiteboard.size}
+                    {whiteboardCurrentCount}
                   </span>
                 )}
               </button>
@@ -5658,7 +5773,15 @@ export function App({
               aria-labelledby="side-tab-whiteboard"
               tabIndex={0}
             >
-              <WhiteboardPanel entries={whiteboard} onRemove={removeWhiteboardEntry} />
+              <WhiteboardPanel
+                key={currentRoomId}
+                entries={whiteboard}
+                canManage={isOwner}
+                onRemove={removeWhiteboardEntry}
+                onArchive={changeWhiteboardArchive}
+                loadHistory={loadWhiteboardHistory}
+                historyEpoch={whiteboardEpochRef.current}
+              />
             </div>
           ) : (
             <>
@@ -7173,8 +7296,22 @@ export function App({
                     <strong>{t("确认清空 # {0}？", { 0: roomDialog.room.name })}</strong>
                     <p>
                       {t(
-                        "将删除这个房间的全部消息和 Agent 调用记录，所有成员都会看到房间被清空，无法恢复。白板保留；房间里的 Agent 会从新会话开始。",
+                        "将删除这个房间的全部消息和 Agent 调用记录，无法恢复；房间里的 Agent 会从新会话开始。",
                       )}
+                    </p>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={clearWhiteboard}
+                        disabled={roomDialogBusy}
+                        onChange={(event) => setClearWhiteboard(event.target.checked)}
+                      />
+                      {t("同时归档当前白板（历史可恢复）")}
+                    </label>
+                    <p>
+                      {clearWhiteboard
+                        ? t("进行中、阻塞及工作区占用事项会阻止清空，请先处理。")
+                        : t("仅清空聊天与调用记录，保留白板，不解除工作区占用。")}
                     </p>
                   </div>
                   <div className="room-archive-actions">
@@ -7204,6 +7341,7 @@ export function App({
                     }
                     onClick={() => {
                       setArchiveConfirmOpen(false);
+                      setClearWhiteboard(true);
                       setClearConfirmOpen(true);
                     }}
                   >

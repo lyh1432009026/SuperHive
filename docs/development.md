@@ -156,7 +156,7 @@ Hive Server 在 `/mcp` 提供 Streamable HTTP MCP，内置 Bridge 会为 Codex�
 - `hive_wait`：短时等待一个子任务结束，默认 20 秒、最多 30 秒。拿到结果后不再单独回执；窗口用完只表示还没结束，不算失败；子任务被预算拦下时立即返回，需要人确认。
 - `hive_ask_human`：需要人拍板时向人提一个问题。服务端发出一条提问消息，当前调用转为「等你回答」，不会被超时判为卡住。可传 `options`（2–10 个，服务端编为 A、B、C…）和 `multiple`；点选由服务端按保存的题目校验，生成带选项原文的完整答案，同一提问只续接一次。委派来的子任务提问时，结果回执会跟到回答后的那次调用上。
 - `hive_attachment_read`：读取本房间已发出消息里的附件。文本按字节分段（`offset` / `nextOffset`，不切断多字节字符），PNG/JPEG/GIF/WebP（不超过 3.75 MB）以 MCP 图片内容返回，其它二进制只返回元数据。未发出、已撤回或其他房间的附件一律读不到。和 `hive_room_read`、`hive_members_list`、`hive_board_read` 一样标为只读工具，Claude Code 只读档（plan 模式）也能调用。
-- `hive_board_read` / `hive_board_update`：读取和更新房间协作白板（按 `key` 推进同一事项，60 秒内完全相同的重复发布会被忽略，每栏最多保留 50 条）。
+- `hive_board_read` / `hive_board_update`：读取和更新房间当前协作白板（按 `key` 推进同一事项，60 秒内完全相同的重复发布会被忽略；更新归档事项会恢复它）。不按数量自动删除，历史不进入 Agent 摘要。
 - `hive_schedule_create` / `hive_schedule_list` / `hive_schedule_cancel`：一次性定时任务。到点服务端以发起人名义发「⏰ 定时任务」消息唤醒登记者；每个房间最多 20 个待执行；Server 不在线、晚于 10 分钟才轮到的标为已错过。
 - `hive_room_create`：替房主新建房间（可带已存在的工作区目录），本机 Agent 会自动加入。只在房主本人发起的任务里可用。
 - `hive_room_post`：替房主到另一个房间以自己的名义发消息、@ 接活的 Agent，开新的传递链并注明来源；刚建的房间会等被 @ 的 Agent 上线（最多 20 秒）。只在房主本人发起的任务里可用，那边由 Agent 发起的任务不能再往外转。
@@ -177,14 +177,21 @@ GET  /api/rooms/:room/messages?afterSeq=&limit=
 GET  /api/rooms/:room/participants
 GET  /api/rooms/:room/invocations   @ 调用记录与状态
 GET  /api/rooms/:room/whiteboard    协作白板
+POST /api/rooms/:room/whiteboard/archive  房主批量归档
+POST /api/rooms/:room/whiteboard/restore  房主批量恢复
 POST /api/rooms/:room/attachments   上传附件（multipart/form-data，单个文件字段）
 GET  /api/attachments/:id           下载附件（只认 Authorization 头）
 DELETE /api/attachments/:id         移除还没发出的附件
 GET  /api/attachments/:id/local-path  本机房主 Agent 取 Server 存的文件路径
 GET  /api/local/...                 本机 Agent、目录、MCP、保持在线、设备登录等（只对本机房主开放）
+POST /api/local/rooms/:room/clear    房主或获批管理设备清空房间
 GET  /ws                       WebSocket（发消息、调用状态回报、实时事件）
 POST /mcp                      Streamable HTTP MCP
 ```
+
+白板 `GET` 默认只返回当前事项；`?view=archived` 只返回归档，`?view=all` 返回两者，读取仍按房间隔离。归档／恢复请求为 `{ entries: [{ id, updatedAt }] }`，最多 200 条且 ID 不重复；房主权限、状态保护和版本校验全部通过才在同一事务写入，否则整批失败（400 参数错误、401 未认证、403 非房主、404 房间内不存在、409 活跃占用或版本冲突）。归档广播兼容旧客户端的 `whiteboard.removed`，附带可选 `archivedEntry` 供新客户端保存历史；恢复沿用 `whiteboard.updated`。旧数据库迁移仅增加可空 `archived_at`，已有条目保持当前。新网页历史删除带 `updatedAt`，已恢复或被更新的旧选择不能误删当前事项；旧客户端不带版本的删除保留兼容，但同样不能删除活跃／阻塞／工作区占用事项。
+
+清空接口为 `{ username, whiteboard?: "archive" | "keep", entries?: [{ id, updatedAt }] }`；默认 `archive`，`keep` 只清聊天与调用记录，不接受 `entries`。新网页提交清空前读取的完整当前白板版本，空白板提交空数组；新增、删除或更新导致集合／版本变化时返回 409，未做任何清理。旧客户端省略 `entries` 时仍对事务内完整当前白板检查保护。归档与删除聊天／调用、取消定时任务在同一数据库事务内完成，历史白板、用量账本和工作区登记不删除。受保护事项导致 409，必须先解决或显式选择 `keep`，不能静默跳过。每条归档沿用 `whiteboard.removed`，然后广播 `room.cleared`，可选 `whiteboardArchived` 用于新网页失效旧历史请求；旧事件没有该字段时保留原白板行为。
 
 受保护的 API 使用：
 

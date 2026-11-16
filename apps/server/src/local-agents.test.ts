@@ -275,6 +275,13 @@ describe("local agent routes", () => {
     expect(spawner.spawn).not.toHaveBeenCalled();
 
     // 申请 → 本机批准 → 12 小时内可管理
+    expect(
+      (
+        await call("POST", "/api/local/rooms/general/clear", {
+          payload: { username: "rd", whiteboard: "keep" },
+        })
+      ).json().code,
+    ).toBe("MANAGE_REQUIRED");
     const request = (await call("POST", "/api/local/manage-request")).json();
     expect(request).toMatchObject({
       approval: { kind: "manage", status: "pending" },
@@ -304,6 +311,11 @@ describe("local agent routes", () => {
     expect((await call("GET", "/api/local/session")).json().manageUntil).toEqual(
       expect.any(String),
     );
+    expect(
+      (
+        await call("POST", "/api/local/rooms/general/clear", { payload: { username: "absent" } })
+      ).json().code,
+    ).toBe("NOT_A_MEMBER");
     expect((await call("POST", "/api/local/agents", { payload: workspace })).statusCode).toBe(201);
 
     // 完全权限每次都要单独批准，批准单绑定这台设备和这次的参数、只能用一次

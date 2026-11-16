@@ -691,7 +691,7 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
     "hive_board_read",
     {
       title: "Read the Hive room whiteboard",
-      description: `读取房间 #${context.roomId} 的协作白板：ready（已就绪的契约/产出）、in_progress（进行中）、blocked（阻塞）、milestone（最近里程碑）。`,
+      description: `读取房间 #${context.roomId} 的当前协作白板：ready（已就绪的契约/产出）、in_progress（进行中）、blocked（阻塞）、milestone（最近里程碑）。不包含历史归档。`,
       // 只读工具：Claude Code 的 plan（只读档）模式只放行标了 readOnlyHint 的 MCP 工具
       annotations: { readOnlyHint: true },
       inputSchema: {},
@@ -713,7 +713,7 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
     {
       title: "Update the Hive room whiteboard",
       description:
-        "在协作白板上登记或更新一条事项。用同一个 key 推进同一件事（例如从 in_progress 移到 ready）。完成可交付成果、开始长任务或遇到阻塞时使用；不要用它代替聊天回复。",
+        "在协作白板上登记或更新一条事项。用同一个 key 推进同一件事（例如从 in_progress 移到 ready）；更新历史归档的 key 会恢复为当前事项。完成可交付成果、开始长任务或遇到阻塞时使用；不要用它代替聊天回复。",
       inputSchema: {
         key: z
           .string()
