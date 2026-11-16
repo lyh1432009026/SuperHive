@@ -29,7 +29,8 @@
   --border: rgb(0 0 0 / 0.1);
   --border-light: rgb(0 0 0 / 0.05);
   --border-heavy: rgb(0 0 0 / 0.15);
-  --focus-ring: rgb(1 105 204 / 0.45);
+  /* 只给键盘 Tab 导航用的中性灰框；鼠标点击、输入框都不画（见 base.css） */
+  --focus-ring: rgb(0 0 0 / 0.22);
 
   --accent: #0169cc;
   --accent-hover: #0158ad;
@@ -108,7 +109,7 @@
   --border: rgb(255 255 255 / 0.12);
   --border-light: rgb(255 255 255 / 0.06);
   --border-heavy: rgb(255 255 255 / 0.2);
-  --focus-ring: rgb(72 170 255 / 0.55);
+  --focus-ring: rgb(255 255 255 / 0.3);
 
   --accent: #48aaff;
   --accent-hover: #6cbaff;

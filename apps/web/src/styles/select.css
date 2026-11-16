@@ -23,7 +23,7 @@
 
 .select-trigger.open,
 .select-trigger:focus {
-  border-color: var(--accent);
+  border-color: var(--border-heavy);
 }
 
 .select-trigger:focus-visible {

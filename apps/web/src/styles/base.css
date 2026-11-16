@@ -55,13 +55,28 @@ button,
 a,
 input,
 textarea,
-select {
+select,
+summary,
+[contenteditable] {
   outline: none;
 }
 
-:is(button, a, input, textarea, select, [tabindex]):focus-visible {
+:is(button, a, input, textarea, select, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+}
+
+/*
+ * 文字输入框一点进去浏览器就算 focus-visible，会套一圈框；有光标就够了，不画外框，聚焦只让边框略深一点。
+ * 勾选框、单选框只在键盘 Tab 过来时才会是 focus-visible，保留灰框方便键盘用户看清位置。
+ */
+:is(
+  input:not([type="checkbox"], [type="radio"], [type="range"]),
+  textarea,
+  select,
+  [contenteditable]
+):focus-visible {
+  outline: none;
 }
 
 /*

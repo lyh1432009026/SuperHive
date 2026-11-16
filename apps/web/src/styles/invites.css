@@ -839,7 +839,7 @@
 }
 
 .model-picker-input:focus {
-  border-color: var(--accent);
+  border-color: var(--border-heavy);
   outline: none;
 }
 
