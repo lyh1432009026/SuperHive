@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// 必须最先加载：给 Node 24 自带 fetch 的 setTypeOfService 崩溃打补丁
+import "./socket-tos-guard.js";
 import { createRequire } from "module";
 import updateNotifier from "update-notifier";
 import { autostartCommand } from "./autostart.js";

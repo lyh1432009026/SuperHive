@@ -1,3 +1,5 @@
+// 必须最先加载：给 Node 24 自带 fetch 的 setTypeOfService 崩溃打补丁
+import "./socket-tos-guard.js";
 import { serverText } from "@superhive/protocol";
 import { errorText } from "./texts.js";
 import { existsSync, mkdirSync } from "node:fs";
