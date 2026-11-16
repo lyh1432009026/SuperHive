@@ -124,6 +124,7 @@ export type TraceStep = {
   kind: "text" | "thinking" | "tool";
   tool?: "read" | "write" | "search" | "command" | "collaboration" | "other";
   name?: string;
+  hiveProgress?: true;
   summary?: string;
   text?: string;
   status?: "running" | "ok" | "error";

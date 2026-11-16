@@ -1,5 +1,5 @@
 import { UsageAccumulator, codexBuckets } from "./usage.js";
-import { ThinkingTrace, redactTrace } from "./trace.js";
+import { ThinkingTrace, isHiveProgress, redactTrace } from "./trace.js";
 import type { AgentUsage, TraceStep } from "./hive-protocol.js";
 import { codexStartupFailure } from "./codex-errors.js";
 import { isMissingCodexThread } from "./codex-client.js";
@@ -344,6 +344,9 @@ function traceForItem(item: any, startedAt: string): TraceStep | undefined {
         kind: "tool",
         tool: item.server === "hive" ? "collaboration" : "other",
         name: `${item.server}.${item.tool}`,
+        ...(isHiveProgress(`${item.server}.${item.tool}`, item.arguments)
+          ? { hiveProgress: true as const }
+          : {}),
         summary: `${item.server}.${item.tool}`,
         status: "running",
       };

@@ -1,8 +1,62 @@
 import { describe, expect, it } from "vitest";
 import { ClaudeStream } from "./claude-stream.js";
-import type { RuntimeEvent } from "./hive-protocol.js";
+import type { RuntimeEvent, TraceStep } from "./hive-protocol.js";
 
 describe("Claude stream diagnostics", () => {
+  it("marks only explicit Hive progress calls for setup handoff", () => {
+    const steps: TraceStep[] = [];
+    const stream = new ClaudeStream(
+      () => undefined,
+      (step) => steps.push(step),
+    );
+    stream.push(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              id: "progress",
+              name: "mcp__hive__hive_message_send",
+              input: { progress: true },
+            },
+            {
+              type: "tool_use",
+              id: "ordinary",
+              name: "mcp__hive__hive_message_send",
+              input: { content: "progress: true" },
+            },
+            {
+              type: "tool_use",
+              id: "external",
+              name: "mcp__evil__hive_message_send",
+              input: { progress: true },
+            },
+          ],
+        },
+      }) + "\n",
+    );
+    stream.push(
+      JSON.stringify({
+        type: "user",
+        message: {
+          content: ["progress", "ordinary", "external"].map((id) => ({
+            type: "tool_result",
+            tool_use_id: id,
+            content: "ok",
+          })),
+        },
+      }) + "\n",
+    );
+    expect(steps.map((step) => step.hiveProgress)).toEqual([
+      true,
+      undefined,
+      undefined,
+      true,
+      undefined,
+      undefined,
+    ]);
+  });
   it("parses fragmented JSON, returns only the final result and emits no private content", () => {
     const events: RuntimeEvent[] = [];
     const stream = new ClaudeStream((e) => events.push(e));

@@ -1115,6 +1115,65 @@ describe("CodexAppServerResponder", () => {
     expect(isMutatingStep(steps[0]!)).toBe(true);
   });
 
+  it("marks Hive progress arguments without exposing the arguments in traces", async () => {
+    const handlers = defaultHandlers({
+      "turn/start": (message, server) => {
+        const threadId = message.params.threadId;
+        server.emit({ id: message.id, result: { turn: { id: "t" } } });
+        for (const item of [
+          {
+            id: "progress",
+            type: "mcpToolCall",
+            server: "hive",
+            tool: "hive_message_send",
+            arguments: { progress: true, content: "PRIVATE" },
+          },
+          {
+            id: "ordinary",
+            type: "mcpToolCall",
+            server: "hive",
+            tool: "hive_message_send",
+            arguments: { progress: false },
+          },
+          {
+            id: "external",
+            type: "mcpToolCall",
+            server: "evil",
+            tool: "hive_message_send",
+            arguments: { progress: true },
+          },
+        ]) {
+          server.emit({ method: "item/started", params: { threadId, turnId: "t", item } });
+          server.emit({
+            method: "item/completed",
+            params: {
+              threadId,
+              turnId: "t",
+              item: { ...item, arguments: undefined, status: "completed" },
+            },
+          });
+        }
+        server.emit({
+          method: "turn/completed",
+          params: { threadId, turn: { id: "t", status: "completed", items: [agentMessage("ok")] } },
+        });
+      },
+    });
+    const { responder } = setup(handlers);
+    const onTrace = vi.fn();
+    await responder.reply({ instructions: "r", prompt: "p", onTrace });
+    const steps = onTrace.mock.calls.map(([step]) => step as TraceStep);
+    expect(steps.map((step) => step.hiveProgress)).toEqual([
+      true,
+      true,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    expect(JSON.stringify(steps)).not.toContain("PRIVATE");
+  });
+
   it("latches unknown execution after process death instead of respawning for another turn", async () => {
     const { responder, servers, createTransport } = setup(
       defaultHandlers({ "turn/start": ok({ turn: { id: "t" } }) }),

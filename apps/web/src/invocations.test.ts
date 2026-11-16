@@ -137,6 +137,17 @@ describe("waiting for a human answer", () => {
     expect(invocationStatusLabel(waiting, true)).toBe("等你回答");
     expect(canCancelInvocation(waiting)).toBe(true);
   });
+
+  it("运行回合结束不关闭待答入口，取消或失败后才关闭", () => {
+    expect(waitingInvocationForQuestion(question, [{ ...waiting, finishedAt: now }])?.id).toBe(
+      "w1",
+    );
+    for (const status of ["completed", "failed", "cancelled"] as const) {
+      expect(
+        waitingInvocationForQuestion(question, [{ ...waiting, status, finishedAt: now }]),
+      ).toBeUndefined();
+    }
+  });
 });
 
 describe("isUpstreamInterrupted", () => {

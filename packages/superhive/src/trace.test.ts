@@ -4,6 +4,8 @@ import type { TraceStep } from "./hive-protocol.js";
 import {
   claudeToolSummary,
   isMutatingStep,
+  isHandoffSafeStep,
+  isHiveProgress,
   redactTrace,
   sanitizeTraceStep,
   THINKING_TEXT_STEPS_MAX,
@@ -118,6 +120,50 @@ describe("isMutatingStep", () => {
     summary,
     ...(name ? { name } : {}),
     startedAt: new Date().toISOString(),
+  });
+  it("allows preparation handoff without making its side effects replayable", () => {
+    for (const name of ["hive.hive_worktree_create", "mcp__hive__hive_board_update"]) {
+      const preparation = step("collaboration", name, name);
+      expect(isHandoffSafeStep(preparation)).toBe(true);
+      expect(isMutatingStep(preparation)).toBe(true);
+    }
+    const progress = {
+      ...step("collaboration", "progress", "hive.hive_message_send"),
+      hiveProgress: true as const,
+    };
+    expect(isHandoffSafeStep(progress)).toBe(true);
+    expect(isMutatingStep(progress)).toBe(true);
+    expect(sanitizeTraceStep(progress)).not.toHaveProperty("hiveProgress");
+    expect(isHandoffSafeStep(step("collaboration", "list", "hive.hive_worktree_list"))).toBe(true);
+    for (const name of [
+      "hive.hive_message_send",
+      "hive.hive_ask_human",
+      "hive.hive_invoke",
+      "evil.hive_worktree_create",
+      "mcp__evil__hive_board_update",
+    ]) {
+      expect(isHandoffSafeStep(step("collaboration", "progress: true", name))).toBe(false);
+    }
+    expect(isHandoffSafeStep(step("write", "file"))).toBe(false);
+    expect(isHandoffSafeStep(step("command", "git status"))).toBe(true);
+  });
+
+  it("identifies progress from strict tool arguments, not descriptions or other servers", () => {
+    expect(isHiveProgress("hive.hive_message_send", { progress: true })).toBe(true);
+    expect(isHiveProgress("mcp__hive__hive_message_send", '{"progress":true}')).toBe(true);
+    for (const input of [
+      undefined,
+      null,
+      "not JSON",
+      "true",
+      [],
+      { progress: "true" },
+      { progress: false },
+      { content: "progress: true" },
+    ]) {
+      expect(isHiveProgress("hive.hive_message_send", input)).toBe(false);
+    }
+    expect(isHiveProgress("evil.hive_message_send", { progress: true })).toBe(false);
   });
   it("treats reads, searches and plainly read-only commands as safe to re-run", () => {
     expect(isMutatingStep(step("read", "src/a.ts"))).toBe(false);

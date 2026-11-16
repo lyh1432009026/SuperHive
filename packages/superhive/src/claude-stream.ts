@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { AgentUsage, RuntimeEvent, TraceStep } from "./hive-protocol.js";
-import { ThinkingTrace, claudeToolSummary } from "./trace.js";
+import { ThinkingTrace, claudeToolSummary, isHiveProgress } from "./trace.js";
 import { UsageAccumulator, anthropicBuckets } from "./usage.js";
 
 type ObjectValue = Record<string, unknown>;
@@ -89,6 +89,7 @@ export class ClaudeStream {
           kind: "tool",
           tool: toolCategory(name),
           name,
+          ...(isHiveProgress(name, block.input) ? { hiveProgress: true as const } : {}),
           summary: claudeToolSummary(name, object(block.input) ?? {}),
           status: "running",
           startedAt: now,

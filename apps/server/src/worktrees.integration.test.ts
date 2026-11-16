@@ -5,8 +5,8 @@ import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { ChatMessage, ManagedWorktree, ServerEvent } from "@superhive/protocol";
-import { afterEach, describe, expect, it } from "vitest";
+import type { ChatMessage, Invocation, ManagedWorktree, ServerEvent } from "@superhive/protocol";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { HiveDatabase } from "./database.js";
 import { Peer } from "./test-peer.js";
@@ -27,10 +27,14 @@ async function nextEvent(peer: Peer, label: string, predicate: (event: ServerEve
   }
 }
 afterEach(async () => {
-  for (const step of cleanup.splice(0).reverse()) await step();
+  try {
+    for (const step of cleanup.splice(0).reverse()) await step();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
-async function start() {
+async function start(now?: () => number) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "hive-worktree-mcp-")));
   cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   const repo = path.join(root, "repo");
@@ -69,15 +73,24 @@ async function start() {
       kill: () => exit?.(0),
     };
   };
-  const app = await buildApp({
-    databasePath: filename,
-    token: "test-token",
-    staticDir: "/not-present",
-    localAgents: { cli: { command: "fake", args: [] }, serverUrl: "http://127.0.0.1", spawn },
-  });
+  const open = () =>
+    buildApp({
+      databasePath: filename,
+      token: "test-token",
+      staticDir: "/not-present",
+      localAgents: { cli: { command: "fake", args: [] }, serverUrl: "http://127.0.0.1", spawn },
+      ...(now ? { now, invocationSweepMs: 20 } : {}),
+    });
+  let app = await open();
   await app.listen({ host: "127.0.0.1", port: 0 });
   cleanup.push(() => app.close());
-  const port = (app.server.address() as AddressInfo).port;
+  let port = (app.server.address() as AddressInfo).port;
+  const restart = async () => {
+    await app.close();
+    app = await open();
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    port = (app.server.address() as AddressInfo).port;
+  };
   const join = async (name: string, type: "human" | "agent", token = "test-token") => {
     const peer = await Peer.connect(`ws://127.0.0.1:${port}/ws`);
     cleanup.push(() => peer.socket.close());
@@ -152,10 +165,236 @@ async function start() {
         event.invocation.status === "completed",
     );
   };
-  return { app, repo, git, join, mcp, run, finish };
+  return {
+    get app() {
+      return app;
+    },
+    repo,
+    git,
+    join,
+    mcp,
+    run,
+    finish,
+    restart,
+  };
 }
 
 describe("worktree MCP permissions and bindings", () => {
+  it("keeps an unfinished waiting turn's workspace valid and the finished question answerable after delay, restart and unrelated work", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const fixture = await start(Date.now);
+    let owner = await fixture.join("Alice", "human");
+    let helper = await fixture.join("helper", "agent");
+    const trigger = await fixture.run(owner, helper, "helper");
+    const call = await fixture.mcp("helper");
+    const created = await call("hive_worktree_create", { slug: "waiting" });
+    const worktree = created.structuredContent!.worktree as ManagedWorktree;
+    const headers = {
+      authorization: "Bearer test-token",
+      "x-hive-room": "general",
+      "x-hive-agent-name": "helper",
+    };
+    const validate = async (expected: number) => {
+      const single = await fixture.app.inject({
+        url: `/api/agent/worktree?messageId=${trigger.id}`,
+        headers,
+      });
+      const batch = await fixture.app.inject({
+        method: "POST",
+        url: "/api/agent/worktree",
+        headers,
+        payload: { messageIds: [trigger.id] },
+      });
+      expect(single.statusCode).toBe(expected);
+      expect(batch.statusCode).toBe(expected);
+      if (expected === 200) {
+        expect(single.json().worktree.path).toBe(worktree.path);
+        expect(batch.json().worktrees[trigger.id].path).toBe(worktree.path);
+      }
+    };
+    await validate(200);
+    const asked = await call("hive_ask_human", { question: "继续吗？", options: ["继续", "停止"] });
+    const questionId = asked.structuredContent!.questionMessageId as string;
+    const invocationId = asked.structuredContent!.invocationId as string;
+    await nextEvent(
+      owner,
+      "waiting",
+      (event) =>
+        event.type === "invocation.updated" &&
+        event.invocation.id === invocationId &&
+        event.invocation.status === "waiting_human",
+    );
+    await validate(200);
+    helper.send({ type: "invocation.report", messageId: trigger.id, status: "running" });
+    await validate(200);
+    vi.setSystemTime(Date.now() + 30 * 60_000);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await validate(200);
+    await fixture.join("reader", "agent");
+    for (const restricted of [
+      { ...headers, "x-forwarded-for": "203.0.113.1" },
+      { ...headers, "x-hive-agent-name": "reader" },
+    ]) {
+      expect(
+        (
+          await fixture.app.inject({
+            method: "POST",
+            url: "/api/agent/worktree",
+            headers: restricted,
+            payload: { messageIds: [trigger.id] },
+          })
+        ).statusCode,
+      ).toBe(403);
+    }
+    helper.send({ type: "invocation.report", messageId: trigger.id, status: "completed" });
+    await nextEvent(
+      owner,
+      "waiting turn finished",
+      (event) =>
+        event.type === "invocation.updated" &&
+        event.invocation.id === invocationId &&
+        Boolean(event.invocation.finishedAt),
+    );
+    await validate(409);
+    vi.setSystemTime(Date.now() + 30 * 60_000);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await fixture.restart();
+    owner = await fixture.join("Alice", "human");
+    helper = await fixture.join("helper", "agent");
+    const unrelated = await fixture.run(owner, helper, "helper", "different task");
+    const mixed = await fixture.app.inject({
+      method: "POST",
+      url: "/api/agent/worktree",
+      headers,
+      payload: { messageIds: [unrelated.id, trigger.id] },
+    });
+    expect(mixed.statusCode).toBe(409);
+    const inventory = await fixture.app.inject({ url: "/api/rooms/general/invocations", headers });
+    expect(
+      inventory.json().invocations.find((item: Invocation) => item.id === invocationId),
+    ).toMatchObject({ status: "waiting_human", finishedAt: expect.any(String) });
+    await fixture.finish(owner, helper, unrelated);
+    owner.send({
+      type: "question.answer",
+      clientMessageId: "answer-waiting",
+      questionMessageId: questionId,
+      selected: ["A"],
+    });
+    const woken = await nextEvent(
+      helper,
+      "answer wakes helper",
+      (event) =>
+        event.type === "agent.mentioned" && event.message.answer?.questionMessageId === questionId,
+    );
+    if (woken.type !== "agent.mentioned") throw new Error("No answer wakeup");
+    await nextEvent(
+      owner,
+      "old wait completed",
+      (event) =>
+        event.type === "invocation.updated" &&
+        event.invocation.id === invocationId &&
+        event.invocation.status === "completed",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    const answerInventory = await fixture.app.inject({
+      url: "/api/rooms/general/invocations",
+      headers,
+    });
+    expect(
+      answerInventory
+        .json()
+        .invocations.find((item: Invocation) => item.messageId === woken.message.id),
+    ).toMatchObject({ status: "queued" });
+    const answerWorkspace = await fixture.app.inject({
+      url: `/api/agent/worktree?messageId=${woken.message.id}`,
+      headers,
+    });
+    expect(answerWorkspace.statusCode).toBe(200);
+    expect(answerWorkspace.json().worktree.path).toBe(worktree.path);
+    const answerBatch = await fixture.app.inject({
+      method: "POST",
+      url: "/api/agent/worktree",
+      headers,
+      payload: { messageIds: [woken.message.id] },
+    });
+    expect(answerBatch.statusCode).toBe(200);
+    expect(answerBatch.json().worktrees[woken.message.id].path).toBe(worktree.path);
+    owner.send({
+      type: "question.answer",
+      clientMessageId: "duplicate-answer",
+      questionMessageId: questionId,
+      selected: ["B"],
+    });
+    const duplicate = await nextEvent(
+      owner,
+      "duplicate rejected",
+      (event) => event.type === "error",
+    );
+    expect(duplicate.type === "error" && duplicate.code).toBe("QUESTION_CLOSED");
+  }, 15_000);
+
+  it.each(["failed", "cancelled"] as const)(
+    "rejects workspace execution and answers after a waiting turn is %s",
+    async (status) => {
+      const { app, join, mcp, run } = await start();
+      const owner = await join("Alice", "human");
+      const helper = await join("helper", "agent");
+      const trigger = await run(owner, helper, "helper");
+      const call = await mcp("helper");
+      const asked = await call("hive_ask_human", {
+        question: "继续吗？",
+        options: ["继续", "停止"],
+      });
+      const invocationId = asked.structuredContent!.invocationId as string;
+      if (status === "cancelled") {
+        owner.send({ type: "invocation.cancel", invocationId });
+        await nextEvent(
+          owner,
+          "cancelling",
+          (event) =>
+            event.type === "invocation.updated" &&
+            event.invocation.id === invocationId &&
+            event.invocation.status === "cancelling",
+        );
+      }
+      helper.send({ type: "invocation.report", messageId: trigger.id, status });
+      await nextEvent(
+        owner,
+        "terminal waiting",
+        (event) =>
+          event.type === "invocation.updated" &&
+          event.invocation.id === invocationId &&
+          event.invocation.status === status,
+      );
+      const headers = {
+        authorization: "Bearer test-token",
+        "x-hive-room": "general",
+        "x-hive-agent-name": "helper",
+      };
+      expect(
+        (await app.inject({ url: `/api/agent/worktree?messageId=${trigger.id}`, headers }))
+          .statusCode,
+      ).toBe(409);
+      expect(
+        (
+          await app.inject({
+            method: "POST",
+            url: "/api/agent/worktree",
+            headers,
+            payload: { messageIds: [trigger.id] },
+          })
+        ).statusCode,
+      ).toBe(409);
+      owner.send({
+        type: "question.answer",
+        clientMessageId: "closed-answer",
+        questionMessageId: asked.structuredContent!.questionMessageId,
+        selected: ["A"],
+      });
+      const closed = await nextEvent(owner, "closed question", (event) => event.type === "error");
+      expect(closed.type === "error" && closed.code).toBe("QUESTION_CLOSED");
+    },
+  );
   it("finishes a bound wakeup only after a vanished checkout is verified and keeps unrelated work runnable", async () => {
     const { app, repo, git, join, mcp, run, finish } = await start();
     const owner = await join("Alice", "human");

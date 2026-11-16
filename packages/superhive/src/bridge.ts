@@ -36,7 +36,7 @@ import {
   type Snapshot,
 } from "./room-client.js";
 import { StateStore, type AgentState } from "./state-store.js";
-import { isMutatingStep, sanitizeTraceStep } from "./trace.js";
+import { isHandoffSafeStep, isMutatingStep, sanitizeTraceStep } from "./trace.js";
 import { readAgentSettings } from "./mcp-servers.js";
 import type { TraceStep } from "./hive-protocol.js";
 import { AttachmentCache } from "./attachment-cache.js";
@@ -1081,9 +1081,8 @@ export class AgentBridge {
             if (this.active !== active || active.controller.signal.aborted) return;
             if (isMutatingStep(step)) {
               active.mutated = true;
-              if (!/(?:^|[._])hive_(?:worktree_create|board_update)$/.test(step.name ?? ""))
-                handoffUnsafe = true;
             }
+            if (!isHandoffSafeStep(step)) handoffUnsafe = true;
             if (step.kind === "tool") active.toolUsed = true;
             const clean = sanitizeTraceStep(step);
             pendingTrace.set(clean.id, { ...pendingTrace.get(clean.id), ...clean });

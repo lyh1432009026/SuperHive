@@ -19,6 +19,18 @@ function renderOptions(spec: QuestionSpec, props: Partial<Parameters<typeof Ques
 }
 
 describe("QuestionOptions", () => {
+  it("显示持续待答提示；提交中、回答后和停止后不再提示", () => {
+    for (const props of [
+      {},
+      { pending: true },
+      { waiting: false },
+      { answer: { questionMessageId: "q", selected: ["A"] } },
+    ]) {
+      renderOptions({ options, multiple: false }, props);
+      expect(Boolean(screen.queryByText("等你回答"))).toBe(Object.keys(props).length === 0);
+      cleanup();
+    }
+  });
   it("单选点一下即提交；其它要填写后才能提交", () => {
     const onSubmit = renderOptions({ options, multiple: false }, {});
     fireEvent.click(screen.getByRole("button", { name: /先跑测试/ }));

@@ -57,8 +57,10 @@ export function traceText(value: string): string {
 
 /** 上报前统一脱敏、截断；各 Runtime 的解析只管拿到原始字段 */
 export function sanitizeTraceStep(step: TraceStep): TraceStep {
+  const reported = { ...step };
+  delete reported.hiveProgress;
   return {
-    ...step,
+    ...reported,
     id: step.id.slice(0, 120),
     ...(step.name ? { name: step.name.slice(0, 64) } : {}),
     ...(step.summary !== undefined ? { summary: traceSummary(step.summary) } : {}),
@@ -277,7 +279,40 @@ const readOnlyHiveTools = new Set([
   "hive_attachment_read",
   "hive_schedule_list",
   "hive_wait",
+  "hive_worktree_list",
 ]);
+
+function hiveToolName(name: string): string {
+  return name.replace(/^mcp__hive__/, "").replace(/^hive\./, "");
+}
+
+export function isHiveProgress(name: string, input: unknown): boolean {
+  if (hiveToolName(name) !== "hive_message_send") return false;
+  if (typeof input === "string") {
+    try {
+      input = JSON.parse(input);
+    } catch {
+      return false;
+    }
+  }
+  return (
+    input !== null &&
+    typeof input === "object" &&
+    !Array.isArray(input) &&
+    (input as Record<string, unknown>).progress === true
+  );
+}
+
+export function isHandoffSafeStep(step: TraceStep): boolean {
+  if (!isMutatingStep(step)) return true;
+  if (step.tool !== "collaboration") return false;
+  const name = hiveToolName(step.name ?? "");
+  return (
+    name === "hive_worktree_create" ||
+    name === "hive_board_update" ||
+    (name === "hive_message_send" && step.hiveProgress === true)
+  );
+}
 
 /**
  * 这一步可能有副作用吗（改文件、跑不明命令、发消息、调用外部工具……）？
@@ -292,7 +327,7 @@ export function isMutatingStep(step: TraceStep): boolean {
     case "command":
       return !readOnlyCommand(step.summary ?? "");
     case "collaboration": {
-      const tool = (step.name ?? "").replace(/^mcp__hive__/, "").replace(/^hive\./, "");
+      const tool = hiveToolName(step.name ?? "");
       return !readOnlyHiveTools.has(tool);
     }
     default:

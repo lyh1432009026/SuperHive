@@ -4252,7 +4252,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         if (
           !invocation ||
           invocation.resolution ||
-          !["queued", "running"].includes(invocation.status)
+          invocation.finishedAt ||
+          !["queued", "running", "waiting_human"].includes(invocation.status)
         ) {
           reply.code(409).send({ error: "An active task is required" });
           return undefined;

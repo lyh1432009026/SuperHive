@@ -154,6 +154,9 @@ export function QuestionOptions({
         </button>
       )}
       {pending && <span className="question-options-note">{t("正在提交…")}</span>}
+      {waiting && !answer && !pending && (
+        <span className="question-options-note">{t("等你回答")}</span>
+      )}
       {!waiting && !answer && !pending && (
         <span className="question-options-note">{t("已通过文字回答或已停止等待")}</span>
       )}
