@@ -2853,6 +2853,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     }
     if (report.status === "running") {
       if (isTerminal(invocation)) return;
+      // 人已收起的结果未知：不让迟到的进度、或 Agent 中断后自动恢复把它冲回执行中（最终结果照常落定）
+      if (invocation.status === "timed_out" && invocation.resolution) return;
       // 停止未确认前、或提问后等人回答期间的进度和心跳只更新运行观测，不把调用冲回 running
       if (invocation.status === "cancelling" || invocation.status === "waiting_human") {
         emitInvocation(

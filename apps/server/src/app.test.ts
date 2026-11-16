@@ -1103,6 +1103,61 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
     expect(error.type === "error" && error.code).toBe("INVOCATION_NOT_RETRYABLE");
   });
 
+  it("lets an agent resume its own interrupted call, but not one the human dismissed", async () => {
+    const { join } = await startRoom();
+    const { peer: alice } = await join("Alice", "human");
+    const { peer: agent } = await join("helper", "agent");
+    alice.send({ type: "message.send", clientMessageId: "resume", content: "@helper work" });
+    const mention = await agent.next((event) => event.type === "agent.mentioned");
+    const messageId = mention.type === "agent.mentioned" ? mention.message.id : "";
+    const queued = invocationOf(await alice.next((event) => event.type === "invocation.updated"));
+    agent.send({ type: "invocation.report", messageId, status: "running" });
+    await alice.next(
+      (event) => event.type === "invocation.updated" && event.invocation.status === "running",
+    );
+    // 服务端判了超时（Agent 进程退出期间没有进度）
+    agent.send({ type: "invocation.report", messageId, status: "uncertain", detail: "gone" });
+    await alice.next(
+      (event) => event.type === "invocation.updated" && event.invocation.status === "timed_out",
+    );
+    // 同一 Agent 重启后确认那一轮没有副作用，自动重跑：回到执行中，人此时不能再点重试
+    agent.send({
+      type: "invocation.report",
+      messageId,
+      status: "running",
+      detail: "中断后自动恢复",
+      detailText: { key: "bridge.crashResumed", params: { count: 1, limit: 2 } },
+    });
+    expect(
+      invocationOf(
+        await alice.next(
+          (event) => event.type === "invocation.updated" && event.invocation.status === "running",
+        ),
+      ),
+    ).toMatchObject({ detailText: { key: "bridge.crashResumed" } });
+    alice.send({ type: "invocation.retry", invocationId: queued.id });
+    const refused = await alice.next((event) => event.type === "error");
+    expect(refused.type === "error" && refused.code).toBe("INVOCATION_NOT_RETRYABLE");
+
+    // 人收起了结果未知之后，迟到的 running 不再把它冲回执行中
+    agent.send({ type: "invocation.report", messageId, status: "uncertain", detail: "gone again" });
+    await alice.next(
+      (event) => event.type === "invocation.updated" && event.invocation.status === "timed_out",
+    );
+    alice.send({ type: "invocation.dismiss", invocationIds: [queued.id] });
+    await alice.next(
+      (event) =>
+        event.type === "invocation.updated" && event.invocation.resolution?.kind === "dismissed",
+    );
+    agent.send({ type: "invocation.report", messageId, status: "running", progress: "late" });
+    await expect(
+      alice.next(
+        (event) => event.type === "invocation.updated" && event.invocation.status === "running",
+        200,
+      ),
+    ).rejects.toThrow();
+  });
+
   it("does not dispatch mentions from a reply that arrives after a stop request", async () => {
     const { join } = await startRoom();
     const { peer: alice } = await join("Alice", "human");
