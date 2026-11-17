@@ -394,6 +394,103 @@ describe("App mention autocomplete", () => {
     await waitFor(() => expect(document.activeElement?.tagName).toBe("TEXTAREA"));
   });
 
+  it("keeps members ordered by last activity across snapshots and presence updates", async () => {
+    localStorage.setItem("superhive.username", "Alice");
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = {
+      ...participant("00000000-0000-4000-8000-000000000001", "Alice", "human"),
+      lastSeenAt: "2026-11-17T10:00:01.000Z",
+    };
+    const busy = {
+      ...participant("00000000-0000-4000-8000-000000000002", "alpha", "agent"),
+      status: "busy" as const,
+      lastSeenAt: "2026-11-17T10:00:00.000Z",
+    };
+    const recent = {
+      ...participant("00000000-0000-4000-8000-000000000003", "zulu", "agent"),
+      lastSeenAt: "2026-11-17T10:00:02.000Z",
+    };
+    const offline = {
+      ...participant("00000000-0000-4000-8000-000000000004", "offline-old", "agent"),
+      status: "offline" as const,
+      lastSeenAt: "2026-11-17T09:00:00.000Z",
+    };
+    const offlineRecent = {
+      ...participant("00000000-0000-4000-8000-000000000005", "offline-new", "agent"),
+      status: "offline" as const,
+      lastSeenAt: "2026-11-17T10:00:03.000Z",
+    };
+    const snapshot = (members: Participant[]) =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: members,
+        messages: [],
+        latestSeq: 0,
+      });
+    const memberNames = () =>
+      [...document.querySelectorAll("#side-panel-members .member-copy strong")].map(
+        (element) => element.textContent,
+      );
+
+    act(() => snapshot([busy, self, recent, offline, offlineRecent]));
+    expect(memberNames()).toEqual(["zulu", "Alice", "alpha", "offline-new", "offline-old"]);
+
+    const activeSelf = { ...self, lastSeenAt: "2026-11-17T10:00:03.500Z" };
+    const message: ChatMessage = {
+      id: "00000000-0000-4000-8000-000000000007",
+      seq: 1,
+      roomId: self.roomId,
+      senderId: self.id,
+      senderName: self.username,
+      senderType: self.type,
+      content: "hello",
+      mentions: [],
+      traceId: "00000000-0000-4000-8000-000000000008",
+      hopCount: 0,
+      clientMessageId: "message-activity",
+      createdAt: activeSelf.lastSeenAt,
+    };
+    act(() => {
+      socket.serverEvent({ type: "message.created", message });
+      socket.serverEvent({ type: "presence.changed", participant: activeSelf });
+    });
+    expect(memberNames()).toEqual(["Alice", "zulu", "alpha", "offline-new", "offline-old"]);
+
+    const active = { ...busy, lastSeenAt: "2026-11-17T10:00:04.000Z" };
+    act(() => socket.serverEvent({ type: "presence.changed", participant: active }));
+    expect(memberNames()).toEqual(["alpha", "Alice", "zulu", "offline-new", "offline-old"]);
+
+    const newcomer = {
+      ...participant("00000000-0000-4000-8000-000000000006", "beta", "agent"),
+      lastSeenAt: active.lastSeenAt,
+    };
+    act(() => socket.serverEvent({ type: "presence.changed", participant: newcomer }));
+    expect(memberNames()).toEqual(["alpha", "beta", "Alice", "zulu", "offline-new", "offline-old"]);
+
+    const disconnected = {
+      ...active,
+      status: "offline" as const,
+      lastSeenAt: "2026-11-17T10:00:05.000Z",
+    };
+    act(() => socket.serverEvent({ type: "presence.changed", participant: disconnected }));
+    expect(memberNames()).toEqual(["beta", "Alice", "zulu", "alpha", "offline-new", "offline-old"]);
+
+    const reconnected = {
+      ...offline,
+      status: "online" as const,
+      lastSeenAt: "2026-11-17T10:00:06.000Z",
+    };
+    act(() => socket.serverEvent({ type: "presence.changed", participant: reconnected }));
+    const expected = ["offline-old", "beta", "Alice", "zulu", "alpha", "offline-new"];
+    expect(memberNames()).toEqual(expected);
+    act(() => snapshot([activeSelf, recent, disconnected, newcomer, offlineRecent, reconnected]));
+    expect(memberNames()).toEqual(expected);
+  });
+
   it("removes expired worktree notices without dismissing a newer batch", async () => {
     localStorage.setItem("superhive.username", "Alice");
     localStorage.setItem("superhive.notify-prompt-dismissed", "true");

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LIMITS, type Participant } from "@superhive/protocol";
+import { LIMITS, serverText, type Participant } from "@superhive/protocol";
 import Database from "better-sqlite3";
 import { HiveDatabase, HiveError } from "./database.js";
 
@@ -47,11 +47,157 @@ describe("HiveDatabase", () => {
     expect(claude).toMatchObject({ provider: "claude", persona: "代码审查" });
   });
 
+  it("lists participants by last activity regardless of status or type", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-11-17T10:00:00.000Z"));
+      db.setParticipantStatus(agentA.id, "busy");
+      vi.setSystemTime(new Date("2026-11-17T10:00:01.000Z"));
+      db.setParticipantStatus(human.id, "online");
+      vi.setSystemTime(new Date("2026-11-17T10:00:02.000Z"));
+      db.setParticipantStatus(agentB.id, "offline");
+      db.upsertParticipant({ roomId: "other", username: "newest", type: "agent" });
+
+      expect(db.listParticipants("general").map((entry) => entry.id)).toEqual([
+        agentB.id,
+        human.id,
+        agentA.id,
+      ]);
+
+      vi.setSystemTime(new Date("2026-11-17T10:00:03.000Z"));
+      db.upsertParticipant({ roomId: "general", username: "agent-a", type: "agent" });
+      expect(db.listParticipants("general").map((entry) => entry.id)).toEqual([
+        agentA.id,
+        agentB.id,
+        human.id,
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses case-insensitive names to break equal last activity timestamps", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-11-17T10:00:00.000Z"));
+      db.setParticipantStatus(human.id, "busy");
+      db.setParticipantStatus(agentB.id, "online");
+      db.setParticipantStatus(agentA.id, "offline");
+
+      expect(db.listParticipants("general").map((entry) => entry.username)).toEqual([
+        "agent-a",
+        "agent-b",
+        "Alice",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("assigns strictly increasing seq values and supports afterSeq", () => {
     const first = db.createMessage(human, { content: "one", clientMessageId: "one" }).message;
     const second = db.createMessage(human, { content: "two", clientMessageId: "two" }).message;
     expect(second.seq).toBeGreaterThan(first.seq);
     expect(db.getMessages("general", first.seq).map((message) => message.id)).toEqual([second.id]);
+  });
+
+  it("updates last activity for new messages without changing participant status", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-11-17T10:00:00.000Z"));
+      db.setParticipantStatus(human.id, "online");
+      db.setParticipantStatus(agentA.id, "busy");
+      vi.setSystemTime(new Date("2026-11-17T10:01:00.000Z"));
+      db.setParticipantStatus(agentB.id, "online");
+
+      vi.setSystemTime(new Date("2026-11-17T10:05:00.000Z"));
+      const first = db.createMessage(human, {
+        content: "hello",
+        clientMessageId: "activity-human",
+      });
+      expect(db.getParticipant(human.id)?.lastSeenAt).toBe(first.message.createdAt);
+      expect(db.listParticipants("general")[0]?.id).toBe(human.id);
+
+      vi.setSystemTime(new Date("2026-11-17T10:06:00.000Z"));
+      const reply = db.createMessage(agentA, {
+        content: "working",
+        parentMessageId: first.message.id,
+        clientMessageId: "activity-agent",
+        kind: "progress",
+      });
+      expect(db.getParticipant(agentA.id)).toMatchObject({
+        status: "busy",
+        lastSeenAt: reply.message.createdAt,
+      });
+      expect(db.listParticipants("general")[0]?.id).toBe(agentA.id);
+
+      vi.setSystemTime(new Date("2026-11-17T10:07:00.000Z"));
+      expect(
+        db.createMessage(human, { content: "retry", clientMessageId: "activity-human" }).created,
+      ).toBe(false);
+      expect(() =>
+        db.createMessage(human, { content: "", clientMessageId: "activity-empty" }),
+      ).toThrowError(HiveError);
+      expect(db.getParticipant(human.id)?.lastSeenAt).toBe(first.message.createdAt);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rolls back the message and last activity if attachment binding fails", () => {
+    const before = db.getParticipant(human.id)?.lastSeenAt;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-11-17T10:05:00.000Z"));
+      expect(() =>
+        db.createMessage(human, {
+          content: "attachment",
+          clientMessageId: "activity-rollback",
+          onInsert: () => {
+            throw new Error("binding failed");
+          },
+        }),
+      ).toThrowError("binding failed");
+      expect(db.findMessageByClientId(human.id, "activity-rollback")).toBeUndefined();
+      expect(db.getParticipant(human.id)?.lastSeenAt).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["receipt", "schedule", "topic"] as const)(
+    "does not count server-generated %s messages as participant activity",
+    (kind) => {
+      const before = db.getParticipant(human.id)?.lastSeenAt;
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        vi.setSystemTime(new Date("2026-11-17T10:05:00.000Z"));
+        db.createMessage(human, {
+          content: "generated",
+          clientMessageId: `activity-${kind}`,
+          kind,
+        });
+        expect(db.getParticipant(human.id)?.lastSeenAt).toBe(before);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("does not attribute system-forwarded text to the participant's activity", () => {
+    const before = db.getParticipant(human.id)?.lastSeenAt;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-11-17T10:05:00.000Z"));
+      db.createMessage(human, {
+        content: "generated",
+        text: serverText("topic.started", { name: human.username }),
+        clientMessageId: "activity-forwarded",
+      });
+      expect(db.getParticipant(human.id)?.lastSeenAt).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("makes clientMessageId idempotent", () => {

@@ -1274,6 +1274,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (!result.created) return result;
     const message = result.message;
     broadcast(participant.roomId, { type: "message.created", message });
+    if (result.participant) {
+      for (const connection of connections) {
+        if (connection.participant?.id === result.participant.id)
+          connection.participant = result.participant;
+      }
+      broadcast(participant.roomId, {
+        type: "presence.changed",
+        participant: withAccess(result.participant),
+      });
+    }
     broadcastRoomActivity(participant.roomId);
     imHub.onMessageCreated(message);
     if (message.kind === "topic") {
@@ -3256,7 +3266,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     },
     extendBudget: (owner, turns) => extendBudget(owner, turns),
     invocationsFor: (messageId) => database.invocationsForMessage(messageId),
-    participants: (roomId) => participantsOf(roomId),
+    participants: (roomId) => {
+      const statusOrder = { busy: 0, online: 1, offline: 2 } as const;
+      return participantsOf(roomId).sort((left, right) => {
+        const statusDifference = statusOrder[left.status] - statusOrder[right.status];
+        if (statusDifference !== 0) return statusDifference;
+        const leftName = left.username.toLocaleLowerCase();
+        const rightName = right.username.toLocaleLowerCase();
+        return leftName < rightName ? -1 : leftName > rightName ? 1 : 0;
+      });
+    },
     roomTasks: (roomId) => {
       const invocations = database.listInvocations(roomId);
       return {

@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import {
   LIMITS,
+  sortParticipantsByLastSeen,
   parseMentions,
   stripUnsafeCharacters,
   messageViaSchema,
@@ -332,7 +333,11 @@ export type CreateMessageInput = {
   onInsert?: (messageId: string) => void;
 };
 
-export type CreateMessageResult = { message: ChatMessage; created: boolean };
+export type CreateMessageResult = {
+  message: ChatMessage;
+  created: boolean;
+  participant?: Participant;
+};
 
 function mapParticipant(row: ParticipantRow): Participant {
   return {
@@ -1100,11 +1105,9 @@ export class HiveDatabase {
 
   listParticipants(roomId: string): Participant[] {
     const rows = this.db
-      .prepare(
-        "SELECT * FROM participants WHERE room_id = ? ORDER BY CASE status WHEN 'busy' THEN 0 WHEN 'online' THEN 1 ELSE 2 END, username_key",
-      )
+      .prepare("SELECT * FROM participants WHERE room_id = ?")
       .all(roomId) as ParticipantRow[];
-    return rows.map(mapParticipant);
+    return sortParticipantsByLastSeen(rows.map(mapParticipant));
   }
 
   setParticipantStatus(id: string, status: ParticipantStatus): Participant {
@@ -1340,11 +1343,26 @@ export class HiveDatabase {
               })
             : null,
         );
-    this.db.transaction(() => {
+    const participant = this.db.transaction(() => {
       insert();
       input.onInsert?.(id);
+      if (
+        input.text ||
+        input.kind === "receipt" ||
+        input.kind === "schedule" ||
+        input.kind === "topic"
+      )
+        return undefined;
+      this.db
+        .prepare("UPDATE participants SET last_seen_at = ? WHERE id = ?")
+        .run(createdAt, sender.id);
+      return this.getParticipant(sender.id);
     })();
-    return { message: this.getMessage(id)!, created: true };
+    return {
+      message: this.getMessage(id)!,
+      created: true,
+      ...(participant ? { participant } : {}),
+    };
   }
 
   findMessageByClientId(senderId: string, clientMessageId: string): ChatMessage | undefined {

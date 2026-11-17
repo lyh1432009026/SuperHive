@@ -14,6 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import { WorktreePanel } from "./worktree-panel";
+import { sortParticipantsByLastSeen } from "@superhive/protocol";
 import type {
   ChatMessage,
   Invocation,
@@ -2496,7 +2497,7 @@ export function App({
           participantStatusRef.current = new Map(
             event.participants.map((participant) => [participant.id, participant.status]),
           );
-          setParticipants(event.participants);
+          setParticipants(sortParticipantsByLastSeen(event.participants));
           setMessages((current) => mergeMessages(current, event.messages));
           setMessagesLoaded(true);
           // 快照里的调用与白板是服务端当前全集，直接替换（重连期间的变化也一并对齐）
@@ -2646,7 +2647,7 @@ export function App({
           setParticipants((current) => {
             const byId = new Map(current.map((participant) => [participant.id, participant]));
             byId.set(event.participant.id, event.participant);
-            return [...byId.values()];
+            return sortParticipantsByLastSeen([...byId.values()]);
           });
           if (
             notificationPreferencesRef.current.presenceNotifications &&

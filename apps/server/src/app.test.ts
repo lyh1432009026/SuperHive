@@ -9,6 +9,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   LIMITS,
   type Invocation,
+  type Participant,
   type ServerEvent,
   type WhiteboardEntry,
 } from "@superhive/protocol";
@@ -231,6 +232,82 @@ describe("Hive WebSocket protocol", () => {
     });
     expect(JSON.stringify(messages.structuredContent)).toContain("请检查");
     await client.close();
+  });
+
+  it("broadcasts new message activity without counting heartbeats, replays or system messages", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-11-17T10:00:00.000Z"));
+      const app = await buildApp({
+        databasePath: ":memory:",
+        token: "test-token",
+        staticDir: "/definitely-not-present",
+      });
+      await app.listen({ host: "127.0.0.1", port: 0 });
+      closeApp = () => app.close();
+      const port = (app.server.address() as AddressInfo).port;
+      const join = async (username: string) => {
+        const peer = await TestPeer.connect(`ws://127.0.0.1:${port}/ws`);
+        peers.push(peer);
+        peer.send({
+          type: "participant.join",
+          username,
+          participantType: "human",
+          roomId: "general",
+          token: "test-token",
+        });
+        await peer.next((event) => event.type === "room.snapshot");
+        return peer;
+      };
+      const participants = async () => {
+        const response = await app.inject({
+          method: "GET",
+          url: "/api/rooms/general/participants",
+          headers: { Authorization: "Bearer test-token" },
+        });
+        return (response.json() as { participants: Participant[] }).participants;
+      };
+      const alice = await join("Alice");
+      vi.setSystemTime(new Date("2026-11-17T10:01:00.000Z"));
+      const bob = await join("Bob");
+      expect((await participants()).map((member) => member.username)).toEqual(["Bob", "Alice"]);
+
+      vi.setSystemTime(new Date("2026-11-17T10:05:00.000Z"));
+      const message = { type: "message.send", clientMessageId: "new-activity", content: "hello" };
+      alice.send(message);
+      await alice.next((event) => event.type === "message.created");
+      const changed = await bob.next(
+        (event) =>
+          event.type === "presence.changed" &&
+          event.participant.username === "Alice" &&
+          event.participant.lastSeenAt === "2026-11-17T10:05:00.000Z",
+      );
+      expect(changed.type === "presence.changed" && changed.participant.status).toBe("online");
+      expect((await participants()).map((member) => member.username)).toEqual(["Alice", "Bob"]);
+
+      vi.setSystemTime(new Date("2026-11-17T10:06:00.000Z"));
+      alice.send({ type: "presence.heartbeat" });
+      alice.send(message);
+      await alice.next((event) => event.type === "message.created");
+      await expect(
+        bob.next(
+          (event) =>
+            event.type === "presence.changed" &&
+            event.participant.username === "Alice" &&
+            event.participant.lastSeenAt === "2026-11-17T10:06:00.000Z",
+          50,
+        ),
+      ).rejects.toThrow(/timed out/i);
+
+      vi.setSystemTime(new Date("2026-11-17T10:07:00.000Z"));
+      alice.send({ type: "topic.start" });
+      await alice.next(
+        (event) => event.type === "message.created" && event.message.kind === "topic",
+      );
+      expect((await participants())[0]?.lastSeenAt).toBe("2026-11-17T10:05:00.000Z");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shares a human identity across tabs while keeping Agent names unique", async () => {
