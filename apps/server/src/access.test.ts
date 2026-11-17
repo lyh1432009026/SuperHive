@@ -211,7 +211,9 @@ describe("限时邀请与访客会话", () => {
     expect(
       members
         .filter((member) => member.access)
-        .map((member) => [member.username, member.status, member.access?.revoked]),
+        .map((member) => [member.username, member.status, member.access?.revoked])
+        // 成员按最后活跃排序，两人被断开的先后不固定：这里只核对内容
+        .sort(([left], [right]) => String(left).localeCompare(String(right))),
     ).toEqual([
       ["alice", "offline", true],
       ["bob", "offline", true],
