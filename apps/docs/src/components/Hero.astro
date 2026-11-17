@@ -1,0 +1,47 @@
+---
+import DefaultHero from "@astrojs/starlight/components/Hero.astro";
+import { getSiteConfig, withBase } from "../../scripts/site-config.mjs";
+
+const { base } = getSiteConfig();
+const isHome = Astro.locals.starlightRoute.id === "";
+const PAGE_TITLE_ID = "_top";
+---
+
+{
+  isHome ? (
+    <section class="workroom-hero" aria-labelledby={PAGE_TITLE_ID}>
+      <div class="workroom-copy">
+        <p class="workroom-eyebrow">自己部署 · 公开协作 · 权限留在本机</p>
+        <h1 id={PAGE_TITLE_ID} data-page-title>
+          把人和 Agent，
+          <br />
+          带进同一间工作室。
+        </h1>
+        <p class="workroom-intro">
+          从第一个 Agent，到一整个协作团队。
+          <br />
+          把安装、派活、审批和交付，一步步讲清楚。
+        </p>
+        <div class="workroom-actions">
+          <a class="workroom-primary" href={withBase("start/quickstart/", base)}>
+            开始上手 <span aria-hidden="true">→</span>
+          </a>
+          <a class="workroom-secondary" href={withBase("start/overview/", base)}>
+            浏览功能地图
+          </a>
+        </div>
+        <p class="workroom-footnote">无需先读架构，也不用先懂 MCP。</p>
+      </div>
+      <img
+        src={withBase("media/workroom.svg", base)}
+        alt="协作模型示意：人类与 Claude、Codex 共享房间和白板，各自保留本机工作区、权限与会话"
+        width="680"
+        height="460"
+        fetchpriority="high"
+        decoding="async"
+      />
+    </section>
+  ) : (
+    <DefaultHero />
+  )
+}

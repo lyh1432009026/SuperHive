@@ -1,0 +1,145 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="840"
+  height="860"
+  viewBox="0 0 840 860"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">真实用量、费用估算与对话预算示意</title>
+  <desc id="desc">
+    Runtime 返回的 token 分为未缓存输入、缓存写入、缓存读取和输出，按模型价格或 Runtime
+    自报费用估算；未记录不是免费。Agent
+    连续转交预算独立于费用，不是美元硬上限。示意图不是实际统计截图。
+  </desc>
+  <defs>
+    <marker
+      id="arrow"
+      viewBox="0 0 10 10"
+      refX="8"
+      refY="5"
+      markerWidth="8"
+      markerHeight="8"
+      orient="auto-start-reverse"
+    >
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5d5d5d" />
+    </marker>
+  </defs>
+  <rect width="840" height="860" rx="24" fill="#f9f9f9" />
+  <g
+    font-family="system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif"
+    fill="#0d0d0d"
+  >
+    <text x="38" y="58" font-size="32" font-weight="700">计量、估算、预算：不是同一件事</text>
+    <text x="38" y="98" font-size="24" fill="#5d5d5d">原创计量示意 · 非实际统计截图</text>
+    <rect
+      x="38"
+      y="128"
+      width="764"
+      height="98"
+      rx="16"
+      fill="#e6f0fa"
+      stroke="#93bde5"
+      stroke-width="2"
+    />
+    <text x="420" y="168" font-size="28" font-weight="700" text-anchor="middle">
+      Runtime 报告真实 token 用量
+    </text>
+    <text x="420" y="207" font-size="25" text-anchor="middle">
+      失败、停止或结果未知也可能已产生消耗
+    </text>
+    <path
+      d="M 420 236 V 260"
+      fill="none"
+      stroke="#5d5d5d"
+      stroke-width="3"
+      marker-end="url(#arrow)"
+    />
+    <rect
+      x="38"
+      y="274"
+      width="372"
+      height="64"
+      rx="12"
+      fill="#ffffff"
+      stroke="#e8e8e8"
+      stroke-width="2"
+    />
+    <text x="224" y="316" font-size="27" text-anchor="middle">未缓存输入</text>
+    <rect
+      x="430"
+      y="274"
+      width="372"
+      height="64"
+      rx="12"
+      fill="#ffffff"
+      stroke="#e8e8e8"
+      stroke-width="2"
+    />
+    <text x="616" y="316" font-size="27" text-anchor="middle">缓存写入</text>
+    <rect
+      x="38"
+      y="354"
+      width="372"
+      height="64"
+      rx="12"
+      fill="#ffffff"
+      stroke="#e8e8e8"
+      stroke-width="2"
+    />
+    <text x="224" y="396" font-size="27" text-anchor="middle">缓存读取</text>
+    <rect
+      x="430"
+      y="354"
+      width="372"
+      height="64"
+      rx="12"
+      fill="#ffffff"
+      stroke="#e8e8e8"
+      stroke-width="2"
+    />
+    <text x="616" y="396" font-size="27" text-anchor="middle">输出</text>
+    <path
+      d="M 420 428 V 452"
+      fill="none"
+      stroke="#5d5d5d"
+      stroke-width="3"
+      marker-end="url(#arrow)"
+    />
+    <rect
+      x="38"
+      y="466"
+      width="764"
+      height="132"
+      rx="16"
+      fill="#e8f5ef"
+      stroke="#94c5b1"
+      stroke-width="2"
+    />
+    <text x="420" y="505" font-size="28" font-weight="700" text-anchor="middle">
+      按价格估算；无价格时尝试 Runtime 自报费用
+    </text>
+    <text x="420" y="546" font-size="25" text-anchor="middle">价格与提醒设置仅存当前浏览器</text>
+    <text x="420" y="582" font-size="25" text-anchor="middle">
+      未记录 ≠ 免费 · 账单以模型服务为准
+    </text>
+    <path d="M 38 632 H 802" fill="none" stroke="#e8e8e8" stroke-width="2" stroke-dasharray="8 8" />
+    <rect
+      x="38"
+      y="664"
+      width="764"
+      height="146"
+      rx="16"
+      fill="#fff5e7"
+      stroke="#d4b685"
+      stroke-width="2"
+    />
+    <text x="420" y="706" font-size="28" font-weight="700" text-anchor="middle">
+      独立的 Agent 连续转交预算
+    </text>
+    <text x="420" y="751" font-size="25" text-anchor="middle">人不参与时限制 Agent 互相唤醒</text>
+    <text x="420" y="791" font-size="25" text-anchor="middle">
+      追加轮数 ≠ 增加美元额度 · 提醒不是费用硬上限
+    </text>
+  </g>
+</svg>

@@ -50,7 +50,7 @@ npx --yes superhive@latest start
 
 ### 3. 接入第一个 Agent
 
-在右侧成员列表下方点「接入 Agent」，点一下要接入的 Agent，再点一下权限档位（默认工作区档），每点一下就进下一步：
+在右侧成员列表下方点「接入 Agent」，选择要接入的 Agent 后手动点「下一步」，选择权限档位（默认工作区档）后再点「下一步」。最后核对名称、工作目录和接入方式：
 
 - Server 就在这台电脑上：点「在本机启动」，Server 在后台拉起 Agent，之后 Server 重启也会自动恢复。
 - Agent 在另一台电脑上：点「复制命令」，到那台电脑的终端运行，命令里已经带好 Server 地址、Agent 名称和 Token：
@@ -77,6 +77,7 @@ npx --yes superhive@latest restart     # 更新到最新版并重启，沿用原
 
 ## 接下来看
 
+- [独立图文文档站](apps/docs/README.md)：安装与快速上手、日常功能、Agent 协作和部署参考；可独立构建与发布，不需要启动 Hive Server。
 - [日常使用](docs/usage.md)：邀请其他人、房主在其他设备上登录、飞书和微信、Agent 权限、跟踪停止和重试、插话、委派和白板、定时任务、附件、用量、保持在线、开机自启、局域网和公网、常见问题。
 - [开发者文档](docs/development.md)：架构、从仓库运行、CLI 参数、环境变量、MCP 工具和 HTTP API、防循环和可靠性、安全边界。
 - [给 Agent 的协作说明](skills/superhive/SKILL.md)：`hive --skill` 打印同一份，可以装进终端里单独运行的 Claude Code、Codex 等，让它们知道怎么接入 Hive。

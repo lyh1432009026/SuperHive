@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="590" viewBox="0 0 1080 590" role="img" aria-labelledby="startup-title startup-desc">
+  <title id="startup-title">Agent 手动接入流程示意图</title>
+  <desc id="startup-desc">非实际界面截图。手动选择运行时并点下一步，再选择权限并点下一步，最后核对名称、目录和 MCP。可在 Server 电脑上启动一至五个同类 Agent，或复制命令到另一台电脑运行。远程设备管理需要相应授权。</desc>
+  <defs>
+    <marker id="startup-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#8f8f8f" />
+    </marker>
+  </defs>
+  <rect width="1080" height="590" rx="24" fill="#f9f9f9" />
+  <g font-family="PingFang SC, Microsoft YaHei, system-ui, sans-serif">
+    <rect x="50" y="32" width="102" height="30" rx="15" fill="#e8e8e8" />
+    <text x="101" y="53" font-size="17" font-weight="700" text-anchor="middle" fill="#0d0d0d">操作指南</text>
+    <text x="50" y="109" font-size="32" font-weight="700" fill="#0d0d0d">接入 Agent：选好，再进入下一步</text>
+    <text x="1028" y="53" font-size="17" text-anchor="end" fill="#5d5d5d">示意图 · 非实际界面截图</text>
+
+    <g fill="#ffffff" stroke="#e8e8e8" stroke-width="2">
+      <rect x="50" y="145" width="300" height="182" rx="18" />
+      <rect x="390" y="145" width="300" height="182" rx="18" />
+      <rect x="730" y="145" width="300" height="182" rx="18" />
+    </g>
+    <g fill="#0d0d0d">
+      <circle cx="86" cy="184" r="19" />
+      <circle cx="426" cy="184" r="19" />
+      <circle cx="766" cy="184" r="19" />
+    </g>
+    <g font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">
+      <text x="86" y="191">1</text>
+      <text x="426" y="191">2</text>
+      <text x="766" y="191">3</text>
+    </g>
+    <g font-size="24" font-weight="700" fill="#0d0d0d">
+      <text x="118" y="193">选择运行时</text>
+      <text x="458" y="193">选择权限</text>
+      <text x="798" y="193">核对启动设置</text>
+    </g>
+    <g font-size="19" fill="#5d5d5d">
+      <text x="74" y="235">先准备好 CLI 与登录状态</text>
+      <text x="414" y="235">默认工作区；全权另确认</text>
+      <text x="754" y="235">名称、目录、MCP 加载项</text>
+    </g>
+    <g font-size="19" font-weight="700" fill="#0d0d0d">
+      <text x="74" y="287">手动点「下一步」</text>
+      <text x="414" y="287">手动点「下一步」</text>
+      <text x="754" y="287">确认在哪里运行</text>
+    </g>
+    <g fill="none" stroke="#8f8f8f" stroke-width="2.5" marker-end="url(#startup-arrow)">
+      <path d="M 354 236 H 381" />
+      <path d="M 694 236 H 721" />
+      <path d="M 880 329 V 365 H 278 V 391" />
+      <path d="M 880 365 H 802 V 391" />
+    </g>
+
+    <rect x="50" y="400" width="456" height="116" rx="18" fill="#e6f0fa" />
+    <rect x="574" y="400" width="456" height="116" rx="18" fill="#fff5e7" />
+    <text x="74" y="439" font-size="24" font-weight="700" fill="#0d0d0d">在 Server 电脑启动</text>
+    <text x="74" y="476" font-size="19" fill="#5d5d5d">数量 1–5 · 相同设置 · 逐个创建</text>
+    <text x="598" y="439" font-size="24" font-weight="700" fill="#b26b00">复制命令到另一台电脑</text>
+    <text x="598" y="476" font-size="19" fill="#805000">CLI 在 Agent 电脑上运行 · 勿公开凭证</text>
+    <text x="50" y="557" font-size="18" fill="#5d5d5d">远程房主设备须取得管理授权；创建失败不会回滚已启动的 Agent。</text>
+  </g>
+</svg>

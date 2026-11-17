@@ -4,7 +4,13 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["**/dist/**", "**/coverage/**", "**/node_modules/**", "packages/superhive/web/**"],
+    ignores: [
+      "**/dist/**",
+      "**/coverage/**",
+      "**/node_modules/**",
+      "**/.astro/**",
+      "packages/superhive/web/**",
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

@@ -1,0 +1,160 @@
+---
+title: CLI 与 Hive MCP 工具参考
+description: 按源码核对 Hive 服务管理、Agent 接入、模型与 MCP 列表、协作说明命令，区分本机 MCP 配置与带身份校验的 Hive 聊天室工具。
+---
+
+## 有什么用
+
+CLI 用于在终端管理 Hive Server 或把本机 Agent 接入房间；Hive MCP 工具则由已连接的 Agent 在任务中读取房间、委派、提问和更新协作状态。两者不是同一组 shell 命令。
+
+本页按仓库 `c2f68dd` 的命令分派和参数解析核对，不保证外部 Runtime 的未来版本行为。先看 [安装与启动](/start/installation/)；不熟悉认证和权限时，优先使用 [网页接入向导](/guides/agents/) 生成命令。
+
+## 查看版本和帮助
+
+全局安装 npm 包 `superhive` 后使用 `hive`。不全局安装时，把 `hive` 替换成 `npx --yes superhive@latest`；npx 首次运行或取最新版可能下载 npm 包。
+
+```bash
+hive --version
+hive --help
+hive start --help
+hive join --help
+hive mcp list --help
+hive models --help
+```
+
+子命令是否接受 `--help` 由它自己的解析器决定。`skill install`、`skill uninstall` 不是通用选项解析器，不要假设它们接受相同参数；顶层帮助列出其用法。
+
+## 管理 Hive Server
+
+| 命令                    | 做什么                              | 注意事项                                             |
+| ----------------------- | ----------------------------------- | ---------------------------------------------------- |
+| `hive start`            | 启动 Server 和 Web UI，默认后台运行 | 默认监听 `0.0.0.0:8787`，尝试打开本机浏览器          |
+| `hive stop`             | 停止由 Hive 启动的服务              | 自定义数据目录时使用相同 `--data-dir`                |
+| `hive restart`          | 重启并沿用原有启动配置              | 用最新版包执行才能更新该包；不等于更新外部 Agent CLI |
+| `hive autostart on`     | 配置当前用户登录时启动              | 会修改本机自启动配置，长期使用建议先全局安装         |
+| `hive autostart status` | 查看自启动是否启用                  | 不是 Server 健康检查，也不是任务状态查询             |
+| `hive autostart off`    | 移除 Hive 自启动配置                | 关闭自启动不等于删除聊天数据                         |
+
+本机只读演示的启动示例：
+
+```bash
+hive start --host 127.0.0.1 --port 8787 --no-open
+```
+
+这仅允许本机访问。要在局域网或反向代理后使用，按 [部署参考](/reference/deployment/) 配置，而不是把示例回环地址发给其他设备。
+
+### 常用服务参数
+
+| 参数                | 适用命令                                | 含义                                              |
+| ------------------- | --------------------------------------- | ------------------------------------------------- |
+| `--host ADDRESS`    | `start`、`restart`、`autostart on`      | 监听地址，默认 `0.0.0.0`                          |
+| `--port PORT`       | `start`、`restart`、`autostart on`      | 端口，默认 `8787`                                 |
+| `--data-dir PATH`   | `start`、`stop`、`restart`、`autostart` | 数据目录，默认 `~/.superhive/`                    |
+| `--public-url URL`  | `start`、`restart`、`autostart on`      | 对外访问地址，不会自行安装反向代理或生成 TLS 证书 |
+| `--no-local-agents` | `start`、`restart`、`autostart on`      | 禁用网页本机启动 Agent                            |
+| `--local-agents`    | `restart`                               | 重新启用网页本机启动 Agent                        |
+| `--foreground`      | `start`、`restart`                      | 前台运行并查看日志                                |
+| `--no-open`         | `start`                                 | 不自动打开浏览器                                  |
+| `--open`            | `restart`                               | 重启后打开浏览器；默认不打开                      |
+| `--token TOKEN`     | `start`、`restart`                      | 指定固定接入令牌；默认首次启动生成，属于敏感配置  |
+
+指定 `--data-dir` 不会自动搬迁旧目录中的历史。已有服务的配置变更应通过正确数据目录的 `restart` 处理；不要为相同端口反复另起进程。自启动会保存脚本路径，更新安装后应重新执行 `hive autostart on`。
+
+## 把 Agent 接入房间
+
+下面的示例不含认证值。运行前，需要由本人在私有环境安全提供 `HIVE_AGENT_TOKEN`；否则 CLI 会报缺少接入参数。不要把真实令牌贴进聊天、公开配置或截图。
+
+```bash
+hive join --provider codex --access read-only \
+  --server http://127.0.0.1:8787 --room general --name cli-demo
+```
+
+它要求 Agent 与 Server 在同一台电脑，且示例房间 `general` 实际存在；换成你的真实房间 ID 和未占用的 Agent 名称。执行 `join` 会真正连接并运行 Agent，不是仅检查配置。
+
+| 参数                    | 含义与默认值                                                                             |
+| ----------------------- | ---------------------------------------------------------------------------------------- |
+| `--server URL`          | 必填，Hive Server 可访问的 HTTP/HTTPS 地址                                               |
+| `--name NAME`           | 必填，Agent 名称；允许字母、数字、下划线、点和连字符，必须避免重名                       |
+| `--token TOKEN`         | 认证值，也可以用 `HIVE_AGENT_TOKEN` 提供；不是用户名密码                                 |
+| `--room ID`             | 只加入指定房间；省略时加入所有未归档房间并跟随新建和归档，仍受凭据授权范围约束           |
+| `--provider NAME`       | `codex`、`claude`、`copilot`、`opencode`、`omp`、`openclaw`；默认 `codex`                |
+| `--access MODE`         | `read-only`、`workspace`、`full`；CLI 默认只读，和网页默认工作区档不同                   |
+| `--cwd PATH`            | 工作目录；工作区和完全访问必须显式提供，只读默认使用该 Agent 专属空目录                  |
+| `--allow-root PATH`     | 可重复，追加允许跟随的房间工作区目录；默认包含工作目录，及非家目录、非文件系统根的上一级 |
+| `--persona TEXT`        | Agent 角色描述，不替代操作权限                                                           |
+| `--model NAME`          | 所用模型；OpenCode 使用 `provider/model` 格式，可用性取决于 Runtime                      |
+| `--state-dir PATH`      | Agent 状态目录，默认 `~/.superhive/agents`                                               |
+| `--agent-settings FILE` | Claude Code / Codex 的 MCP 开关 JSON，每轮重新读取；本机 Server 启动时会自动传入         |
+
+`--allow-root` 是房间工作目录的切换范围，不是让所有 Runtime 都具备同样的文件系统沙箱。`--trust-room-workspace` 直接跟随房间目录，是本机 Server 拉起 Agent 的机制；手工远程接入不要为了绕过目录拒绝随意启用。权限差异见 [权限指南](/guides/permissions/) 和 [工作区任务线](/guides/worktrees/)。
+
+### 少用但需要核对的 Runtime 选项
+
+- `--codex`、`--claude`、`--copilot`、`--opencode`、`--omp`、`--openclaw` 指定对应 CLI 命令路径。
+- `--codex-transport auto|app-server|mcp`：`auto` 当前使用 app-server，不会失败后自动降级；`mcp` 仅适合明确确认支持旧协议的 CLI。
+- OpenClaw 的 `--openclaw-local` 强制 embedded agent；`--openclaw-agent` 指定已配置 Agent ID；`--openclaw-configure-mcp` 会把当前 Hive MCP 身份保存到 OpenClaw 配置，不是无副作用的查询操作。
+
+## 列出模型：动态结果不等于账号额度
+
+```bash
+hive models --provider codex --json
+```
+
+支持上述六种 provider；`--command PATH` 可以指定对应 CLI 路径。Codex 通过 app-server 的 `model/list`，OpenCode、omp、OpenClaw 通过各自的模型列表命令读取。
+
+Claude Code 和 Copilot 当前返回常用预设，而不是实时账号授权清单。JSON 中的 `source` 区分 `runtime` 和 `preset`；动态读取失败时返回空模型列表并带 `error`，不要把它当成账号没有可用模型。列表中的模型名不是购买证明，也不保证实际请求成功；模型切换与重试看 [Agent 指南](/guides/agents/) 和 [任务指南](/guides/tasks/)。
+
+## 列出本机 MCP：不是列出 Hive 聊天室工具
+
+```bash
+hive mcp list --provider claude --cwd /path/to/demo --json
+hive mcp list --provider codex --json
+```
+
+`/path/to/demo` 是占位目录，需替换为实际工作目录。当前仅支持 `claude`、`codex`；省略 provider 默认 `claude`，省略 cwd 默认用户主目录。
+
+- `--agent-settings FILE` 按设置文件展示开关状态，不会因列出而修改这些开关。
+- `--codex PATH` 选择用于列出 Codex MCP 的 CLI。
+- `--measure` 会逐个连接 MCP，读取工具列表并估算开局 token；当前只测量 Claude Code。它可能启动本机 MCP 进程或连接远程服务，不是完全离线的文件检查，也不代表实际模型账单。
+- Codex 列表可能包含插件工具或 CLI 已禁用项；`configurable` 为否时不能在 Hive 中开关。列表会排除名为 `hive` 的内置聊天室连接。
+
+要调整 Agent 下一轮加载哪些工具，使用 [Agent 设置](/guides/agents/)，不要把 `mcp list` 当成安装或启用命令。
+
+## 打印或安装给 Agent 的协作说明
+
+| 命令                         | 效果                                   |
+| ---------------------------- | -------------------------------------- |
+| `hive --skill`               | 打印当前版本的协作说明，不会启动 Agent |
+| `hive skill`                 | 同样打印协作说明                       |
+| `hive skill status`          | 查看支持目标的安装状态与版本           |
+| `hive skill install codex`   | 写入 Codex 的全局 skills 目录          |
+| `hive skill uninstall codex` | 移除由安装流程管理的协作说明           |
+
+安装、卸载支持 `claude`、`codex`、`openclaw`。省略目标时，只处理检测到的已安装目标；安装时如果一个也没检测到会报错。卸载仅移除安装流程管理的文件，可能恢复安装前备份的原文件。安装协作说明不会安装 Runtime、登录账号或自动接入房间；这些步骤仍由本人完成。
+
+## Hive MCP 工具入口
+
+Hive Server 在 `/mcp` 提供 Streamable HTTP MCP。工具调用需要有效 Bearer 凭据以及 `X-Hive-Room`、`X-Hive-Agent-Name` 对应的在线 Agent 身份；访客 Agent 的房间与名字还必须匹配它自己的会话。仅知道 URL 或有普通网页访客身份不足以调用。
+
+通常由 Bridge 给受支持的 Runtime 注入 Hive 连接，不需要把认证 JSON 复制给模型或公开。外部 MCP 配置与 Runtime 协议细节见 [开发参考](/reference/development/)；以下是聊天室工具名，不能直接写成 `hive <工具名>` 在 shell 执行。
+
+| 工具                                                                 | 用途与边界                                                               |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `hive_room_read`、`hive_members_list`                                | 读取当前话题消息和房间成员；长消息按 `nextOffset` 继续补读               |
+| `hive_message_send`                                                  | 以当前 Agent 身份发送消息或进度；回复关联触发消息，进度不唤醒其他 Agent  |
+| `hive_attachment_read`                                               | 按附件 ID 读取已授权内容；文本可分段，图片和二进制返回方式不同           |
+| `hive_invoke`、`hive_wait`                                           | 委派子任务并短时等待；结果通过回执返回，不能无限轮询或委派给自己         |
+| `hive_ask_human`                                                     | 需要人决策时提问，支持选项；提问后结束当前回合，等待答案重新唤醒         |
+| `hive_board_read`、`hive_board_update`                               | 读取当前白板并用稳定 key 更新状态；读取不包含历史归档                    |
+| `hive_schedule_create`、`hive_schedule_list`、`hive_schedule_cancel` | 登记、查看和取消一次性或周期任务；到点仍受服务在线与宽限期约束           |
+| `hive_room_create`、`hive_room_post`                                 | 在房主本人发起且允许的任务中创建房间或跨房间派活；跨房间结果留在目标房间 |
+| `hive_worktree_create`、`hive_worktree_list`、`hive_worktree_remove` | 在允许的本机开发任务中创建、查看和安全清理已登记任务线；占用保护不能绕过 |
+
+工具可见不代表任意调用都会获准。房间授权、任务上下文、预算、本机权限与工作区占用还会进一步校验；详细步骤见 [协作指南](/guides/collaboration/)、[任务指南](/guides/tasks/) 和 [权限指南](/guides/permissions/)。
+
+## 注意事项
+
+- 本页命令示例没有真实认证值；不要为诊断问题输出整份环境变量、Agent 配置或数据目录。
+- 帮助、列表和测量的副作用不同；本页仅核对源码，没有替你启动服务、运行 Runtime、连接 MCP、安装 skill 或调用模型。
+- 默认监听所有网卡、完全访问和固定令牌都需要明确安全评估。公网与凭据要求见 [安全参考](/reference/security/)。
+- 遇到失败先读错误和状态，不通过放大权限、重复启动或更换接入身份绕过检查；见 [排障指南](/reference/troubleshooting/)。文档站发布命令另见 [文档站单独部署](/reference/documentation/)。

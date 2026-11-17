@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#f9f9f9"/>
+  <image href="hive-mark.svg" x="70" y="72" width="60" height="60" />
+  <g font-family="Arial, PingFang SC, sans-serif" fill="#0d0d0d">
+    <text x="152" y="113" font-size="32" font-weight="700">SuperHive / 文档</text>
+    <text x="70" y="258" font-size="58" font-weight="700">把人和 Agent，</text>
+    <text x="70" y="344" font-size="58" font-weight="700">带进同一间工作室。</text>
+    <text x="74" y="433" font-size="25" fill="#5d5d5d">图文入门 · 团队协作 · 权限与恢复 · 自部署</text>
+    <text x="74" y="550" font-size="21" fill="#0d0d0d">PUBLIC WORKSPACE. LOCAL CONTROL.</text>
+  </g>
+  <g stroke="#8f8f8f" stroke-width="3" fill="none"><path d="M970 176v70M848 278h244M970 316v100"/></g>
+  <g fill="#fff" stroke="#e8e8e8" stroke-width="2"><rect x="877" y="104" width="186" height="72" rx="16"/><rect x="770" y="246" width="186" height="72" rx="16"/><rect x="984" y="246" width="146" height="72" rx="16"/><rect x="877" y="416" width="186" height="72" rx="16"/></g>
+  <g font-family="Arial, sans-serif" text-anchor="middle" font-size="22" fill="#0d0d0d"><text x="970" y="149">Human</text><text x="863" y="290">Claude</text><text x="1057" y="290">Codex</text><text x="970" y="460">Workspace</text></g>
+  <rect x="918" y="222" width="104" height="112" rx="23" fill="#0d0d0d"/><g fill="#fff" font-family="Arial, sans-serif" font-size="25" text-anchor="middle"><text x="970" y="287">Hive</text></g>
+</svg>

@@ -38,6 +38,7 @@ Server 只保存公共消息、成员状态和房间数据；Provider 的私有�
 | `packages/superhive` | npm 包 `superhive`：CLI（`hive`）、Bridge、各 Provider 适配器                |
 | `apps/server`        | Hive Server（Fastify + WebSocket + SQLite + MCP + IM 接入）                  |
 | `apps/web`           | 网页（React + Vite）                                                         |
+| `apps/docs`          | 独立静态图文文档（Astro + Starlight），无需 Hive Server 即可部署             |
 | `skills/superhive`   | 给 Agent 读的协作说明 SKILL.md，随 npm 包发布，`hive --skill` 打印           |
 | `scripts`            | `pnpm dev` 的开发 supervisor（见 [scripts/README.md](../scripts/README.md)） |
 
@@ -67,7 +68,7 @@ pnpm test
 pnpm build
 ```
 
-只跑某个包：`pnpm --filter @superhive/server test`、`pnpm --filter superhive test`、`pnpm --filter @superhive/web test`。npm 包的打包产物在 `packages/superhive` 里用 `pnpm build` 生成（CLI、打包后的 Server、网页、SKILL.md），`pnpm pack` 可以在发布前本地验证。
+只跑某个包：`pnpm --filter @superhive/server test`、`pnpm --filter superhive test`、`pnpm --filter @superhive/web test`。文档可单独用 `pnpm docs:dev` 编辑、`pnpm docs:verify` 验收，发布配置见 [apps/docs/README.md](../apps/docs/README.md)。npm 包的打包产物在 `packages/superhive` 里用 `pnpm build` 生成（CLI、打包后的 Server、网页、SKILL.md），`pnpm pack` 可以在发布前本地验证；不需要打包独立文档站才能运行 Hive。
 
 开发环境接入了 `ai-ins`：按住 macOS `Option` 或 Windows/Linux `Alt` 点选 DOM 元素，写下需求后会连同源码位置交给本机的 Agent CLI（Codex、Claude Code 等）直接改代码，热更新后即可看到结果。生产构建不会注入该面板。
 

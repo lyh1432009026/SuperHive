@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="680" viewBox="0 0 1080 680" role="img" aria-labelledby="recovery-title recovery-desc">
+  <title id="recovery-title">任务中断后的安全自动恢复示意图</title>
+  <desc id="recovery-desc">非实际界面截图。只有存在中断执行记录且没有记录可能的副作用、旧运行时进程已退出、自动恢复未满两次、原消息与调用仍允许恢复，才按原消息重新执行。条件不满足时不自动重跑；需要核对未知结果或保留已停止、已处理状态。</desc>
+  <defs>
+    <marker id="recovery-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#8f8f8f" />
+    </marker>
+  </defs>
+  <rect width="1080" height="680" rx="24" fill="#f9f9f9" />
+  <g font-family="PingFang SC, Microsoft YaHei, system-ui, sans-serif">
+    <rect x="50" y="32" width="102" height="30" rx="15" fill="#e8e8e8" />
+    <text x="101" y="53" font-size="17" font-weight="700" text-anchor="middle" fill="#0d0d0d">恢复边界</text>
+    <text x="50" y="109" font-size="32" font-weight="700" fill="#0d0d0d">中断后：是否可以安全重新执行？</text>
+    <text x="1028" y="53" font-size="17" text-anchor="end" fill="#5d5d5d">示意图 · 非实际界面截图</text>
+
+    <g fill="#ffffff" stroke="#e8e8e8" stroke-width="2">
+      <rect x="50" y="155" width="300" height="173" rx="18" />
+      <rect x="390" y="155" width="300" height="173" rx="18" />
+      <rect x="730" y="155" width="300" height="173" rx="18" />
+    </g>
+    <g font-size="23" font-weight="700" fill="#0d0d0d">
+      <text x="74" y="201">1 · 有中断记录</text>
+      <text x="414" y="201">2 · 旧进程已退出</text>
+      <text x="754" y="201">3 · 两次额度未用完</text>
+    </g>
+    <g font-size="19" fill="#5d5d5d">
+      <text x="74" y="245">未记录可能有副作用的步骤</text>
+      <text x="74" y="284">未知命令、外部工具从严判断</text>
+      <text x="414" y="245">没有旧运行时继续执行</text>
+      <text x="414" y="284">不让同一任务同时跑两份</text>
+      <text x="754" y="245">按原消息累计恢复次数</text>
+      <text x="754" y="284">最多自动恢复 2 次</text>
+    </g>
+    <g fill="none" stroke="#8f8f8f" stroke-width="2.5">
+      <path d="M 200 329 V 348 H 880 V 329" />
+      <path d="M 540 329 V 356" marker-end="url(#recovery-arrow)" />
+    </g>
+    <rect x="50" y="366" width="980" height="75" rx="16" fill="#f3f3f3" />
+    <text x="74" y="410" font-size="22" font-weight="700" fill="#0d0d0d">4 · 原消息与调用仍有效：未撤回、未停止、未收起或落定</text>
+    <g fill="none" stroke="#8f8f8f" stroke-width="2.5" marker-end="url(#recovery-arrow)">
+      <path d="M 540 441 V 466 H 283 V 492" />
+      <path d="M 540 466 H 797 V 492" />
+    </g>
+
+    <rect x="50" y="501" width="466" height="122" rx="18" fill="#e6f0fa" />
+    <rect x="564" y="501" width="466" height="122" rx="18" fill="#fff5e7" />
+    <text x="74" y="540" font-size="24" font-weight="700" fill="#0d0d0d">全部满足 → 按原消息重跑</text>
+    <text x="74" y="580" font-size="19" fill="#5d5d5d">重新连接后执行，标注恢复第 N/2 次</text>
+    <text x="588" y="540" font-size="24" font-weight="700" fill="#b26b00">不满足 → 不自动重跑</text>
+    <text x="588" y="580" font-size="19" fill="#805000">核对未知结果，尊重已停止／已处理状态</text>
+    <text x="50" y="657" font-size="18" fill="#5d5d5d">这是基于工具观测的保守判断，不是对隐藏副作用的保证；与正常 worktree 交接不同。</text>
+  </g>
+</svg>

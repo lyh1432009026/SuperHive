@@ -1,6 +1,8 @@
 dist
 coverage
 node_modules
+.astro
+pnpm-lock.yaml
 packages/superhive/web
 packages/superhive/skills
 *.sqlite

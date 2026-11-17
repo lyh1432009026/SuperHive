@@ -1,0 +1,46 @@
+---
+import { getSiteConfig, withBase } from "../../scripts/site-config.mjs";
+
+const { base } = getSiteConfig();
+const pathways = [
+  {
+    label: "第一次使用",
+    title: "启动 Hive，接入第一个 Agent",
+    detail: "安装、加入房间、发出第一条任务。",
+    link: "start/quickstart/",
+  },
+  {
+    label: "让团队协作",
+    title: "分工、白板与人的决定",
+    detail: "委派子任务，记录成果，在必要时作答。",
+    link: "guides/collaboration/",
+  },
+  {
+    label: "用得放心",
+    title: "权限、任务状态与恢复",
+    detail: "知道 Agent 能做什么，以及中断后怎么办。",
+    link: "guides/permissions/",
+  },
+  {
+    label: "自己部署",
+    title: "把服务放在自己的设备上",
+    detail: "网络、持久数据、备份与公网安全。",
+    link: "reference/deployment/",
+  },
+];
+---
+
+<div class="workroom-pathways">
+  {
+    pathways.map((pathway) => (
+      <a href={withBase(pathway.link, base)} class="workroom-pathway">
+        <span class="workroom-pathway-label">{pathway.label}</span>
+        <strong>{pathway.title}</strong>
+        <span>{pathway.detail}</span>
+        <span class="workroom-pathway-arrow" aria-hidden="true">
+          ↗
+        </span>
+      </a>
+    ))
+  }
+</div>

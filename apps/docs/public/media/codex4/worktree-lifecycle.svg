@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="670" viewBox="0 0 1080 670" role="img" aria-labelledby="worktree-title worktree-desc">
+  <title id="worktree-title">托管 Worktree 任务线与安全清理示意图</title>
+  <desc id="worktree-desc">非实际界面截图。房主授权的可写本机 Agent 登记任务线，正常结束准备回合，Bridge 在精确 cwd 创建新会话再继续实现。review 合入后，还要检查已合入、无改动、无未跟踪和忽略文件、无任务占用，再通过受检查的入口清理。拒绝清理时保留，不强删。</desc>
+  <defs>
+    <marker id="worktree-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#8f8f8f" />
+    </marker>
+  </defs>
+  <rect width="1080" height="670" rx="24" fill="#f9f9f9" />
+  <g font-family="PingFang SC, Microsoft YaHei, system-ui, sans-serif">
+    <rect x="50" y="32" width="102" height="30" rx="15" fill="#e8e8e8" />
+    <text x="101" y="53" font-size="17" font-weight="700" text-anchor="middle" fill="#0d0d0d">任务隔离</text>
+    <text x="50" y="109" font-size="32" font-weight="700" fill="#0d0d0d">一条任务线，一个目录，一次安全交接</text>
+    <text x="1028" y="53" font-size="17" text-anchor="end" fill="#5d5d5d">示意图 · 非实际界面截图</text>
+
+    <g fill="#ffffff" stroke="#e8e8e8" stroke-width="2">
+      <rect x="50" y="155" width="220" height="180" rx="18" />
+      <rect x="303" y="155" width="220" height="180" rx="18" />
+      <rect x="556" y="155" width="220" height="180" rx="18" />
+      <rect x="809" y="155" width="221" height="180" rx="18" />
+    </g>
+    <g font-size="23" font-weight="700" fill="#0d0d0d">
+      <text x="71" y="200">1 · 登记任务线</text>
+      <text x="324" y="200">2 · 结束准备</text>
+      <text x="577" y="200">3 · 新会话实现</text>
+      <text x="830" y="200">4 · review 合入</text>
+    </g>
+    <g font-size="19" fill="#5d5d5d">
+      <text x="71" y="244">同任务复用 slug</text>
+      <text x="71" y="285">检查路径与基线</text>
+      <text x="324" y="244">旧会话不先改文件</text>
+      <text x="324" y="285">正常返回，带摘要</text>
+      <text x="577" y="244">先核对精确 cwd</text>
+      <text x="577" y="285">交补丁与验证缺口</text>
+      <text x="830" y="244">依授权审阅与合入</text>
+      <text x="830" y="285">完成不等于已合入</text>
+    </g>
+    <g fill="none" stroke="#8f8f8f" stroke-width="2.5" marker-end="url(#worktree-arrow)">
+      <path d="M 274 245 H 294" />
+      <path d="M 527 245 H 547" />
+      <path d="M 780 245 H 800" />
+      <path d="M 919 336 V 359 H 540 V 380" />
+    </g>
+
+    <rect x="50" y="390" width="980" height="85" rx="16" fill="#f3f3f3" />
+    <text x="74" y="426" font-size="22" font-weight="700" fill="#0d0d0d">安全检查：已合入 + 干净 + 无未跟踪／忽略文件 + 无任务占用 + 已授权</text>
+    <text x="74" y="456" font-size="18" fill="#5d5d5d">核对登记身份与当前提交；node_modules、.env 等忽略文件也会阻止删除。</text>
+    <g fill="none" stroke="#8f8f8f" stroke-width="2.5" marker-end="url(#worktree-arrow)">
+      <path d="M 540 475 V 497 H 283 V 520" />
+      <path d="M 540 497 H 797 V 520" />
+    </g>
+    <rect x="50" y="529" width="466" height="91" rx="18" fill="#e6f0fa" />
+    <rect x="564" y="529" width="466" height="91" rx="18" fill="#fff5e7" />
+    <text x="74" y="565" font-size="23" font-weight="700" fill="#0d0d0d">全部通过 → 受检查的入口清理</text>
+    <text x="74" y="599" font-size="18" fill="#5d5d5d">网页、批量提醒或 hive_worktree_remove</text>
+    <text x="588" y="565" font-size="23" font-weight="700" fill="#b26b00">被拒绝 → 保留现场，稍后再试</text>
+    <text x="588" y="599" font-size="18" fill="#805000">不绕过占用、不强删目录、不强删分支</text>
+    <text x="50" y="650" font-size="18" fill="#5d5d5d">自动清理默认关闭；Git 安全删分支失败时保留并说明，清理不会替你合入或推送。</text>
+  </g>
+</svg>

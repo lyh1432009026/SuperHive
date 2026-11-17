@@ -1,0 +1,30 @@
+{
+  "name": "@superhive/docs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone static documentation for SuperHive.",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "astro dev --host 127.0.0.1",
+    "build": "astro build",
+    "build:deploy": "node scripts/require-site.mjs && astro build && node scripts/verify-build.mjs",
+    "preview": "astro preview --host 127.0.0.1",
+    "check": "astro check",
+    "social:image": "node scripts/social-image.mjs",
+    "test": "node --test scripts/*.test.mjs",
+    "verify": "astro check && node --test scripts/*.test.mjs && astro build && node scripts/verify-build.mjs"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.37.7",
+    "astro": "^5.18.2"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.5",
+    "cheerio": "^1.2.0",
+    "sharp": "^0.34.5",
+    "typescript": "^5.8.3"
+  }
+}

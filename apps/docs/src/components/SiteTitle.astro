@@ -1,0 +1,10 @@
+---
+import HiveMark from "../assets/hive-mark.svg";
+
+const { siteTitle, siteTitleHref } = Astro.locals.starlightRoute;
+---
+
+<a href={siteTitleHref} class="site-title sl-flex">
+  <HiveMark width={32} height={32} aria-hidden="true" focusable="false" />
+  <span translate="no">{siteTitle}</span>
+</a>
