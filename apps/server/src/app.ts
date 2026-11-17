@@ -2989,6 +2989,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       }
       // 只有 Agent 在线却迟迟不确认才算异常；离线时排队等待它上线是正常的
       if (!onlineAgent(invocation.roomId, invocation.agentName)) continue;
+      // 从没确认收到 = 一定还没开工，重新派发是安全的：先补发一次（连接抖动、事件丢失都能接上），
+      // 补发后仍不确认才判为结果未知
+      const message = database.getMessage(invocation.messageId);
+      const agent = database.getParticipant(invocation.agentId);
+      if (invocation.detailText?.key !== "invocation.redelivered" && message && agent) {
+        emitInvocation(
+          database.updateInvocation(invocation.id, {
+            detail: serverText("invocation.redelivered"),
+          }),
+        );
+        deliverMention(message, agent);
+        continue;
+      }
       emitInvocation(
         database.updateInvocation(invocation.id, {
           status: "timed_out",

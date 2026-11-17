@@ -1545,6 +1545,27 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
     await mcpB.client.close();
   });
 
+  it("redelivers a mention the online agent never acknowledged before calling it unknown", async () => {
+    const clock = { now: Date.now() };
+    const { join } = await startRoom(20, () => clock.now);
+    const { peer: alice } = await join("Alice", "human");
+    const { peer: agent } = await join("helper", "agent");
+    alice.send({ type: "message.send", clientMessageId: "lost", content: "@helper 干活" });
+    await agent.next((event) => event.type === "agent.mentioned");
+    // Agent 收到了却没确认（事件丢了、Bridge 没处理）：超过确认时限后先补发一次，而不是直接判结果未知
+    clock.now = Date.now() + LIMITS.invocationUnacknowledgedMs + 1_000;
+    const again = await agent.next((event) => event.type === "agent.mentioned");
+    expect(again.type === "agent.mentioned" && again.message.content).toBe("@helper 干活");
+    // 补发后仍不确认：才判为结果未知
+    clock.now += LIMITS.invocationUnacknowledgedMs + 1_000;
+    const timedOut = invocationOf(
+      await alice.next(
+        (event) => event.type === "invocation.updated" && event.invocation.status === "timed_out",
+      ),
+    );
+    expect(timedOut.detail).toContain("没有确认收到");
+  });
+
   it("times out silent invocations as unknown and still accepts a late result", async () => {
     const clock = { now: Date.now() };
     const { join } = await startRoom(20, () => clock.now);

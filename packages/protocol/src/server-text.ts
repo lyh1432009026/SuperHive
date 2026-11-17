@@ -129,6 +129,10 @@ export const serverTexts = {
     zh: "超过 {minutes} 分钟没有任何进展，结果未知",
     en: "No progress for over {minutes} min; outcome unknown",
   },
+  "invocation.redelivered": {
+    zh: "Agent 在线但一直没确认收到，已重新派发一次",
+    en: "The agent is online but never confirmed receipt; delivered once more",
+  },
   "invocation.unacknowledged": {
     zh: "Agent 在线但没有确认收到（可能是不支持回报状态的旧版 superhive）",
     en: "The agent is online but never confirmed receipt (it may be an older superhive that can't report status)",

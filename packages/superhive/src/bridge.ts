@@ -632,7 +632,15 @@ export class AgentBridge {
       this.sessionRetried.delete(message.id);
       this.executionIds.delete(message.id);
     }
-    if (this.isLocal(message.id) || !this.isEligible(message, options.invited)) return;
+    if (this.isLocal(message.id)) return;
+    if (!this.isEligible(message, options.invited)) {
+      // 服务端明确派给我的却被判为不处理：记一行，下次「没确认收到」能直接查到原因
+      if (options.invited && !this.state.processedMessageIds.includes(message.id))
+        this.log(
+          `[hive] #${message.seq} 服务端派来的提及未处理（发送者 ${message.senderName}，${message.deletedAt ? "已撤回" : "不符合处理条件"}）`,
+        );
+      return;
+    }
     if (this.cancelledEarly.delete(message.id)) {
       this.rememberProcessed(message.id);
       void this.store
