@@ -221,7 +221,14 @@ export class AgentBridge {
    */
   private readonly crashResumable = new Map<string, number>();
   /** 中断前改过东西、接着原会话继续的提及：交给下一轮的步骤清单 */
-  private readonly crashNotes = new Map<string, string>();
+  private readonly crashNotes = new Map<
+    string,
+    {
+      steps: Array<{ summary: string; done: boolean; irreversible?: boolean }>;
+      threadId?: string;
+      cwd?: string;
+    }
+  >();
   private crashResumeMinSeq: number | undefined;
   // 同一组触发消息在本地重试时复用 executionId，保证回复的幂等键不变
   private readonly executionIds = new Map<string, string>();
@@ -453,7 +460,12 @@ export class AgentBridge {
       for (const messageId of inflight.messageIds) {
         this.crashResumable.set(messageId, used + 1);
         resumes[messageId] = used + 1;
-        if (inflight.mutated) this.crashNotes.set(messageId, stepsNote(steps));
+        if (inflight.mutated)
+          this.crashNotes.set(messageId, {
+            steps,
+            ...(inflight.threadId ? { threadId: inflight.threadId } : {}),
+            ...(inflight.cwd ? { cwd: inflight.cwd } : {}),
+          });
       }
       this.state.crashResumes = resumes;
       this.crashResumeMinSeq = inflight.minSeq;
@@ -1050,6 +1062,7 @@ export class AgentBridge {
     this.upstreamRetries.delete(messageId);
     this.executionIds.delete(messageId);
     this.crashResumable.delete(messageId);
+    this.crashNotes.delete(messageId);
     if (this.state.crashResumes && messageId in this.state.crashResumes) {
       delete this.state.crashResumes[messageId];
       if (Object.keys(this.state.crashResumes).length === 0) delete this.state.crashResumes;
@@ -1104,6 +1117,7 @@ export class AgentBridge {
         startedAt: new Date().toISOString(),
         minSeq: Math.min(...messages.map((message) => message.seq)),
         runtimePids: liveRuntimePids(),
+        ...(this.options.cwd ? { cwd: this.options.cwd } : {}),
       };
       await this.store.save(this.state);
       // 本轮新起的运行时子进程也记下：进程退出后它们可能还在跑
@@ -1245,7 +1259,10 @@ export class AgentBridge {
           prompt = {
             ...prompt,
             text: crashNote
-              ? `（系统提示）你上一轮处理下面这条消息时，Agent 进程意外退出、在中途中断；会话已接上。最后一步做没做完不确定，先核对现状再从中断处继续，不要重复已经完成的操作。${crashNote}\n\n${prompt.text}`
+              ? // 会话真的接上了才这么说：中断时若刚建好任务目录，这里已在新目录开了新会话，看不到上一轮
+                crashNote.threadId && this.state.threadId === crashNote.threadId
+                ? `（系统提示）你上一轮处理下面这条消息时，Agent 进程意外退出、在中途中断；会话已接上。最后一步做没做完不确定，先核对现状再从中断处继续，不要重复已经完成的操作。${stepsNote(crashNote.steps)}\n\n${prompt.text}`
+                : `（系统提示）你上一轮处理下面这条消息时，Agent 进程意外退出、在中途中断；这是新会话，看不到上一轮的步骤。不要从头重做原任务：先核对工作区、房间里的现状和下面列出的已做操作，确认做到哪了，再继续没做完的部分。${stepsNote(crashNote.steps, crashNote.cwd)}\n\n${prompt.text}`
               : `（系统提示）你上一轮处理下面这条消息时，Agent 进程意外退出、在中途中断；那一轮只做过只读操作，没有改动任何东西。请照常把原任务完整做完。\n\n${prompt.text}`,
           };
         if (handoff)

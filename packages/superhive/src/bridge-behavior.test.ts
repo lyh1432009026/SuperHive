@@ -1186,6 +1186,35 @@ describe("AgentBridge", () => {
       expect(room.statuses(mention.id)).not.toContain("uncertain");
     });
 
+    it("says it is a new session when the crash came right after creating a task worktree", async () => {
+      const checkout = path.join(directory, "checkout");
+      const isolated = new ControlledResponder();
+      taskWorkspace = { resolve: async () => checkout, responder: () => isolated };
+      const mention = chat();
+      room.messages.push(mention);
+      await startBridge(
+        {
+          ...baseState(),
+          threadId: "orig-session",
+          inflight: crashed([mention.id], {
+            mutated: true,
+            threadId: "orig-session",
+            cwd: directory,
+            steps: [{ summary: "hive_worktree_create", done: true }],
+          }),
+        },
+        [invocationFor(mention, "running")],
+      );
+      await waitUntil(() => isolated.calls.length === 1);
+      // 已经切到新任务目录、开了新会话：不能说「会话已接上」，要按交接的口径交代
+      expect(isolated.calls[0]!.threadId).toBeUndefined();
+      expect(isolated.calls[0]!.prompt).toContain("这是新会话");
+      expect(isolated.calls[0]!.prompt).not.toContain("会话已接上");
+      expect(isolated.calls[0]!.prompt).toContain(`在 ${directory} 执行过`);
+      isolated.finish("做完了", "new-session");
+      await waitUntil(() => room.statuses(mention.id).includes("completed"));
+    });
+
     it("hands an irreversible step that was mid-flight back to a human instead of continuing", async () => {
       const mention = chat();
       room.messages.push(mention);

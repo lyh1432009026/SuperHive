@@ -438,6 +438,16 @@ describe("isIrreversibleStep", () => {
       "curl -s -X POST https://api.example.com/x",
       "gh pr create --fill",
       "lark-cli im +messages-send --chat-id x",
+      "git -c a=b push",
+      "git --no-pager push origin",
+      "pnpm -r publish",
+      "pnpm --filter x publish",
+      "changeset publish",
+      "docker push img",
+      "vercel --prod",
+      "curl -d a=b https://x",
+      "curl --request POST https://x",
+      "gh api -X POST repos/x",
     ])
       expect(isIrreversibleStep(tool(summary)), summary).toBe(true);
     for (const summary of [

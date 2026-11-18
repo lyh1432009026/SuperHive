@@ -500,10 +500,26 @@ export function isHandoffSafeStep(step: TraceStep): boolean {
  */
 export function isIrreversibleStep(step: TraceStep): boolean {
   if (step.kind !== "tool") return false;
-  const text = `${step.name ?? ""} ${step.summary ?? ""}`;
-  return /\bgit\s+(?:-C\s+\S+\s+)?push\b|\b(?:npm|pnpm|yarn|bun)\s+publish\b|\bdeploy\b|\bmigrat(?:e|ion)\b|\b(?:kubectl|terraform|helm)\s+(?:apply|upgrade|install|destroy)\b|\bcurl\b[^|]*\s-X\s*(?:POST|PUT|PATCH|DELETE)\b|\bgh\s+(?:pr|release|issue)\s+(?:create|merge|edit|close)\b|messages?[-_]send|send[-_]message|\bhive_(?:invoke|room_post|ask_human)\b/i.test(
-    text,
-  );
+  // 非命令类工具（MCP 等）：名字里带 send / post / publish / create 的一律按撤不回处理
+  if (step.tool !== "command") {
+    const name = (step.name ?? "").replace(/^mcp__[^_]+(?:_[^_]+)*?__/, "");
+    // hive_message_send 带幂等键，重复调用不会多发
+    if (/hive_message_send$/.test(step.name ?? "")) return false;
+    return /send|post|publish|create|invoke|ask_human|deploy/i.test(name);
+  }
+  const text = step.summary ?? "";
+  return [
+    // git push：全局选项（-C、-c、--no-pager、--git-dir…）夹在中间也认
+    /\bgit(?:\s+(?:-[Cc]\s+\S+|--[\w-]+(?:=\S+)?|-P))*\s+push\b/,
+    /\b(?:npm|pnpm|yarn|bun|changeset)\b[^|;&]*\bpublish\b/,
+    /\bdocker\s+push\b|\bvercel\b[^|;&]*--prod\b|\bdeploy\b/,
+    /\bmigrat(?:e|ion)\b/,
+    /\b(?:kubectl|terraform|helm)\s+(?:apply|upgrade|install|destroy|delete)\b/,
+    // curl 带请求体或非 GET 方法
+    /\bcurl\b[^|;&]*(?:\s-X\s*(?:POST|PUT|PATCH|DELETE)|\s--request\s+(?:POST|PUT|PATCH|DELETE)|\s(?:-d|-F|--data[\w-]*|--form|--json)\b)/i,
+    /\bgh\s+(?:(?:pr|release|issue)\s+(?:create|merge|edit|close)|api\b[^|;&]*(?:-X|--method)\s*(?:POST|PUT|PATCH|DELETE))/i,
+    /messages?[-_+]send|send[-_]message/,
+  ].some((pattern) => pattern.test(text));
 }
 
 /**
