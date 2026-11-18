@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isModelUnavailable, isSessionInvalid, isUpstreamFailure } from "./responder.js";
+import {
+  AgentUpstreamError,
+  isModelUnavailable,
+  isNetworkFailure,
+  isSessionInvalid,
+  isUpstreamFailure,
+} from "./responder.js";
 
 describe("isSessionInvalid", () => {
   it("recognizes the ways runtimes report a session that cannot continue", () => {
@@ -58,5 +64,22 @@ describe("isModelUnavailable", () => {
       expect(isModelUnavailable(text), text).toBe(false);
       expect(isUpstreamFailure(text), text).toBe(false);
     }
+  });
+});
+
+describe("isNetworkFailure", () => {
+  it("recognises being offline (lid closed, DNS, reset) as a network failure", () => {
+    for (const text of [
+      "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)",
+      "Connection error.",
+      "getaddrinfo EAI_AGAIN api.anthropic.com",
+      "TypeError: fetch failed",
+    ]) {
+      expect(isNetworkFailure(text), text).toBe(true);
+      expect(isUpstreamFailure(text), text).toBe(true);
+      expect(new AgentUpstreamError(text).kind, text).toBe("network");
+    }
+    expect(new AgentUpstreamError("API Error: 529 overloaded").kind).toBe("transient");
+    expect(isNetworkFailure("API Error: 401 unauthorized")).toBe(false);
   });
 });

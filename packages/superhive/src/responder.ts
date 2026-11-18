@@ -97,8 +97,13 @@ export class AgentUpstreamError extends Error {
   constructor(
     readonly reason: string,
     readonly threadId?: string,
-    /** transient：限流、过载、5xx，等一会儿可能就好；model：模型本身用不了，等也没用，要人换个模型 */
-    readonly kind: "transient" | "model" = "transient",
+    /**
+     * transient：限流、过载、5xx，等一会儿可能就好；model：模型本身用不了，等也没用，要人换个模型；
+     * network：根本连不上模型服务（断网、合盖睡眠、DNS），请求没发出去，等网络回来接着原会话做
+     */
+    readonly kind: "transient" | "model" | "network" = isNetworkFailure(reason)
+      ? "network"
+      : "transient",
   ) {
     super(`${UPSTREAM_FAILURE_PREFIX}：${reason}`);
     this.name = "AgentUpstreamError";
@@ -109,6 +114,16 @@ export class AgentUpstreamError extends Error {
  * 看起来是上游模型服务暂时不可用（限流、过载、5xx、连接中断），等一会儿再试可能就好；
  * 额度用完、鉴权失败这类等多久都不会好的不算。只认明确的写法，不按任意数字或「超时」字样匹配。
  */
+/**
+ * 连不上模型服务：断网、电脑合盖睡眠、DNS 解析失败、连接被重置。请求没送到模型，
+ * 运行时（如 Claude Code）是在两步之间发请求失败的，已经完成的工具步骤都记在会话里
+ */
+export function isNetworkFailure(text: string): boolean {
+  return /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH|ENETDOWN|socket hang up|Connection error|Can't reach the API server|fetch failed|network (?:error|is unreachable)|getaddrinfo/i.test(
+    text,
+  );
+}
+
 export function isUpstreamFailure(text: string): boolean {
   if (
     /insufficient_quota|quota exceeded|billing|credit balance|invalid api key|unauthori[sz]ed|\b401\b|\b403\b/i.test(
@@ -117,6 +132,7 @@ export function isUpstreamFailure(text: string): boolean {
   ) {
     return false;
   }
+  if (isNetworkFailure(text)) return true;
   return /API Error:?\s*(?:429|5\d\d)\b|(?:status|statusCode|status_code|HTTP)[\s:=]*(?:429|5\d\d)\b|rate[ _-]?limit|too many requests|overloaded|service unavailable|bad gateway|gateway time-?out|ECONNRESET|ETIMEDOUT|socket hang up|stream (?:error|disconnected)|限流|重试渠道均失败|服务繁忙/i.test(
     text,
   );

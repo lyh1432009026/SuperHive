@@ -226,6 +226,7 @@ describe("AgentBridge", () => {
           offlineRetryIntervalMs: 5,
           traceFlushMs: 5,
           upstreamRetryDelaysMs: [30, 60],
+          networkRetryDelaysMs: [30, 60, 90],
           ...extraTuning,
         },
       },
@@ -1744,6 +1745,38 @@ describe("AgentBridge", () => {
     expect(room.reports.at(-1)).toMatchObject({ status: "uncertain" });
     expect(room.reports.at(-1)?.detail).toContain("没有在跑的回合");
     expect(responder.calls).toHaveLength(1);
+  });
+
+  it("auto-continues after the network drops (lid closed) even if the turn already changed things", async () => {
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    // 这一轮已经跑过会改东西的命令，然后合盖断网：Claude Code 重试用完后报连不上
+    responder.calls[0]!.onTrace?.({
+      id: "w",
+      kind: "tool",
+      tool: "command",
+      name: "command",
+      summary: "pnpm install",
+      startedAt: new Date().toISOString(),
+    });
+    responder.fail(
+      new AgentUpstreamError(
+        "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)",
+        "s1",
+      ),
+    );
+    await waitUntil(() =>
+      room.reports.some((report) => report.progress?.includes("连不上模型服务（网络中断）")),
+    );
+    // 网络回来后接着原会话继续，不报结果未知
+    await waitUntil(() => responder.calls.length === 2);
+    expect(responder.calls[1]?.threadId).toBe("s1");
+    responder.finish("完成", "s1");
+    await waitUntil(() => room.statuses(mention.id).includes("completed"));
+    expect(room.statuses(mention.id)).not.toContain("uncertain");
   });
 
   it("gives up auto-continuing after the configured attempts", async () => {

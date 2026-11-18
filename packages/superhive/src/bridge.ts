@@ -108,6 +108,8 @@ export type BridgeTuning = {
   traceFlushMs?: number;
   /** 上游模型服务出错、这一轮又没改过东西时，自动接着继续前的等待时间（次数即长度） */
   upstreamRetryDelaysMs?: number[];
+  /** 连不上模型服务（断网、合盖睡眠）时等多久接着原会话继续；比限流等得更久、次数更多 */
+  networkRetryDelaysMs?: number[];
   /** 执行中的权限申请等人批多久，过时按拒绝（略长于服务端的时限，以服务端为准） */
   approvalTimeoutMs?: number;
   /** 多久未收到 Runtime 新进度时提示待核实；只告警，不自动取消或重试 */
@@ -251,6 +253,7 @@ export class AgentBridge {
       progressThrottleMs: 3_000,
       traceFlushMs: 300,
       upstreamRetryDelaysMs: [60_000, 180_000],
+      networkRetryDelaysMs: [30_000, 120_000, 300_000, 600_000, 900_000],
       approvalTimeoutMs: 10 * 60_000 + 30_000,
       progressStaleMs: 120_000,
       fullPromptEveryTurns: 8,
@@ -1833,8 +1836,15 @@ export class AgentBridge {
     for (const message of live) this.resumeNotes.set(message.id, error.reason);
     const used = Math.max(0, ...live.map((message) => this.upstreamRetries.get(message.id) ?? 0));
     // 模型本身用不了（不存在、下线）：等多久都不会好，不自动重试，交给人换个模型
-    const delay = error.kind === "model" ? undefined : this.tuning.upstreamRetryDelaysMs[used];
-    if (!active.mutated && delay !== undefined && live.length > 0) {
+    const delays =
+      error.kind === "network"
+        ? this.tuning.networkRetryDelaysMs
+        : this.tuning.upstreamRetryDelaysMs;
+    const delay = error.kind === "model" ? undefined : delays[used];
+    // 连不上模型服务时请求根本没送到：运行时是在两步之间发请求失败的，做过的步骤都记在会话里，
+    // 接着原会话继续不会重复执行，所以这一轮改过东西也可以自动继续
+    const safeToContinue = !active.mutated || error.kind === "network";
+    if (safeToContinue && delay !== undefined && live.length > 0) {
       for (const message of live) this.upstreamRetries.set(message.id, used + 1);
       await this.store.save(this.state);
       const wait =
@@ -1847,7 +1857,7 @@ export class AgentBridge {
           messageId: message.id,
           status: "running",
           progress:
-            `${UPSTREAM_FAILURE_PREFIX}，${wait}后自动继续（第 ${used + 1}/${this.tuning.upstreamRetryDelaysMs.length} 次）`.slice(
+            `${error.kind === "network" ? "连不上模型服务（网络中断）" : UPSTREAM_FAILURE_PREFIX}，${wait}后自动继续（第 ${used + 1}/${delays.length} 次）`.slice(
               0,
               200,
             ),
@@ -1880,11 +1890,10 @@ export class AgentBridge {
       this.upstreamRetries.delete(message.id);
     }
     await this.store.save(this.state);
-    const why = active.mutated
-      ? bridgeText("bridge.upstreamMutated")
-      : bridgeText("bridge.upstreamExhausted", {
-          count: this.tuning.upstreamRetryDelaysMs.length,
-        });
+    const why =
+      active.mutated && !safeToContinue
+        ? bridgeText("bridge.upstreamMutated")
+        : bridgeText("bridge.upstreamExhausted", { count: delays.length });
     // 模型本身用不了：接着原会话「继续」还是同一个模型，没用，让人换模型
     const detail = said(
       error.kind === "model"
