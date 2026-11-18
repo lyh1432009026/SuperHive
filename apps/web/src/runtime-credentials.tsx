@@ -26,6 +26,10 @@ export const REVEAL_MS = 30_000;
 const RUNTIME_LABELS: Record<RuntimeCredentialProvider, string> = {
   claude: "Claude Code",
   codex: "Codex",
+  opencode: "opencode",
+  omp: "omp",
+  openclaw: "OpenClaw",
+  copilot: "Copilot CLI",
 };
 
 const fieldLabel = (field: RuntimeCredentialField) =>
@@ -53,7 +57,7 @@ export function RuntimeCredentialsGroup({ api }: { api: RuntimeCredentialsApi })
           <h4>{t("运行时接口地址与密钥")}</h4>
           <p>
             {t(
-              "直接读写 Claude Code、Codex 在这台电脑上的全局配置：这台电脑上用同一运行时的 Agent 和终端里的 CLI 都会用新值。只在这台电脑上能看、能改，值不会发进聊天或交给 Agent。",
+              "直接读写各 CLI 在这台电脑上的全局配置（当前模型用的那个 provider）：这台电脑上用同一运行时的 Agent 和终端里的 CLI 都会用新值。只在这台电脑上能看、能改，值不会发进聊天或交给 Agent。",
             )}
           </p>
         </div>
@@ -100,9 +104,26 @@ function RuntimeCard({
     );
   };
 
+  if (!runtime.configured) {
+    return (
+      <section className="runtime-credentials unconfigured" aria-label={label}>
+        <h5>
+          {label}
+          <span className="runtime-credentials-badge">{t("未配置")}</span>
+        </h5>
+        {runtime.note && <small className="runtime-credentials-files">{runtime.note}</small>}
+      </section>
+    );
+  }
+
   return (
     <section className="runtime-credentials" aria-label={label}>
-      <h5>{label}</h5>
+      <h5>
+        {label}
+        {runtime.providerId && (
+          <span className="runtime-credentials-badge">{runtime.providerId}</span>
+        )}
+      </h5>
       <small className="runtime-credentials-files">{runtime.files.join(t("、"))}</small>
       {(["baseUrl", "apiKey"] as const).map((field) => (
         <CredentialRow
@@ -121,16 +142,8 @@ function RuntimeCard({
       ))}
       {saved && (
         <div className="runtime-credentials-restart" role="status">
-          <p>
-            {runtime.agents.length
-              ? t("已保存。需要重启这些 Agent 才生效：{0}", {
-                  0: runtime.agents.map((agent) => agent.name).join(t("、")),
-                })
-              : t("已保存。这台电脑上还没有用 {0} 的 Agent；终端里新开的 {0} 会直接用新值。", {
-                  0: label,
-                })}
-          </p>
-          {live.length > 0 && (
+          <p>{savedMessage(runtime, label)}</p>
+          {runtime.effect === "restart" && live.length > 0 && (
             <button
               type="button"
               className="settings-action"
@@ -145,6 +158,27 @@ function RuntimeCard({
       )}
     </section>
   );
+}
+
+/** 保存后怎么生效：按运行时实际的运行方式写 */
+function savedMessage(runtime: RuntimeCredentialsWithAgents, label: string): string {
+  const names = runtime.agents.map((agent) => agent.name).join(t("、"));
+  if (runtime.effect === "nextTurn") {
+    return t(
+      "已保存，不用重启：{0} 每一轮都新起进程，Agent 从下一轮起就用新值（正在跑的这一轮仍用旧值），终端里新开的 {0} 也一样。",
+      { 0: label },
+    );
+  }
+  if (runtime.effect === "gateway") {
+    return t(
+      "已保存。OpenClaw Agent 每一轮都新起进程，但默认经 OpenClaw gateway 执行；没生效的话，在终端运行 openclaw gateway restart 重启 gateway。",
+    );
+  }
+  return runtime.agents.length
+    ? t("已保存。{0} 的 Agent 是常驻进程，需要重启才生效：{1}", { 0: label, 1: names })
+    : t("已保存。这台电脑上还没有用 {0} 的 Agent；终端里新开的 {0} 会直接用新值。", {
+        0: label,
+      });
 }
 
 function CredentialRow({
@@ -227,6 +261,11 @@ function CredentialRow({
         </code>
         <small>{info.location}</small>
         {info.note && <small className="runtime-credential-note">{info.note}</small>}
+        {info.shadowedBy && (
+          <small className="runtime-credential-note" role="note">
+            {t("被 {0} 覆盖，改这里不生效", { 0: info.shadowedBy })}
+          </small>
+        )}
       </div>
       <div className="runtime-credential-actions">
         {info.set &&

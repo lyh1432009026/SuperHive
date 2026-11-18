@@ -565,6 +565,17 @@ export function registerLocalAgentRoutes(
       .list()
       .filter((agent) => agent.provider === provider)
       .map((agent) => ({ id: agent.id, name: agent.name, status: agent.status }));
+  /** 这些 Agent 的工作目录：检查项目级配置是否盖过了全局配置 */
+  const contextOf = (provider: RuntimeCredentialProvider) => ({
+    cwds: [
+      ...new Set(
+        supervisor!
+          .list()
+          .filter((agent) => agent.provider === provider && agent.cwd)
+          .map((agent) => agent.cwd!),
+      ),
+    ],
+  });
 
   app.get("/api/local/runtime-credentials", async (request, reply) => {
     if (!authorize(request, reply, "local")) return reply;
@@ -573,7 +584,7 @@ export function registerLocalAgentRoutes(
     try {
       return {
         runtimes: store
-          .list()
+          .list(contextOf)
           .map((runtime) => ({ ...runtime, agents: agentsOf(runtime.provider) })),
       };
     } catch (error) {
@@ -615,7 +626,7 @@ export function registerLocalAgentRoutes(
       if (!provider.success || !body.success)
         return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
       try {
-        const runtime = store.update(provider.data, body.data);
+        const runtime = store.update(provider.data, body.data, contextOf(provider.data));
         auditCredential(
           request,
           "update",

@@ -1375,7 +1375,14 @@ export type LocalSessionResponse = z.infer<typeof localSessionResponseSchema>;
  * 运行时接口地址与密钥（只限本机房主）：直接读写对应 CLI 的全局配置，终端里的 CLI 也一起变。
  * 列表只给打码后的值；完整值要单独确认后取，不进聊天、数据库和日志。
  */
-export const runtimeCredentialProviderSchema = z.enum(["claude", "codex"]);
+export const runtimeCredentialProviderSchema = z.enum([
+  "claude",
+  "codex",
+  "opencode",
+  "omp",
+  "openclaw",
+  "copilot",
+]);
 export const runtimeCredentialFieldSchema = z.enum(["baseUrl", "apiKey"]);
 export const runtimeCredentialFieldInfoSchema = z.object({
   set: z.boolean(),
@@ -1388,11 +1395,25 @@ export const runtimeCredentialFieldInfoSchema = z.object({
   /** 不能改时的原因（中文；noteText 供网页按语言渲染） */
   note: z.string().optional(),
   noteText: serverTextSchema.optional(),
+  /** 改文件不生效：被这里的值覆盖（环境变量名或优先级更高的配置文件） */
+  shadowedBy: z.string().optional(),
 });
+/**
+ * 改完怎么生效：nextTurn=Agent 每轮新起进程，下一轮就用新值；restart=常驻进程，要重启 Agent；
+ * gateway=Agent 每轮新起进程，但经 OpenClaw gateway 执行，gateway 要重新加载配置
+ */
+export const runtimeCredentialEffectSchema = z.enum(["nextTurn", "restart", "gateway"]);
 export const runtimeCredentialsSchema = z.object({
   provider: runtimeCredentialProviderSchema,
   /** 全局配置文件（家目录写成 ~） */
   files: z.array(z.string()),
+  /** false：没装或没配置自定义接口（note 里说明原因），两项都只读 */
+  configured: z.boolean(),
+  note: z.string().optional(),
+  noteText: serverTextSchema.optional(),
+  /** 当前用的 provider 条目名（opencode、omp、OpenClaw、Copilot、Codex 自定义 provider） */
+  providerId: z.string().optional(),
+  effect: runtimeCredentialEffectSchema,
   baseUrl: runtimeCredentialFieldInfoSchema,
   apiKey: runtimeCredentialFieldInfoSchema,
 });
@@ -1417,6 +1438,7 @@ export type RuntimeCredentialProvider = z.infer<typeof runtimeCredentialProvider
 export type RuntimeCredentialField = z.infer<typeof runtimeCredentialFieldSchema>;
 export type RuntimeCredentialFieldInfo = z.infer<typeof runtimeCredentialFieldInfoSchema>;
 export type RuntimeCredentials = z.infer<typeof runtimeCredentialsSchema>;
+export type RuntimeCredentialEffect = z.infer<typeof runtimeCredentialEffectSchema>;
 export type UpdateRuntimeCredentialsRequest = z.infer<typeof updateRuntimeCredentialsRequestSchema>;
 
 export const keepAwakeSettingsSchema = z.object({

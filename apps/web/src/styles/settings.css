@@ -993,3 +993,34 @@
 .runtime-credentials-restart p {
   margin: 0;
 }
+
+.runtime-credentials h5 {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.runtime-credentials-badge {
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.runtime-credentials.unconfigured {
+  background: transparent;
+}
+
+.runtime-credentials.unconfigured h5 {
+  color: var(--text-secondary);
+}
+
+/* Agent 运行时：多个独立区块上下排列 */
+.agent-runtime-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}

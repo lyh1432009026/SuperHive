@@ -86,7 +86,7 @@ import {
 } from "./context-menu";
 import { Select } from "./select";
 import { ConfirmPopover } from "./confirm-popover";
-import { RuntimeCredentialsGroup } from "./runtime-credentials";
+import { AgentRuntimesPanel } from "./agent-runtimes-panel";
 import { isMachineMessage, machinePreview, splitMentions } from "./machine-message";
 import {
   AttentionRoomGroup,
@@ -206,7 +206,7 @@ type AgentAccessMode = "read-only" | "workspace" | "full";
 type AgentSetupStep = 1 | 2 | 3;
 type MessageNotificationMode = "off" | "mentions" | "all";
 type SendShortcut = "modifier-enter" | "enter";
-type SettingsTab = "chat" | "notifications" | "appearance" | "computer";
+type SettingsTab = "chat" | "notifications" | "appearance" | "computer" | "runtimes";
 type TimeFormat = "system" | "24h" | "12h";
 type ThemePreference = "system" | "dark" | "light";
 type InterfaceDensity = "comfortable" | "compact";
@@ -346,6 +346,7 @@ const settingsTabs: Array<{ id: SettingsTab; label: string; description: string 
     { id: "notifications", label: t("通知"), description: t("提及、声音与状态") },
     { id: "appearance", label: t("外观"), description: t("语言、主题、密度与字号") },
     { id: "computer", label: t("这台电脑"), description: t("熄屏后保持在线") },
+    { id: "runtimes", label: t("Agent 运行时"), description: t("接口地址与密钥") },
   ],
 );
 
@@ -1620,6 +1621,10 @@ export function App({
   }
   // Hive Server 就在这台电脑上时，可以直接在网页上拉起 Agent
   const local = useLocalAgents(base, agentDialogOpen, authToken);
+  // 「Agent 运行时」只给页面开在 Server 所在电脑上的本机房主
+  const visibleSettingsTabs = settingsTabs.filter(
+    (tab) => tab.id !== "runtimes" || local.mode === "local",
+  );
   useEffect(() => {
     if (!isOwner || !local.enabled) return;
     let cancelled = false;
@@ -6670,7 +6675,7 @@ export function App({
             </header>
             <div className="settings-dialog-layout">
               <nav className="settings-tabs" aria-label={t("设置分类")} role="tablist">
-                {settingsTabs.map((tab, index) => (
+                {visibleSettingsTabs.map((tab, index) => (
                   <button
                     type="button"
                     role="tab"
@@ -6689,8 +6694,9 @@ export function App({
                       const direction =
                         event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : -1;
                       const nextIndex =
-                        (index + direction + settingsTabs.length) % settingsTabs.length;
-                      setSettingsTab(settingsTabs[nextIndex]!.id);
+                        (index + direction + visibleSettingsTabs.length) %
+                        visibleSettingsTabs.length;
+                      setSettingsTab(visibleSettingsTabs[nextIndex]!.id);
                       window.requestAnimationFrame(() => {
                         const tabs =
                           settingsDialogRef.current?.querySelectorAll<HTMLButtonElement>(
@@ -7004,9 +7010,11 @@ export function App({
                     </div>
                     <HostManageNotice local={local} />
                     <KeepAwakeSettingsGroup local={local} />
-                    {local.mode === "local" && <RuntimeCredentialsGroup api={local} />}
                     <OwnerDevicesGroup local={local} />
                   </section>
+                )}
+                {settingsTab === "runtimes" && local.mode === "local" && (
+                  <AgentRuntimesPanel local={local} />
                 )}
                 {settingsTab === "appearance" && (
                   <section id="settings-panel-appearance" role="tabpanel" aria-label={t("外观")}>

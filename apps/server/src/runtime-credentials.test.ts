@@ -15,10 +15,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import type { SpawnAgent } from "./local-agents.js";
 import {
+  parseJsonc,
+  setJsoncString,
+  setTomlString,
+  setYamlString,
+  yamlUnsafe,
+} from "./config-edit.js";
+import {
   RuntimeCredentialStore,
   maskSecret,
   maskUrl,
-  setTomlString,
+  type RuntimeCredentialsOptions,
 } from "./runtime-credentials.js";
 
 const CLAUDE_KEY = "sk-ant-claude-secret-0123456789";
@@ -29,6 +36,11 @@ afterEach(() => {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
   dirs = [];
 });
+
+/** 不读真实环境变量和系统托管配置 */
+function isolated(home: string): RuntimeCredentialsOptions {
+  return { home, env: {}, claudeManagedSettings: path.join(home, "managed-settings.json") };
+}
 
 function fixture() {
   const home = mkdtempSync(path.join(tmpdir(), "hive-creds-"));
@@ -109,7 +121,12 @@ describe("RuntimeCredentialStore", () => {
     );
     writeFileSync(file, original);
     chmodSync(file, 0o644);
-    const store = new RuntimeCredentialStore({ home, claudeDir, codexHome, now: () => 0 });
+    const store = new RuntimeCredentialStore({
+      ...isolated(home),
+      claudeDir,
+      codexHome,
+      now: () => 0,
+    });
 
     const claude = store.get("claude");
     expect(claude.files).toEqual(["~/.claude/settings.json"]);
@@ -142,7 +159,7 @@ describe("RuntimeCredentialStore", () => {
 
   it("keeps ANTHROPIC_API_KEY when that is what Claude Code already uses, and creates a missing file privately", () => {
     const { home, claudeDir, codexHome } = fixture();
-    const store = new RuntimeCredentialStore({ home, claudeDir, codexHome });
+    const store = new RuntimeCredentialStore({ ...isolated(home), claudeDir, codexHome });
     expect(store.get("claude").apiKey).toMatchObject({ set: false, masked: null, editable: true });
     store.update("claude", { apiKey: "sk-created-0123456789" });
     const file = path.join(claudeDir, "settings.json");
@@ -163,7 +180,7 @@ describe("RuntimeCredentialStore", () => {
     const real = path.join(home, "dotfiles-settings.json");
     writeFileSync(real, "{}\n");
     symlinkSync(real, path.join(claudeDir, "settings.json"));
-    new RuntimeCredentialStore({ home, claudeDir, codexHome }).update("claude", {
+    new RuntimeCredentialStore({ ...isolated(home), claudeDir, codexHome }).update("claude", {
       baseUrl: "https://linked.example.com",
     });
     expect(JSON.parse(readFileSync(real, "utf8")).env.ANTHROPIC_BASE_URL).toBe(
@@ -175,7 +192,7 @@ describe("RuntimeCredentialStore", () => {
     const { home, claudeDir, codexHome } = fixture();
     const file = path.join(codexHome, "config.toml");
     writeFileSync(file, CODEX_CONFIG, { mode: 0o600 });
-    const store = new RuntimeCredentialStore({ home, claudeDir, codexHome });
+    const store = new RuntimeCredentialStore({ ...isolated(home), claudeDir, codexHome });
     const codex = store.get("codex");
     expect(codex.baseUrl).toMatchObject({
       set: true,
@@ -204,7 +221,7 @@ describe("RuntimeCredentialStore", () => {
       path.join(codexHome, "config.toml"),
       `model_provider = "gw"\n[model_providers.gw]\nbase_url = "https://gw.example.com"\nenv_key = "GW_KEY"\n`,
     );
-    const store = new RuntimeCredentialStore({ home, claudeDir, codexHome });
+    const store = new RuntimeCredentialStore({ ...isolated(home), claudeDir, codexHome });
     expect(store.get("codex").apiKey).toMatchObject({ editable: false });
     expect(store.get("codex").apiKey.note).toContain("GW_KEY");
     expect(() => store.update("codex", { apiKey: "sk-x-0123456789" })).toThrow(
@@ -231,7 +248,7 @@ describe("RuntimeCredentialStore", () => {
     writeFileSync(path.join(codexHome, "auth.json"), auth);
     let writes = 0;
     const store = new RuntimeCredentialStore({
-      home,
+      ...isolated(home),
       claudeDir,
       codexHome,
       // 备份 config、写 config、备份 auth 成功，写 auth 时磁盘满
@@ -259,14 +276,15 @@ describe("RuntimeCredentialStore", () => {
       path.join(claudeDir, "settings.json"),
       `{ "env": { "ANTHROPIC_AUTH_TOKEN": "${CLAUDE_KEY}" `,
     );
-    const store = new RuntimeCredentialStore({ home, claudeDir, codexHome });
-    try {
-      store.get("claude");
-      expect.unreachable();
-    } catch (error) {
-      expect((error as Error & { code: string }).code).toBe("RUNTIME_CREDENTIALS_UNREADABLE");
-      expect((error as Error).message).not.toContain(CLAUDE_KEY);
-    }
+    const store = new RuntimeCredentialStore({ ...isolated(home), claudeDir, codexHome });
+    // 不报错：整项标成只读并说明读不懂，也不带出文件内容
+    const claude = store.get("claude");
+    expect(claude.configured).toBe(false);
+    expect(claude.note).toContain("读不懂");
+    expect(JSON.stringify(claude)).not.toContain(CLAUDE_KEY);
+    expect(() => store.update("claude", { apiKey: "sk-x-0123456789" })).toThrow(
+      expect.objectContaining({ code: "RUNTIME_CREDENTIALS_NOT_EDITABLE" }),
+    );
   });
 
   it("keeps only the latest few backups", () => {
@@ -274,7 +292,7 @@ describe("RuntimeCredentialStore", () => {
     writeFileSync(path.join(claudeDir, "settings.json"), "{}");
     let clock = 0;
     const store = new RuntimeCredentialStore({
-      home,
+      ...isolated(home),
       claudeDir,
       codexHome,
       now: () => (clock += 1000),
@@ -285,6 +303,204 @@ describe("RuntimeCredentialStore", () => {
     expect(readdirSync(claudeDir).filter((name) => name.includes(".superhive-bak-"))).toHaveLength(
       5,
     );
+  });
+});
+
+describe("JSONC and YAML editing", () => {
+  it("changes one JSONC value and keeps comments and layout", () => {
+    const content = `{\n  // 注释\n  "a": { "b": "old" }, // 行尾\n  "c": [1, 2]\n}\n`;
+    expect(setJsoncString(content, ["a", "b"], "new")).toBe(content.replace('"old"', '"new"'));
+    expect(parseJsonc(setJsoncString(content, ["a", "d"], "x"))).toEqual({
+      a: { b: "old", d: "x" },
+      c: [1, 2],
+    });
+    expect(() => setJsoncString(`{ a: 1 }`, ["a"], "x")).toThrow();
+  });
+
+  it("replaces a YAML scalar in place and appends a missing key at the entry's indent", () => {
+    const content = `# models\nproviders: # catalog\n    gw:\n        baseUrl: https://old.example # url\n        api: openai-completions\n\n    other:\n        baseUrl: https://other.example\nextra: 1\n`;
+    expect(setYamlString(content, ["providers", "gw", "baseUrl"], "https://new.example")).toBe(
+      content.replace("https://old.example", '"https://new.example"'),
+    );
+    expect(setYamlString(content, ["providers", "gw", "apiKey"], "sk-1")).toBe(
+      content.replace(
+        "        api: openai-completions\n",
+        '        api: openai-completions\n        apiKey: "sk-1"\n',
+      ),
+    );
+  });
+
+  it("refuses YAML with anchors, aliases, tags or flow style", () => {
+    expect(yamlUnsafe(`a: &x 1\nb: *x\n`)).toBe(true);
+    expect(yamlUnsafe(`a: !!str 1\n`)).toBe(true);
+    expect(yamlUnsafe(`providers: {gw: {baseUrl: x}}\n`)).toBe(true);
+    expect(yamlUnsafe(`base: &b\n  x: 1\nother:\n  <<: *b\n`)).toBe(true);
+    expect(yamlUnsafe(`providers:\n  gw:\n    name: Search & Fetch\n`)).toBe(false);
+    expect(() =>
+      setYamlString(`providers:\n  gw: &g\n    baseUrl: x\n`, ["providers", "gw", "baseUrl"], "y"),
+    ).toThrow();
+  });
+});
+
+describe("other runtimes", () => {
+  function store(home: string, env: NodeJS.ProcessEnv = {}) {
+    return new RuntimeCredentialStore({
+      ...isolated(home),
+      env,
+      claudeDir: path.join(home, ".claude"),
+      codexHome: path.join(home, ".codex"),
+    });
+  }
+
+  it("reports runtimes that aren't installed or configured instead of failing", () => {
+    const { home } = fixture();
+    const runtimes = store(home).list();
+    for (const provider of ["opencode", "omp", "openclaw", "copilot"]) {
+      const runtime = runtimes.find((item) => item.provider === provider)!;
+      expect(runtime.configured).toBe(false);
+      expect(runtime.note).toBeTruthy();
+      expect(runtime.baseUrl.editable).toBe(false);
+    }
+    expect(runtimes.find((item) => item.provider === "codex")!.configured).toBe(false);
+  });
+
+  it("edits the current opencode provider in opencode.jsonc and keeps comments", () => {
+    const { home } = fixture();
+    const dir = path.join(home, ".config", "opencode");
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, "opencode.jsonc");
+    const content = `{\n  // 智谱\n  "provider": {\n    "zhipu": {\n      "npm": "@ai-sdk/openai-compatible",\n      "options": { "baseURL": "https://open.example.com/v4", "apiKey": "${CODEX_KEY}" }\n    },\n    "env-one": { "options": { "apiKey": "{env:ONE_KEY}" } }\n  },\n  "model": "zhipu/glm-5"\n}\n`;
+    writeFileSync(file, content);
+    const opencode = store(home);
+    const runtime = opencode.get("opencode");
+    expect(runtime).toMatchObject({ configured: true, providerId: "zhipu", effect: "restart" });
+    expect(runtime.apiKey).toMatchObject({ editable: true, masked: "sk-c••••ijkl" });
+    opencode.update("opencode", { apiKey: "sk-opencode-new-0123" });
+    expect(readFileSync(file, "utf8")).toBe(content.replace(CODEX_KEY, "sk-opencode-new-0123"));
+
+    // 当前模型的 provider 引用环境变量：只读
+    writeFileSync(file, content.replace('"zhipu/glm-5"', '"env-one/x"'));
+    expect(opencode.get("opencode").apiKey).toMatchObject({ editable: false });
+    expect(opencode.get("opencode").apiKey.note).toContain("ONE_KEY");
+    // 内置 provider（没写在配置里）
+    writeFileSync(file, content.replace('"zhipu/glm-5"', '"anthropic/claude"'));
+    expect(opencode.get("opencode")).toMatchObject({ configured: false, providerId: "anthropic" });
+  });
+
+  it("edits omp models.yml for the default model role and leaves env-name keys alone", () => {
+    const { home } = fixture();
+    const dir = path.join(home, ".omp", "agent");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "config.yml"), `modelRoles:\n  default: gw/glm-5\n`);
+    const models = `providers:\n  gw:\n    baseUrl: https://gw.example.com/v1 # gateway\n    apiKey: ${CODEX_KEY}\n    api: openai-completions\n  env:\n    apiKey: GW_API_KEY\n`;
+    const file = path.join(dir, "models.yml");
+    writeFileSync(file, models);
+    const omp = store(home);
+    expect(omp.get("omp")).toMatchObject({ configured: true, providerId: "gw", effect: "restart" });
+    omp.update("omp", { baseUrl: "https://gw2.example.com/v1", apiKey: "sk-omp-new-0123456" });
+    expect(readFileSync(file, "utf8")).toBe(
+      models
+        .replace("https://gw.example.com/v1", '"https://gw2.example.com/v1"')
+        .replace(CODEX_KEY, '"sk-omp-new-0123456"'),
+    );
+
+    writeFileSync(path.join(dir, "config.yml"), `modelRoles:\n  default: env/glm-5\n`);
+    expect(omp.get("omp").apiKey).toMatchObject({ editable: false });
+    expect(omp.get("omp").apiKey.note).toContain("GW_API_KEY");
+
+    // 有锚点就整份只读
+    writeFileSync(path.join(dir, "config.yml"), `modelRoles:\n  default: gw/glm-5\n`);
+    writeFileSync(
+      file,
+      `defaults: &d\n  api: openai-completions\nproviders:\n  gw:\n    <<: *d\n    baseUrl: https://x.example\n`,
+    );
+    expect(omp.get("omp").baseUrl).toMatchObject({ editable: false });
+    expect(() => omp.update("omp", { baseUrl: "https://y.example" })).toThrow(
+      expect.objectContaining({ code: "RUNTIME_CREDENTIALS_NOT_EDITABLE" }),
+    );
+  });
+
+  it("edits OpenClaw's models.providers entry for the primary model, refusing JSON5-only syntax", () => {
+    const { home } = fixture();
+    mkdirSync(path.join(home, ".openclaw"));
+    const file = path.join(home, ".openclaw", "openclaw.json");
+    const content = JSON.stringify(
+      {
+        agents: { defaults: { model: { primary: "gw/glm-5" } } },
+        models: { providers: { gw: { baseUrl: "https://gw.example.com", apiKey: "${GW_KEY}" } } },
+      },
+      null,
+      2,
+    );
+    writeFileSync(file, content);
+    const openclaw = store(home);
+    const runtime = openclaw.get("openclaw");
+    expect(runtime).toMatchObject({ configured: true, providerId: "gw", effect: "gateway" });
+    expect(runtime.apiKey).toMatchObject({ editable: false });
+    openclaw.update("openclaw", { baseUrl: "https://gw2.example.com" });
+    expect(readFileSync(file, "utf8")).toBe(
+      content.replace("https://gw.example.com", "https://gw2.example.com"),
+    );
+
+    writeFileSync(file, `{ agents: { defaults: { model: "gw/x" } } }`);
+    expect(openclaw.get("openclaw")).toMatchObject({ configured: false });
+    expect(openclaw.get("openclaw").note).toContain("JSON5");
+  });
+
+  it("edits Copilot BYOK providers.json and flags COPILOT_PROVIDER_* overrides", () => {
+    const { home } = fixture();
+    const dir = path.join(home, ".copilot");
+    mkdirSync(dir);
+    writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ model: "gw/glm-5" }));
+    const file = path.join(dir, "providers.json");
+    const content = JSON.stringify(
+      {
+        providers: [
+          { name: "other", type: "openai", baseUrl: "https://other.example" },
+          { name: "gw", type: "openai", baseUrl: "https://gw.example.com", bearerToken: CODEX_KEY },
+        ],
+        models: [{ id: "glm-5", provider: "gw" }],
+      },
+      null,
+      2,
+    );
+    writeFileSync(file, content);
+    const copilot = store(home);
+    const runtime = copilot.get("copilot");
+    expect(runtime).toMatchObject({ configured: true, providerId: "gw", effect: "nextTurn" });
+    expect(runtime.apiKey.location).toContain("bearerToken");
+    copilot.update("copilot", { apiKey: "sk-copilot-new-0123" });
+    expect(readFileSync(file, "utf8")).toBe(content.replace(CODEX_KEY, "sk-copilot-new-0123"));
+
+    const shadowed = store(home, { COPILOT_PROVIDER_BASE_URL: "https://env.example" });
+    expect(shadowed.get("copilot").baseUrl.shadowedBy).toBe("COPILOT_PROVIDER_BASE_URL");
+
+    // 官方模型（GitHub 登录）
+    writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ model: "gpt-5" }));
+    expect(copilot.get("copilot")).toMatchObject({ configured: false });
+    expect(copilot.get("copilot").note).toContain("GitHub");
+  });
+
+  it("flags Claude Code values overridden by managed or project settings", () => {
+    const { home, claudeDir } = fixture();
+    writeFileSync(
+      path.join(claudeDir, "settings.json"),
+      JSON.stringify({
+        env: { ANTHROPIC_BASE_URL: "https://a.example", ANTHROPIC_AUTH_TOKEN: CLAUDE_KEY },
+      }),
+    );
+    const project = path.join(home, "repo");
+    mkdirSync(path.join(project, ".claude"), { recursive: true });
+    writeFileSync(
+      path.join(project, ".claude", "settings.local.json"),
+      JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://project.example" } }),
+    );
+    const claude = store(home).get("claude", { cwds: [project] });
+    expect(claude.baseUrl.shadowedBy).toBe(
+      "~/repo/.claude/settings.local.json → env.ANTHROPIC_BASE_URL",
+    );
+    expect(claude.apiKey.shadowedBy).toBeUndefined();
+    expect(claude.effect).toBe("nextTurn");
   });
 });
 
@@ -309,7 +525,7 @@ describe("runtime credential routes", () => {
       token: "join-token",
       staticDir: "/definitely-not-present",
       logger: { level: "info", stream: { write: (line: string) => void logs.push(line) } },
-      runtimeCredentials: new RuntimeCredentialStore({ home, claudeDir, codexHome }),
+      runtimeCredentials: new RuntimeCredentialStore({ ...isolated(home), claudeDir, codexHome }),
       localAgents: {
         cli: { command: "/usr/bin/node", args: ["cli.js"] },
         serverUrl: "http://127.0.0.1:8787",
@@ -337,7 +553,14 @@ describe("runtime credential routes", () => {
       provider: string;
       apiKey: { masked: string };
     }>;
-    expect(runtimes.map((runtime) => runtime.provider)).toEqual(["claude", "codex"]);
+    expect(runtimes.map((runtime) => runtime.provider)).toEqual([
+      "claude",
+      "codex",
+      "opencode",
+      "omp",
+      "openclaw",
+      "copilot",
+    ]);
     expect(runtimes[0]!.apiKey.masked).toBe("sk-a••••6789");
 
     const reveal = await app.inject({

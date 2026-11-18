@@ -841,6 +841,38 @@ export const serverTexts = {
     zh: "config.toml 里这一项的写法认不出来，请手动修改",
     en: "This entry in config.toml uses a form SuperHive can't edit safely; change it by hand",
   },
+  "runtimeCredentials.note.missing": {
+    zh: "没有找到配置文件 {file}",
+    en: "Config file {file} not found",
+  },
+  "runtimeCredentials.note.builtinProvider": {
+    zh: "当前模型 {model} 用的是内置 provider，地址和登录由 CLI 自己管，配置文件里没有可改的项",
+    en: "The current model {model} uses a built-in provider; its URL and sign-in are managed by the CLI, so there is nothing to change in the config file",
+  },
+  "runtimeCredentials.note.noModel": {
+    zh: "配置里没有选当前模型，不知道该改哪个 provider",
+    en: "No current model is selected in the config, so it's unclear which provider to change",
+  },
+  "runtimeCredentials.note.copilotOfficial": {
+    zh: "Copilot 用 GitHub 账号登录（官方模型），没有地址和 key 可改",
+    en: "Copilot is signed in with GitHub (official models); there's no URL or key to change",
+  },
+  "runtimeCredentials.note.envReference": {
+    zh: "这一项引用环境变量 {name}，请在启动 CLI 的环境里改",
+    en: "This entry references the {name} environment variable; change it where the CLI is launched",
+  },
+  "runtimeCredentials.note.shellCommand": {
+    zh: "密钥由一条 shell 命令生成，不在网页上改",
+    en: "The key is produced by a shell command and can't be changed here",
+  },
+  "runtimeCredentials.note.yamlUnsafe": {
+    zh: "models.yml 用了锚点、别名、标签或 flow 写法，为免改坏不在网页上改，请手动修改",
+    en: "models.yml uses anchors, aliases, tags or flow style; change it by hand so nothing breaks",
+  },
+  "runtimeCredentials.note.json5": {
+    zh: "{file} 用了 JSON5 写法（如不带引号的键），为免改坏不在网页上改，请手动修改",
+    en: "{file} uses JSON5 syntax (such as unquoted keys); change it by hand so nothing breaks",
+  },
   "error.localAgent.configChanged": {
     zh: "Agent 的配置在批准后变了，已停下没有启动，请重新申请批准。",
     en: "The agent's configuration changed after approval, so it was stopped instead of started. Request approval again.",
