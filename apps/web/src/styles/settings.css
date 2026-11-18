@@ -888,3 +888,108 @@
 .host-approval-actions button.danger {
   color: var(--danger);
 }
+
+/* 这台电脑：运行时接口地址与密钥 */
+.runtime-credentials {
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+}
+
+.runtime-credentials h5 {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.runtime-credentials-files {
+  display: block;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.runtime-credential-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: flex-start;
+  margin-top: 10px;
+}
+
+.runtime-credential-value {
+  display: flex;
+  flex: 1 1 260px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+
+.runtime-credential-value code {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: var(--text-xs);
+}
+
+.runtime-credential-value small {
+  overflow-wrap: anywhere;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.runtime-credential-value .runtime-credential-note {
+  color: var(--warning);
+}
+
+.runtime-credential-actions,
+.runtime-credential-edit {
+  display: flex;
+  gap: 6px;
+}
+
+.runtime-credential-actions button,
+.runtime-credential-edit button {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-main);
+  color: var(--text);
+  font-size: var(--text-xs);
+}
+
+.runtime-credential-edit {
+  flex: 1 1 100%;
+}
+
+.runtime-credential-edit input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-main);
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+
+.runtime-credential-edit button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.runtime-credential-edit button:disabled {
+  opacity: 0.5;
+}
+
+.runtime-credentials-restart {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-light);
+  font-size: var(--text-sm);
+}
+
+.runtime-credentials-restart p {
+  margin: 0;
+}

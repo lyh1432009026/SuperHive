@@ -12,6 +12,10 @@ import type {
   LocalProviderInfo,
   LocalSessionResponse,
   RoomClearOptions,
+  RuntimeCredentialField,
+  RuntimeCredentialProvider,
+  RuntimeCredentials,
+  UpdateRuntimeCredentialsRequest,
   WorktreeStatus,
 } from "@superhive/protocol";
 import { localized, t } from "./i18n";
@@ -112,6 +116,21 @@ export type LocalAgentsState = {
   revokeOwnerDevice(id: string): Promise<void>;
   pairOwnerDevice(): Promise<{ url: string; expiresAt: string; qrDataUrl: string }>;
   ownerToken(): Promise<string>;
+  /** 本机：运行时全局配置里的接口地址和密钥（打码），以及用这个运行时的本机 Agent */
+  runtimeCredentials(): Promise<RuntimeCredentialsWithAgents[]>;
+  /** 本机：确认后取完整值 */
+  revealRuntimeCredential(
+    provider: RuntimeCredentialProvider,
+    field: RuntimeCredentialField,
+  ): Promise<string | null>;
+  updateRuntimeCredentials(
+    provider: RuntimeCredentialProvider,
+    input: UpdateRuntimeCredentialsRequest,
+  ): Promise<RuntimeCredentialsWithAgents>;
+};
+
+export type RuntimeCredentialsWithAgents = RuntimeCredentials & {
+  agents: Array<{ id: string; name: string; status: LocalAgent["status"] }>;
 };
 
 export type OwnerDevice = {
@@ -521,6 +540,35 @@ export function useLocalAgents(
     const response = await request("/api/local/owner-token");
     return ((await response.json()) as { token: string }).token;
   }, [request]);
+  const runtimeCredentials = useCallback(async () => {
+    const response = await request("/api/local/runtime-credentials");
+    return localizeServerPayload(
+      ((await response.json()) as { runtimes: RuntimeCredentialsWithAgents[] }).runtimes,
+    );
+  }, [request]);
+  const revealRuntimeCredential = useCallback(
+    async (provider: RuntimeCredentialProvider, field: RuntimeCredentialField) => {
+      const response = await request(`/api/local/runtime-credentials/${provider}/reveal`, {
+        method: "POST",
+        cache: "no-store",
+        body: JSON.stringify({ field }),
+      });
+      return ((await response.json()) as { value: string | null }).value;
+    },
+    [request],
+  );
+  const updateRuntimeCredentials = useCallback(
+    async (provider: RuntimeCredentialProvider, input: UpdateRuntimeCredentialsRequest) => {
+      const response = await request(`/api/local/runtime-credentials/${provider}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+      return localizeServerPayload(
+        ((await response.json()) as { runtime: RuntimeCredentialsWithAgents }).runtime,
+      );
+    },
+    [request],
+  );
   const revokeAllOwnerDevices = useCallback(async () => {
     const response = await request("/api/local/owner-devices/revoke-all", { method: "POST" });
     return ((await response.json()) as { revoked: number }).revoked;
@@ -619,6 +667,9 @@ export function useLocalAgents(
     revokeOwnerDevice,
     pairOwnerDevice,
     ownerToken,
+    runtimeCredentials,
+    revealRuntimeCredential,
+    updateRuntimeCredentials,
     providers,
     agents,
     create,

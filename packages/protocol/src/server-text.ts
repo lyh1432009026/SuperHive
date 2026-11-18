@@ -813,6 +813,34 @@ export const serverTexts = {
     zh: "这个服务没有启用熄屏后保持在线。",
     en: "Keep awake isn't enabled on this server.",
   },
+  "error.runtimeCredentials.notEditable": {
+    zh: "{field} 不能在网页上改：{reason}",
+    en: "{field} can't be changed here: {reason}",
+  },
+  "error.runtimeCredentials.writeFailed": {
+    zh: "写入 {file} 失败，原文件没有改动：{reason}",
+    en: "Couldn't write {file}; the original file is unchanged: {reason}",
+  },
+  "error.runtimeCredentials.unreadable": {
+    zh: "读不懂 {file}，没有改动：{reason}",
+    en: "Couldn't parse {file}; nothing was changed: {reason}",
+  },
+  "runtimeCredentials.note.envKey": {
+    zh: "密钥从环境变量 {name} 读取，请在启动 CLI 的环境里改",
+    en: "The key is read from the {name} environment variable; change it where the CLI is launched",
+  },
+  "runtimeCredentials.note.chatgpt": {
+    zh: "Codex 用 ChatGPT 账号登录，没有 API key",
+    en: "Codex is signed in with a ChatGPT account and has no API key",
+  },
+  "runtimeCredentials.note.builtin": {
+    zh: "Codex 用内置 OpenAI 服务；要换地址，先在 config.toml 里配一个 model_provider",
+    en: "Codex uses the built-in OpenAI provider; add a model_provider in config.toml to change the URL",
+  },
+  "runtimeCredentials.note.complex": {
+    zh: "config.toml 里这一项的写法认不出来，请手动修改",
+    en: "This entry in config.toml uses a form SuperHive can't edit safely; change it by hand",
+  },
   "error.localAgent.configChanged": {
     zh: "Agent 的配置在批准后变了，已停下没有启动，请重新申请批准。",
     en: "The agent's configuration changed after approval, so it was stopped instead of started. Request approval again.",

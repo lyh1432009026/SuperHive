@@ -16,6 +16,11 @@ import {
   resumeCommand,
   roomClearRequestSchema,
   type RoomClearOptions,
+  runtimeCredentialFieldSchema,
+  runtimeCredentialProviderSchema,
+  type RuntimeCredentialField,
+  type RuntimeCredentialProvider,
+  updateRuntimeCredentialsRequestSchema,
 } from "@superhive/protocol";
 import QRCode from "qrcode";
 import { HiveError } from "./database.js";
@@ -26,6 +31,7 @@ import { listDirectories } from "./local-directories.js";
 import { renderImMessage, type ImMessage } from "./im/im-texts.js";
 import { openTerminal } from "./open-terminal.js";
 import type { LocalAgentSupervisor } from "./local-agents.js";
+import type { RuntimeCredentialStore } from "./runtime-credentials.js";
 
 /**
  * 本机 Agent 的 HTTP 接口（管理 Hive Server 所在电脑）。请求方必须是下面两种之一：
@@ -39,7 +45,7 @@ import type { LocalAgentSupervisor } from "./local-agents.js";
  * - read：只读（列目录、Agent 状态、MCP 列表、日志），登录的设备直接可用；
  * - manage：会在这台电脑上起进程或改设置。设备要先申请、经本机或可批准的 IM 账号批准，获批后 12 小时内可用，
  *   每次操作记审计日志并推到房主 IM；用完全权限起进程还要逐次批准（stepUp）；
- * - local：凭据类（生成登录二维码、显示总令牌、登记可批准的 IM 账号），只限本机。
+ * - local：凭据类（生成登录二维码、显示总令牌、登记可批准的 IM 账号、运行时地址与密钥），只限本机。
  */
 
 const OWNER_HEADER = "x-hive-owner";
@@ -59,6 +65,9 @@ const ERROR_STATUS: Record<string, number> = {
   LOCAL_AGENT_MCP_LIST_FAILED: 502,
   LOCAL_AGENT_BUSY: 409,
   LOCAL_AGENT_CONFIG_CHANGED: 409,
+  RUNTIME_CREDENTIALS_NOT_EDITABLE: 409,
+  RUNTIME_CREDENTIALS_UNREADABLE: 409,
+  RUNTIME_CREDENTIALS_WRITE_FAILED: 500,
 };
 
 /** 批准单绑定的 Agent 配置：获批后权限、目录、模型、MCP 任一变化都不算同一件事 */
@@ -133,6 +142,8 @@ export type LocalRoomActions = {
   ) => { sessionId: string; cwd: string; busy: boolean } | undefined;
   /** 在这台电脑上开终端执行命令；测试里替换掉 */
   openTerminal?: (command: string) => Promise<void>;
+  /** 运行时（Claude Code、Codex）全局配置里的接口地址和密钥 */
+  runtimeCredentials?: RuntimeCredentialStore;
   /** 熄屏后保持在线 */
   keepAwake?: {
     state(): KeepAwakeState | undefined;
@@ -528,6 +539,91 @@ export function registerLocalAgentRoutes(
       return reply.code(404).send({ ...errorText(serverText("error.feature.disabled")) });
     return { token: rooms.ownerDevices.joinToken() };
   });
+
+  /* ---------- 运行时地址与密钥：只限本机房主，值不进日志 ---------- */
+
+  /** 审计只记谁、何时、哪个运行时的哪一项，不记值 */
+  function auditCredential(
+    request: FastifyRequest,
+    action: "view" | "update",
+    provider: RuntimeCredentialProvider,
+    fields: RuntimeCredentialField[],
+  ) {
+    request.log.info(
+      { runtimeCredential: { by: "local-owner", ip: request.ip, action, provider, fields } },
+      action === "view" ? "runtime credential revealed" : "runtime credential updated",
+    );
+  }
+
+  /** 用这个运行时的本机 Agent：改完要重启它们才生效 */
+  const agentsOf = (provider: RuntimeCredentialProvider) =>
+    supervisor!
+      .list()
+      .filter((agent) => agent.provider === provider)
+      .map((agent) => ({ id: agent.id, name: agent.name, status: agent.status }));
+
+  app.get("/api/local/runtime-credentials", async (request, reply) => {
+    if (!authorize(request, reply, "local")) return reply;
+    const store = rooms.runtimeCredentials;
+    if (!store) return reply.code(404).send({ ...errorText(serverText("error.feature.disabled")) });
+    try {
+      return {
+        runtimes: store
+          .list()
+          .map((runtime) => ({ ...runtime, agents: agentsOf(runtime.provider) })),
+      };
+    } catch (error) {
+      return fail(reply, error);
+    }
+  });
+
+  app.post<{ Params: { provider: string }; Body: { field?: unknown } }>(
+    "/api/local/runtime-credentials/:provider/reveal",
+    async (request, reply) => {
+      if (!authorize(request, reply, "local")) return reply;
+      const store = rooms.runtimeCredentials;
+      if (!store)
+        return reply.code(404).send({ ...errorText(serverText("error.feature.disabled")) });
+      const provider = runtimeCredentialProviderSchema.safeParse(request.params.provider);
+      const field = runtimeCredentialFieldSchema.safeParse(request.body?.field);
+      if (!provider.success || !field.success)
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      try {
+        const value = store.reveal(provider.data, field.data);
+        auditCredential(request, "view", provider.data, [field.data]);
+        void reply.header("Cache-Control", "no-store");
+        return { value };
+      } catch (error) {
+        return fail(reply, error);
+      }
+    },
+  );
+
+  app.put<{ Params: { provider: string } }>(
+    "/api/local/runtime-credentials/:provider",
+    async (request, reply) => {
+      if (!authorize(request, reply, "local")) return reply;
+      const store = rooms.runtimeCredentials;
+      if (!store)
+        return reply.code(404).send({ ...errorText(serverText("error.feature.disabled")) });
+      const provider = runtimeCredentialProviderSchema.safeParse(request.params.provider);
+      const body = updateRuntimeCredentialsRequestSchema.safeParse(request.body);
+      if (!provider.success || !body.success)
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      try {
+        const runtime = store.update(provider.data, body.data);
+        auditCredential(
+          request,
+          "update",
+          provider.data,
+          (["baseUrl", "apiKey"] as const).filter((field) => body.data[field] !== undefined),
+        );
+        return { runtime: { ...runtime, agents: agentsOf(provider.data) } };
+      } catch (error) {
+        return fail(reply, error);
+      }
+    },
+  );
 
   app.get("/api/local/keep-awake", async (request, reply) => {
     if (!authorize(request, reply, "read")) return reply;

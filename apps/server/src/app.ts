@@ -51,7 +51,12 @@ import {
   explainInvocationState,
   formatInvocationStateForAgent,
 } from "@superhive/protocol";
-import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import Fastify, {
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
+  type FastifyServerOptions,
+} from "fastify";
 import type { WebSocket } from "ws";
 import { z } from "zod";
 import { AGENT_INSTRUCTIONS } from "./agent-instructions.js";
@@ -73,6 +78,7 @@ import {
   type LocalAgentSupervisorOptions,
 } from "./local-agents.js";
 import { MANAGE_GRANT_MS, registerLocalAgentRoutes } from "./local-routes.js";
+import type { RuntimeCredentialStore } from "./runtime-credentials.js";
 import { KeepAwake } from "./keep-awake.js";
 import { OwnerDevices, isOwnerDeviceToken } from "./owner-devices.js";
 import { HostApprovals, type HostApproval } from "./host-approvals.js";
@@ -120,7 +126,8 @@ export type BuildAppOptions = {
   webUrl?: ConfiguredUrl;
   agentCommandPrefix?: string;
   instanceId?: string;
-  logger?: boolean;
+  /** 测试可传 { stream } 收集日志（例如核对密钥没有写进日志） */
+  logger?: FastifyServerOptions["logger"];
   heartbeatTimeoutMs?: number;
   /** 扫描超时调用的间隔；测试可调小 */
   invocationSweepMs?: number;
@@ -139,6 +146,8 @@ export type BuildAppOptions = {
   imDrivers?: Partial<Record<ImChannel, ImChannelDriver>>;
   /** 熄屏后保持在线（macOS 起 caffeinate）；测试里默认关闭，避免真的阻止睡眠 */
   keepAwake?: boolean;
+  /** 运行时全局配置里的地址和密钥；省略即不提供（测试默认关闭，免得读写真实的 ~/.claude、~/.codex），由 index.ts 注入 */
+  runtimeCredentials?: RuntimeCredentialStore;
   /** IM 凭据加密密钥文件；省略时用进程内随机密钥（重启后已保存的连接需要重新扫码） */
   imKeyPath?: string;
   /** 附件文件目录；省略时放在数据库旁的 attachments/（内存数据库用临时目录） */
@@ -618,6 +627,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       },
     },
     notifyOwner: (text) => void imHub.notifyOwner(text),
+    ...(options.runtimeCredentials ? { runtimeCredentials: options.runtimeCredentials } : {}),
     keepAwake: {
       state: () => keepAwake?.state(),
       update: (patch) => keepAwake?.update(patch),

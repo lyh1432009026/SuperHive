@@ -7,6 +7,7 @@ import { networkInterfaces } from "node:os";
 import path from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { buildApp, resolveUrl } from "./app.js";
+import { RuntimeCredentialStore } from "./runtime-credentials.js";
 import { feishuDriver } from "./im/feishu.js";
 import type { ImChannelDriver } from "./im/types.js";
 import { lanAddresses } from "./lan-address.js";
@@ -91,6 +92,7 @@ const app = await buildApp({
   ...(roomAttachmentQuotaBytes ? { roomAttachmentQuotaBytes } : {}),
   ...(pendingAttachmentQuotaBytes ? { pendingAttachmentQuotaBytes } : {}),
   imDrivers,
+  runtimeCredentials: new RuntimeCredentialStore(),
   imKeyPath: path.join(path.dirname(databasePath), "im-secret.key"),
   publicUrl,
   webUrl,

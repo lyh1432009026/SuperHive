@@ -86,6 +86,7 @@ import {
 } from "./context-menu";
 import { Select } from "./select";
 import { ConfirmPopover } from "./confirm-popover";
+import { RuntimeCredentialsGroup } from "./runtime-credentials";
 import { isMachineMessage, machinePreview, splitMentions } from "./machine-message";
 import {
   AttentionRoomGroup,
@@ -7003,6 +7004,7 @@ export function App({
                     </div>
                     <HostManageNotice local={local} />
                     <KeepAwakeSettingsGroup local={local} />
+                    {local.mode === "local" && <RuntimeCredentialsGroup api={local} />}
                     <OwnerDevicesGroup local={local} />
                   </section>
                 )}

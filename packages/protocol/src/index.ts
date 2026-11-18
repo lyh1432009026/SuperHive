@@ -1371,6 +1371,54 @@ export type LocalSessionResponse = z.infer<typeof localSessionResponseSchema>;
  * whenIm=有启用中的 IM 连接时保持（默认开）；whenTasks=有 Agent 任务在跑时保持（默认关）；
  * onBattery=用电池时也保持（默认关）。
  */
+/**
+ * 运行时接口地址与密钥（只限本机房主）：直接读写对应 CLI 的全局配置，终端里的 CLI 也一起变。
+ * 列表只给打码后的值；完整值要单独确认后取，不进聊天、数据库和日志。
+ */
+export const runtimeCredentialProviderSchema = z.enum(["claude", "codex"]);
+export const runtimeCredentialFieldSchema = z.enum(["baseUrl", "apiKey"]);
+export const runtimeCredentialFieldInfoSchema = z.object({
+  set: z.boolean(),
+  /** 打码后的值；没有设置时为 null */
+  masked: z.string().nullable(),
+  /** 能不能在网页上改（配置写法不认识、由环境变量或账号登录提供时不能） */
+  editable: z.boolean(),
+  /** 值写在哪里，例如 settings.json 的 env.ANTHROPIC_BASE_URL */
+  location: z.string(),
+  /** 不能改时的原因（中文；noteText 供网页按语言渲染） */
+  note: z.string().optional(),
+  noteText: serverTextSchema.optional(),
+});
+export const runtimeCredentialsSchema = z.object({
+  provider: runtimeCredentialProviderSchema,
+  /** 全局配置文件（家目录写成 ~） */
+  files: z.array(z.string()),
+  baseUrl: runtimeCredentialFieldInfoSchema,
+  apiKey: runtimeCredentialFieldInfoSchema,
+});
+export const updateRuntimeCredentialsRequestSchema = z
+  .object({
+    baseUrl: z
+      .string()
+      .trim()
+      .max(2048)
+      .regex(/^https?:\/\/[^\s]+$/)
+      .optional(),
+    apiKey: z
+      .string()
+      .trim()
+      .min(1)
+      .max(4096)
+      .regex(/^[\x21-\x7e]+$/)
+      .optional(),
+  })
+  .refine((value) => value.baseUrl !== undefined || value.apiKey !== undefined);
+export type RuntimeCredentialProvider = z.infer<typeof runtimeCredentialProviderSchema>;
+export type RuntimeCredentialField = z.infer<typeof runtimeCredentialFieldSchema>;
+export type RuntimeCredentialFieldInfo = z.infer<typeof runtimeCredentialFieldInfoSchema>;
+export type RuntimeCredentials = z.infer<typeof runtimeCredentialsSchema>;
+export type UpdateRuntimeCredentialsRequest = z.infer<typeof updateRuntimeCredentialsRequestSchema>;
+
 export const keepAwakeSettingsSchema = z.object({
   whenIm: z.boolean(),
   whenTasks: z.boolean(),
