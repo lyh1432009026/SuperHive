@@ -1266,5 +1266,8 @@
   "选好后点「下一步」；接入命令会按所选 Agent 的运行环境自动调整。": "Pick one, then click Next. The setup command adapts to the selected agent's runtime.",
   "数量": "Count",
   "一次接入几个": "How many to add at once",
-  "将依次启动：{0}": "Will start: {0}"
+  "将依次启动：{0}": "Will start: {0}",
+  "调整房间栏宽度": "Resize room list",
+  "调整成员栏宽度": "Resize member panel",
+  "拖动调整宽度，双击恢复默认": "Drag to resize, double-click to reset"
 }

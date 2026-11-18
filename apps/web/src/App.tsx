@@ -177,6 +177,7 @@ import {
   t,
   useLocale,
 } from "./i18n";
+import { PanelResizer, usePanelWidths } from "./panel-resizer";
 
 const storedUsernameKey = "superhive.username";
 const storedRoomKey = "superhive.room";
@@ -1683,6 +1684,8 @@ export function App({
     );
   }
   const modifierKeyLabel = useMemo(platformModifierLabel, []);
+  // 两侧栏可拖宽：默认宽度即最小宽度，记在本机
+  const { widths: panelWidths, resize: resizePanel } = usePanelWidths();
   const recentMentions = useMemo(
     () => recentMentionOrder(messages, username),
     [messages, username],
@@ -4254,11 +4257,18 @@ export function App({
 
       <section
         className={`workspace ${membersCollapsed ? "members-collapsed" : ""} ${roomsCollapsed ? "rooms-collapsed" : ""}`}
+        style={
+          {
+            "--sidebar-width": `${panelWidths.rooms}px`,
+            "--panel-width": `${panelWidths.members}px`,
+          } as CSSProperties
+        }
       >
         <aside
           className={`rooms-panel panel ${mobilePanel === "rooms" ? "mobile-open" : ""}`}
           aria-label={t("房间列表")}
         >
+          <PanelResizer panel="rooms" width={panelWidths.rooms} onResize={resizePanel} />
           <div className="sidebar-header">
             <div className="brand">
               <HiveLogo compact />
@@ -5741,6 +5751,7 @@ export function App({
           className={`members-panel panel ${mobilePanel === "members" ? "mobile-open" : ""}`}
           aria-label={t("成员列表")}
         >
+          <PanelResizer panel="members" width={panelWidths.members} onResize={resizePanel} />
           <div className="panel-heading side-panel-heading">
             <div
               className="side-tabs"

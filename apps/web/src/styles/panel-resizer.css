@@ -1,0 +1,63 @@
+/* 侧栏拖拽手柄：贴在侧栏内侧边缘，平时看不见，悬停或拖动时显出一条细线 */
+.rooms-panel,
+.members-panel {
+  position: relative;
+}
+
+.panel-resizer {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.panel-resizer.rooms {
+  right: -4px;
+}
+
+.panel-resizer.members {
+  left: -4px;
+}
+
+.panel-resizer::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: transparent;
+  content: "";
+  transition: background var(--duration-fast);
+}
+
+.panel-resizer:hover::after,
+.panel-resizer.dragging::after,
+.panel-resizer:focus-visible::after {
+  background: var(--border-heavy);
+}
+
+.panel-resizer:focus-visible {
+  outline: none;
+}
+
+/* 拖动时整页不选中文字，光标保持调整样式 */
+body.resizing-panel {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* 侧栏变成抽屉的宽度下不能拖 */
+@media (max-width: 1100px) {
+  .panel-resizer.members {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .panel-resizer.rooms {
+    display: none;
+  }
+}
