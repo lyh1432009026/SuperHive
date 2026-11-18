@@ -227,6 +227,10 @@ describe("isMutatingStep", () => {
       "git branch new-branch",
       "git worktree add ../x",
       "git fetch --upload-pack=./x origin",
+      "git -C /repo commit -m x",
+      "git -c core.pager=./x -C /repo log",
+      "git -C /repo -c alias.st=!rm st",
+      "git --exec-path=./x status",
       "git ls-remote -u ./x origin",
       "ls > /dev/nullx",
       "/bin/zsh -lc 'ls '\\''a'\\''; rm a'",
@@ -249,6 +253,10 @@ describe("isMutatingStep", () => {
       "for f in a b; do wc -l $f; done",
       "git worktree list; git branch --list 'feat/*'; git merge-base main HEAD",
       "git status --short; git fetch origin release/2.5.0 feat/x; git rev-parse origin/release/2.5.0",
+      // rd-codex 2026-11-18 23:44 的原始命令：看另一个 worktree 的分支、提交和改动
+      "printf 'DOCS TASK\\n'; git -C /Users/me/wt/docs branch --show-current; git -C /Users/me/wt/docs rev-parse --short HEAD; git -C /Users/me/wt/docs status --short; git -C /Users/me/wt/docs diff --stat; pwd; git status --short",
+      "git --no-pager -C ../other log --oneline -3",
+      "git --git-dir=/repo/.git --work-tree=/repo status",
       "ls >/dev/null 2>&1 && echo ok",
       "/bin/zsh -lc 'rg -n '\\''a|b'\\'' src; sed -n '\\''1,20p'\\'' f'",
     ]) {

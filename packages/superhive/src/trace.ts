@@ -230,8 +230,23 @@ const readOnlyGit = new Set([
   "ls-remote",
 ]);
 
+/**
+ * 去掉子命令前的全局选项：只认换目录、不分页这几种（`git -C <dir> status` 是看别的仓库最常见的写法）；
+ * `-c`、`--exec-path` 等能改配置或调用外部程序的保留下来，交给后面按子命令判为不认识。
+ */
+function skipGitGlobalOptions(args: string[]): string[] {
+  let i = 0;
+  while (i < args.length) {
+    const arg = args[i]!;
+    if (arg === "-C" || arg === "--git-dir" || arg === "--work-tree") i += 2;
+    else if (/^--(?:git-dir|work-tree)=/.test(arg) || arg === "--no-pager" || arg === "-P") i += 1;
+    else break;
+  }
+  return args.slice(i);
+}
+
 function readOnlyGitCommand(args: string[]): boolean {
-  const [sub, ...rest] = args;
+  const [sub, ...rest] = skipGitGlobalOptions(args);
   if (!sub) return true;
   // 写文件或调用外部程序的参数：任何子命令带上都算改动
   if (
