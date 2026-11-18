@@ -32,6 +32,8 @@ import { renderImMessage, type ImMessage } from "./im/im-texts.js";
 import { openTerminal } from "./open-terminal.js";
 import type { LocalAgentSupervisor } from "./local-agents.js";
 import type { RuntimeCredentialStore } from "./runtime-credentials.js";
+import type { AgentCliManager } from "./agent-clis.js";
+import { registerAgentCliRoutes } from "./agent-cli-routes.js";
 
 /**
  * 本机 Agent 的 HTTP 接口（管理 Hive Server 所在电脑）。请求方必须是下面两种之一：
@@ -144,6 +146,8 @@ export type LocalRoomActions = {
   openTerminal?: (command: string) => Promise<void>;
   /** 运行时（Claude Code、Codex）全局配置里的接口地址和密钥 */
   runtimeCredentials?: RuntimeCredentialStore;
+  /** 本机装的 Agent CLI：检测版本与一键升级 */
+  agentClis?: AgentCliManager;
   /** 熄屏后保持在线 */
   keepAwake?: {
     state(): KeepAwakeState | undefined;
@@ -624,6 +628,14 @@ export function registerLocalAgentRoutes(
       }
     },
   );
+
+  if (supervisor) {
+    registerAgentCliRoutes(app, {
+      manager: rooms.agentClis,
+      supervisor,
+      authorizeLocal: (request, reply) => Boolean(authorize(request, reply, "local")),
+    });
+  }
 
   app.get("/api/local/keep-awake", async (request, reply) => {
     if (!authorize(request, reply, "read")) return reply;

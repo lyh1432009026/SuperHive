@@ -8,6 +8,7 @@ import path from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { buildApp, resolveUrl } from "./app.js";
 import { RuntimeCredentialStore } from "./runtime-credentials.js";
+import { AgentCliManager } from "./agent-clis.js";
 import { feishuDriver } from "./im/feishu.js";
 import type { ImChannelDriver } from "./im/types.js";
 import { lanAddresses } from "./lan-address.js";
@@ -93,6 +94,7 @@ const app = await buildApp({
   ...(pendingAttachmentQuotaBytes ? { pendingAttachmentQuotaBytes } : {}),
   imDrivers,
   runtimeCredentials: new RuntimeCredentialStore(),
+  agentClis: new AgentCliManager(),
   imKeyPath: path.join(path.dirname(databasePath), "im-secret.key"),
   publicUrl,
   webUrl,

@@ -1,0 +1,192 @@
+/* Agent 运行时：已安装的 Agent CLI 与一键升级 */
+.agent-clis-heading {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.agent-clis-heading .settings-action {
+  flex-shrink: 0;
+  margin-top: 0;
+}
+
+.agent-clis-heading .settings-action:disabled,
+.agent-cli .settings-action:disabled {
+  opacity: 0.5;
+}
+
+.agent-cli {
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+  font-size: var(--text-sm);
+}
+
+.agent-cli-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.agent-cli-head .settings-action {
+  flex-shrink: 0;
+  margin-top: 0;
+}
+
+.agent-cli-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.agent-cli-title h5 {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.agent-cli-status {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.agent-cli-status.muted {
+  color: var(--text-tertiary);
+}
+
+.agent-cli-status.broken {
+  color: var(--danger);
+}
+
+.agent-cli-update {
+  color: var(--accent);
+}
+
+.agent-cli-path {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+  margin-top: 4px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.agent-cli-path code,
+.agent-cli-installs code {
+  overflow-wrap: anywhere;
+  font-size: var(--text-xs);
+}
+
+.agent-cli-source {
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  line-height: 18px;
+}
+
+.agent-cli .settings-note.warning {
+  color: var(--warning);
+}
+
+.agent-cli-installs {
+  margin-top: 6px;
+  color: var(--warning);
+  font-size: var(--text-xs);
+}
+
+.agent-cli-installs summary {
+  cursor: pointer;
+}
+
+.agent-cli-installs ul {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding-left: 16px;
+  color: var(--text-secondary);
+}
+
+.agent-cli-installs li span {
+  margin-left: 8px;
+  color: var(--text-tertiary);
+}
+
+.agent-cli-command {
+  display: block;
+  margin: 6px 0;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  background: var(--bg-code);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.agent-cli-output {
+  max-height: 160px;
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  overflow: auto;
+  border-radius: var(--radius-md);
+  background: var(--bg-code);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+}
+
+.agent-cli-job {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  align-items: center;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-light);
+}
+
+.agent-cli-job p {
+  margin: 0;
+}
+
+.agent-cli-job.failed,
+.agent-cli-job.done {
+  display: block;
+}
+
+.agent-cli-job.failed p {
+  color: var(--danger);
+}
+
+.agent-cli-progress {
+  flex: 1 1 100%;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-cli-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: agent-cli-spin 0.8s linear infinite;
+}
+
+@keyframes agent-cli-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

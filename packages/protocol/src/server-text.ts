@@ -994,6 +994,58 @@ export const serverTexts = {
   },
   "error.request.invalid": { zh: "参数不正确。", en: "Invalid parameters." },
   "error.request.missingActor": { zh: "缺少操作人。", en: "The acting person is missing." },
+  "error.agentCli.busy": {
+    zh: "{tool} 正在升级，等它结束再试。一次只升级一个 CLI。",
+    en: "{tool} is being updated. Wait for it to finish; only one CLI is updated at a time.",
+  },
+  "error.agentCli.planChanged": {
+    zh: "{tool} 的安装情况变了，升级命令和你确认的不一样，没有执行。请刷新后重新确认。",
+    en: "{tool}'s installation changed and the update command no longer matches what you confirmed, so nothing was run. Refresh and confirm again.",
+  },
+  "error.agentCli.notUpgradable": {
+    zh: "{tool} 现在不能一键升级：{reason}",
+    en: "{tool} can't be updated here: {reason}",
+  },
+  "error.agentCli.upToDate": {
+    zh: "{tool} 已经是最新版（{version}）。",
+    en: "{tool} is already up to date ({version}).",
+  },
+  "error.agentCli.nodeTooOld": {
+    zh: "{tool} {latest} 需要 Node {required}，这一处用的是 Node {current}。先升级 Node，再升级 {tool}。",
+    en: "{tool} {latest} requires Node {required}, but this installation runs on Node {current}. Update Node first, then {tool}.",
+  },
+  "error.agentCli.timeout": {
+    zh: "升级超过 {minutes} 分钟还没结束，已停止。",
+    en: "The update didn't finish within {minutes} minutes and was stopped.",
+  },
+  "error.agentCli.spawnFailed": {
+    zh: "升级命令没能启动：{reason}",
+    en: "The update command couldn't start: {reason}",
+  },
+  "error.agentCli.exitCode": {
+    zh: "升级命令失败（退出码 {code}）。",
+    en: "The update command failed (exit code {code}).",
+  },
+  "agentCli.manual.unknownSource": {
+    zh: "认不出 {path} 是怎么装的，请用原来的安装方式升级",
+    en: "Can't tell how {path} was installed; update it the way it was installed",
+  },
+  "agentCli.manual.noManager": {
+    zh: "{path} 旁边找不到 {manager}，没法确定升级到哪一处，请用原来的安装方式升级",
+    en: "{manager} wasn't found next to {path}, so the update can't be pinned to this installation; update it the way it was installed",
+  },
+  "agentCli.manual.nix": {
+    zh: "通过 Nix 安装，请改 flake 后重新构建",
+    en: "Installed with Nix; update your flake and rebuild",
+  },
+  "agentCli.manual.notOnPath": {
+    zh: "登录 shell 的 PATH 里找不到 {tool}，不知道命令行用的是哪一处",
+    en: "{tool} isn't on the login shell's PATH, so it's unclear which installation the command line uses",
+  },
+  "agentCli.manual.windows": {
+    zh: "Windows 上暂不支持一键升级，请用原来的安装方式升级",
+    en: "One-click updates aren't supported on Windows yet; update it the way it was installed",
+  },
   "error.room.agentsAbsent": {
     zh: "#{room} 里还没有在线的 {agents}，稍后再试或换一个 Agent。",
     en: "{agents} isn't online in #{room} yet. Try again shortly or pick another agent.",

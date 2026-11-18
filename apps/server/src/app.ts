@@ -79,6 +79,7 @@ import {
 } from "./local-agents.js";
 import { MANAGE_GRANT_MS, registerLocalAgentRoutes } from "./local-routes.js";
 import type { RuntimeCredentialStore } from "./runtime-credentials.js";
+import type { AgentCliManager } from "./agent-clis.js";
 import { KeepAwake } from "./keep-awake.js";
 import { OwnerDevices, isOwnerDeviceToken } from "./owner-devices.js";
 import { HostApprovals, type HostApproval } from "./host-approvals.js";
@@ -148,6 +149,8 @@ export type BuildAppOptions = {
   keepAwake?: boolean;
   /** 运行时全局配置里的地址和密钥；省略即不提供（测试默认关闭，免得读写真实的 ~/.claude、~/.codex），由 index.ts 注入 */
   runtimeCredentials?: RuntimeCredentialStore;
+  /** 本机 Agent CLI 的检测与升级；省略即不提供（测试默认关闭，免得真的跑登录 shell、查 npm），由 index.ts 注入 */
+  agentClis?: AgentCliManager;
   /** IM 凭据加密密钥文件；省略时用进程内随机密钥（重启后已保存的连接需要重新扫码） */
   imKeyPath?: string;
   /** 附件文件目录；省略时放在数据库旁的 attachments/（内存数据库用临时目录） */
@@ -628,6 +631,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     },
     notifyOwner: (text) => void imHub.notifyOwner(text),
     ...(options.runtimeCredentials ? { runtimeCredentials: options.runtimeCredentials } : {}),
+    ...(options.agentClis ? { agentClis: options.agentClis } : {}),
     keepAwake: {
       state: () => keepAwake?.state(),
       update: (patch) => keepAwake?.update(patch),

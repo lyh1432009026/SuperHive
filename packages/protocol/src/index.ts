@@ -1493,4 +1493,5 @@ export * from "./agent-session.js";
 export * from "./plural.js";
 export * from "./participant-order.js";
 export * from "./invocation-decision.js";
+export * from "./agent-clis.js";
 export * from "./server-text.js";

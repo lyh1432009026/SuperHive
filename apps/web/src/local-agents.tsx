@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { localizeServerPayload, serverError } from "./server-text";
 import type {
+  AgentCliInfo,
+  AgentCliJob,
+  AgentCliTool,
   CreateLocalAgentRequest,
   KeepAwakeSettings,
   KeepAwakeState,
@@ -78,6 +81,11 @@ export type LocalAgentsState = {
   hostApprovers(): Promise<HostApprover[]>;
   setHostApprover(connectionId: string, allowed: boolean): Promise<HostApprover[]>;
   revokeAllOwnerDevices(): Promise<number>;
+  /** 本机：装了哪些 Agent CLI、版本、来源和升级命令；refresh 时重新探测 */
+  agentClis(refresh?: boolean): Promise<{ tools: AgentCliWithAgents[]; job: AgentCliJob | null }>;
+  /** 本机：执行页面确认过的升级命令（服务端重新算一遍，对不上不执行） */
+  upgradeAgentCli(tool: AgentCliTool, command: string): Promise<AgentCliJob>;
+  agentCliJob(id: string): Promise<AgentCliJob>;
   providers: LocalProviderInfo[] | undefined;
   agents: LocalAgent[];
   create(request: CreateLocalAgentRequest): Promise<LocalAgent>;
@@ -130,6 +138,10 @@ export type LocalAgentsState = {
 };
 
 export type RuntimeCredentialsWithAgents = RuntimeCredentials & {
+  agents: Array<{ id: string; name: string; status: LocalAgent["status"] }>;
+};
+
+export type AgentCliWithAgents = AgentCliInfo & {
   agents: Array<{ id: string; name: string; status: LocalAgent["status"] }>;
 };
 
@@ -569,6 +581,32 @@ export function useLocalAgents(
     },
     [request],
   );
+  const agentClis = useCallback(
+    async (refresh = false) => {
+      const response = await request(`/api/local/agent-clis${refresh ? "?refresh=1" : ""}`);
+      return localizeServerPayload(
+        (await response.json()) as { tools: AgentCliWithAgents[]; job: AgentCliJob | null },
+      );
+    },
+    [request],
+  );
+  const upgradeAgentCli = useCallback(
+    async (tool: AgentCliTool, command: string) => {
+      const response = await request(`/api/local/agent-clis/${tool}/upgrade`, {
+        method: "POST",
+        body: JSON.stringify({ command }),
+      });
+      return localizeServerPayload(((await response.json()) as { job: AgentCliJob }).job);
+    },
+    [request],
+  );
+  const agentCliJob = useCallback(
+    async (id: string) => {
+      const response = await request(`/api/local/agent-clis/jobs/${encodeURIComponent(id)}`);
+      return localizeServerPayload(((await response.json()) as { job: AgentCliJob }).job);
+    },
+    [request],
+  );
   const revokeAllOwnerDevices = useCallback(async () => {
     const response = await request("/api/local/owner-devices/revoke-all", { method: "POST" });
     return ((await response.json()) as { revoked: number }).revoked;
@@ -661,6 +699,9 @@ export function useLocalAgents(
     hostApprovers,
     setHostApprover,
     revokeAllOwnerDevices,
+    agentClis,
+    upgradeAgentCli,
+    agentCliJob,
     keepAwake,
     updateKeepAwake,
     ownerDevices,
