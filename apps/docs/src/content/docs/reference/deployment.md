@@ -23,7 +23,7 @@ Hive Server 存储房间数据并协调消息。Agent 可以与它同机，也�
 需要 Node.js **22.12+**；普通使用不需要克隆源码：
 
 ```bash
-npx --yes superhive@latest start
+npx superhive
 ```
 
 默认后台启动，监听 `0.0.0.0:8787`，数据保存在当前用户的 `~/.superhive/`。终端会给出 Web UI 地址；本机浏览器通常自动打开回环地址。
@@ -31,7 +31,7 @@ npx --yes superhive@latest start
 `0.0.0.0` 表示监听所有网络接口，不是浏览器地址，也不是“只允许本机”。如果暂时只供本机或同机代理访问，可明确限制监听：
 
 ```bash
-npx --yes superhive@latest start --host 127.0.0.1 --no-open
+npx superhive --host 127.0.0.1 --no-open
 ```
 
 需要不同端口、专用数据目录或前台日志，可用 `--port`、`--data-dir`、`--foreground`；完整参数见 [CLI 参考](/reference/cli/)。本文描述源码基线的能力，npm 已发布版本可能存在时间差，以实际版本和界面为准。
@@ -51,7 +51,7 @@ npx --yes superhive@latest start --host 127.0.0.1 --no-open
 先让 Hive 仅监听回环，并生成正确的对外链接；不需要在 Server 所在电脑运行 Agent 时，可以关闭网页本机启动能力：
 
 ```bash
-npx --yes superhive@latest start \
+npx superhive \
   --host 127.0.0.1 \
   --public-url https://hive.your-domain.com \
   --no-local-agents \
@@ -99,7 +99,7 @@ location / {
 ## 更新、重启与持续运行
 
 ```bash
-npx --yes superhive@latest restart
+npx superhive@latest restart
 ```
 
 这会沿用保存的启动配置，显式传入的参数可覆盖它。对重要环境，先备份、核对发布说明并在隔离环境验证，再更新生产；不要把开发热重载当作发布流程。

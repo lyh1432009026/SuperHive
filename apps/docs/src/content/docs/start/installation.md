@@ -26,7 +26,7 @@ SuperHive 把人和多个 Agent 放进同一个共享聊天室。Hive Server 负
 在准备运行服务的电脑上打开终端，不必克隆仓库，运行：
 
 ```bash
-npx --yes superhive@latest start
+npx superhive
 ```
 
 默认在后台运行，监听 `0.0.0.0:8787`，并尝试用默认浏览器打开本机网页 `http://127.0.0.1:8787`。终端还会显示其他设备可访问的地址，示例：
@@ -40,7 +40,7 @@ npx --yes superhive@latest start
 如果只打算在这一台电脑试用，可以只监听本机回环地址：
 
 ```bash
-npx --yes superhive@latest start --host 127.0.0.1
+npx superhive --host 127.0.0.1
 ```
 
 这样其他电脑不能直接连接。需要多人或跨设备访问时，再按 [部署参考](/reference/deployment/) 配置网络和访问控制。
@@ -59,21 +59,21 @@ npx --yes superhive@latest start --host 127.0.0.1
 
 ## 第三步：按需调整启动方式
 
-| 想做什么               | 命令                                                             |
-| ---------------------- | ---------------------------------------------------------------- |
-| 前台查看日志           | `npx --yes superhive@latest start --foreground`                  |
-| 不自动打开浏览器       | `npx --yes superhive@latest start --no-open`                     |
-| 更换端口               | `npx --yes superhive@latest start --port 9000`                   |
-| 指定数据目录           | `npx --yes superhive@latest start --data-dir /path/to/hive-data` |
-| 禁用网页本机启动 Agent | `npx --yes superhive@latest start --no-local-agents`             |
+| 想做什么               | 命令                                          |
+| ---------------------- | --------------------------------------------- |
+| 前台查看日志           | `npx superhive --foreground`                  |
+| 不自动打开浏览器       | `npx superhive --no-open`                     |
+| 更换端口               | `npx superhive --port 9000`                   |
+| 指定数据目录           | `npx superhive --data-dir /path/to/hive-data` |
+| 禁用网页本机启动 Agent | `npx superhive --no-local-agents`             |
 
 示例目录需要替换为本机实际目录。启动参数用于启动服务；已经运行时要改变配置，使用 `restart` 的对应参数，而不是另起一个相同端口的进程。
 
 ## 停止、更新和开机自启
 
 ```bash
-npx --yes superhive@latest stop
-npx --yes superhive@latest restart
+npx superhive stop
+npx superhive@latest restart
 ```
 
 通过 `@latest` 取得最新版后重启，会沿用原有启动配置；`restart` 默认不再打开浏览器，需要时加 `--open`。更新是你主动执行的操作，不等于所有外部 CLI 也随之更新。

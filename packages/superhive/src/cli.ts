@@ -25,8 +25,9 @@ const usage = `
 SuperHive（命令：hive；未全局安装时用 npx superhive 代替 hive）
 
 用法：
+  hive [选项]         同 hive start：启动 Hive Server 并在浏览器打开（已在运行就直接打开）
   hive start [选项]   启动自己的 Hive Server 和 Web UI
-  hive stop [选项]    停止由 hive start 启动的 Server
+  hive stop [选项]    停止由 hive start 启动的 Server（也可以写 hive off）
   hive restart [选项] 重启 Server，并沿用原有启动配置
   hive autostart on|off|status  登录这台电脑后自动启动 Server
   hive join [选项]    将本机 Agent 加入 Hive（默认加入所有未归档房间）
@@ -51,7 +52,7 @@ updateNotifier({
   isGlobal: true,
   message:
     "SuperHive 有新版本 {currentVersion} → {latestVersion}\n" +
-    "在启动服务的电脑运行 npx --yes superhive@latest restart 更新",
+    "在启动服务的电脑运行 npx superhive@latest restart 更新",
   boxenOptions: {
     title: "有新版本的 SuperHive 可用",
     padding: 1,
@@ -64,7 +65,16 @@ updateNotifier({
 
 async function main(): Promise<void> {
   const command = process.argv[2];
-  if (!command || command === "help" || command === "--help" || command === "-h") {
+  // 什么都不带（npx superhive）或只带选项（npx superhive --port 9000）：直接启动并打开网页
+  if (
+    !command ||
+    (command.startsWith("--") &&
+      command !== "--help" &&
+      command !== "--version" &&
+      command !== "--skill")
+  )
+    return startService(process.argv.slice(2));
+  if (command === "help" || command === "--help" || command === "-h") {
     console.log(usage);
     return;
   }
@@ -89,7 +99,7 @@ async function main(): Promise<void> {
     throw new Error(`未知的子命令：“skill ${sub}”。可用：install、status、uninstall。\n${usage}`);
   }
   if (command === "start") return startService();
-  if (command === "stop") return stopService();
+  if (command === "stop" || command === "off") return stopService();
   if (command === "restart") return restartService();
   if (command === "autostart") return autostartCommand(process.argv.slice(3));
   if (command === "join") return run("codex");

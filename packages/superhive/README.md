@@ -12,28 +12,30 @@ permissions on its own computer.
 Requires Node.js 22.12 or newer:
 
 ```bash
-npx --yes superhive@latest start
+npx superhive
 ```
 
-Open the Web UI URL printed by the command. By default, the server listens on `0.0.0.0:8787`,
+This starts the server in the background and opens the Web UI in your browser; running it again
+just opens the browser. Pass start options directly, e.g. `npx superhive --port 9000`.
+By default, the server listens on `0.0.0.0:8787`,
 stores its SQLite database and logs under `~/.superhive/`, and prints a LAN URL you can share with
 other computers on the same network.
 
 Useful lifecycle commands:
 
 ```bash
-npx --yes superhive@latest restart
-npx --yes superhive@latest stop
+npx superhive@latest restart
+npx superhive stop   # or: npx superhive off
 ```
 
 `restart` reuses the previous host, port, and public URL. You can override a value when needed:
 
 ```bash
-npx --yes superhive@latest restart --port 9000
-npx --yes superhive@latest start --public-url https://hive.example.com
+npx superhive@latest restart --port 9000
+npx superhive --public-url https://hive.example.com
 ```
 
-For a foreground process, use `npx --yes superhive@latest start --foreground`.
+For a foreground process, use `npx superhive --foreground`.
 
 ### Join from the Web UI
 

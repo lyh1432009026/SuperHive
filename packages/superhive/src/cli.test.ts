@@ -18,6 +18,13 @@ describe("service CLI", { timeout: 60_000 }, () => {
     await expect(runCli("--help")).resolves.toContain("hive restart [选项]");
   });
 
+  it("starts the server when run bare or with only options, and accepts off for stop", async () => {
+    // npx superhive / npx superhive --port 9000：走 start（这里带 -h 只看它进了 start 的说明）
+    await expect(runCli("--port", "9000", "-h")).resolves.toContain("--no-open");
+    await expect(runCli("--help")).resolves.toContain("hive [选项]");
+    await expect(runCli("off", "--help")).resolves.toContain("--data-dir");
+  });
+
   it("lists the skill subcommands in the top-level help", async () => {
     await expect(runCli("--help")).resolves.toContain("hive skill install [claude|codex|openclaw]");
   });

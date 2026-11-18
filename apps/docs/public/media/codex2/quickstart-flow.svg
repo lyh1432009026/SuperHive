@@ -44,7 +44,7 @@
     <circle cx="80" cy="170" r="24" fill="#0d0d0d" />
     <text x="80" y="179" font-size="26" text-anchor="middle" fill="#ffffff">1</text>
     <text x="120" y="179" font-size="28" font-weight="700">启动 Hive Server</text>
-    <text x="64" y="223" font-size="25">npx --yes superhive@latest start</text>
+    <text x="64" y="223" font-size="25">npx superhive</text>
     <path
       d="M 380 270 V 296"
       fill="none"

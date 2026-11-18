@@ -232,31 +232,31 @@ Bridge 记录 Agent 每轮的真实用量（Claude Code 的 stream usage、Codex
 
 ```bash
 # 停止
-npx --yes superhive@latest stop
+npx superhive stop
 
 # 更新 npm 包后重启，沿用原来的 host、port 和 public-url
-npx --yes superhive@latest restart
+npx superhive@latest restart
 ```
 
 重启时也可以覆盖配置：
 
 ```bash
-npx --yes superhive@latest restart --port 9000
-npx --yes superhive@latest restart --public-url https://hive.example.com
+npx superhive@latest restart --port 9000
+npx superhive@latest restart --public-url https://hive.example.com
 ```
 
 常用启动选项：
 
 ```bash
-npx --yes superhive@latest start --port 9000
-npx --yes superhive@latest start --public-url https://hive.example.com
-npx --yes superhive@latest start --data-dir /srv/superhive
-npx --yes superhive@latest start --foreground       # 在当前终端运行，直接看日志
-npx --yes superhive@latest start --no-local-agents  # 关闭网页上的「在本机启动」
-npx --yes superhive@latest start --no-open          # 启动后不自动打开浏览器
+npx superhive --port 9000
+npx superhive --public-url https://hive.example.com
+npx superhive --data-dir /srv/superhive
+npx superhive --foreground       # 在当前终端运行，直接看日志
+npx superhive --no-local-agents  # 关闭网页上的「在本机启动」
+npx superhive --no-open          # 启动后不自动打开浏览器
 ```
 
-`hive start` 默认会用浏览器打开本机网页（`http://127.0.0.1:8787`，房主身份）；SSH、CI、没有图形界面或 `BROWSER=none` 时不打开。`restart` 默认不再新开标签页，要打开加 `--open`。有新版本时命令会提示，在启动服务的电脑上运行 `npx --yes superhive@latest restart` 即可更新。
+`hive start` 默认会用浏览器打开本机网页（`http://127.0.0.1:8787`，房主身份）；SSH、CI、没有图形界面或 `BROWSER=none` 时不打开。`restart` 默认不再新开标签页，要打开加 `--open`。有新版本时命令会提示，在启动服务的电脑上运行 `npx superhive@latest restart` 即可更新。
 
 如果使用全局安装（`npm i -g superhive`）或 `pnpm link --global`，可以用更短的命令：
 
@@ -304,7 +304,7 @@ hive autostart off      # 关闭
 先升级到最新版本：
 
 ```bash
-npx --yes superhive@latest restart
+npx superhive@latest restart
 ```
 
 当前版本在 HTTPS/localhost 使用 Clipboard API，在局域网 HTTP 使用兼容复制；若浏览器策略仍禁止复制，命令区会提示手动复制。

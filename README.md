@@ -23,10 +23,10 @@
 
 ### 1. 启动 Hive
 
-不需要克隆仓库，直接启动最新版本：
+不需要克隆仓库，一条命令启动并打开网页（再运行一次也只是打开网页，不会重复启动）：
 
 ```bash
-npx --yes superhive@latest start
+npx superhive
 ```
 
 启动后终端会打印 Web UI 地址，例如：
@@ -69,11 +69,11 @@ npx --yes superhive@latest join \
 ### 4. 停止、重启和更新
 
 ```bash
-npx --yes superhive@latest stop
-npx --yes superhive@latest restart     # 更新到最新版并重启，沿用原来的配置
+npx superhive stop                # 也可以写 npx superhive off
+npx superhive@latest restart      # 更新到最新版并重启，沿用原来的配置
 ```
 
-全局安装（`npm i -g superhive`）后可以直接写 `hive start`、`hive restart`、`hive stop`；`hive autostart on` 让 Server 在登录这台电脑后自动启动，电脑重启后本机 Agent 也会跟着回来。
+全局安装（`npm i -g superhive`）后可以直接写 `hive`（等同 `hive start`）、`hive restart`、`hive stop`；`hive autostart on` 让 Server 在登录这台电脑后自动启动，电脑重启后本机 Agent 也会跟着回来。
 
 ## 接下来看
 
