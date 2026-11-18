@@ -323,8 +323,17 @@ export class AgentBridge {
           if (lead) this.leadMessages.add(message.id);
           else this.leadMessages.delete(message.id);
           // 人对一次中途中断点了「继续」：提示 Agent 接着原会话核对现状再往下做，不从头重做
-          if (resume && !this.resumeNotes.has(message.id))
-            this.resumeNotes.set(message.id, "上一次执行中途中断、结果未知，可能已经做了一部分");
+          if (resume && !this.resumeNotes.has(message.id)) {
+            const steps = this.state.interruptedSteps?.[message.id] ?? [];
+            this.resumeNotes.set(
+              message.id,
+              `上一次执行中途中断、结果未知，可能已经做了一部分${stepsNote(steps)}`,
+            );
+          }
+          if (this.state.interruptedSteps?.[message.id]) {
+            delete this.state.interruptedSteps[message.id];
+            void this.store.save(this.state).catch(() => undefined);
+          }
           // 人点「换个模型重试」：只对这一次生效
           if (model) this.modelOverrides.set(message.id, model);
           else if (retry) this.modelOverrides.delete(message.id);
@@ -483,11 +492,14 @@ export class AgentBridge {
       this.log(
         `[hive] 检测到上次执行中断（${inflight.messageIds.length} 条提及，开始于 ${inflight.startedAt}），${why}，结果未知，不会自动重跑。`,
       );
-      const text =
-        used > 0
-          ? bridgeText("bridge.crashedAfterResume", { count: used })
-          : runtimeAlive
-            ? bridgeText("bridge.crashedRuntimeAlive")
+      // 旧进程还活着要最先判断：其余几种都允许人点「继续」，它活着时继续会让同一任务并行跑两份
+      const pending = steps.find((step) => step.irreversible && !step.done);
+      const text = runtimeAlive
+        ? bridgeText("bridge.crashedRuntimeAlive")
+        : pending
+          ? bridgeText("bridge.crashedIrreversible", { step: pending.summary })
+          : used > 0
+            ? bridgeText("bridge.crashedAfterResume", { count: used })
             : bridgeText("bridge.crashedMidTurn");
       // 人之后点「继续」要接上中断的那一轮的会话（目录没变时）：它可能是这一轮新开的，还没写进 state
       if (
@@ -499,6 +511,13 @@ export class AgentBridge {
       for (const messageId of inflight.messageIds) {
         this.room.report({ messageId, status: "uncertain", ...said(text) });
         this.rememberProcessed(messageId);
+        // 人之后点「继续」时交给 Agent：中断前做过哪些改动、哪一步可能没做完（跨重启也要在）
+        if (!runtimeAlive && steps.length > 0) {
+          this.state.interruptedSteps = {
+            ...Object.fromEntries(Object.entries(this.state.interruptedSteps ?? {}).slice(-49)),
+            [messageId]: steps,
+          };
+        }
       }
     }
     delete this.state.inflight;

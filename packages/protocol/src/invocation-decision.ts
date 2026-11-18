@@ -7,6 +7,8 @@
 export const RESUMABLE_UNKNOWN_KEYS: readonly string[] = [
   "bridge.crashedMidTurn",
   "bridge.crashedAfterResume",
+  // 中断时正在跑一个撤不回的对外操作：卡片上写明是哪一步，人核对后可以继续
+  "bridge.crashedIrreversible",
   "bridge.reconnectedGone",
   "bridge.uncertain",
   // 从没确认收到：一定还没开工

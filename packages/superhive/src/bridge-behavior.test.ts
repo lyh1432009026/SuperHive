@@ -1259,6 +1259,59 @@ describe("AgentBridge", () => {
       await waitUntil(() => room.statuses(mention.id).includes("completed"));
     });
 
+    it("reports a still-running old runtime first, even after an earlier auto-resume", async () => {
+      extraTuning = { runtimeExitGraceMs: 50 };
+      const { spawn } = await import("node:child_process");
+      const orphan = spawn(process.execPath, ["-e", "setTimeout(() => {}, 10000)"], {
+        stdio: "ignore",
+      });
+      try {
+        const mention = chat();
+        room.messages.push(mention);
+        await startBridge(
+          {
+            ...baseState(),
+            crashResumes: { [mention.id]: 1 },
+            inflight: crashed([mention.id], { runtimePids: [orphan.pid!] }),
+          },
+          [invocationFor(mention, "running")],
+        );
+        await waitUntil(() => room.statuses(mention.id).includes("uncertain"));
+        // 不能报成「已自动恢复过」（那个人能点继续），旧进程还活着继续会并行跑两份
+        expect(room.reports.find((report) => report.status === "uncertain")?.detailText).toEqual({
+          key: "bridge.crashedRuntimeAlive",
+        });
+      } finally {
+        orphan.kill();
+      }
+    });
+
+    it("names the irreversible step on the card and hands the steps to the continued turn", async () => {
+      const mention = chat();
+      room.messages.push(mention);
+      await startBridge(
+        {
+          ...baseState(),
+          inflight: crashed([mention.id], {
+            mutated: true,
+            threadId: "s1",
+            steps: [{ summary: "git push origin main", done: false, irreversible: true }],
+          }),
+        },
+        [invocationFor(mention, "running")],
+      );
+      await waitUntil(() => room.statuses(mention.id).includes("uncertain"));
+      expect(room.reports.find((report) => report.status === "uncertain")?.detailText).toEqual({
+        key: "bridge.crashedIrreversible",
+        params: { step: "git push origin main" },
+      });
+      room.handlers.onMention(mention, mention.seq, true, false, false, false, undefined, true);
+      await waitUntil(() => responder.calls.length === 1);
+      expect(responder.calls[0]!.prompt).toContain("git push origin main（可能没执行完）");
+      responder.finish("核对过了", "s1");
+      await waitUntil(() => room.statuses(mention.id).includes("completed"));
+    });
+
     it("still reports reconnectedGone for a running call it knows nothing about", async () => {
       const mention = chat();
       room.messages.push(mention);

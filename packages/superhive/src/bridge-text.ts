@@ -51,6 +51,8 @@ export const BRIDGE_TEXTS = {
   "bridge.crashResumedNoReply": "无需回复（中途意外退出后已自动恢复 {count} 次）",
   "bridge.crashedAfterResume":
     "Agent 在处理途中再次意外退出（已自动恢复过 {count} 次），结果未知；不再自动重跑，需先核对原执行与工具进程。",
+  "bridge.crashedIrreversible":
+    "Agent 在处理途中意外退出，中断时正在执行：{step}；它做没做完不确定，确认后点「继续」，Agent 会先核对再往下做。",
   "bridge.crashedRuntimeAlive":
     "Agent 在处理途中意外退出，原运行时进程还没退出、可能仍在执行；未自动重跑，需先核对原执行与工具进程。",
   "bridge.crashResumeStopped": "Agent 中途意外退出后、自动恢复前已被停止，未重新执行",

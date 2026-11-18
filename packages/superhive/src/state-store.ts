@@ -32,6 +32,11 @@ export type AgentState = {
     /** 本轮做过的可能有改动的步骤（最多 20 条）：中断后交给接着做的那一轮，提醒它别重复、先核对 */
     steps?: Array<{ summary: string; done: boolean; irreversible?: boolean }>;
   };
+  /** 中断后转给人决定的提及：当时记下的改动步骤，人点「继续」时交给 Agent（最多留 50 条） */
+  interruptedSteps?: Record<
+    string,
+    Array<{ summary: string; done: boolean; irreversible?: boolean }>
+  >;
   /** 进程中途退出后已自动重跑的次数（按触发消息），用于封顶并写进状态说明；处理完即删 */
   crashResumes?: Record<string, number>;
   /** 距上次发送完整上下文（成员、白板、规则提示）以来的轮数与时间，用于提示节流 */

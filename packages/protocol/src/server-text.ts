@@ -460,6 +460,10 @@ export const serverTexts = {
         "The agent exited unexpectedly mid-task again (already resumed automatically {count} times), so the outcome is unknown. It won't be rerun again; check what the previous run and its tools did first.",
     },
   },
+  "bridge.crashedIrreversible": {
+    zh: "Agent 在处理途中意外退出，中断时正在执行：{step}；它做没做完不确定，确认后点「继续」，Agent 会先核对再往下做。",
+    en: "The agent exited unexpectedly mid-task while running: {step}. It's unclear whether that finished; check, then click Continue and the agent will verify before carrying on.",
+  },
   "bridge.crashedRuntimeAlive": {
     zh: "Agent 在处理途中意外退出，原运行时进程还没退出、可能仍在执行；未自动重跑，需先核对原执行与工具进程。",
     en: "The agent exited unexpectedly mid-task and its runtime process is still alive, so it may still be running. It wasn't rerun; check what the previous run and its tools did first.",
