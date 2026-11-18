@@ -14,6 +14,7 @@ import {
   traceSummary,
 } from "./trace.js";
 import { isUpstreamFailure } from "./responder.js";
+import { isIrreversibleStep } from "./trace.js";
 
 describe("execution trace", () => {
   it("masks common secrets and the home directory before anything leaves the bridge", () => {
@@ -422,5 +423,29 @@ describe("ThinkingTrace", () => {
       expect.objectContaining({ id: "thinking:m1:1", kind: "thinking" }),
     ]);
     expect(done[1]!.text).toBeUndefined();
+  });
+});
+
+describe("isIrreversibleStep", () => {
+  it("flags pushes, publishes, deploys, migrations and outbound sends", () => {
+    const tool = (summary: string, name = "command") =>
+      ({ id: "x", kind: "tool", tool: "command", name, summary, startedAt: "" }) as const;
+    for (const summary of [
+      "git push origin main",
+      "git -C ../x push",
+      "npm publish --access public",
+      "pnpm db:migrate",
+      "curl -s -X POST https://api.example.com/x",
+      "gh pr create --fill",
+      "lark-cli im +messages-send --chat-id x",
+    ])
+      expect(isIrreversibleStep(tool(summary)), summary).toBe(true);
+    for (const summary of [
+      "git status",
+      "pnpm test",
+      "curl https://example.com",
+      "git commit -m x",
+    ])
+      expect(isIrreversibleStep(tool(summary)), summary).toBe(false);
   });
 });

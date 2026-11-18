@@ -25,6 +25,10 @@ export type AgentState = {
     mutated?: boolean;
     /** 本轮期间活着的运行时子进程；重启时还有没退出的，说明旧回合可能仍在执行 */
     runtimePids?: number[];
+    /** 运行时报出的会话 ID：进程中途退出后可以接着这个会话继续，会话里记着已经做到哪 */
+    threadId?: string;
+    /** 本轮做过的可能有改动的步骤（最多 20 条）：中断后交给接着做的那一轮，提醒它别重复、先核对 */
+    steps?: Array<{ summary: string; done: boolean; irreversible?: boolean }>;
   };
   /** 进程中途退出后已自动重跑的次数（按触发消息），用于封顶并写进状态说明；处理完即删 */
   crashResumes?: Record<string, number>;

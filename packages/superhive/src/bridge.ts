@@ -36,7 +36,7 @@ import {
   type Snapshot,
 } from "./room-client.js";
 import { StateStore, type AgentState } from "./state-store.js";
-import { isHandoffSafeStep, isMutatingStep, sanitizeTraceStep } from "./trace.js";
+import { isIrreversibleStep, isMutatingStep, sanitizeTraceStep } from "./trace.js";
 import { readAgentSettings } from "./mcp-servers.js";
 import { anyProcessAlive, liveRuntimePids, onRuntimeSpawn } from "./runtime-processes.js";
 import type { TraceStep } from "./hive-protocol.js";
@@ -56,6 +56,22 @@ type PreparedPrompt = {
   whiteboardSnapshot?: PromptContextSnapshot;
   membersSnapshot?: PromptContextSnapshot;
 };
+
+/**
+ * 交给接着做的那一轮：上一轮做过哪些可能有改动的步骤（Bridge 自己记下的事实，不靠模型回忆），
+ * 哪一步可能没做完、哪些是撤不回的对外操作。规则只决定提醒什么，不决定成败
+ */
+export function stepsNote(
+  steps: ReadonlyArray<{ summary: string; done: boolean; irreversible?: boolean }>,
+  cwd?: string,
+): string {
+  if (steps.length === 0) return "";
+  const lines = steps.map(
+    (step) =>
+      `- ${step.summary}${step.done ? "" : "（可能没执行完）"}${step.irreversible ? "（对外操作，做过就撤不回）" : ""}`,
+  );
+  return `\n上一轮${cwd ? `在 ${cwd} ` : ""}执行过这些可能有改动的操作，已经做过的不要重复：\n${lines.join("\n")}\n先核对它们的实际结果（本地改动可用 git status 查看，误改的迁移过来或还原）。标为「对外操作」且不确定是否已生效的，要再做之前先用 hive_ask_human 问人。`;
+}
 
 export function shouldProcessMention(input: {
   message: ChatMessage;
@@ -149,6 +165,8 @@ type ActiveBatch = {
   workspace: string | undefined;
   /** 这一轮做过可能有副作用的操作（改文件、跑非只读命令、发消息……）：中断后不自动继续 */
   mutated?: boolean;
+  /** 这一轮做过的可能有改动的步骤：出错后接着做时交给下一轮 */
+  steps?: Map<string, { summary: string; done: boolean; irreversible?: boolean }>;
   /** 这一轮调用过任何工具（只读的也算）：会话失效时不自动重跑 */
   toolUsed?: boolean;
   /** 本轮用量：Provider 交出的原始观测、补全后的结果，以及是否已经随某次上报发出 */
@@ -202,6 +220,8 @@ export class AgentBridge {
    * 确认调用仍在执行或已判超时（没被人停止、收起）后再重新排队
    */
   private readonly crashResumable = new Map<string, number>();
+  /** 中断前改过东西、接着原会话继续的提及：交给下一轮的步骤清单 */
+  private readonly crashNotes = new Map<string, string>();
   private crashResumeMinSeq: number | undefined;
   // 同一组触发消息在本地重试时复用 executionId，保证回复的幂等键不变
   private readonly executionIds = new Map<string, string>();
@@ -420,22 +440,30 @@ export class AgentBridge {
     const runtimeAlive = anyProcessAlive(pids);
     const resumes = this.state.crashResumes ?? {};
     const used = Math.max(0, ...inflight.messageIds.map((id) => resumes[id] ?? 0));
-    const resumable = !inflight.mutated && !runtimeAlive && used < this.tuning.crashResumeLimit;
+    // 改过东西也能接着做：只要会话还在（它记得已经做到哪），且中断那一刻没有撤不回的对外操作正在跑
+    const steps = inflight.steps ?? [];
+    const irreversibleInFlight = steps.some((step) => step.irreversible && !step.done);
+    const continuable = !inflight.mutated || (Boolean(inflight.threadId) && !irreversibleInFlight);
+    const resumable = continuable && !runtimeAlive && used < this.tuning.crashResumeLimit;
     if (resumable) {
       this.log(
-        `[hive] 检测到上次执行中断（${inflight.messageIds.length} 条提及，开始于 ${inflight.startedAt}），这一轮没有副作用，连上后自动重新执行（第 ${used + 1}/${this.tuning.crashResumeLimit} 次）。`,
+        `[hive] 检测到上次执行中断（${inflight.messageIds.length} 条提及，开始于 ${inflight.startedAt}），${inflight.mutated ? "接着原会话" : "这一轮没有副作用，"}连上后自动继续（第 ${used + 1}/${this.tuning.crashResumeLimit} 次）。`,
       );
+      if (inflight.mutated && inflight.threadId) this.state.threadId = inflight.threadId;
       for (const messageId of inflight.messageIds) {
         this.crashResumable.set(messageId, used + 1);
         resumes[messageId] = used + 1;
+        if (inflight.mutated) this.crashNotes.set(messageId, stepsNote(steps));
       }
       this.state.crashResumes = resumes;
       this.crashResumeMinSeq = inflight.minSeq;
     } else {
       const why = runtimeAlive
         ? "原运行时进程还没退出"
-        : inflight.mutated
-          ? "这一轮已有副作用"
+        : !continuable
+          ? irreversibleInFlight
+            ? "中断时一个撤不回的对外操作正在执行"
+            : "这一轮有改动且没有可接续的会话"
           : `已自动恢复过 ${used} 次`;
       this.log(
         `[hive] 检测到上次执行中断（${inflight.messageIds.length} 条提及，开始于 ${inflight.startedAt}），${why}，结果未知，不会自动重跑。`,
@@ -1129,8 +1157,12 @@ export class AgentBridge {
       }
       // Bridge 存活不等于 Runtime 在推进；心跳不得刷新最后一次真实进度的时间。
       let lastRuntimeProgressAt = Date.now();
-      // 第一步让交接变得不安全的操作：失败说明里写出来，误判时一眼能看出是哪条命令
-      let handoffBlockedBy: string | undefined;
+      // 这一轮做过的可能有改动的步骤：切目录、中断后接着做时交给下一轮，提醒它别重复、先核对
+      const mutatingSteps = new Map<
+        string,
+        { summary: string; done: boolean; irreversible?: boolean }
+      >();
+      active.steps = mutatingSteps;
       let lastProgressReportAt: number | undefined;
       let lastRuntimeReportAt: number | undefined;
       let lastProgress: string | undefined;
@@ -1179,6 +1211,8 @@ export class AgentBridge {
 
       await this.selectTaskWorkspace(messages[0]!.id, preparedWorkspace);
       let handoff: string | undefined;
+      let handoffSteps: Array<{ summary: string; done: boolean; irreversible?: boolean }> = [];
+      let handoffFrom: string | undefined;
       let handoffs = 0;
       let reply: AgentReply;
       let prompt: PreparedPrompt;
@@ -1205,15 +1239,19 @@ export class AgentBridge {
             }
           : built;
         // 上一轮 Agent 进程中途退出（那一轮没有任何副作用）：照常把任务做完，不必担心重复
+        const crashNote = messages.map((message) => this.crashNotes.get(message.id)).find(Boolean);
+        for (const message of messages) this.crashNotes.delete(message.id);
         if (resumedCount > 0 && !interrupted && !handoff)
           prompt = {
             ...prompt,
-            text: `（系统提示）你上一轮处理下面这条消息时，Agent 进程意外退出、在中途中断；那一轮只做过只读操作，没有改动任何东西。请照常把原任务完整做完。\n\n${prompt.text}`,
+            text: crashNote
+              ? `（系统提示）你上一轮处理下面这条消息时，Agent 进程意外退出、在中途中断；会话已接上。最后一步做没做完不确定，先核对现状再从中断处继续，不要重复已经完成的操作。${crashNote}\n\n${prompt.text}`
+              : `（系统提示）你上一轮处理下面这条消息时，Agent 进程意外退出、在中途中断；那一轮只做过只读操作，没有改动任何东西。请照常把原任务完整做完。\n\n${prompt.text}`,
           };
         if (handoff)
           prompt = {
             ...prompt,
-            text: `（系统提示）上一轮已正常结束；现在已在 ${this.options.cwd} 建立独立的新会话和写权限。不要重放原任务或重复已完成的操作；先核对工作区及上一轮摘要，再继续尚未完成的工作。旧会话没有搬到这里。\n<previous_turn_summary untrusted="true">\n${handoff.slice(-12_000)}\n</previous_turn_summary>\n\n${prompt.text}`,
+            text: `（系统提示）上一轮已正常结束；现在已在 ${this.options.cwd} 建立独立的新会话和写权限。不要重放原任务或重复已完成的操作；先核对工作区及上一轮摘要，再继续尚未完成的工作。旧会话没有搬到这里。${stepsNote(handoffSteps, handoffFrom)}\n<previous_turn_summary untrusted="true">\n${handoff.slice(-12_000)}\n</previous_turn_summary>\n\n${prompt.text}`,
           };
         this.log(
           `[hive] 正在处理 ${messages.map((message) => `#${message.seq}`).join("、")}（来自 ${[...new Set(messages.map((message) => message.senderName))].join("、")}）`,
@@ -1258,22 +1296,41 @@ export class AgentBridge {
           // 第一轮还没结束就能在终端里打开：一拿到会话 ID 就报，不等回合结束
           onSession: (sessionId) => {
             if (this.options.cwd) this.room.reportSession(sessionId, this.options.cwd);
+            // 记下会话：进程中途退出后可以接着这个会话做，它记得已经做到哪
+            const inflight = this.state.inflight;
+            if (inflight?.executionId === executionId && inflight.threadId !== sessionId) {
+              inflight.threadId = sessionId;
+              void this.store.save(this.state).catch(() => undefined);
+            }
           },
           onTrace: (step) => {
             if (this.active !== active || active.controller.signal.aborted) return;
-            if (isMutatingStep(step) && !active.mutated) {
+            const clean = sanitizeTraceStep(step);
+            if (isMutatingStep(step)) {
               active.mutated = true;
-              // 第一次出现副作用就落盘：进程这时退出，重启后不会把这一轮当成可以重跑
-              const inflight = this.state.inflight;
-              if (inflight?.executionId === executionId) {
-                inflight.mutated = true;
-                void this.store.save(this.state).catch(() => undefined);
+              const known = mutatingSteps.get(step.id);
+              const done = step.status === "ok" || step.status === "error";
+              if (!known || (done && !known.done)) {
+                mutatingSteps.set(step.id, {
+                  summary: (
+                    known?.summary ??
+                    (clean.summary || clean.name || clean.tool || "?")
+                  ).slice(0, 160),
+                  done,
+                  ...(isIrreversibleStep(step) || known?.irreversible
+                    ? { irreversible: true }
+                    : {}),
+                });
+                // 落盘：进程这时退出，重启后据此决定怎么接着做（只在步骤开始、结束时写）
+                const inflight = this.state.inflight;
+                if (inflight?.executionId === executionId) {
+                  inflight.mutated = true;
+                  inflight.steps = [...mutatingSteps.values()].slice(-20);
+                  void this.store.save(this.state).catch(() => undefined);
+                }
               }
             }
             if (step.kind === "tool") active.toolUsed = true;
-            const clean = sanitizeTraceStep(step);
-            if (handoffBlockedBy === undefined && !isHandoffSafeStep(step))
-              handoffBlockedBy = (clean.summary || clean.name || clean.tool || "?").slice(0, 120);
             pendingTrace.set(clean.id, { ...pendingTrace.get(clean.id), ...clean });
             traceTimer ??= setTimeout(flushTrace, this.tuning.traceFlushMs);
           },
@@ -1339,17 +1396,12 @@ export class AgentBridge {
           throw new AgentNonRetryableError(
             "Task workspace bindings changed during the turn; confirm before continuing.",
           );
+        const previousCwd = this.options.cwd;
         const changed = await this.selectTaskWorkspace(messages[0]!.id, { path: selected });
         if (!changed) break;
-        if (handoffBlockedBy !== undefined)
-          throw new AgentNonRetryableError(
-            bridgeTextZh(
-              bridgeText("bridge.worktreeCheckBeforeContinue", {
-                path: this.options.cwd!,
-                step: handoffBlockedBy,
-              }),
-            ),
-          );
+        // 不再因为切目录前跑过什么就拦下：把这些步骤交给新会话，由它核对原目录、别重复已做的事
+        handoffSteps = [...mutatingSteps.values()];
+        handoffFrom = previousCwd;
         const detail = bridgeText("bridge.worktreeHandoff", { path: this.options.cwd! });
         for (const message of active.messages)
           this.room.report({
@@ -1833,7 +1885,8 @@ export class AgentBridge {
     if (error.threadId) this.state.threadId = error.threadId;
     this.reportSession();
     const live = active.messages.filter((message) => !active.cancelled.has(message.id));
-    for (const message of live) this.resumeNotes.set(message.id, error.reason);
+    const steps = stepsNote([...(active.steps?.values() ?? [])]);
+    for (const message of live) this.resumeNotes.set(message.id, `${error.reason}${steps}`);
     const used = Math.max(0, ...live.map((message) => this.upstreamRetries.get(message.id) ?? 0));
     // 模型本身用不了（不存在、下线）：等多久都不会好，不自动重试，交给人换个模型
     const delays =
@@ -1841,10 +1894,9 @@ export class AgentBridge {
         ? this.tuning.networkRetryDelaysMs
         : this.tuning.upstreamRetryDelaysMs;
     const delay = error.kind === "model" ? undefined : delays[used];
-    // 连不上模型服务时请求根本没送到：运行时是在两步之间发请求失败的，做过的步骤都记在会话里，
-    // 接着原会话继续不会重复执行，所以这一轮改过东西也可以自动继续
-    const safeToContinue = !active.mutated || error.kind === "network";
-    if (safeToContinue && delay !== undefined && live.length > 0) {
+    // 上游出错时运行时是在两步之间发请求失败的：已经做完的步骤都记在会话里，接着原会话继续，
+    // 提示里再写明做过哪些改动，Agent 自己就知道做到哪、不会重复。改过东西也照样自动继续
+    if (delay !== undefined && live.length > 0) {
       for (const message of live) this.upstreamRetries.set(message.id, used + 1);
       await this.store.save(this.state);
       const wait =
@@ -1890,10 +1942,7 @@ export class AgentBridge {
       this.upstreamRetries.delete(message.id);
     }
     await this.store.save(this.state);
-    const why =
-      active.mutated && !safeToContinue
-        ? bridgeText("bridge.upstreamMutated")
-        : bridgeText("bridge.upstreamExhausted", { count: delays.length });
+    const why = bridgeText("bridge.upstreamExhausted", { count: delays.length });
     // 模型本身用不了：接着原会话「继续」还是同一个模型，没用，让人换模型
     const detail = said(
       error.kind === "model"

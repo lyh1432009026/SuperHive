@@ -495,6 +495,18 @@ export function isHandoffSafeStep(step: TraceStep): boolean {
 }
 
 /**
+ * 做过就撤不回、重做一遍会重复生效的对外操作：推代码、发包、部署、数据库迁移、往外发消息或写请求。
+ * 只用来决定「中断时这一步正在跑、不知道做没做完」要不要先问人，不决定成败
+ */
+export function isIrreversibleStep(step: TraceStep): boolean {
+  if (step.kind !== "tool") return false;
+  const text = `${step.name ?? ""} ${step.summary ?? ""}`;
+  return /\bgit\s+(?:-C\s+\S+\s+)?push\b|\b(?:npm|pnpm|yarn|bun)\s+publish\b|\bdeploy\b|\bmigrat(?:e|ion)\b|\b(?:kubectl|terraform|helm)\s+(?:apply|upgrade|install|destroy)\b|\bcurl\b[^|]*\s-X\s*(?:POST|PUT|PATCH|DELETE)\b|\bgh\s+(?:pr|release|issue)\s+(?:create|merge|edit|close)\b|messages?[-_]send|send[-_]message|\bhive_(?:invoke|room_post|ask_human)\b/i.test(
+    text,
+  );
+}
+
+/**
  * 这一步可能有副作用吗（改文件、跑不明命令、发消息、调用外部工具……）？
  * 上游出错中断后，只有一步都没有副作用的回合才自动接着继续；判断宁严勿松，认不出的一律算有副作用。
  */

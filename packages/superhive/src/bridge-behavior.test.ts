@@ -357,33 +357,37 @@ describe("AgentBridge", () => {
     ["collaboration", "hive.hive_invoke"],
     ["collaboration", "evil.hive_worktree_create"],
     ["command", "exec"],
-  ] as const)("does not hand off after a %s side effect from %s", async (tool, name) => {
-    const isolated = new ControlledResponder();
-    let selected: string | undefined = undefined;
-    taskWorkspace = { resolve: async () => selected, responder: () => isolated };
-    await startBridge(baseState());
-    const message = chat();
-    room.messages.push(message);
-    room.handlers.onMention(message, message.seq, false);
-    await waitUntil(() => responder.calls.length === 1);
-    responder.calls[0]?.onTrace?.({
-      id: "write",
-      kind: "tool",
-      tool,
-      name,
-      summary: "write original checkout",
-      startedAt: new Date().toISOString(),
-    });
-    selected = path.join(directory, "checkout");
-    responder.finish("Original checkout changed; worktree prepared");
-    await waitUntil(() => room.statuses(message.id).includes("failed"));
-    expect(isolated.calls).toHaveLength(0);
-    const detail = room.reports.find((report) => report.status === "failed")?.detail;
-    expect(detail).toContain("未自动续跑");
-    // 写出是哪一步拦下了交接，误判时能直接定位
-    expect(detail).toContain("（write original checkout）");
-    expect(await store.load()).toMatchObject({ workspace: selected });
-  });
+  ] as const)(
+    "still hands off after a %s side effect from %s, listing it for the new session",
+    async (tool, name) => {
+      const isolated = new ControlledResponder();
+      let selected: string | undefined = undefined;
+      taskWorkspace = { resolve: async () => selected, responder: () => isolated };
+      await startBridge(baseState());
+      const message = chat();
+      room.messages.push(message);
+      room.handlers.onMention(message, message.seq, false);
+      await waitUntil(() => responder.calls.length === 1);
+      responder.calls[0]?.onTrace?.({
+        id: "write",
+        kind: "tool",
+        tool,
+        name,
+        summary: "write original checkout",
+        startedAt: new Date().toISOString(),
+      });
+      selected = path.join(directory, "checkout");
+      responder.finish("Original checkout changed; worktree prepared");
+      // 不再拦下报失败：切到新目录接着做，把原目录里做过的改动交给新会话核对、别重复
+      await waitUntil(() => isolated.calls.length === 1);
+      expect(room.statuses(message.id)).not.toContain("failed");
+      expect(isolated.calls[0]!.prompt).toContain("write original checkout");
+      expect(isolated.calls[0]!.prompt).toContain("已经做过的不要重复");
+      expect(await store.load()).toMatchObject({ workspace: selected });
+      isolated.finish();
+      await waitUntil(() => room.statuses(message.id).includes("completed"));
+    },
+  );
 
   it("finishes a cleaned task without a provider call and still runs the next unrelated task", async () => {
     const { TaskWorkspaceRemovedError } = await import("./task-workspace.js");
@@ -1155,6 +1159,53 @@ describe("AgentBridge", () => {
       expect(responder.calls).toHaveLength(0);
     });
 
+    it("continues a crashed turn with side effects in its own session, listing what it already did", async () => {
+      const mention = chat();
+      room.messages.push(mention);
+      await startBridge(
+        {
+          ...baseState(),
+          inflight: crashed([mention.id], {
+            mutated: true,
+            threadId: "session-crashed",
+            steps: [
+              { summary: "src/a.ts", done: true },
+              { summary: "pnpm test", done: false },
+            ],
+          }),
+        },
+        [invocationFor(mention, "running")],
+      );
+      await waitUntil(() => responder.calls.length === 1);
+      expect(responder.calls[0]!.threadId).toBe("session-crashed");
+      expect(responder.calls[0]!.prompt).toContain("会话已接上");
+      expect(responder.calls[0]!.prompt).toContain("src/a.ts");
+      expect(responder.calls[0]!.prompt).toContain("pnpm test（可能没执行完）");
+      responder.finish("做完了", "session-crashed");
+      await waitUntil(() => room.statuses(mention.id).includes("completed"));
+      expect(room.statuses(mention.id)).not.toContain("uncertain");
+    });
+
+    it("hands an irreversible step that was mid-flight back to a human instead of continuing", async () => {
+      const mention = chat();
+      room.messages.push(mention);
+      await startBridge(
+        {
+          ...baseState(),
+          inflight: crashed([mention.id], {
+            mutated: true,
+            threadId: "session-crashed",
+            steps: [{ summary: "git push origin main", done: false, irreversible: true }],
+          }),
+        },
+        [invocationFor(mention, "running")],
+      );
+      await flush();
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(responder.calls).toHaveLength(0);
+      expect(room.statuses(mention.id)).toContain("uncertain");
+    });
+
     it("still reports reconnectedGone for a running call it knows nothing about", async () => {
       const mention = chat();
       room.messages.push(mention);
@@ -1655,7 +1706,7 @@ describe("AgentBridge", () => {
   });
 
   it.each([false, true])(
-    "does not replay side effects after an upstream failure (progress=%s)",
+    "auto-continues the same session after an upstream failure even with side effects (progress=%s)",
     async (progress) => {
       await startBridge(baseState());
       const mention = chat();
@@ -1671,18 +1722,13 @@ describe("AgentBridge", () => {
         startedAt: new Date().toISOString(),
       });
       responder.fail(new AgentUpstreamError("API Error: 529 overloaded", "session-x"));
-      await waitUntil(() => room.statuses(mention.id).includes("failed"));
-      const failed = room.reports.find((report) => report.status === "failed");
-      expect(failed?.detail).toMatch(/^上游模型服务出错：API Error: 529 overloaded/);
-      expect(failed?.detail).toContain("点「继续」");
-      await flush();
-      expect(responder.calls).toHaveLength(1);
-
-      // 人点「继续」（即重试）：接着原会话、带上断点提示
-      room.handlers.onMention(mention, mention.seq, true);
+      // 不报失败：等一会儿自动接着原会话继续，提示里写明做过哪些改动
+      await waitUntil(() => room.reports.some((report) => report.progress?.includes("自动继续")));
+      expect(room.statuses(mention.id)).not.toContain("failed");
       await waitUntil(() => responder.calls.length === 2);
       expect(responder.calls[1]!.threadId).toBe("session-x");
       expect(responder.calls[1]!.prompt).toContain("不要重复已经完成的");
+      expect(responder.calls[1]!.prompt).toContain("src/a.ts");
       responder.finish("继续做完", "session-x");
       await waitUntil(() => room.statuses(mention.id).includes("completed"));
     },
