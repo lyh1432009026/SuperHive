@@ -1257,6 +1257,10 @@ export class AgentBridge {
       let handoffSteps: Array<{ summary: string; done: boolean; irreversible?: boolean }> = [];
       let handoffFrom: string | undefined;
       let handoffs = 0;
+      // 这一轮调用了 hive_worktree_create、按 runtimeHandoff 结束了准备回合，但任务目录就是当前目录
+      // （复用同一 slug、早已在这里）：没有可切换的，接着原会话把任务做完，不能就这么收尾
+      let worktreeRequested = false;
+      let continueHere = false;
       let reply: AgentReply;
       let prompt: PreparedPrompt;
       let usage: AgentUsage | undefined;
@@ -1293,6 +1297,11 @@ export class AgentBridge {
                 ? `（系统提示）你上一轮处理下面这条消息时，Agent 进程意外退出、在中途中断；会话已接上。最后一步做没做完不确定，先核对现状再从中断处继续，不要重复已经完成的操作。${stepsNote(crashNote.steps)}\n\n${prompt.text}`
                 : `（系统提示）你上一轮处理下面这条消息时，Agent 进程意外退出、在中途中断；这是新会话，看不到上一轮的步骤。不要从头重做原任务：先核对工作区、房间里的现状和下面列出的已做操作，确认做到哪了，再继续没做完的部分。${stepsNote(crashNote.steps, crashNote.cwd)}\n\n${prompt.text}`
               : `（系统提示）你上一轮处理下面这条消息时，Agent 进程意外退出、在中途中断；那一轮只做过只读操作，没有改动任何东西。请照常把原任务完整做完。\n\n${prompt.text}`,
+          };
+        if (continueHere)
+          prompt = {
+            ...prompt,
+            text: `（系统提示）你上一轮调用 hive_worktree_create 后按 runtimeHandoff 结束了准备回合，但任务目录就是你当前所在的 ${this.options.cwd ?? "工作目录"}，不需要切换，会话也没有变。不要再停下等交接：接着把原任务做完。\n\n${prompt.text}`,
           };
         if (handoff)
           prompt = {
@@ -1377,6 +1386,7 @@ export class AgentBridge {
               }
             }
             if (step.kind === "tool") active.toolUsed = true;
+            if (/(?:^|[._])hive_worktree_create$/.test(step.name ?? "")) worktreeRequested = true;
             pendingTrace.set(clean.id, { ...pendingTrace.get(clean.id), ...clean });
             traceTimer ??= setTimeout(flushTrace, this.tuning.traceFlushMs);
           },
@@ -1444,7 +1454,14 @@ export class AgentBridge {
           );
         const previousCwd = this.options.cwd;
         const changed = await this.selectTaskWorkspace(messages[0]!.id, { path: selected });
-        if (!changed) break;
+        if (!changed) {
+          if (worktreeRequested && !continueHere && !handoff && !active.controller.signal.aborted) {
+            worktreeRequested = false;
+            continueHere = true;
+            continue;
+          }
+          break;
+        }
         // 不再因为切目录前跑过什么就拦下：把这些步骤交给新会话，由它核对原目录、别重复已做的事
         handoffSteps = [...mutatingSteps.values()];
         handoffFrom = previousCwd;

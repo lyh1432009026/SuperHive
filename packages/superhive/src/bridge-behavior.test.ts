@@ -389,6 +389,31 @@ describe("AgentBridge", () => {
     },
   );
 
+  it("keeps going in the same session when the requested worktree is already the current directory", async () => {
+    taskWorkspace = { resolve: async () => undefined, responder: () => responder };
+    await startBridge(baseState());
+    const message = chat();
+    room.messages.push(message);
+    room.handlers.onMention(message, message.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    responder.calls[0]?.onTrace?.({
+      id: "wt",
+      kind: "tool",
+      tool: "collaboration",
+      name: "mcp__hive__hive_worktree_create",
+      summary: "hive_worktree_create",
+      startedAt: new Date().toISOString(),
+    });
+    // 复用的任务目录就是当前目录：按 runtimeHandoff 结束准备回合后，没有可切换的
+    responder.finish("准备好了，等 Bridge 交接", "same-session");
+    await waitUntil(() => responder.calls.length === 2);
+    expect(responder.calls[1]!.threadId).toBe("same-session");
+    expect(responder.calls[1]!.prompt).toContain("不需要切换");
+    responder.finish("做完了", "same-session");
+    await waitUntil(() => room.statuses(message.id).includes("completed"));
+    expect(responder.calls).toHaveLength(2);
+  });
+
   it("finishes a cleaned task without a provider call and still runs the next unrelated task", async () => {
     const { TaskWorkspaceRemovedError } = await import("./task-workspace.js");
     const removed = chat();
@@ -1498,9 +1523,10 @@ describe("AgentBridge", () => {
         summary: "src/a.ts",
         startedAt: at,
       });
-      await waitUntil(() => room.traces.length > 0);
-      await flush();
-      expect((await store.load())?.inflight?.mutated).toBe(true);
+      // 落盘是异步的：等它写完再读，别在负载高时读到上一版
+      const saved = async () => (await store.load())?.inflight?.mutated === true;
+      for (let i = 0; i < 100 && !(await saved()); i++) await flush();
+      expect(await saved()).toBe(true);
       responder.finish();
       await waitUntil(() => room.statuses(mention.id).includes("completed"));
     });
