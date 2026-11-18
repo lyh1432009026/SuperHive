@@ -1272,5 +1272,6 @@
   "拖动调整宽度，双击恢复默认": "Drag to resize, double-click to reset",
   "等你决定": "Your call",
   "点「继续」会接着原会话核对现状再往下做，不从头重做；不要了就点「忽略」": "Continue resumes the same session, checks what was already done and carries on without starting over; Dismiss if you no longer need it",
-  "{0} 的任务中途中断，等你决定是否继续": "{0}'s task was interrupted; decide whether to continue"
+  "{0} 的任务中途中断，等你决定是否继续": "{0}'s task was interrupted; decide whether to continue",
+  "{0} 上线后可以点「继续」": "Continue becomes available once {0} is back online"
 }

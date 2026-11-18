@@ -1235,6 +1235,30 @@ describe("AgentBridge", () => {
       expect(room.statuses(mention.id)).toContain("uncertain");
     });
 
+    it("continues the interrupted turn's own session when the human clicks continue", async () => {
+      const mention = chat();
+      room.messages.push(mention);
+      await startBridge(
+        {
+          ...baseState(),
+          threadId: "older-session",
+          inflight: crashed([mention.id], {
+            mutated: true,
+            threadId: "crashed-session",
+            steps: [{ summary: "git push origin main", done: false, irreversible: true }],
+          }),
+        },
+        [invocationFor(mention, "running")],
+      );
+      await waitUntil(() => room.statuses(mention.id).includes("uncertain"));
+      // 人确认后点「继续」：接上的是中断那一轮的会话，不是更早的旧会话
+      room.handlers.onMention(mention, mention.seq, true, false, false, false, undefined, true);
+      await waitUntil(() => responder.calls.length === 1);
+      expect(responder.calls[0]!.threadId).toBe("crashed-session");
+      responder.finish("做完了", "crashed-session");
+      await waitUntil(() => room.statuses(mention.id).includes("completed"));
+    });
+
     it("still reports reconnectedGone for a running call it knows nothing about", async () => {
       const mention = chat();
       room.messages.push(mention);

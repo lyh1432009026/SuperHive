@@ -1,4 +1,4 @@
-import type { Invocation } from "@superhive/protocol";
+import { isResumableUnknown, type Invocation } from "@superhive/protocol";
 import { localized, t } from "./i18n";
 
 /**
@@ -27,17 +27,13 @@ export function isUpstreamInterrupted(invocation: Invocation): boolean {
 }
 
 /**
- * 中途中断、等人决定的调用：Agent 自己报了结果未知（它已经不在跑这一轮）、从没确认收到，
- * 或上游出错自动继续的次数用完。不当成失败：点「继续」会接着原会话核对现状再往下做。
- * 与服务端 retryInvocation 的判断一致（Agent 离线时服务端也放行，这里按 Agent 报的为准）
+ * 中途中断、等人决定的调用：Agent 确认自己已不在跑这一轮的结果未知（见 protocol 的白名单）、
+ * 从没确认收到，或上游出错自动继续的次数用完。不当成失败：点「继续」会接着原会话核对现状再往下做。
+ * 「继续」还要求 Agent 在线（与服务端 retryInvocation 一致），由显示按钮的地方判断
  */
 export function needsDecision(invocation: Invocation): boolean {
   if (invocation.resolution) return false;
-  if (invocation.status === "timed_out") {
-    const key = invocation.detailText?.key ?? "";
-    return key.startsWith("bridge.") || key === "invocation.unacknowledged";
-  }
-  return isUpstreamInterrupted(invocation);
+  return isResumableUnknown(invocation) || isUpstreamInterrupted(invocation);
 }
 
 export type AttentionItem = {

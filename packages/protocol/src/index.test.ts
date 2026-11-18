@@ -101,3 +101,23 @@ describe("roomWorkspaceSchema", () => {
     }
   });
 });
+
+describe("isResumableUnknown", () => {
+  it("only lets a human continue unknowns the agent confirmed it no longer runs", async () => {
+    const { isResumableUnknown } = await import("./index.js");
+    const unknown = (key: string) => ({ status: "timed_out", detailText: { key } });
+    expect(isResumableUnknown(unknown("bridge.crashedMidTurn"))).toBe(true);
+    expect(isResumableUnknown(unknown("invocation.unacknowledged"))).toBe(true);
+    for (const key of [
+      "bridge.crashedRuntimeAlive",
+      "bridge.alreadyEnded",
+      "bridge.cancelNotPersisted",
+      "bridge.steerEndRace",
+      "invocation.stale",
+    ])
+      expect(isResumableUnknown(unknown(key)), key).toBe(false);
+    expect(isResumableUnknown({ status: "failed", detailText: { key: "bridge.uncertain" } })).toBe(
+      false,
+    );
+  });
+});

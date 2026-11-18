@@ -50,9 +50,10 @@ function retryLabel(invocation: Invocation): string {
   return needsDecision(invocation) ? t("继续") : t("重试");
 }
 
-export function canRetryInvocation(invocation: Invocation): boolean {
+export function canRetryInvocation(invocation: Invocation, agentOnline = true): boolean {
   return (
-    (invocation.status === "timed_out" && needsDecision(invocation)) ||
+    // 结果未知要 Agent 在线才能继续：离线时派发会丢掉「接着原会话」的提示
+    (invocation.status === "timed_out" && needsDecision(invocation) && agentOnline) ||
     invocation.status === "failed" ||
     invocation.status === "cancelled" ||
     (invocation.status === "blocked" && invocation.blockReason !== "hop_limit")
@@ -332,7 +333,9 @@ function invocationHint(invocation: Invocation, agentOnline: boolean): string | 
   if (needsDecision(invocation)) {
     return [
       invocation.detail,
-      t("点「继续」会接着原会话核对现状再往下做，不从头重做；不要了就点「忽略」"),
+      invocation.status === "timed_out" && !agentOnline
+        ? t("{0} 上线后可以点「继续」", { 0: invocation.agentName })
+        : t("点「继续」会接着原会话核对现状再往下做，不从头重做；不要了就点「忽略」"),
     ]
       .filter(Boolean)
       .join(" · ");
@@ -591,7 +594,7 @@ export function InvocationChips({
                   {t("继续 {0} 轮", { 0: BUDGET_EXTEND_TURNS })}
                 </button>
               ) : (
-                canRetryInvocation(invocation) &&
+                canRetryInvocation(invocation, agentOnline) &&
                 (invocation.blockReason !== "guest_approval" || isOwner) && (
                   <button
                     type="button"

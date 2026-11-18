@@ -1444,4 +1444,5 @@ export * from "./invocation-state.js";
 export * from "./agent-session.js";
 export * from "./plural.js";
 export * from "./participant-order.js";
+export * from "./invocation-decision.js";
 export * from "./server-text.js";

@@ -489,6 +489,13 @@ export class AgentBridge {
           : runtimeAlive
             ? bridgeText("bridge.crashedRuntimeAlive")
             : bridgeText("bridge.crashedMidTurn");
+      // 人之后点「继续」要接上中断的那一轮的会话（目录没变时）：它可能是这一轮新开的，还没写进 state
+      if (
+        inflight.threadId &&
+        !runtimeAlive &&
+        (!inflight.cwd || !this.options.cwd || inflight.cwd === this.options.cwd)
+      )
+        this.state.threadId = inflight.threadId;
       for (const messageId of inflight.messageIds) {
         this.room.report({ messageId, status: "uncertain", ...said(text) });
         this.rememberProcessed(messageId);
@@ -1727,6 +1734,7 @@ export class AgentBridge {
   }
 
   private async handleBatchError(active: ActiveBatch, error: unknown): Promise<void> {
+    const turnThread = this.state.inflight?.threadId;
     delete this.state.inflight;
     if (
       error instanceof TaskWorkspaceRemovedError &&
@@ -1770,6 +1778,8 @@ export class AgentBridge {
       }
     };
     if (error instanceof AgentExecutionUncertainError) {
+      // 人之后点「继续」要接上的是这一轮的会话：它可能是这一轮新开的，正常结束前还没写进 state
+      if (turnThread) this.state.threadId = turnThread;
       // The provider may have completed side effects before its result stream was lost.
       for (const message of active.messages) this.rememberProcessed(message.id);
       await this.store.save(this.state);

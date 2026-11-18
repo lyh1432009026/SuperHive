@@ -1,4 +1,4 @@
-import { serverText, type RoomClearOptions } from "@superhive/protocol";
+import { serverText, type RoomClearOptions, isResumableUnknown } from "@superhive/protocol";
 import { errorText, hiveErrorBody, wsText } from "./texts.js";
 import { observeRuntime } from "./runtime-observation.js";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -2663,12 +2663,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const invocation = invocationInRoom(actor, invocationId);
     // 停止未确认、或结果未知且 Agent 可能还在跑：此时重试会让同一任务并行跑两份。
     // Agent 自己报了结果未知（它已经不在跑这一轮），或者它已离线，就可以让人决定「继续」
+    // Agent 还得在线：离线时派发会丢掉 resume，等它上线补派就成了从头重做
     const settledUnknown =
-      invocation.status === "timed_out" &&
-      (Boolean(invocation.detailText?.key.startsWith("bridge.")) ||
-        // 从没确认收到：一定还没开工
-        invocation.detailText?.key === "invocation.unacknowledged" ||
-        !onlineAgent(invocation.roomId, invocation.agentName));
+      isResumableUnknown(invocation) &&
+      Boolean(onlineAgent(invocation.roomId, invocation.agentName));
     if (
       invocation.status === "cancelling" ||
       (invocation.status === "timed_out" && !settledUnknown)
