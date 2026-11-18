@@ -59,6 +59,8 @@ export type RoomClientHandlers = {
     lead?: boolean,
     /** 人点「换个模型重试」选的模型：只对这一次生效 */
     model?: string,
+    /** 人对一次中途中断点了「继续」 */
+    resume?: boolean,
   ) => void;
   onCancel?: (messageId: string) => void;
   /** 人批了 / 拒了执行中申请的权限 */
@@ -322,6 +324,7 @@ export class RoomClient {
         event.first === true,
         event.lead === true,
         event.model,
+        event.resume === true,
       );
       return;
     }

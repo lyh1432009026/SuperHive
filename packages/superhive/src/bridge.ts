@@ -319,9 +319,12 @@ export class AgentBridge {
       },
       {
         onSnapshot: (snapshot) => this.onSnapshot(snapshot),
-        onMention: (message, _latestSeq, retry, steer, first, lead, model) => {
+        onMention: (message, _latestSeq, retry, steer, first, lead, model, resume) => {
           if (lead) this.leadMessages.add(message.id);
           else this.leadMessages.delete(message.id);
+          // 人对一次中途中断点了「继续」：提示 Agent 接着原会话核对现状再往下做，不从头重做
+          if (resume && !this.resumeNotes.has(message.id))
+            this.resumeNotes.set(message.id, "上一次执行中途中断、结果未知，可能已经做了一部分");
           // 人点「换个模型重试」：只对这一次生效
           if (model) this.modelOverrides.set(message.id, model);
           else if (retry) this.modelOverrides.delete(message.id);

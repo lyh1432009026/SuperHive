@@ -5,12 +5,40 @@ import { localized, t } from "./i18n";
  * 「需要你处理」的统一判断：侧栏标记、跨房间提醒、「下一个要我处理的」跳转都用这里，口径一致。
  * - question：Agent 提了问题在等人回答
  * - approval：被拦下等人放行（访客未获批、防循环预算用完）
+ * - decide：中途中断（结果未知、上游出错自动继续用完），等人点「继续」或「忽略」
  * - failed：失败
  * - unknown：结果未知（中断、超时，可能做了一半）
  * - unseen：做完了，但发起人还没回去看
  * 人点了「忽略」或服务端判定已被后续处理取代（resolution）的不再算。
  */
-export type AttentionKind = "question" | "approval" | "failed" | "unknown" | "unseen";
+export type AttentionKind = "question" | "approval" | "decide" | "failed" | "unknown" | "unseen";
+
+/** 上游模型服务出错中断（Bridge 写的说明以此开头）：重试即接着原会话继续 */
+export const UPSTREAM_FAILURE_PREFIX = "上游模型服务出错";
+
+export function isUpstreamInterrupted(invocation: Invocation): boolean {
+  return (
+    invocation.status === "failed" &&
+    // 新版 Bridge 带结构化文案，按键判断；旧版只有中文说明，按前缀判断
+    (invocation.detailText
+      ? invocation.detailText.key === "bridge.upstreamFailed"
+      : Boolean(invocation.detail?.startsWith(UPSTREAM_FAILURE_PREFIX)))
+  );
+}
+
+/**
+ * 中途中断、等人决定的调用：Agent 自己报了结果未知（它已经不在跑这一轮）、从没确认收到，
+ * 或上游出错自动继续的次数用完。不当成失败：点「继续」会接着原会话核对现状再往下做。
+ * 与服务端 retryInvocation 的判断一致（Agent 离线时服务端也放行，这里按 Agent 报的为准）
+ */
+export function needsDecision(invocation: Invocation): boolean {
+  if (invocation.resolution) return false;
+  if (invocation.status === "timed_out") {
+    const key = invocation.detailText?.key ?? "";
+    return key.startsWith("bridge.") || key === "invocation.unacknowledged";
+  }
+  return isUpstreamInterrupted(invocation);
+}
 
 export type AttentionItem = {
   invocation: Invocation;
@@ -26,14 +54,16 @@ export type AttentionItem = {
 const priority: Record<AttentionKind, number> = {
   question: 0,
   approval: 1,
-  failed: 2,
-  unknown: 3,
-  unseen: 4,
+  decide: 2,
+  failed: 3,
+  unknown: 4,
+  unseen: 5,
 };
 
 export const attentionLabels = localized((): Record<AttentionKind, string> => ({
   question: t("等你回答"),
   approval: t("等你放行"),
+  decide: t("等你决定"),
   failed: t("失败"),
   unknown: t("结果未知"),
   unseen: t("完成未看"),
@@ -43,6 +73,7 @@ export const attentionLabels = localized((): Record<AttentionKind, string> => ({
 export function attentionKind(invocation: Invocation): AttentionKind | undefined {
   if (invocation.status === "waiting_human") return "question";
   if (invocation.resolution) return undefined;
+  if (needsDecision(invocation)) return "decide";
   switch (invocation.status) {
     case "blocked":
       return "approval";

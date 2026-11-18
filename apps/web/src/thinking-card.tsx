@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { Invocation, TraceStep } from "@superhive/protocol";
 import { t } from "./i18n";
+import { needsDecision } from "./attention";
 import {
   TraceTimeline,
   currentTraceStep,
@@ -377,7 +378,7 @@ export function TraceRecap({
   const start = Date.parse(invocation.startedAt ?? invocation.createdAt);
   const end = Date.parse(invocation.finishedAt ?? invocation.updatedAt);
   const total = Number.isFinite(start) && Number.isFinite(end) ? end - start : 0;
-  const outcome = outcomeLabels[invocation.status]?.();
+  const outcome = needsDecision(invocation) ? t("等你决定") : outcomeLabels[invocation.status]?.();
   const summary = [
     outcome,
     traceSummary(steps, now),

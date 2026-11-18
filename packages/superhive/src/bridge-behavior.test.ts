@@ -1854,6 +1854,18 @@ describe("AgentBridge", () => {
     expect(room.statuses(mention.id)).not.toContain("uncertain");
   });
 
+  it("tells the agent to check and carry on when a human continues an interrupted turn", async () => {
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, true, false, false, false, undefined, true);
+    await waitUntil(() => responder.calls.length === 1);
+    expect(responder.calls[0]!.prompt).toContain("上一次执行中途中断");
+    expect(responder.calls[0]!.prompt).toContain("不要重复已经完成的");
+    responder.finish();
+    await waitUntil(() => room.statuses(mention.id).includes("completed"));
+  });
+
   it("gives up auto-continuing after the configured attempts", async () => {
     await startBridge(baseState());
     const mention = chat();

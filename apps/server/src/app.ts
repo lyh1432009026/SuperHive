@@ -1054,6 +1054,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     steer = false,
     first = false,
     model?: string,
+    resume = false,
   ): void {
     const target = onlineAgent(message.roomId, agent.username);
     if (!target) return;
@@ -1065,6 +1066,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       ...(model ? { model } : {}),
       ...(steer ? { steer: true } : {}),
       ...(first ? { first: true } : {}),
+      ...(resume ? { resume: true } : {}),
       ...(asLead(message, agent) ? { lead: true } : {}),
     });
   }
@@ -2659,11 +2661,23 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   /** 重试；model 是人点「换个模型重试」选的模型，只对这一次生效 */
   function retryInvocation(actor: Participant, invocationId: string, model?: string): void {
     const invocation = invocationInRoom(actor, invocationId);
-    // 结果未知或停止未确认时，上一次执行可能仍在进行；此时重试会让同一任务并行跑两份
-    if (invocation.status === "timed_out" || invocation.status === "cancelling") {
+    // 停止未确认、或结果未知且 Agent 可能还在跑：此时重试会让同一任务并行跑两份。
+    // Agent 自己报了结果未知（它已经不在跑这一轮），或者它已离线，就可以让人决定「继续」
+    const settledUnknown =
+      invocation.status === "timed_out" &&
+      (Boolean(invocation.detailText?.key.startsWith("bridge.")) ||
+        // 从没确认收到：一定还没开工
+        invocation.detailText?.key === "invocation.unacknowledged" ||
+        !onlineAgent(invocation.roomId, invocation.agentName));
+    if (
+      invocation.status === "cancelling" ||
+      (invocation.status === "timed_out" && !settledUnknown)
+    ) {
       throw new HiveError("INVOCATION_NOT_RETRYABLE", serverText("error.invocation.mayStillRun"));
     }
+    const resume = settledUnknown || invocation.detailText?.key === "bridge.upstreamFailed";
     const retryable =
+      settledUnknown ||
       invocation.status === "failed" ||
       invocation.status === "cancelled" ||
       (invocation.status === "blocked" && invocation.blockReason !== "hop_limit");
@@ -2688,7 +2702,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             ),
       ),
     );
-    deliverMention(message, agent, true, false, false, model);
+    deliverMention(message, agent, true, false, false, model, resume);
   }
 
   /**

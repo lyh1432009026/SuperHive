@@ -8,6 +8,7 @@ import {
   type TraceStep,
 } from "@superhive/protocol";
 import { localized, t } from "./i18n";
+import { isUpstreamInterrupted, needsDecision, UPSTREAM_FAILURE_PREFIX } from "./attention";
 
 /** 人点一次「继续」为当前 Agent 对话追加的轮数，同时放宽连续轮数、转交深度和单链条数 */
 export const BUDGET_EXTEND_TURNS = 10;
@@ -42,26 +43,16 @@ export function currentPausedInvocations(
   );
 }
 
-/** 上游模型服务出错中断（Bridge 写的说明以此开头）：重试即接着原会话继续 */
-export const UPSTREAM_FAILURE_PREFIX = "上游模型服务出错";
-
-export function isUpstreamInterrupted(invocation: Invocation): boolean {
-  return (
-    invocation.status === "failed" &&
-    // 新版 Bridge 带结构化文案，按键判断；旧版只有中文说明，按前缀判断
-    (invocation.detailText
-      ? invocation.detailText.key === "bridge.upstreamFailed"
-      : Boolean(invocation.detail?.startsWith(UPSTREAM_FAILURE_PREFIX)))
-  );
-}
+export { UPSTREAM_FAILURE_PREFIX, isUpstreamInterrupted, needsDecision };
 
 function retryLabel(invocation: Invocation): string {
   if (invocation.blockReason === "guest_approval") return t("批准");
-  return isUpstreamInterrupted(invocation) ? t("继续") : t("重试");
+  return needsDecision(invocation) ? t("继续") : t("重试");
 }
 
 export function canRetryInvocation(invocation: Invocation): boolean {
   return (
+    (invocation.status === "timed_out" && needsDecision(invocation)) ||
     invocation.status === "failed" ||
     invocation.status === "cancelled" ||
     (invocation.status === "blocked" && invocation.blockReason !== "hop_limit")
@@ -319,11 +310,11 @@ export function invocationStatusLabel(invocation: Invocation, agentOnline: boole
     case "completed":
       return t("已完成");
     case "failed":
-      return t("失败");
+      return needsDecision(invocation) ? t("等你决定") : t("失败");
     case "blocked":
       return invocation.blockReason === "guest_approval" ? t("等房主批准") : t("已暂停");
     case "timed_out":
-      return t("结果未知");
+      return needsDecision(invocation) ? t("等你决定") : t("结果未知");
     case "cancelled":
       return t("已停止");
     case "cancelling":
@@ -338,6 +329,14 @@ export function invocationStatusLabel(invocation: Invocation, agentOnline: boole
 function invocationHint(invocation: Invocation, agentOnline: boolean): string | undefined {
   if (invocation.status === "cancelling")
     return t("已请求停止，等待 Runtime 确认；确认前不能重试。");
+  if (needsDecision(invocation)) {
+    return [
+      invocation.detail,
+      t("点「继续」会接着原会话核对现状再往下做，不从头重做；不要了就点「忽略」"),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
   if (invocation.status === "timed_out") {
     return [invocation.detail, t("长时间未收到结果，这不一定是失败，迟到的回复仍可能到达。")]
       .filter(Boolean)
@@ -596,10 +595,10 @@ export function InvocationChips({
                 (invocation.blockReason !== "guest_approval" || isOwner) && (
                   <button
                     type="button"
-                    className={`invocation-action ${invocation.blockReason === "guest_approval" || isUpstreamInterrupted(invocation) ? "primary" : ""}`}
+                    className={`invocation-action ${invocation.blockReason === "guest_approval" || needsDecision(invocation) ? "primary" : ""}`}
                     aria-label={`${retryLabel(invocation)} @${invocation.agentName}`}
                     title={
-                      isUpstreamInterrupted(invocation)
+                      needsDecision(invocation)
                         ? t("接着原会话从中断处继续，不会从头重做")
                         : undefined
                     }

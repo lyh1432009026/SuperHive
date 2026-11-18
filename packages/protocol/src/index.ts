@@ -805,6 +805,8 @@ export const agentMentionedEventSchema = z.object({
   lead: z.boolean().optional(),
   /** 人点「换个模型重试」选的模型：只对这一次生效 */
   model: z.string().trim().min(1).max(200).optional(),
+  /** 人对一次中途中断（结果未知、上游出错）点了「继续」：接着原会话核对现状再往下做，不从头重做 */
+  resume: z.boolean().optional(),
 });
 /** 本机 Hive Server 请它拉起的 Agent 自行退出（Windows 上没有可用的结束信号，信号一律是强制结束） */
 export const agentShutdownEventSchema = z.object({

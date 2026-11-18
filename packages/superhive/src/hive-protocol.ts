@@ -202,6 +202,8 @@ export type ServerEvent =
       lead?: boolean;
       /** 人点「换个模型重试」选的模型：只对这一次生效 */
       model?: string;
+      /** 人对一次中途中断点了「继续」：接着原会话核对现状再往下做 */
+      resume?: boolean;
     }
   | { type: "agent.cancel"; messageId: string }
   /** 人对 Agent 执行中申请的权限做了决定（或过时） */

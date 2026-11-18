@@ -1566,6 +1566,32 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
     expect(timedOut.detail).toContain("没有确认收到");
   });
 
+  it("lets the human continue a turn the agent itself reported as interrupted, resuming the session", async () => {
+    const { join } = await startRoom();
+    const { peer: alice } = await join("Alice", "human");
+    const { peer: agent } = await join("helper", "agent");
+    alice.send({ type: "message.send", clientMessageId: "cut", content: "@helper 干活" });
+    const mention = await agent.next((event) => event.type === "agent.mentioned");
+    const messageId = mention.type === "agent.mentioned" ? mention.message.id : "";
+    agent.send({ type: "invocation.report", messageId, status: "running" });
+    agent.send({
+      type: "invocation.report",
+      messageId,
+      status: "uncertain",
+      detail: "执行中断",
+      detailText: { key: "bridge.crashedMidTurn" },
+    });
+    const unknown = invocationOf(
+      await alice.next(
+        (event) => event.type === "invocation.updated" && event.invocation.status === "timed_out",
+      ),
+    );
+    // Agent 自己说这一轮已经不在跑了：人点「继续」可以重新派发，并告诉 Agent 接着原会话核对现状
+    alice.send({ type: "invocation.retry", invocationId: unknown.id });
+    const again = await agent.next((event) => event.type === "agent.mentioned");
+    expect(again).toMatchObject({ retry: true, resume: true });
+  });
+
   it("times out silent invocations as unknown and still accepts a late result", async () => {
     const clock = { now: Date.now() };
     const { join } = await startRoom(20, () => clock.now);

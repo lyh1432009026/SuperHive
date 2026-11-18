@@ -37,6 +37,19 @@ describe("attentionKind", () => {
     const resolution = { kind: "dismissed" as const, at: "2026-11-06T00:00:00.000Z" };
     expect(attentionKind(call("7", "failed", { resolution }))).toBeUndefined();
   });
+
+  it("中途中断、Agent 自己报的结果未知和上游出错用完次数，归为「等你决定」", () => {
+    expect(
+      attentionKind(call("1", "timed_out", { detailText: { key: "bridge.crashedMidTurn" } })),
+    ).toBe("decide");
+    expect(
+      attentionKind(call("2", "failed", { detailText: { key: "bridge.upstreamFailed" } })),
+    ).toBe("decide");
+    // 服务端超时判的结果未知，Agent 可能还在跑：仍是结果未知，不能直接继续
+    expect(attentionKind(call("3", "timed_out", { detailText: { key: "invocation.stale" } }))).toBe(
+      "unknown",
+    );
+  });
 });
 
 describe("attentionTransition", () => {

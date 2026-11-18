@@ -128,6 +128,8 @@ export function attentionTitle(kind: AttentionKind, invocation: Invocation): str
       return t("{0} 在等你回答", { 0: invocation.agentName });
     case "approval":
       return t("{0} 的任务等你放行", { 0: invocation.agentName });
+    case "decide":
+      return t("{0} 的任务中途中断，等你决定是否继续", { 0: invocation.agentName });
     case "failed":
       return t("{0} 的任务失败了", { 0: invocation.agentName });
     case "unknown":
@@ -328,6 +330,7 @@ export function useAttention({
 const toastIcons: Record<AttentionKind, string> = {
   question: "?",
   approval: "!",
+  decide: "↻",
   failed: "×",
   unknown: "?",
   unseen: "✓",
