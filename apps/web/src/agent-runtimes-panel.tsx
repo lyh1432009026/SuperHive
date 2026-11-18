@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { t } from "./i18n";
 import type { LocalAgentsState } from "./local-agents";
+import { AgentClisGroup } from "./agent-clis";
 import { RuntimeCredentialsGroup } from "./runtime-credentials";
 
 /**
@@ -13,6 +14,7 @@ type RuntimeBlock = { id: string; render: (local: LocalAgentsState) => ReactNode
 
 const blocks: RuntimeBlock[] = [
   { id: "credentials", render: (local) => <RuntimeCredentialsGroup api={local} /> },
+  { id: "clis", render: (local) => <AgentClisGroup api={local} /> },
 ];
 
 export function AgentRuntimesPanel({ local }: { local: LocalAgentsState }) {

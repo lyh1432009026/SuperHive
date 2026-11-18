@@ -1323,7 +1323,6 @@
   "官方安装器": "official installer",
   "来源不明": "unknown source",
   "Agent 运行时": "Agent runtimes",
-  "接口地址与密钥": "Base URLs and keys",
   "这台电脑上 Claude Code、Codex 等 CLI 自己的设置，对用它们的所有 Agent 和终端里的 CLI 都生效。只有在运行 Hive Server 的这台电脑上打开网页时才能看到。": "Settings of the Claude Code, Codex and other CLIs on this computer. They apply to every agent using them and to the CLI in your terminal. Only visible when the page is opened on the computer running Hive Server.",
   "直接读写各 CLI 在这台电脑上的全局配置（当前模型用的那个 provider）：这台电脑上用同一运行时的 Agent 和终端里的 CLI 都会用新值。只在这台电脑上能看、能改，值不会发进聊天或交给 Agent。": "Reads and writes each CLI's global config on this computer (the provider of the current model): agents using the same runtime here and the CLI in your terminal both pick up new values. Only viewable and editable on this computer; values never go into chat or to an agent.",
   "未配置": "Not configured",
