@@ -8,6 +8,7 @@ import {
   formatBytes,
   nameForPastedFile,
   useAttachmentQueue,
+  wheelZoomFactor,
   type QueuedAttachment,
 } from "./attachments";
 
@@ -199,8 +200,31 @@ describe("图片查看器", () => {
     expect(screen.getByRole("button", { name: "复位缩放" }).textContent).toBe("50%");
     expect(screen.getByRole("button", { name: "缩小" })).toHaveProperty("disabled", true);
 
+    // 触控板捏合是一串带 ctrlKey 的小 wheel 事件：按滚动量平滑缩放，并拦住浏览器自己的页面缩放
+    fireEvent.keyDown(window, { key: "0" });
+    for (let i = 0; i < 10; i += 1) {
+      expect(fireEvent.wheel(viewerOf("c.png"), { deltaY: -2, ctrlKey: true })).toBe(false);
+    }
+    expect(screen.getByRole("button", { name: "复位缩放" }).textContent).toBe("113%");
+
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+const viewerOf = (name: string) => screen.getByRole("dialog", { name });
+
+describe("滚轮缩放倍数", () => {
+  it("按滚动量连续缩放：捏合的小事件缩得慢，鼠标滚轮一格约 1.2 倍，单次有上限", () => {
+    expect(wheelZoomFactor({ deltaY: -2, deltaMode: 0, ctrlKey: true })).toBeCloseTo(1.012, 3);
+    expect(wheelZoomFactor({ deltaY: -100, deltaMode: 0, ctrlKey: false })).toBeCloseTo(1.197, 3);
+    expect(wheelZoomFactor({ deltaY: 100, deltaMode: 0, ctrlKey: false })).toBeLessThan(1);
+    // Firefox 按行滚动：3 行折算成 48px
+    expect(wheelZoomFactor({ deltaY: -3, deltaMode: 1, ctrlKey: false })).toBeCloseTo(1.09, 2);
+    expect(wheelZoomFactor({ deltaY: -2000, deltaMode: 0, ctrlKey: true })).toBeCloseTo(
+      Math.exp(0.22),
+      5,
+    );
   });
 });
 

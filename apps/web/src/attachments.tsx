@@ -854,7 +854,20 @@ const MAX_ZOOM = 8;
 const clampZoom = (value: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
 
 /**
- * 图片查看器：同一条消息里的多张图用 ← → 切换；滚轮、+ / -、双击缩放，放大后可拖动，0 复位；Esc 关闭。
+ * 滚轮 / 触控板一次事件该缩放多少：按滚动量连续缩放，而不是每个事件固定乘一个倍数。
+ * 触控板双指捏合（浏览器发成带 ctrlKey 的 wheel）一秒能来几十个小事件，固定倍数会缩放得飞快；
+ * 鼠标滚轮一格 deltaY 约 100，缩放约 1.2 倍。单个事件最多缩放 1.25 倍，避免大跨度滚动跳太多。
+ */
+export function wheelZoomFactor(event: Pick<WheelEvent, "deltaY" | "deltaMode" | "ctrlKey">) {
+  // deltaMode 1 = 按行、2 = 按页（Firefox 鼠标滚轮），折算成像素
+  const pixels = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 400 : 1);
+  const rate = event.ctrlKey ? 0.006 : 0.0018;
+  const step = Math.max(-0.22, Math.min(0.22, -pixels * rate));
+  return Math.exp(step);
+}
+
+/**
+ * 图片查看器：同一条消息里的多张图用 ← → 切换；滚轮 / 触控板捏合（以指针为中心、按滚动量平滑缩放）、+ / -、双击缩放，放大后可拖动，0 复位；Esc 关闭。
  */
 function Lightbox({
   images,
@@ -876,6 +889,11 @@ function Lightbox({
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | undefined>(undefined);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
+  // 捏合时一帧会来好几个 wheel 事件，按最新值累乘，不用等重新渲染
+  const view = useRef({ zoom, offset });
+  view.current = { zoom, offset };
   const count = images.length;
   const go = useCallback(
     (step: number) => {
@@ -889,6 +907,37 @@ function Lightbox({
     setZoom(value);
     if (value <= 1) setOffset({ x: 0, y: 0 });
   }, []);
+
+  // 滚轮 / 捏合缩放：以指针所在位置为中心，按滚动量平滑缩放。要拦住浏览器自己的页面缩放，
+  // 得用非 passive 的原生监听（React 的 onWheel 是 passive，preventDefault 无效）
+  useEffect(() => {
+    const stage = rootRef.current;
+    if (!stage || !url) return;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const { zoom: from, offset: was } = view.current;
+      const to = clampZoom(from * wheelZoomFactor(event));
+      if (to === from) return;
+      if (to <= 1) {
+        setZoom(to);
+        setOffset({ x: 0, y: 0 });
+        return;
+      }
+      const rect = imageRef.current?.getBoundingClientRect();
+      // 图片没缩放时的中心 = 现在的中心 - 平移；让指针下的那一点缩放后仍在指针下
+      const cx = rect ? rect.left + rect.width / 2 - was.x : event.clientX;
+      const cy = rect ? rect.top + rect.height / 2 - was.y : event.clientY;
+      const px = event.clientX - cx;
+      const py = event.clientY - cy;
+      const ratio = to / from;
+      const next = { x: px - (px - was.x) * ratio, y: py - (py - was.y) * ratio };
+      view.current = { zoom: to, offset: next };
+      setZoom(to);
+      setOffset(next);
+    };
+    stage.addEventListener("wheel", onWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", onWheel);
+  }, [url]);
 
   // 换图时复位缩放；相邻的图预先取回，切换不用等
   useEffect(() => {
@@ -920,19 +969,17 @@ function Lightbox({
 
   return createPortal(
     <div
+      ref={rootRef}
       className="attachment-lightbox"
       role="dialog"
       aria-modal="true"
       aria-label={current.name}
       onClick={onClose}
-      onWheel={(event) => {
-        if (!url) return;
-        zoomTo(zoom * (event.deltaY < 0 ? 1.15 : 1 / 1.15));
-      }}
     >
       <div className="attachment-lightbox-stage">
         {url ? (
           <img
+            ref={imageRef}
             src={url}
             alt={current.name}
             draggable={false}
