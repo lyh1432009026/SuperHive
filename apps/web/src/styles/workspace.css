@@ -19,8 +19,9 @@
 /* 来源选择：和「产物」左栏的筛选控件一样，小号、浅边、主底色 */
 .select-trigger.workspace-source {
   width: auto;
-  min-width: 200px;
-  max-width: 340px;
+  /* 任务线名字较长（分支名、Agent 名）：给足宽度，放不下再省略，悬停看全名 */
+  min-width: 260px;
+  max-width: min(560px, 55%);
   min-height: 32px;
   margin-left: auto;
   padding: 0 10px;

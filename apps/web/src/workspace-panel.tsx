@@ -543,6 +543,7 @@ export function WorkspacePanel({
               <Select
                 className="workspace-source"
                 aria-label={t("查看哪份代码")}
+                menuMinWidth={460}
                 value={source?.id ?? "workspace"}
                 onChange={(value) => setSourceId(value)}
                 options={sources.map((item) => ({

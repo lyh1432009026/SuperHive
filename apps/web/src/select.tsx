@@ -44,6 +44,8 @@ export type SelectProps<T extends string = string> = {
   /** 当前值不在选项里时显示的文字 */
   placeholder?: string;
   className?: string;
+  /** 下拉面板的最小宽度：选项文字较长、触发按钮又不宽时用，免得选项被截断 */
+  menuMinWidth?: number;
 };
 
 type Placement = { left: number; top: number; width: number; maxHeight: number; above: boolean };
@@ -52,11 +54,11 @@ const PANEL_MAX_HEIGHT = 300;
 const GAP = 4;
 const EDGE = 8;
 
-function place(trigger: HTMLElement): Placement {
+function place(trigger: HTMLElement, menuMinWidth = 0): Placement {
   const rect = trigger.getBoundingClientRect();
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
-  const width = Math.min(Math.max(rect.width, 180), viewportWidth - EDGE * 2);
+  const width = Math.min(Math.max(rect.width, 180, menuMinWidth), viewportWidth - EDGE * 2);
   const left = Math.max(EDGE, Math.min(rect.left, viewportWidth - width - EDGE));
   const below = viewportHeight - rect.bottom - GAP - EDGE;
   const above = rect.top - GAP - EDGE;
@@ -108,6 +110,7 @@ export function Select<T extends string = string>({
   onChange,
   id,
   disabled = false,
+  menuMinWidth,
   placeholder,
   className,
   ...aria
@@ -140,7 +143,7 @@ export function Select<T extends string = string>({
 
   const show = (index = enabled(selectedIndex) ? selectedIndex : first()) => {
     if (disabled || !triggerRef.current) return;
-    setPlacement(place(triggerRef.current));
+    setPlacement(place(triggerRef.current, menuMinWidth));
     setActive(index);
     setOpen(true);
   };
@@ -258,7 +261,7 @@ export function Select<T extends string = string>({
     };
     const reposition = (event: Event) => {
       if (event.target instanceof Node && listRef.current?.contains(event.target)) return;
-      if (triggerRef.current) setPlacement(place(triggerRef.current));
+      if (triggerRef.current) setPlacement(place(triggerRef.current, menuMinWidth));
     };
     document.addEventListener("pointerdown", onPointer, true);
     window.addEventListener("resize", reposition);
@@ -268,7 +271,7 @@ export function Select<T extends string = string>({
       window.removeEventListener("resize", reposition);
       window.removeEventListener("scroll", reposition, true);
     };
-  }, [close, open]);
+  }, [close, menuMinWidth, open]);
 
   // 高亮的选项始终在面板可见范围内
   useLayoutEffect(() => {
@@ -300,7 +303,10 @@ export function Select<T extends string = string>({
         onKeyDown={onKeyDown}
       >
         {selected?.icon && <span className="select-icon">{selected.icon}</span>}
-        <span className={`select-value${selected ? "" : " placeholder"}`}>
+        <span
+          className={`select-value${selected ? "" : " placeholder"}`}
+          title={typeof selected?.label === "string" ? selected.label : undefined}
+        >
           {selected?.label ?? placeholder ?? ""}
         </span>
         <span className="select-chevron">
@@ -355,7 +361,9 @@ export function Select<T extends string = string>({
                 >
                   {option.icon && <span className="select-icon">{option.icon}</span>}
                   <span className="select-option-text">
-                    <span>{option.label}</span>
+                    <span title={typeof option.label === "string" ? option.label : undefined}>
+                      {option.label}
+                    </span>
                     {option.description && <small>{option.description}</small>}
                   </span>
                   <span className="select-check">{option.value === value && <Check />}</span>
