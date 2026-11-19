@@ -28,6 +28,21 @@ Workspace mode does not grant the entire `-wt` parent or another agent's checkou
 
 An invocation's explicit checkout binding survives changes to room/agent focus, so retrying an older task does not use a newer task's checkout. Unbound follow-up messages use the current focus; Hive does not infer task lines from natural language. Start a different line by calling create with a new slug. Managed writable Bridges look up queued bindings in one request and batch adjacent messages using the same directory, including ordinary unbound messages. Steering remains available for the current directory or an unbound message; messages bound to another directory stay queued with an explanation. Selections are reused only for the immediate batch and refreshed after a turn, never cached across task-line changes. Switching between checkout directories discards the old thread; returning to a saved thread is allowed only when its recorded workspace matches.
 
+## When a checkout no longer matches its registration
+
+Never `git checkout`/`git switch` a registered task workspace to another branch; start the next piece of work with a new slug. Before every task the server verifies the checkout (directory, symlinks, `git worktree list`, repository, lock, branch) and reports which check failed:
+
+- **Bound tasks** (the invocation's own binding, or an ancestor's) are refused with the specific reason and an error code; the Bridge shows that reason on the task card with credentials stripped and the length capped. It never starts work in a checkout that changed.
+- **New tasks that would only inherit the agent's last workspace (focus)** no longer fail forever: the server drops that focus, writes an audit log entry, and returns a `focus_dropped` notice. The Bridge puts it on the task card and at the top of the prompt, telling the agent it is in the room's default workspace and must create a new task workspace before changing code. It is not a silent downgrade.
+- **Reusing the slug** of a switched checkout is refused with how to proceed.
+
+A checkout that was only switched to another named branch is shown as "Branch switched: registered X, now Y" in the Worktree list, and its whiteboard entry moves to blocked. It is never cleaned up automatically. The owner can fix it in place:
+
+- **Switch back to the registered branch**: only when the checkout has no uncommitted or untracked files and the registered branch still exists and is not checked out elsewhere.
+- **Re-register on the current branch**: only when no other task line has registered or claimed that branch. Uncommitted files stay as they are.
+
+Both require that no task is using the checkout. Detached HEAD, deleted, replaced, relinked or other-repository checkouts are not switch cases: they stay refused with their own reason and need manual inspection.
+
 ## Inventory and cleanup
 
 `hive_worktree_list()` reports only registered worktrees, including tracked changes, untracked and ignored files, merge evidence, active invocation IDs and whether removal is safe. Failed Git checks or changed checkout identities are not removable. Ignored files are also protected: this includes `.env`, build output and dependency directories, which must be handled explicitly before removal.

@@ -60,6 +60,8 @@ export type LocalAgentsState = {
   }>;
   configureWorktreeCleanup(roomId: string, autoCleanup: boolean): Promise<void>;
   cleanWorktreeBatch(roomId: string, batchId: string): Promise<void>;
+  /** 被换了分支的任务目录：restore=切回登记分支，adopt=按当前分支重新登记 */
+  repairWorktree(roomId: string, id: string, action: "restore" | "adopt"): Promise<void>;
   /** undefined：还在确认；false：不是本机或房主设备，或服务端已关闭 */
   enabled: boolean | undefined;
   reason?: string | undefined;
@@ -360,6 +362,16 @@ export function useLocalAgents(
       await request(
         `/api/local/worktrees/${encodeURIComponent(roomId)}/batches/${encodeURIComponent(batchId)}`,
         { method: "POST" },
+      );
+    },
+    [request],
+  );
+
+  const repairWorktree = useCallback(
+    async (roomId: string, id: string, action: "restore" | "adopt") => {
+      await request(
+        `/api/local/worktrees/${encodeURIComponent(roomId)}/items/${encodeURIComponent(id)}/repair`,
+        { method: "POST", body: JSON.stringify({ action }) },
       );
     },
     [request],
@@ -845,6 +857,7 @@ export function useLocalAgents(
     cleanupWorktrees,
     configureWorktreeCleanup,
     cleanWorktreeBatch,
+    repairWorktree,
     enabled,
     reason: session && !session.enabled ? session.reason : undefined,
     mode,

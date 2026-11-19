@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -413,7 +413,9 @@ describe("worktree MCP permissions and bindings", () => {
     expect((await app.inject({ url, headers })).statusCode).toBe(200);
     await finish(owner, helper, initial);
     await git(repo, ["worktree", "remove", worktree.path]);
-    expect((await app.inject({ url, headers })).statusCode).toBe(403);
+    const refused = await app.inject({ url, headers });
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json()).toMatchObject({ code: "WORKTREE_IDENTITY", error: expect.any(String) });
     await git(repo, ["branch", "-d", worktree.branch]);
     const removed = await app.inject({ url, headers });
     expect(removed.statusCode).toBe(200);
@@ -561,6 +563,141 @@ describe("worktree MCP permissions and bindings", () => {
         .statusCode,
     ).toBe(409);
   });
+
+  it("handles a task line whose branch was switched inside its checkout end to end", async () => {
+    const { app, git, join, mcp, run, finish } = await start();
+    const owner = await join("Alice", "human");
+    const helper = await join("helper", "agent");
+    const headers = {
+      authorization: "Bearer test-token",
+      "x-hive-room": "general",
+      "x-hive-agent-name": "helper",
+    };
+    const session = (await app.inject({ method: "GET", url: "/api/local/session" })).json();
+    const ownerHeaders = { "x-hive-owner": session.ownerToken };
+    const lookup = (messageIds: string[]) =>
+      app.inject({ method: "POST", url: "/api/agent/worktree", headers, payload: { messageIds } });
+    const inventory = async () =>
+      (await app.inject({ url: "/api/local/worktrees/general", headers: ownerHeaders })).json()
+        .worktrees[0];
+    const repair = (id: string, action: "restore" | "adopt") =>
+      app.inject({
+        method: "POST",
+        url: `/api/local/worktrees/general/items/${id}/repair`,
+        headers: ownerHeaders,
+        payload: { action },
+      });
+
+    // 今晚的现场：建任务线 → Agent 在里面直接 checkout 新分支去做下一件事
+    const first = await run(owner, helper, "helper", "slow ops");
+    const call = await mcp("helper");
+    const created = await call("hive_worktree_create", { slug: "slow-ops" });
+    const worktree = created.structuredContent!.worktree as ManagedWorktree;
+    await git(worktree.path, ["switch", "-c", "feat/helper-card-tiers"]);
+
+    // 再查绑定的任务：拒绝，错误码和原因都在（Bridge 据此写进卡片）
+    const bound = await lookup([first.id]);
+    expect(bound.statusCode).toBe(403);
+    expect(bound.json()).toMatchObject({ code: "WORKTREE_IDENTITY" });
+    expect(bound.json().error).toContain(
+      `登记的分支是 ${worktree.branch}，现在却在 feat/helper-card-tiers`,
+    );
+    await finish(owner, helper, first);
+
+    // 再派新任务：不再卡死，也不静默：worktree 为空并带上说明
+    const second = await run(owner, helper, "helper", "card tiers");
+    const fresh = await lookup([second.id]);
+    expect(fresh.statusCode).toBe(200);
+    expect(fresh.json()).toEqual({
+      worktrees: { [second.id]: null },
+      notices: {
+        [second.id]: {
+          kind: "focus_dropped",
+          path: worktree.path,
+          reason: expect.stringContaining("现在却在 feat/helper-card-tiers"),
+        },
+      },
+    });
+    const single = await app.inject({
+      url: `/api/agent/worktree?messageId=${second.id}`,
+      headers,
+    });
+    expect(single.json()).toEqual({ worktree: null });
+
+    // 复用 slug：拒绝并说明怎么办
+    const reused = await call("hive_worktree_create", { slug: "slow-ops" });
+    expect(reused.isError).toBe(true);
+    expect(reused.content[0]?.text).toContain("slug slow-ops 的任务目录");
+    expect(reused.content[0]?.text).toContain("新的 slug");
+    await finish(owner, helper, second);
+
+    // 白板标阻塞；列表标换分支；登记的分支早已在 main 里，但清理扫描不碰
+    const entry = (
+      await app.inject({
+        url: "/api/rooms/general/whiteboard",
+        headers: { authorization: "Bearer test-token" },
+      })
+    ).json();
+    const boardEntry = (entry.entries ?? entry).find(
+      (item: { key: string }) => item.key === `worktree:${worktree.id}`,
+    );
+    expect(boardEntry).toMatchObject({ slot: "blocked" });
+    expect(boardEntry.summary).toContain(
+      `分支已被切换：登记 ${worktree.branch}，当前 feat/helper-card-tiers`,
+    );
+    expect(await inventory()).toMatchObject({
+      removable: false,
+      branchSwitched: { registered: worktree.branch, current: "feat/helper-card-tiers" },
+    });
+    await (app as unknown as { runWorktreeCleanup(): Promise<void> }).runWorktreeCleanup();
+    expect(owner.events.some((event) => event.type === "worktree.cleanup")).toBe(false);
+    expect(existsSync(worktree.path)).toBe(true);
+
+    // 房主操作：要管理权限；有未跟踪文件不能切回；干净后切回，白板恢复，绑定任务能再开工
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/local/worktrees/general/items/${worktree.id}/repair`,
+          headers: { authorization: "Bearer test-token" },
+          payload: { action: "restore" },
+        })
+      ).statusCode,
+    ).toBe(401);
+    writeFileSync(path.join(worktree.path, "draft.txt"), "draft\n");
+    const dirty = await repair(worktree.id, "restore");
+    expect(dirty.statusCode).toBe(409);
+    expect(dirty.json()).toMatchObject({ code: "WORKTREE_DIRTY" });
+    rmSync(path.join(worktree.path, "draft.txt"));
+    const restored = await repair(worktree.id, "restore");
+    expect(restored.statusCode).toBe(200);
+    expect(restored.json().worktree.branchSwitched).toBeUndefined();
+    expect(await inventory()).not.toHaveProperty("branchSwitched");
+
+    // 再切一次，这次按当前分支重新登记
+    await git(worktree.path, ["switch", "-c", "feat/helper-renamed"]);
+    const third = await run(owner, helper, "helper", "continue");
+    const reuseAfter = await call("hive_worktree_create", { slug: "slow-ops" });
+    expect(reuseAfter.isError).toBe(true);
+    await finish(owner, helper, third);
+    const adopted = await repair(worktree.id, "adopt");
+    expect(adopted.statusCode).toBe(200);
+    expect(adopted.json().worktree.worktree.branch).toBe("feat/helper-renamed");
+    expect((await repair(worktree.id, "adopt")).json()).toMatchObject({
+      code: "WORKTREE_NOT_SWITCHED",
+    });
+    const fourth = await run(owner, helper, "helper", "continue on the renamed line");
+    const continued = await call("hive_worktree_create", { slug: "slow-ops" });
+    expect(continued.isError).toBeFalsy();
+    expect(continued.structuredContent).toMatchObject({
+      reused: true,
+      worktree: { branch: "feat/helper-renamed", path: worktree.path },
+    });
+    expect((await lookup([fourth.id])).json().worktrees[fourth.id]).toMatchObject({
+      id: worktree.id,
+      branch: "feat/helper-renamed",
+    });
+  }, 30_000);
 
   it("notifies only the owner, requires owner/device management auth and batch-cleans safely", async () => {
     const { app, repo, git, join, mcp, run, finish } = await start();

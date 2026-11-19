@@ -5,6 +5,8 @@
  */
 export const BRIDGE_TEXTS = {
   "bridge.worktreeCleaned": "任务目录已被清理，本轮无需继续执行：{path}",
+  "bridge.worktreeFocusDropped":
+    "上次用的任务目录 {path} 不能再用（{reason}），这次没有沿用，在默认工作目录开工；已提醒 Agent 改代码前先用 hive_worktree_create 建新任务目录",
   "bridge.worktreeCheckBeforeContinue":
     "已绑定目录 {path}，但本轮已有其它副作用（{step}）；未自动续跑，请核对原目录的操作后再继续",
   "bridge.worktreeHandoff": "已切到独立目录 {path}，开新会话继续；旧会话不迁移",

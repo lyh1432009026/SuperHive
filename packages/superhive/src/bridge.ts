@@ -3,6 +3,8 @@ import { loadReceiptResults } from "./receipt-context.js";
 import {
   TaskWorkspaceBusyError,
   TaskWorkspaceRemovedError,
+  type TaskWorkspaceNotice,
+  type TaskWorkspaceNoticeSink,
   type TaskWorkspaceSelection,
 } from "./task-workspace.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -270,8 +272,14 @@ export class AgentBridge {
       /** 本机 Hive Server 写的 Agent 设置文件：模型每一轮从这里读 */
       settingsFile?: string;
       taskWorkspace?: {
-        resolve: (messageId: string) => Promise<TaskWorkspaceSelection>;
-        resolveMany?: (messageIds: string[]) => Promise<Map<string, TaskWorkspaceSelection>>;
+        resolve: (
+          messageId: string,
+          onNotice?: TaskWorkspaceNoticeSink,
+        ) => Promise<TaskWorkspaceSelection>;
+        resolveMany?: (
+          messageIds: string[],
+          onNotice?: TaskWorkspaceNoticeSink,
+        ) => Promise<Map<string, TaskWorkspaceSelection>>;
         responder: (cwd: string) => AgentResponder;
       };
     },
@@ -760,6 +768,35 @@ export class AgentBridge {
     );
   }
 
+  /** Server 没沿用「上次用的任务目录」的说明，按消息记下，开工时写进提示和任务卡片 */
+  private readonly workspaceNotices = new Map<string, TaskWorkspaceNotice>();
+  private readonly noticeSink: TaskWorkspaceNoticeSink = (messageId, notice) => {
+    this.workspaceNotices.set(messageId, notice);
+  };
+
+  /**
+   * 取走这几条消息的目录说明：任务卡片上写明这次没沿用哪个目录、为什么，返回给 Agent 的系统提示。
+   * 每条说明只用一次。
+   */
+  private takeWorkspaceNote(messages: ChatMessage[]): string | undefined {
+    const notices = messages.flatMap((message) => {
+      const notice = this.workspaceNotices.get(message.id);
+      if (!notice) return [];
+      this.workspaceNotices.delete(message.id);
+      this.room.report({
+        messageId: message.id,
+        status: "running",
+        ...said(
+          bridgeText("bridge.worktreeFocusDropped", { path: notice.path, reason: notice.reason }),
+        ),
+      });
+      return [notice];
+    });
+    const notice = notices[0];
+    if (!notice) return undefined;
+    return `（系统提示）你上次用的任务目录 ${notice.path} 不能再用：${notice.reason}\n这次没有沿用它，你现在在房间的默认工作目录 ${this.options.cwd ?? this.defaultCwd ?? ""}。这一轮要改代码、提交，先用 hive_worktree_create 以新的 slug 建任务目录，再按 runtimeHandoff 到新目录里做；不要在默认工作目录里改代码，也不要回旧目录里切分支。只读的查询、回答不受影响。`;
+  }
+
   private async taskWorkspaces(
     messages: ChatMessage[],
   ): Promise<Map<string, TaskWorkspaceSelection>> {
@@ -767,8 +804,12 @@ export class AgentBridge {
     if (!runtime) return new Map(messages.map((message) => [message.id, undefined]));
     const ids = messages.map((message) => message.id);
     const selections = runtime.resolveMany
-      ? await runtime.resolveMany(ids)
-      : new Map(await Promise.all(ids.map(async (id) => [id, await runtime.resolve(id)] as const)));
+      ? await runtime.resolveMany(ids, this.noticeSink)
+      : new Map(
+          await Promise.all(
+            ids.map(async (id) => [id, await runtime.resolve(id, this.noticeSink)] as const),
+          ),
+        );
     if (ids.some((id) => !selections.has(id)))
       throw new AgentNonRetryableError("Incomplete managed task workspace selection");
     return selections;
@@ -781,7 +822,8 @@ export class AgentBridge {
     const runtime = this.options.taskWorkspace;
     if (!runtime || !this.defaultCwd) return false;
     const selected =
-      (prepared ? prepared.path : await runtime.resolve(messageId)) ?? this.defaultCwd;
+      (prepared ? prepared.path : await runtime.resolve(messageId, this.noticeSink)) ??
+      this.defaultCwd;
     if (selected instanceof TaskWorkspaceRemovedError) throw selected;
     const changed = selected !== this.options.cwd;
     if (changed) {
@@ -832,7 +874,7 @@ export class AgentBridge {
     let queuedDetail: BridgeText | undefined;
     try {
       const selected = this.options.taskWorkspace
-        ? await this.options.taskWorkspace.resolve(message.id)
+        ? await this.options.taskWorkspace.resolve(message.id, this.noticeSink)
         : undefined;
       if (selected instanceof TaskWorkspaceRemovedError) {
         this.rememberProcessed(message.id);
@@ -848,7 +890,9 @@ export class AgentBridge {
         queuedDetail = bridgeText("bridge.worktreeSteerQueued", { path: selected });
       } else {
         const runtime = this.responder;
-        const prompt = buildSteerPrompt(message, await this.attachmentPaths([message]));
+        const note = this.takeWorkspaceNote([message]);
+        const steer = buildSteerPrompt(message, await this.attachmentPaths([message]));
+        const prompt = note ? `${note}\n\n${steer}` : steer;
         if (
           this.active === active &&
           active.accepting &&
@@ -1318,6 +1362,9 @@ export class AgentBridge {
             ...prompt,
             text: `（系统提示）你上一轮调用 hive_worktree_create 后按 runtimeHandoff 结束了准备回合，但任务目录就是你当前所在的 ${this.options.cwd ?? "工作目录"}，不需要切换，会话也没有变。不要再停下等交接：接着把原任务做完。\n\n${prompt.text}`,
           };
+        // 只在第一次开工时说：切到新任务目录之后，新会话里就不需要了
+        const workspaceNote = handoff ? undefined : this.takeWorkspaceNote(messages);
+        if (workspaceNote) prompt = { ...prompt, text: `${workspaceNote}\n\n${prompt.text}` };
         if (handoff)
           prompt = {
             ...prompt,

@@ -10,12 +10,31 @@ import {
   type CreateWorktreeRequest,
   type ManagedWorktree,
   type Participant,
+  type ServerText,
   type WorktreeStatus,
 } from "@superhive/protocol";
 import { HiveDatabase, HiveError } from "./database.js";
 import { gitOperationName, slowOps } from "./slow-ops.js";
 
 type GitResult = { code: number; stdout: string; stderr: string };
+
+/**
+ * 任务目录和登记的对不上。switched：同一个 checkout，只是被人切到了另一条（有名字的）分支，
+ * 这种情况房主可以就地修好（切回或按当前分支重新登记）。
+ */
+export class WorktreeIdentityError extends HiveError {
+  constructor(
+    text: ServerText,
+    readonly switched?: { registered: string; current: string },
+  ) {
+    super("WORKTREE_IDENTITY", text);
+  }
+}
+
+/** 没沿用「上次用的任务目录」的原因，交给 Bridge 写进这次开工的提示和任务卡片 */
+export type FocusDropped = {
+  focusDropped: { worktreeId: string; path: string; branch: string; reason: string };
+};
 type Checkout = { path: string; branch: string | undefined; locked: boolean };
 type Repository = { repo: string; commonDir: string; target: string };
 type RemovedWorktree = ManagedWorktree & { removed: true };
@@ -243,6 +262,8 @@ export class WorktreeManager {
       activeInvocations: (worktree: ManagedWorktree) => string[];
       onBoardChanged?: (roomId: string) => void;
       onCleanup?: (batch: WorktreeCleanupBatch) => void;
+      /** Server 替人做了决定（比如不再沿用某个任务目录）：记审计日志 */
+      audit?: (message: string, details: Record<string, string>) => void;
       /** 只读状态（未提交/未跟踪/忽略文件）的缓存时长；写操作会立即作废对应任务线的缓存 */
       statusCacheMs?: number;
       /**
@@ -409,6 +430,8 @@ export class WorktreeManager {
       // 后台定时扫描，不在写锁里，也不急：每次都重新检查，不用缓存
       const status = await this.status(record);
       statuses.push(status);
+      // 被换了分支的目录：不清理，只在白板上提示房主
+      if (status.branchSwitched) this.markSwitched(record, status.branchSwitched.current);
       if (!status.removable || !status.headCommit) continue;
       const notice = this.options.database
         .connection()
@@ -530,6 +553,74 @@ export class WorktreeManager {
       .run(record.roomId, record.agentName, record.id);
   }
 
+  /**
+   * 不再把这个 Agent 的新任务默认放进这个目录。写一条审计日志（谁、哪个目录、为什么），
+   * 返回给 Bridge 的说明会写进这次开工的提示和任务卡片。
+   */
+  private dropFocus(actor: Participant, record: ManagedWorktree, reason: string): FocusDropped {
+    this.options.database
+      .connection()
+      .prepare(
+        "DELETE FROM managed_worktree_focus WHERE room_id = ? AND agent_name = ? AND worktree_id = ?",
+      )
+      .run(actor.roomId, actor.username, record.id);
+    this.options.audit?.(
+      zhText(
+        serverText("worktree.focusDropped", {
+          agent: actor.username,
+          path: record.path,
+          reason,
+        }),
+      ),
+      { roomId: actor.roomId, agentName: actor.username, worktreeId: record.id },
+    );
+    return {
+      focusDropped: { worktreeId: record.id, path: record.path, branch: record.branch, reason },
+    };
+  }
+
+  /** 白板上这条任务目录标成阻塞：写明登记的、现在的分支和房主能做的事。没变就不重写 */
+  private markSwitched(record: ManagedWorktree, current: string): void {
+    const author = this.options.database.findParticipant(record.roomId, record.agentName);
+    if (!author) return;
+    try {
+      const board = this.options.database.upsertWhiteboardEntry(author, {
+        key: `worktree:${record.id}`,
+        slot: "blocked",
+        summary: zhText(
+          serverText("worktree.branchSwitched", {
+            registered: record.branch,
+            current,
+            path: record.path,
+          }),
+        ).slice(0, 500),
+        repo: path.basename(record.repo),
+        branch: record.branch,
+        claim: { repo: record.repo, branch: record.branch },
+      });
+      if (board.changed) this.options.onBoardChanged?.(record.roomId);
+    } catch {
+      // 白板只是提示；写不进去（比如别人占着这个 key）不影响任务目录本身的判断
+    }
+  }
+
+  /** 恢复正常后白板上的这条回到进行中 */
+  private markRegistered(record: ManagedWorktree): void {
+    const author = this.options.database.findParticipant(record.roomId, record.agentName);
+    if (!author) return;
+    const board = this.options.database.upsertWhiteboardEntry(author, {
+      key: `worktree:${record.id}`,
+      slot: "in_progress",
+      summary: zhText(
+        serverText("worktree.created", { branch: record.branch, path: record.path }),
+      ).slice(0, 500),
+      repo: path.basename(record.repo),
+      branch: record.branch,
+      claim: { repo: record.repo, branch: record.branch },
+    });
+    if (board.changed) this.options.onBoardChanged?.(record.roomId);
+  }
+
   private bind(record: ManagedWorktree, invocationIds: string[]): void {
     const statement = this.options.database.connection().prepare(
       `INSERT INTO managed_worktree_bindings (invocation_id, worktree_id) VALUES (?, ?)
@@ -606,7 +697,7 @@ export class WorktreeManager {
     actor: Participant,
     ownerName: string,
     invocationId: string,
-  ): Promise<ManagedWorktree | RemovedWorktree | undefined> {
+  ): Promise<ManagedWorktree | RemovedWorktree | FocusDropped | undefined> {
     return (await this.runtimeWorkspaces(workspace, actor, [{ ownerName, invocationId }])).get(
       invocationId,
     );
@@ -616,7 +707,7 @@ export class WorktreeManager {
     workspace: string,
     actor: Participant,
     tasks: Array<{ ownerName: string; invocationId: string; ancestorIds?: string[] }>,
-  ): Promise<Map<string, ManagedWorktree | RemovedWorktree | undefined>> {
+  ): Promise<Map<string, ManagedWorktree | RemovedWorktree | FocusDropped | undefined>> {
     const binding = this.options.database
       .connection()
       .prepare("SELECT worktree_id FROM managed_worktree_bindings WHERE invocation_id = ?");
@@ -630,7 +721,7 @@ export class WorktreeManager {
       const bound = binding.get(task.invocationId) as { worktree_id: string } | undefined;
       return { ...task, bound, selected: bound ?? focus };
     });
-    const result = new Map<string, ManagedWorktree | RemovedWorktree | undefined>(
+    const result = new Map<string, ManagedWorktree | RemovedWorktree | FocusDropped | undefined>(
       tasks.map((task) => [task.invocationId, undefined]),
     );
     if (
@@ -646,6 +737,8 @@ export class WorktreeManager {
       const records = new Map(this.records(repository.repo).map((record) => [record.id, record]));
       const removed = this.removedRecords(repository.repo);
       const occupants = new Map<ManagedWorktree, string[]>();
+      // 只是沿用「上次用的任务目录」（没绑定、也不是接着上游的那条）选中的任务
+      const viaFocus = new Set<string>();
       for (const task of selections) {
         const previous = removed.find(
           (record) =>
@@ -699,10 +792,12 @@ export class WorktreeManager {
             "WORKTREE_UNSAFE",
             serverText("error.worktree.unsafe", { path: record.path }),
           );
+        if (!task.bound && !inherited && !previous) viaFocus.add(task.invocationId);
         if ("removed" in record) result.set(task.invocationId, record);
         else occupants.set(record, [...(occupants.get(record) ?? []), task.invocationId]);
       }
       const missing = new Set<ManagedWorktree>();
+      const stale = new Map<ManagedWorktree, string>();
       for (const record of occupants.keys()) {
         if (await this.missingCheckout(record, repository.target)) {
           if (
@@ -721,8 +816,22 @@ export class WorktreeManager {
               "WORKTREE_UNSAFE",
               serverText("error.worktree.unsafe", { path: record.path }),
             );
-          await this.identity(record);
+          try {
+            await this.identity(record);
+          } catch (error) {
+            if (!(error instanceof WorktreeIdentityError)) throw error;
+            if (error.switched) this.markSwitched(record, error.switched.current);
+            // 绑定在这个目录上的任务照旧失败，原因写清楚。只是沿用「上次用的任务目录」的新任务不再被它卡住
+            // （否则这个 Agent 之后每次派活都会失败）：去掉这个默认选择，并把原因带给 Agent，不静默落到默认目录
+            if (!occupants.get(record)!.every((id) => viaFocus.has(id))) throw error;
+            stale.set(record, error.message);
+          }
         }
+      }
+      for (const [record, reason] of stale) {
+        for (const id of occupants.get(record)!)
+          result.set(id, this.dropFocus(actor, record, reason));
+        occupants.delete(record);
       }
       for (const [record, ids] of occupants) {
         if (missing.has(record)) {
@@ -824,7 +933,21 @@ export class WorktreeManager {
           );
         }
         return this.writing(existing.id, async () => {
-          await this.identity(existing);
+          try {
+            await this.identity(existing);
+          } catch (error) {
+            if (!(error instanceof WorktreeIdentityError) || !error.switched) throw error;
+            this.markSwitched(existing, error.switched.current);
+            throw new WorktreeIdentityError(
+              serverText("error.worktree.reuseSwitched", {
+                slug: existing.slug,
+                path: existing.path,
+                branch: existing.branch,
+                current: error.switched.current,
+              }),
+              error.switched,
+            );
+          }
           existing.phase = "ready";
           existing.invocationIds = [...new Set([...existing.invocationIds, ...invocationIds])];
           const board = this.options.database.upsertWhiteboardEntry(actor, {
@@ -951,28 +1074,40 @@ export class WorktreeManager {
     });
   }
 
+  /** 任务目录还是登记的那一个：路径、仓库、分支都对得上。对不上时说清楚是哪一种 */
   private async identity(record: ManagedWorktree): Promise<void> {
+    const params = { path: record.path, branch: record.branch };
     const stat = await lstat(record.path).catch(() => undefined);
-    const listed = await checkouts(record.repo);
-    const checkout = listed.find((item) => item.path === record.path);
-    if (
-      !stat?.isDirectory() ||
-      stat.isSymbolicLink() ||
-      (await realpath(record.path)) !== record.path ||
-      !checkout ||
-      checkout.branch !== record.branch ||
-      checkout.locked ||
-      (await realpath(
-        (
-          await git(record.path, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
-        ).trim(),
-      )) !== record.commonDir
-    ) {
-      throw new HiveError(
-        "WORKTREE_IDENTITY",
-        serverText("error.worktree.identity", { path: record.path }),
+    if (!stat?.isDirectory() && !stat?.isSymbolicLink())
+      throw new WorktreeIdentityError(serverText("error.worktree.missingDirectory", params));
+    if (stat.isSymbolicLink() || (await realpath(record.path)) !== record.path)
+      throw new WorktreeIdentityError(serverText("error.worktree.replaced", params));
+    const checkout = (await checkouts(record.repo)).find((item) => item.path === record.path);
+    if (!checkout)
+      throw new WorktreeIdentityError(serverText("error.worktree.notCheckout", params));
+    const commonDir = await git(record.path, [
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir",
+    ])
+      .then((output) => realpath(output.trim()))
+      .catch((error: unknown) => {
+        // 机器忙（git 超时）照旧抛出，可以稍后重试；目录里根本不是 Git 仓库就是被换掉了
+        if (error instanceof HiveError && error.code === "WORKTREE_GIT_LIMIT") throw error;
+        throw new WorktreeIdentityError(serverText("error.worktree.replaced", params));
+      });
+    if (commonDir !== record.commonDir)
+      throw new WorktreeIdentityError(serverText("error.worktree.otherRepository", params));
+    if (checkout.locked)
+      throw new WorktreeIdentityError(serverText("error.worktree.locked", params));
+    if (!checkout.branch)
+      throw new WorktreeIdentityError(serverText("error.worktree.detached", params));
+    // 最常见的：有人在任务目录里直接 git checkout/switch 到了别的分支
+    if (checkout.branch !== record.branch)
+      throw new WorktreeIdentityError(
+        serverText("error.worktree.branchChanged", { ...params, current: checkout.branch }),
+        { registered: record.branch, current: checkout.branch },
       );
-    }
   }
 
   private async missingCheckout(record: ManagedWorktree, expectedTarget: string): Promise<boolean> {
@@ -1102,15 +1237,7 @@ export class WorktreeManager {
           removable: activeInvocationIds.length === 0,
         };
       await this.identity(record);
-      const tracked = await git(record.path, [
-        "status",
-        "--porcelain=v1",
-        "-z",
-        "--untracked-files=all",
-      ]);
-      const entries = tracked.split("\0").filter(Boolean);
-      const untracked = entries.some((entry) => entry.startsWith("?? "));
-      const dirty = entries.some((entry) => !entry.startsWith("?? "));
+      const { dirty, untracked } = await this.changes(record.path);
       const ignored = Boolean(
         (await git(record.path, ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"]))
           .length,
@@ -1128,17 +1255,33 @@ export class WorktreeManager {
           !dirty && !untracked && !ignored && merged.merged && activeInvocationIds.length === 0,
       };
     } catch (error) {
+      const switched = error instanceof WorktreeIdentityError ? error.switched : undefined;
+      // 只是换了分支：目录本身是好的，照常看有没有未提交的文件（房主据此判断能不能切回）
+      const changes = switched ? await this.changes(record.path).catch(() => undefined) : undefined;
       return {
         worktree: record,
-        dirty: false,
-        untracked: false,
+        dirty: changes?.dirty ?? false,
+        untracked: changes?.untracked ?? false,
         ignored: false,
         merged: false,
         activeInvocationIds,
         removable: false,
         error: error instanceof Error ? error.message : String(error),
+        ...(switched ? { branchSwitched: switched } : {}),
       };
     }
+  }
+
+  private async changes(directory: string): Promise<{ dirty: boolean; untracked: boolean }> {
+    const entries = (
+      await git(directory, ["status", "--porcelain=v1", "-z", "--untracked-files=all"])
+    )
+      .split("\0")
+      .filter(Boolean);
+    return {
+      dirty: entries.some((entry) => !entry.startsWith("?? ")),
+      untracked: entries.some((entry) => entry.startsWith("?? ")),
+    };
   }
 
   /**
@@ -1259,6 +1402,111 @@ export class WorktreeManager {
     } finally {
       if (this.statusInflight.get(key) === running) this.statusInflight.delete(key);
     }
+  }
+
+  /**
+   * 房主修好「被换了分支」的任务目录：
+   * - restore：在目录里切回登记的分支。只在工作区干净（没有未提交、未跟踪的文件）时做，免得把改动带过去或弄丢；
+   * - adopt：按目录现在的分支重新登记。新分支不能已被别的任务线登记或占用。
+   * 两种都要等绑定在这个目录上的任务全部结束，免得 Agent 正在里面干活时目录变了。
+   */
+  async repair(
+    workspace: string,
+    id: string,
+    action: "restore" | "adopt",
+  ): Promise<WorktreeStatus> {
+    this.assertWritable();
+    const repository = await worktreeRepository(workspace);
+    return this.serial(repository.repo, `repair ${action}`, async () => {
+      const record = this.records(repository.repo).find((item) => item.id === id);
+      if (!record)
+        throw new HiveError(
+          "WORKTREE_UNREGISTERED",
+          serverText("error.worktree.unregistered", { path: id }),
+        );
+      return this.writing(record.id, async () => {
+        const status = await this.status(record, repository.target);
+        const switched = status.branchSwitched;
+        if (!switched)
+          throw new HiveError(
+            "WORKTREE_NOT_SWITCHED",
+            serverText("error.worktree.notSwitched", { path: record.path }),
+          );
+        const active = this.options.activeInvocations(record);
+        if (active.length)
+          throw new HiveError(
+            "WORKTREE_BUSY",
+            serverText("error.worktree.repairBusy", { path: record.path, count: active.length }),
+          );
+        if (action === "restore") {
+          const changes = await this.changes(record.path);
+          if (changes.dirty || changes.untracked)
+            throw new HiveError(
+              "WORKTREE_DIRTY",
+              serverText("error.worktree.restoreDirty", {
+                path: record.path,
+                branch: record.branch,
+              }),
+            );
+          const elsewhere = (await checkouts(record.repo)).some(
+            (item) => item.branch === record.branch && item.path !== record.path,
+          );
+          if (elsewhere || !(await branchExists(record.repo, record.branch)))
+            throw new HiveError(
+              "WORKTREE_BRANCH_GONE",
+              serverText("error.worktree.restoreBranchGone", { branch: record.branch }),
+            );
+          await validateBranch(record.repo, record.branch);
+          // 分支名已核对过合法、存在、不以 - 开头
+          await git(record.path, ["switch", "--no-guess", record.branch]);
+        } else {
+          const branch = switched.current;
+          await validateBranch(record.repo, branch);
+          const taken = this.records(record.repo).some(
+            (item) => item.id !== record.id && item.branch === branch,
+          );
+          if (taken)
+            throw new HiveError(
+              "WORKTREE_CLAIM_CONFLICT",
+              serverText("error.worktree.adoptTaken", { branch, path: record.path }),
+            );
+          try {
+            this.options.database.assertBranchClaimAvailable(
+              record.repo,
+              branch,
+              (
+                this.options.database
+                  .connection()
+                  .prepare("SELECT id FROM whiteboard_entries WHERE room_id = ? AND key = ?")
+                  .get(record.roomId, `worktree:${record.id}`) as { id: string } | undefined
+              )?.id,
+            );
+          } catch {
+            throw new HiveError(
+              "WORKTREE_CLAIM_CONFLICT",
+              serverText("error.worktree.adoptTaken", { branch, path: record.path }),
+            );
+          }
+          const previous = record.branch;
+          record.branch = branch;
+          this.options.database
+            .connection()
+            .prepare("UPDATE managed_worktrees SET branch = ?, record = ? WHERE id = ?")
+            .run(branch, JSON.stringify(record), record.id);
+          this.options.audit?.(
+            `任务目录 ${record.path} 按当前分支重新登记：${previous} → ${branch}`,
+            {
+              roomId: record.roomId,
+              agentName: record.agentName,
+              worktreeId: record.id,
+            },
+          );
+        }
+        await this.identity(record);
+        this.markRegistered(record);
+        return this.status(record, repository.target);
+      });
+    });
   }
 
   async remove(

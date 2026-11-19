@@ -15,6 +15,9 @@ import type { ManagedWorktree, Participant } from "@superhive/protocol";
 import { HiveDatabase } from "./database.js";
 import { WorktreeManager, worktreeGit, worktreeRepository } from "./worktrees.js";
 
+/** 选中的任务目录的 id（没选中、或没沿用上次的目录时为 undefined） */
+const idOf = (value: unknown) => (value as { id?: string } | undefined)?.id;
+
 describe("managed worktrees", () => {
   let root: string;
   let repo: string;
@@ -85,13 +88,13 @@ describe("managed worktrees", () => {
       { ownerName: "Alice", invocationId: firstId },
       { ownerName: "Alice", invocationId: secondId },
     ]);
-    expect(grouped.get(firstId)?.id).toBe(first.worktree.id);
-    expect(grouped.get(secondId)?.id).toBe(second.worktree.id);
-    expect((await manager.runtimeWorkspace(repo, agent, "Alice", firstId))?.id).toBe(
+    expect(idOf(grouped.get(firstId))).toBe(first.worktree.id);
+    expect(idOf(grouped.get(secondId))).toBe(second.worktree.id);
+    expect(idOf(await manager.runtimeWorkspace(repo, agent, "Alice", firstId))).toBe(
       first.worktree.id,
     );
     const followupId = randomUUID();
-    expect((await manager.runtimeWorkspace(repo, agent, "Alice", followupId))?.id).toBe(
+    expect(idOf(await manager.runtimeWorkspace(repo, agent, "Alice", followupId))).toBe(
       second.worktree.id,
     );
     await expect(manager.runtimeWorkspace(repo, agent, "Guest", secondId)).rejects.toThrow();
@@ -102,9 +105,243 @@ describe("managed worktrees", () => {
     });
     expect(await manager.runtimeWorkspace(repo, agent, "Alice", randomUUID())).toBeUndefined();
     const recreated = new WorktreeManager({ database, activeInvocations: () => [] });
-    expect((await recreated.runtimeWorkspace(repo, agent, "Alice", firstId))?.id).toBe(
+    expect(idOf(await recreated.runtimeWorkspace(repo, agent, "Alice", firstId))).toBe(
       first.worktree.id,
     );
+  });
+
+  describe("a task line whose branch was switched inside its checkout", () => {
+    const focusRows = () =>
+      database.connection().prepare("SELECT * FROM managed_worktree_focus").all();
+    const board = (id: string) =>
+      database.listWhiteboard("general").find((entry) => entry.key === `worktree:${id}`);
+
+    it("refuses its bound tasks, tells new tasks why it was not reused, and is never auto-cleaned", async () => {
+      const audit = vi.fn();
+      const notify = vi.fn();
+      manager = new WorktreeManager({
+        database,
+        activeInvocations: () => active,
+        audit,
+        onCleanup: notify,
+      });
+      const initial = randomUUID();
+      const { worktree } = await manager.create(repo, agent, "Alice", [initial], {
+        slug: "switched",
+      });
+      await git(worktree.path, "switch", "-c", "feat/agent-a-other");
+
+      // 绑定的任务：照旧拒绝，原因写明两条分支和处理办法
+      const refusal = manager.runtimeWorkspace(repo, agent, "Alice", initial);
+      await expect(refusal).rejects.toMatchObject({
+        code: "WORKTREE_IDENTITY",
+        switched: { registered: worktree.branch, current: "feat/agent-a-other" },
+      });
+      await expect(refusal).rejects.toThrow(
+        /登记的分支是 feat\/agent-a-switched，现在却在 feat\/agent-a-other.*hive_worktree_create/,
+      );
+      expect(board(worktree.id)).toMatchObject({ slot: "blocked", branch: worktree.branch });
+      expect(board(worktree.id)?.summary).toContain(
+        "分支已被切换：登记 feat/agent-a-switched，当前 feat/agent-a-other",
+      );
+
+      // 只是沿用「上次用的目录」的新任务：不沿用，并把原因带回去；去掉 focus、写审计，绑定不动
+      const next = randomUUID();
+      expect(await manager.runtimeWorkspace(repo, agent, "Alice", next)).toEqual({
+        focusDropped: {
+          worktreeId: worktree.id,
+          path: worktree.path,
+          branch: worktree.branch,
+          reason: expect.stringContaining("现在却在 feat/agent-a-other"),
+        },
+      });
+      expect(focusRows()).toEqual([]);
+      expect(audit).toHaveBeenCalledWith(
+        expect.stringContaining(`agent-a 上次用的任务目录 ${worktree.path} 不能再用`),
+        { roomId: "general", agentName: "agent-a", worktreeId: worktree.id },
+      );
+      expect(
+        database
+          .connection()
+          .prepare("SELECT worktree_id FROM managed_worktree_bindings WHERE invocation_id = ?")
+          .get(next),
+      ).toBeUndefined();
+      // 已经告诉过一次：之后没有默认目录，也就没有说明
+      expect(await manager.runtimeWorkspace(repo, agent, "Alice", randomUUID())).toBeUndefined();
+      await expect(manager.runtimeWorkspace(repo, agent, "Alice", initial)).rejects.toThrow();
+
+      // 复用 slug：拒绝，说明换 slug 或请房主处理
+      const reuse = manager.create(repo, agent, "Alice", [randomUUID()], { slug: "switched" });
+      await expect(reuse).rejects.toMatchObject({ code: "WORKTREE_IDENTITY" });
+      await expect(reuse).rejects.toThrow(
+        /slug switched 的任务目录.*已被切到分支 feat\/agent-a-other/,
+      );
+
+      // 列表标出来；登记的分支早已在 main 里（没有新提交），但清理扫描一律不碰
+      const [status] = await manager.list(repo);
+      expect(status).toMatchObject({
+        removable: false,
+        branchSwitched: { registered: worktree.branch, current: "feat/agent-a-other" },
+        dirty: false,
+        untracked: false,
+      });
+      await manager.setAutoCleanup("general", true);
+      await manager.scan();
+      expect(notify).not.toHaveBeenCalled();
+      expect(manager.roomBatches("general")).toEqual([]);
+      expect(existsSync(worktree.path)).toBe(true);
+      expect(manager.allRecords()).toHaveLength(1);
+    });
+
+    it("lets the owner switch it back only when clean and no task uses it", async () => {
+      const initial = randomUUID();
+      const { worktree } = await manager.create(repo, agent, "Alice", [initial], {
+        slug: "restore",
+      });
+      await git(worktree.path, "switch", "-c", "feat/agent-a-elsewhere");
+      active = [initial];
+      await expect(manager.repair(repo, worktree.id, "restore")).rejects.toMatchObject({
+        code: "WORKTREE_BUSY",
+      });
+      active = [];
+      writeFileSync(path.join(worktree.path, "draft.txt"), "draft\n");
+      await expect(manager.repair(repo, worktree.id, "restore")).rejects.toMatchObject({
+        code: "WORKTREE_DIRTY",
+      });
+      expect((await manager.list(repo))[0]).toMatchObject({ untracked: true });
+      rmSync(path.join(worktree.path, "draft.txt"));
+      const restored = await manager.repair(repo, worktree.id, "restore");
+      expect(restored.branchSwitched).toBeUndefined();
+      expect(restored.error).toBeUndefined();
+      expect(await git(worktree.path, "branch", "--show-current")).toBe(worktree.branch);
+      expect(board(worktree.id)).toMatchObject({ slot: "in_progress", branch: worktree.branch });
+      expect(idOf(await manager.runtimeWorkspace(repo, agent, "Alice", initial))).toBe(worktree.id);
+      await expect(manager.repair(repo, worktree.id, "restore")).rejects.toMatchObject({
+        code: "WORKTREE_NOT_SWITCHED",
+      });
+    });
+
+    it("refuses to switch back when the registered branch is gone", async () => {
+      const { worktree } = await manager.create(repo, agent, "Alice", [randomUUID()], {
+        slug: "gone-branch",
+      });
+      await git(worktree.path, "switch", "-c", "feat/agent-a-moved");
+      await git(repo, "branch", "-D", worktree.branch);
+      await expect(manager.repair(repo, worktree.id, "restore")).rejects.toMatchObject({
+        code: "WORKTREE_BRANCH_GONE",
+      });
+    });
+
+    it("re-registers on the current branch unless another task line has it", async () => {
+      const initial = randomUUID();
+      const { worktree } = await manager.create(repo, agent, "Alice", [initial], { slug: "adopt" });
+      await git(worktree.path, "switch", "-c", "feat/agent-a-claimed");
+      const other = database.upsertParticipant({
+        roomId: "general",
+        username: "agent-b",
+        type: "agent",
+      });
+      database.upsertWhiteboardEntry(other, {
+        key: "someone-else",
+        slot: "in_progress",
+        summary: "working on it",
+        claim: { repo, branch: "feat/agent-a-claimed" },
+      });
+      const taken = manager.repair(repo, worktree.id, "adopt");
+      await expect(taken).rejects.toMatchObject({ code: "WORKTREE_CLAIM_CONFLICT" });
+      await expect(taken).rejects.toThrow(/feat\/agent-a-claimed 已被另一条任务线登记或占用/);
+      await git(worktree.path, "switch", "-c", "feat/agent-a-adopted");
+      active = [randomUUID()];
+      await expect(manager.repair(repo, worktree.id, "adopt")).rejects.toMatchObject({
+        code: "WORKTREE_BUSY",
+      });
+      active = [];
+      // 有未提交的文件也能重新登记：分支不动，改动原样留着
+      writeFileSync(path.join(worktree.path, "draft.txt"), "draft\n");
+      const adopted = await manager.repair(repo, worktree.id, "adopt");
+      expect(adopted.worktree.branch).toBe("feat/agent-a-adopted");
+      expect(adopted).toMatchObject({ untracked: true });
+      expect(adopted.branchSwitched).toBeUndefined();
+      expect(manager.allRecords()[0]?.branch).toBe("feat/agent-a-adopted");
+      expect(board(worktree.id)).toMatchObject({
+        slot: "in_progress",
+        branch: "feat/agent-a-adopted",
+        claim: { repo, branch: "feat/agent-a-adopted" },
+      });
+      expect(idOf(await manager.runtimeWorkspace(repo, agent, "Alice", initial))).toBe(worktree.id);
+      const reopened = new WorktreeManager({ database, activeInvocations: () => [] });
+      expect(reopened.allRecords()[0]?.branch).toBe("feat/agent-a-adopted");
+    });
+
+    it("keeps refusing detached, deleted and replaced checkouts with the specific reason", async () => {
+      const make = async (slug: string) => {
+        const initial = randomUUID();
+        const { worktree } = await manager.create(repo, agent, "Alice", [initial], { slug });
+        return { initial, worktree };
+      };
+      const cases: Array<[string, (worktree: ManagedWorktree) => Promise<void>, RegExp]> = [
+        [
+          "detached",
+          async (worktree) => {
+            await git(worktree.path, "switch", "--detach");
+          },
+          /处于 detached HEAD/,
+        ],
+        [
+          "deleted",
+          async (worktree) => {
+            rmSync(worktree.path, { recursive: true });
+          },
+          /不在了或已不是目录/,
+        ],
+        [
+          "replaced",
+          async (worktree) => {
+            rmSync(worktree.path, { recursive: true });
+            mkdirSync(worktree.path);
+            await git(worktree.path, "init", "-b", "main");
+          },
+          /属于另一个 Git 仓库/,
+        ],
+        [
+          "emptied",
+          async (worktree) => {
+            rmSync(worktree.path, { recursive: true });
+            mkdirSync(worktree.path);
+          },
+          /被换成了链接或别的路径/,
+        ],
+        [
+          "linked",
+          async (worktree) => {
+            const moved = `${worktree.path}-moved`;
+            await git(repo, "worktree", "move", worktree.path, moved);
+            symlinkSync(moved, worktree.path);
+          },
+          /被换成了链接或别的路径/,
+        ],
+      ];
+      for (const [slug, damage, reason] of cases) {
+        const { initial, worktree } = await make(slug);
+        await damage(worktree);
+        const refusal = manager.runtimeWorkspace(repo, agent, "Alice", initial);
+        await expect(refusal, slug).rejects.toMatchObject({ code: "WORKTREE_IDENTITY" });
+        await expect(refusal, slug).rejects.toThrow(reason);
+        // 没有「切回」可做：列表里不标换分支，也不能修
+        const status = (await manager.list(repo)).find((item) => item.worktree.id === worktree.id);
+        expect(status?.branchSwitched, slug).toBeUndefined();
+        expect(status?.removable, slug).toBe(false);
+        expect(status?.error, slug).toMatch(reason);
+        await expect(manager.repair(repo, worktree.id, "adopt"), slug).rejects.toMatchObject({
+          code: "WORKTREE_NOT_SWITCHED",
+        });
+        // 新任务不被卡住，也不静默：带着具体原因
+        const dropped = await manager.runtimeWorkspace(repo, agent, "Alice", randomUUID());
+        expect(dropped, slug).toMatchObject({
+          focusDropped: { worktreeId: worktree.id, reason: expect.stringMatching(reason) },
+        });
+      }
+    }, 20_000);
   });
 
   it("does not require a Git workspace when there is no managed task binding", async () => {
@@ -135,7 +372,7 @@ describe("managed worktrees", () => {
     expect((await reopened.create(repo, agent, "Alice", [next], { slug: "gone" })).reused).toBe(
       false,
     );
-    expect((await reopened.runtimeWorkspace(repo, agent, "Alice", next))?.id).not.toBe(worktree.id);
+    expect(idOf(await reopened.runtimeWorkspace(repo, agent, "Alice", next))).not.toBe(worktree.id);
   });
 
   it("allows metadata-only remove after the directory and branch are both gone", async () => {
@@ -199,11 +436,13 @@ describe("managed worktrees", () => {
     const own = await manager.create(repo, other, "Alice", [randomUUID()], { slug: "own" });
     const delegated = randomUUID();
     expect(
-      (
-        await manager.runtimeWorkspaces(repo, other, [
-          { ownerName: "Alice", invocationId: delegated, ancestorIds: [upstream] },
-        ])
-      ).get(delegated)?.id,
+      idOf(
+        (
+          await manager.runtimeWorkspaces(repo, other, [
+            { ownerName: "Alice", invocationId: delegated, ancestorIds: [upstream] },
+          ])
+        ).get(delegated),
+      ),
     ).toBe(own.worktree.id);
   });
 
@@ -214,13 +453,15 @@ describe("managed worktrees", () => {
     const replacement = await manager.create(repo, agent, "Alice", [initial], { slug: "new" });
     const receipt = randomUUID();
     expect(
-      (
-        await manager.runtimeWorkspaces(repo, agent, [
-          { ownerName: "Alice", invocationId: receipt, ancestorIds: [initial] },
-        ])
-      ).get(receipt)?.id,
+      idOf(
+        (
+          await manager.runtimeWorkspaces(repo, agent, [
+            { ownerName: "Alice", invocationId: receipt, ancestorIds: [initial] },
+          ])
+        ).get(receipt),
+      ),
     ).toBe(replacement.worktree.id);
-    expect((await manager.runtimeWorkspace(repo, agent, "Alice", initial))?.id).toBe(
+    expect(idOf(await manager.runtimeWorkspace(repo, agent, "Alice", initial))).toBe(
       replacement.worktree.id,
     );
   });
@@ -403,7 +644,8 @@ describe("managed worktrees", () => {
         listed = true;
         return value;
       });
-      const selected = await manager.runtimeWorkspace(repo, agent, "Alice", invocationId);
+      const selected = (await manager.runtimeWorkspace(repo, agent, "Alice", invocationId)) as
+        ManagedWorktree | undefined;
       expect(selected?.path).toBe(path.join(root, "example repo-wt", "agent-a-feature"));
       expect(listed).toBe(false);
       slow.open();

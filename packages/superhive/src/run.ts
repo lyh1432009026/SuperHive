@@ -5,7 +5,11 @@ import { superhiveHome } from "./home-dir.js";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { AgentBridge } from "./bridge.js";
-import { resolveTaskWorkspace, resolveTaskWorkspaces } from "./task-workspace.js";
+import {
+  resolveTaskWorkspace,
+  resolveTaskWorkspaces,
+  type TaskWorkspaceNoticeSink,
+} from "./task-workspace.js";
 import { AgentManager, type StackHooks } from "./agent-manager.js";
 import { ClaudeCodeResponder } from "./claude-client.js";
 import { CodexResponder, type CodexTransport } from "./codex-responder.js";
@@ -405,8 +409,10 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
         access !== "read-only"
           ? {
               taskWorkspace: {
-                resolve: (messageId: string) => resolveTaskWorkspace(hive, messageId),
-                resolveMany: (messageIds: string[]) => resolveTaskWorkspaces(hive, messageIds),
+                resolve: (messageId: string, onNotice?: TaskWorkspaceNoticeSink) =>
+                  resolveTaskWorkspace(hive, messageId, undefined, onNotice),
+                resolveMany: (messageIds: string[], onNotice?: TaskWorkspaceNoticeSink) =>
+                  resolveTaskWorkspaces(hive, messageIds, undefined, onNotice),
                 responder: (directory: string) => buildResponder(hive, directory),
               },
             }

@@ -125,6 +125,69 @@ export const serverTexts = {
     zh: "工作区路径、仓库或分支已改变，拒绝清理：{path}",
     en: "The worktree path, repository or branch changed; refusing removal: {path}",
   },
+  "error.worktree.branchChanged": {
+    zh: "任务目录 {path} 登记的分支是 {branch}，现在却在 {current}：不能在里面开工。房主可以在 Worktree 列表里「切回登记分支」或「按当前分支重新登记」；要做新的工作请用 hive_worktree_create 以新 slug 另建任务目录，不要在已登记的任务目录里换分支。",
+    en: 'Task workspace {path} is registered on {branch} but is now on {current}, so no work can start in it. The owner can "Switch back to the registered branch" or "Re-register on the current branch" in the Worktree list; for new work create another task workspace with a new slug via hive_worktree_create instead of switching branches inside a registered one.',
+  },
+  "error.worktree.detached": {
+    zh: "任务目录 {path} 处于 detached HEAD，不在登记的分支 {branch} 上：不能在里面开工，在里面切回 {branch} 后再试。",
+    en: "Task workspace {path} is on a detached HEAD instead of its registered branch {branch}, so no work can start in it; switch it back to {branch} and retry.",
+  },
+  "error.worktree.missingDirectory": {
+    zh: "任务目录 {path} 不在了或已不是目录，但登记的分支 {branch} 还在：不能在里面开工，也不会自动清理，请房主核对。",
+    en: "Task workspace {path} is gone or no longer a directory, but its registered branch {branch} still exists. No work can start in it and it won't be cleaned up automatically; the owner needs to check it.",
+  },
+  "error.worktree.replaced": {
+    zh: "任务目录 {path} 被换成了链接或别的路径，和登记的不是同一个目录：不能在里面开工。",
+    en: "Task workspace {path} was replaced by a link or another path and is not the registered directory, so no work can start in it.",
+  },
+  "error.worktree.notCheckout": {
+    zh: "任务目录 {path} 已不在仓库的 git worktree 列表里：不能在里面开工。",
+    en: "Task workspace {path} is no longer listed by git worktree in the repository, so no work can start in it.",
+  },
+  "error.worktree.otherRepository": {
+    zh: "任务目录 {path} 现在属于另一个 Git 仓库，和登记的不同：不能在里面开工。",
+    en: "Task workspace {path} now belongs to a different Git repository than the registered one, so no work can start in it.",
+  },
+  "error.worktree.locked": {
+    zh: "任务目录 {path} 被 git worktree lock 锁住了：解锁后再试。",
+    en: "Task workspace {path} is locked with git worktree lock; unlock it and retry.",
+  },
+  "error.worktree.reuseSwitched": {
+    zh: "slug {slug} 的任务目录 {path} 已被切到分支 {current}（登记的是 {branch}），不能复用。换一件事请用新的 slug 建新任务目录；要接着原任务线，请房主在 Worktree 列表里「切回登记分支」或「按当前分支重新登记」。",
+    en: 'The task workspace {path} for slug {slug} was switched to {current} (registered: {branch}) and cannot be reused. For a different task create a new task workspace with a new slug; to continue the original line, ask the owner to "Switch back to the registered branch" or "Re-register on the current branch" in the Worktree list.',
+  },
+  "error.worktree.notSwitched": {
+    zh: "任务目录 {path} 没有被换分支，不需要处理。",
+    en: "Task workspace {path} hasn't been switched to another branch; nothing to fix.",
+  },
+  "error.worktree.repairBusy": {
+    zh: "任务目录 {path} 还有 {count} 个任务在用：等这些任务结束后再处理。",
+    en: {
+      one: "Task workspace {path} is still used by {count} task; wait until it finishes.",
+      other: "Task workspace {path} is still used by {count} tasks; wait until they finish.",
+    },
+  },
+  "error.worktree.restoreDirty": {
+    zh: "任务目录 {path} 有未提交或未跟踪的文件，不能切回 {branch}：先提交或移走这些改动，或者改用「按当前分支重新登记」。",
+    en: 'Task workspace {path} has uncommitted or untracked files, so it can\'t switch back to {branch}. Commit or move them first, or use "Re-register on the current branch" instead.',
+  },
+  "error.worktree.restoreBranchGone": {
+    zh: "登记的分支 {branch} 已不存在或正被别的目录使用，不能切回；可以改用「按当前分支重新登记」。",
+    en: 'The registered branch {branch} no longer exists or is checked out elsewhere, so it can\'t be restored; use "Re-register on the current branch" instead.',
+  },
+  "error.worktree.adoptTaken": {
+    zh: "分支 {branch} 已被另一条任务线登记或占用，不能按它重新登记任务目录 {path}。",
+    en: "Branch {branch} is already registered or claimed by another task line, so task workspace {path} can't be re-registered on it.",
+  },
+  "worktree.branchSwitched": {
+    zh: "分支已被切换：登记 {registered}，当前 {current}（{path}）。房主可在 Worktree 列表里切回登记分支或按当前分支重新登记；处理前不会沿用、也不会自动清理这个目录。",
+    en: "Branch switched: registered {registered}, now {current} ({path}). The owner can switch it back or re-register it on the current branch in the Worktree list; until then it won't be reused or cleaned up automatically.",
+  },
+  "worktree.focusDropped": {
+    zh: "{agent} 上次用的任务目录 {path} 不能再用（{reason}），这次的任务没有沿用它。",
+    en: "{agent}'s last task workspace {path} can no longer be used ({reason}); this task did not reuse it.",
+  },
   "error.worktree.unsafe": {
     zh: "工作区不能清理：有改动、未跟踪/忽略文件、尚未合入或仍有任务占用。{path}",
     en: "Cannot remove this worktree: changes, untracked/ignored files, unmerged work or active tasks remain. {path}",
@@ -574,6 +637,10 @@ export const serverTexts = {
   "bridge.worktreeHandoff": {
     zh: "已切到独立目录 {path}，开新会话继续；旧会话不迁移",
     en: "Continuing in a new session in isolated workspace {path}; the old session is not moved",
+  },
+  "bridge.worktreeFocusDropped": {
+    zh: "上次用的任务目录 {path} 不能再用（{reason}），这次没有沿用，在默认工作目录开工；已提醒 Agent 改代码前先用 hive_worktree_create 建新任务目录",
+    en: "The last task workspace {path} can no longer be used ({reason}); this task did not reuse it and starts in the default workspace. The agent was told to create a new task workspace with hive_worktree_create before changing code",
   },
   "bridge.worktreeCleaned": {
     zh: "任务目录已被清理，本轮无需继续执行：{path}",

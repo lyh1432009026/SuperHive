@@ -40,6 +40,31 @@
   border-left-color: var(--accent);
 }
 
+/* 被换了分支：警示色左边框，写明登记的和现在的分支，下面是房主的两个操作 */
+.worktree-entry:has(.worktree-switched) .worktree-row {
+  border-left-color: var(--warning);
+  border-bottom: none;
+}
+
+.worktree-switched {
+  display: grid;
+  gap: 8px;
+  padding: 0 12px 16px 43px;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+}
+
+.worktree-switched strong {
+  font-size: 12px;
+  color: var(--warning);
+  overflow-wrap: anywhere;
+}
+
+.worktree-switched small {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
 .worktree-row input,
 .worktree-auto input,
 .worktree-confirmation input {

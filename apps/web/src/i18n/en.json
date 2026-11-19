@@ -1666,5 +1666,13 @@
   "拖动调整左栏宽度，双击恢复默认": "Drag to resize the left column; double-click to reset",
   "拖动调整筛选栏宽度，双击恢复默认": "Drag to resize the filters; double-click to reset",
   "在「代码」面板里查看提交 {0}": "View commit {0} in the Code panel",
-  "在「代码」面板里打开任务线 {0}": "Open worktree {0} in the Code panel"
+  "在「代码」面板里打开任务线 {0}": "Open worktree {0} in the Code panel",
+  "已切回登记的分支 {0}。": "Switched back to the registered branch {0}.",
+  "已按当前分支 {0} 重新登记。": "Re-registered on the current branch {0}.",
+  "分支已被切换：登记 {0}，当前 {1}": "Branch switched: registered {0}, now {1}",
+  "处理前 Agent 不会再沿用这个目录，也不会自动清理。切回只在没有未提交文件时可用；重新登记要求新分支没被别的任务线占用。两种都要等占用它的任务结束。": "Until this is fixed, agents won't reuse this directory and it won't be cleaned up automatically. Switching back needs no uncommitted files; re-registering needs the new branch to be free of other task lines. Both wait until tasks using it finish.",
+  "切回登记分支": "Switch back to the registered branch",
+  "按当前分支重新登记": "Re-register on the current branch",
+  "目录里有未提交或未跟踪的文件，不能切回；可以按当前分支重新登记。": "The directory has uncommitted or untracked files, so it can't switch back; you can re-register it on the current branch.",
+  "还有任务在用这个目录，结束后才能处理。": "Tasks are still using this directory; fix it after they finish."
 }

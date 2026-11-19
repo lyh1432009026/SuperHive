@@ -8,6 +8,7 @@ import {
   createLocalAgentRequestSchema,
   localAgentAutoUpdateSchema,
   localAgentProviderSchema,
+  repairWorktreeRequestSchema,
   restartLocalAgentRequestSchema,
   updateLocalAgentSettingsRequestSchema,
   keepAwakeSettingsSchema,
@@ -74,6 +75,7 @@ const ERROR_STATUS: Record<string, number> = {
   RUNTIME_CREDENTIALS_NOT_EDITABLE: 409,
   RUNTIME_CREDENTIALS_UNREADABLE: 409,
   RUNTIME_CREDENTIALS_WRITE_FAILED: 500,
+  WORKTREE_UNREGISTERED: 404,
 };
 
 /** 批准单绑定的 Agent 配置：获批后权限、目录、模型、MCP 任一变化都不算同一件事 */
@@ -107,6 +109,8 @@ export type LocalRoomActions = {
     ) => Promise<unknown>;
     configure: (roomId: string, autoCleanup: boolean) => void;
     request: (roomId: string, batchId: string) => boolean;
+    /** 被换了分支的任务目录：切回登记分支，或按当前分支重新登记 */
+    repair?: (roomId: string, id: string, action: "restore" | "adopt") => Promise<unknown>;
   };
   /** 请求是否来自 Server 所在电脑；默认 checkLocalRequest（不放行别的端口上的网页） */
   isLocal?: (request: FastifyRequest) => LocalCheck;
@@ -379,6 +383,34 @@ export function registerLocalAgentRoutes(
         true,
       );
       return result;
+    },
+  );
+  app.post<{ Params: { roomId: string; id: string }; Body: unknown }>(
+    "/api/local/worktrees/:roomId/items/:id/repair",
+    async (request, reply) => {
+      const caller = authorize(request, reply, "manage");
+      if (!caller) return reply;
+      const input = repairWorktreeRequestSchema.safeParse(request.body);
+      const id = z.string().uuid().safeParse(request.params.id);
+      if (!input.success || !id.success || !rooms.worktrees?.repair)
+        return reply.code(400).send({ error: "Invalid worktree repair" });
+      try {
+        const status = await rooms.worktrees.repair(
+          request.params.roomId,
+          id.data,
+          input.data.action,
+        );
+        audit(
+          request,
+          caller,
+          { key: "im.worktree.repairAudit", params: { action: input.data.action } },
+          true,
+        );
+        return { worktree: status };
+      } catch (error) {
+        if (!(error instanceof HiveError)) throw error;
+        return reply.code(ERROR_STATUS[error.code] ?? 409).send(hiveErrorBody(error));
+      }
     },
   );
   app.post<{ Params: { roomId: string; batchId: string } }>(

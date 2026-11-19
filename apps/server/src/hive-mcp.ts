@@ -787,7 +787,7 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
     {
       title: "Create or reuse a managed worktree",
       description:
-        "在房间 Git 仓库里为当前本机 Agent 创建开发任务线的 worktree 并登记分支 claim。只有房主发起的可写本机任务可用；同一 slug 复用原目录。返回路径，不自动切换运行时 cwd，也不安装依赖。workspace 档写入该路径仍需目录授权。",
+        "在房间 Git 仓库里为当前本机 Agent 创建开发任务线的 worktree 并登记分支 claim。只有房主发起的可写本机任务可用；同一 slug 复用原目录；换一件事用新 slug，不要在已登记的目录里切分支（复用时发现目录被切过分支会拒绝并说明处理办法）。返回路径，不自动切换运行时 cwd，也不安装依赖。workspace 档写入该路径仍需目录授权。",
       inputSchema: createWorktreeRequestSchema.shape,
     },
     async (input) => {

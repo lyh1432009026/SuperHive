@@ -645,6 +645,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         }
         return { results };
       },
+      repair: async (roomId, id, action) => {
+        const workspace = database.getRoom(roomId)?.workspace;
+        if (!workspace) throw new HiveError("ROOM_NOT_FOUND", serverText("error.room.notFound"));
+        const record = worktrees.allRecords().find((item) => item.id === id);
+        if (!record || record.roomId !== roomId)
+          throw new HiveError(
+            "WORKTREE_UNREGISTERED",
+            serverText("error.worktree.unregistered", { path: id }),
+          );
+        return worktrees.repair(workspace, id, action);
+      },
       configure: (roomId, enabled) => {
         if (!database.getRoom(roomId))
           throw new HiveError("ROOM_NOT_FOUND", serverText("error.room.notFound"));
@@ -2318,6 +2329,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const worktrees = new WorktreeManager({
     database,
     readOnly: sandbox,
+    audit: (message, details) => app.log.warn({ worktreeAudit: details }, message),
     onCleanup: (batch) => {
       for (const connection of connections) {
         const person = connection.participant;
@@ -4541,7 +4553,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         !configured ||
         configured.access === "read-only"
       ) {
-        reply.code(403).send({ error: "Writable local agent required" });
+        reply
+          .code(403)
+          .send({ error: "Writable local agent required", code: "LOCAL_AGENT_REQUIRED" });
         return undefined;
       }
       const tasks: Array<{
@@ -4577,18 +4591,35 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       const selections = workspace
         ? await worktrees.runtimeWorkspaces(workspace, participant, tasks)
         : new Map();
-      return Object.fromEntries(
-        messageIds.map((id) => {
-          const task = tasks.find((item) => item.messageId === id);
-          return [id, task ? (selections.get(task.invocationId) ?? null) : null];
-        }),
-      );
+      const chosen: Record<string, unknown> = {};
+      // 没沿用「上次用的任务目录」的说明：Bridge 写进这次开工的提示和任务卡片，Agent 不会不知情地落到默认目录
+      const notices: Record<string, { kind: "focus_dropped"; path: string; reason: string }> = {};
+      for (const id of messageIds) {
+        const task = tasks.find((item) => item.messageId === id);
+        const selection = task ? selections.get(task.invocationId) : undefined;
+        if (selection && "focusDropped" in selection) {
+          chosen[id] = null;
+          notices[id] = {
+            kind: "focus_dropped",
+            path: selection.focusDropped.path,
+            reason: selection.focusDropped.reason,
+          };
+        } else chosen[id] = selection ?? null;
+      }
+      return { worktrees: chosen, ...(Object.keys(notices).length ? { notices } : {}) };
     } catch (error) {
-      // git 超时只是机器忙，Bridge 收到 503 会等一会儿再问；身份不符、目录被换等仍是 403，直接失败
+      // git 超时只是机器忙，Bridge 收到 503 会等一会儿再问；身份不符、目录被换等仍是 403，直接失败。
+      // 只把我们自己写的原因（HiveError）交出去，其它异常的原文可能夹着本机细节，只记日志
       const busy = error instanceof HiveError && error.code === "WORKTREE_GIT_LIMIT";
+      if (!(error instanceof HiveError))
+        request.log.warn({ err: error }, "task workspace lookup failed");
       reply
         .code(busy ? 503 : 403)
-        .send({ error: error instanceof Error ? error.message : String(error) });
+        .send(
+          error instanceof HiveError
+            ? { error: error.message, code: error.code }
+            : { error: "Task workspace lookup failed", code: "WORKTREE_LOOKUP_FAILED" },
+        );
       return undefined;
     }
   }
@@ -4599,7 +4630,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       const parsed = z.string().uuid().safeParse(request.query.messageId);
       if (!parsed.success) return reply.code(400).send({ error: "Invalid message ID" });
       const response = await taskWorkspaceResponse(request, reply, [parsed.data]);
-      return response ? { worktree: response[parsed.data] } : reply;
+      if (!response) return reply;
+      const notice = response.notices?.[parsed.data];
+      return { worktree: response.worktrees[parsed.data], ...(notice ? { notice } : {}) };
     },
   );
   app.post<{ Body: unknown }>("/api/agent/worktree", async (request, reply) => {
@@ -4610,7 +4643,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const response = await taskWorkspaceResponse(request, reply, [
       ...new Set(parsed.data.messageIds),
     ]);
-    return response ? { worktrees: response } : reply;
+    return response ?? reply;
   });
 
   app.post("/mcp", async (request, reply) => {

@@ -12,6 +12,52 @@ export class TaskWorkspaceRemovedError extends Error {
 export type TaskWorkspaceSelection = string | TaskWorkspaceRemovedError | undefined;
 
 /**
+ * Server 没有沿用这个 Agent「上次用的任务目录」（目录被换了分支、挪走等）：这次在默认目录开工，
+ * Bridge 要把原因写进提示和任务卡片，不能让 Agent 不知情地在默认目录里改代码。
+ */
+export type TaskWorkspaceNotice = { kind: "focus_dropped"; path: string; reason: string };
+export type TaskWorkspaceNoticeSink = (messageId: string, notice: TaskWorkspaceNotice) => void;
+
+/**
+ * Server 给的原因会进任务卡片和提示：截短、压成一行，去掉像凭据的片段（Bearer/token=…、环境变量赋值、
+ * 长串密钥样的字符），只留路径、分支名和说明文字。
+ */
+export function sanitizeServerReason(text: string, limit = 400): string {
+  const cleaned = text
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]+/g, " ")
+    .replace(/\b(bearer|basic)\s+[^\s,;]+/gi, "$1 [redacted]")
+    .replace(
+      /\b(token|secret|password|passwd|api[_-]?key|authorization|cookie)\b(\s*[:=]\s*)[^\s,;]+/gi,
+      "$1$2[redacted]",
+    )
+    .replace(/\b[A-Z][A-Z0-9_]{2,}=[^\s,;]+/g, (match) => `${match.split("=")[0]}=[redacted]`)
+    .replace(/\b(?:sk|pk|ghp|gho|xox[a-z])[-_][A-Za-z0-9_-]{8,}/g, "[redacted]")
+    .replace(/(?<![\w/.-])[A-Za-z0-9+_-]{40,}={0,2}(?![\w/.-])/g, (match) =>
+      /^[0-9a-f]{40}$|^[0-9a-f]{64}$/i.test(match) ? match : "[redacted]",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.length > limit ? `${cleaned.slice(0, limit - 1)}…` : cleaned;
+}
+
+function readNotice(value: unknown): TaskWorkspaceNotice | undefined {
+  const notice = value as { kind?: unknown; path?: unknown; reason?: unknown } | undefined;
+  if (
+    !notice ||
+    notice.kind !== "focus_dropped" ||
+    typeof notice.path !== "string" ||
+    typeof notice.reason !== "string"
+  )
+    return undefined;
+  return {
+    kind: "focus_dropped",
+    path: sanitizeServerReason(notice.path, 300),
+    reason: sanitizeServerReason(notice.reason),
+  };
+}
+
+/**
  * 暂时没能确认任务目录：Server 忙（排在写操作后面等锁超时、git 超时）或连不上。
  * 不说明哪里不安全，这一轮也还没开始执行；已经自动重试过，稍后再试即可。
  */
@@ -50,6 +96,18 @@ function transient(error: unknown): boolean {
   return error instanceof TypeError && /fetch failed|network/i.test(error.message);
 }
 
+/** 带上 Server 给的原因（目录被换了分支等），否则人只看得到一个状态码，不知道该去哪里修 */
+async function refusal(response: Response): Promise<string> {
+  const body = (await response.json().catch(() => undefined)) as
+    { error?: unknown; code?: unknown } | undefined;
+  if (typeof body?.error !== "string" || !body.error.trim()) return "";
+  const code =
+    typeof body.code === "string" && /^[A-Z][A-Z0-9_]{1,63}$/.test(body.code)
+      ? `${body.code}: `
+      : "";
+  return `: ${code}${sanitizeServerReason(body.error)}`;
+}
+
 async function lookup<Body>(
   hive: HiveMcpConnection,
   init: { url: string; method?: string; body?: string },
@@ -69,7 +127,9 @@ async function lookup<Body>(
       if ([429, 502, 503, 504].includes(response.status))
         throw new TransientLookupError(`Hive Server is busy (${response.status})`);
       if (!response.ok)
-        throw new Error(`Cannot verify managed task workspace (${response.status})`);
+        throw new Error(
+          `Cannot verify managed task workspace (${response.status})${await refusal(response)}`,
+        );
       return (await response.json()) as Body;
     } catch (error) {
       if (!transient(error)) throw error;
@@ -96,14 +156,18 @@ export async function resolveTaskWorkspace(
   hive: HiveMcpConnection,
   messageId: string,
   retry: TaskWorkspaceRetry = DEFAULT_RETRY,
+  onNotice?: TaskWorkspaceNoticeSink,
 ): Promise<TaskWorkspaceSelection> {
   try {
-    const value = await lookup<{ worktree?: unknown }>(
+    const value = await lookup<{ worktree?: unknown; notice?: unknown }>(
       hive,
       { url: `${hive.serverUrl}/api/agent/worktree?messageId=${encodeURIComponent(messageId)}` },
       retry,
     );
-    return await verifyWorkspace(hive, value.worktree);
+    const selection = await verifyWorkspace(hive, value.worktree);
+    const notice = selection === undefined ? readNotice(value.notice) : undefined;
+    if (notice) onNotice?.(messageId, notice);
+    return selection;
   } catch (error) {
     throw unsafe(error, false);
   }
@@ -141,9 +205,13 @@ export async function resolveTaskWorkspaces(
   hive: HiveMcpConnection,
   messageIds: string[],
   retry: TaskWorkspaceRetry = DEFAULT_RETRY,
+  onNotice?: TaskWorkspaceNoticeSink,
 ): Promise<Map<string, TaskWorkspaceSelection>> {
   try {
-    const value = await lookup<{ worktrees?: Record<string, unknown> }>(
+    const value = await lookup<{
+      worktrees?: Record<string, unknown>;
+      notices?: Record<string, unknown>;
+    }>(
       hive,
       {
         url: `${hive.serverUrl}/api/agent/worktree`,
@@ -165,7 +233,13 @@ export async function resolveTaskWorkspaces(
             selection = verifyWorkspace(hive, record);
             verified.set(key, selection);
           }
-          return [id, await selection];
+          const resolved = await selection;
+          const notice =
+            resolved === undefined && value.notices && Object.hasOwn(value.notices, id)
+              ? readNotice(value.notices[id])
+              : undefined;
+          if (notice) onNotice?.(id, notice);
+          return [id, resolved];
         }),
       ),
     );

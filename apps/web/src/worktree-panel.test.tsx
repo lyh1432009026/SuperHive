@@ -44,9 +44,88 @@ const api = (canManage = true) => ({
   })),
   configureWorktreeCleanup: vi.fn(async () => undefined),
   cleanWorktreeBatch: vi.fn(async () => undefined),
+  repairWorktree: vi.fn(async () => undefined),
 });
 
 describe("WorktreePanel", () => {
+  it("flags a checkout whose branch was switched and offers the two safe fixes", async () => {
+    const client = api();
+    const switched = (dirty: boolean): WorktreeStatus => ({
+      ...row("slow-ops", false),
+      dirty,
+      merged: false,
+      error: "任务目录 /repo-wt/slow-ops 登记的分支是 feat/slow-ops，现在却在 feat/card-tiers",
+      branchSwitched: { registered: "feat/slow-ops", current: "feat/card-tiers" },
+    });
+    client.worktrees
+      .mockResolvedValueOnce({
+        worktrees: [switched(true)],
+        autoCleanup: false,
+        cleanupBatch: null,
+      })
+      .mockResolvedValue({ worktrees: [switched(false)], autoCleanup: false, cleanupBatch: null });
+    render(<WorktreePanel roomId="general" api={client} />);
+    await screen.findByText("分支已被切换：登记 feat/slow-ops，当前 feat/card-tiers");
+    // 有未提交文件：不能切回，但能按当前分支重新登记；原始报错不再重复显示
+    expect(screen.getByRole("button", { name: "切回登记分支" })).toHaveProperty("disabled", true);
+    screen.getByText("目录里有未提交或未跟踪的文件，不能切回；可以按当前分支重新登记。");
+    expect(screen.queryByText(/现在却在 feat\/card-tiers$/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "切回登记分支" })).toHaveProperty(
+        "disabled",
+        false,
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "切回登记分支" }));
+    await waitFor(() =>
+      expect(client.repairWorktree).toHaveBeenCalledWith("general", "slow-ops", "restore"),
+    );
+    await screen.findByText("已切回登记的分支 feat/slow-ops。");
+    fireEvent.click(screen.getByRole("button", { name: "按当前分支重新登记" }));
+    await waitFor(() =>
+      expect(client.repairWorktree).toHaveBeenCalledWith("general", "slow-ops", "adopt"),
+    );
+  });
+
+  it("explains a refused fix and disables both while a task uses the checkout", async () => {
+    const client = api();
+    client.worktrees.mockResolvedValue({
+      worktrees: [
+        {
+          ...row("busy", false),
+          dirty: false,
+          activeInvocationIds: ["task"],
+          branchSwitched: { registered: "feat/busy", current: "feat/other" },
+        },
+      ],
+      autoCleanup: false,
+      cleanupBatch: null,
+    });
+    render(<WorktreePanel roomId="general" api={client} />);
+    await screen.findByText("还有任务在用这个目录，结束后才能处理。");
+    expect(screen.getByRole("button", { name: "切回登记分支" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "按当前分支重新登记" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    client.worktrees.mockResolvedValue({
+      worktrees: [
+        { ...row("busy", false), branchSwitched: { registered: "feat/busy", current: "feat/x" } },
+      ],
+      autoCleanup: false,
+      cleanupBatch: null,
+    });
+    client.repairWorktree.mockRejectedValueOnce(
+      new Error("分支 feat/x 已被另一条任务线登记或占用"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    const adopt = await screen.findByRole("button", { name: "按当前分支重新登记" });
+    await waitFor(() => expect(adopt).toHaveProperty("disabled", false));
+    fireEvent.click(adopt);
+    await screen.findByText("分支 feat/x 已被另一条任务线登记或占用");
+  });
+
   it("only selects eligible checkouts and requires confirmation with an exact commit snapshot", async () => {
     const client = api();
     render(<WorktreePanel roomId="general" api={client} />);

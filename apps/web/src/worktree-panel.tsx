@@ -6,7 +6,12 @@ import { t } from "./i18n";
 
 type WorktreeApi = Pick<
   LocalAgentsState,
-  "worktrees" | "cleanupWorktrees" | "configureWorktreeCleanup" | "cleanWorktreeBatch" | "canManage"
+  | "worktrees"
+  | "cleanupWorktrees"
+  | "configureWorktreeCleanup"
+  | "cleanWorktreeBatch"
+  | "repairWorktree"
+  | "canManage"
 >;
 
 export function WorktreePanel({ roomId, api }: { roomId: string; api: WorktreeApi }) {
@@ -94,6 +99,24 @@ export function WorktreePanel({ roomId, api }: { roomId: string; api: WorktreeAp
       setBusy(false);
     }
   };
+  const repair = async (item: WorktreeStatus, action: "restore" | "adopt") => {
+    setBusy(true);
+    setResult(undefined);
+    setError(undefined);
+    try {
+      await api.repairWorktree(roomId, item.worktree.id, action);
+      setResult(
+        action === "restore"
+          ? t("已切回登记的分支 {0}。", { 0: item.worktree.branch })
+          : t("已按当前分支 {0} 重新登记。", { 0: item.branchSwitched?.current ?? "" }),
+      );
+      await refresh();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
   const configure = async (enabled: boolean) => {
     setBusy(true);
     try {
@@ -148,43 +171,90 @@ export function WorktreePanel({ roomId, api }: { roomId: string; api: WorktreeAp
       )}
       <div className="worktree-rows">
         {rows.map((item) => (
-          <label
-            className={`worktree-row ${item.removable ? "eligible" : ""}`}
-            key={item.worktree.id}
-          >
-            <input
-              type="checkbox"
-              aria-label={`${t("选择目录")} ${item.worktree.branch}`}
-              checked={selected.includes(item.worktree.id)}
-              disabled={!item.removable || busy || !api.canManage}
-              onChange={(event) =>
-                setSelected((current) =>
-                  event.target.checked
-                    ? [...current, item.worktree.id]
-                    : current.filter((id) => id !== item.worktree.id),
-                )
-              }
-            />
-            <div className="worktree-identity">
-              <strong>
-                <code>{item.worktree.branch}</code>
-              </strong>
-              <small>
-                {item.worktree.agentName} · {item.worktree.slug}
-              </small>
-              <code className="worktree-path">{item.worktree.path}</code>
-              <div className="worktree-statuses">
-                <span className={item.merged ? "passed" : ""}>
-                  {item.merged ? t("已合入") : t("尚未合入")}
-                </span>
-                <span>{item.dirty || item.untracked ? t("有未提交文件") : t("工作区干净")}</span>
-                {item.ignored && <span>{t("有忽略文件，需先自行处理")}</span>}
-                {item.activeInvocationIds.length > 0 && <span>{t("有任务占用")}</span>}
-                {item.removable && <span className="passed">{t("可清理")}</span>}
+          <div className="worktree-entry" key={item.worktree.id}>
+            <label className={`worktree-row ${item.removable ? "eligible" : ""}`}>
+              <input
+                type="checkbox"
+                aria-label={`${t("选择目录")} ${item.worktree.branch}`}
+                checked={selected.includes(item.worktree.id)}
+                disabled={!item.removable || busy || !api.canManage}
+                onChange={(event) =>
+                  setSelected((current) =>
+                    event.target.checked
+                      ? [...current, item.worktree.id]
+                      : current.filter((id) => id !== item.worktree.id),
+                  )
+                }
+              />
+              <div className="worktree-identity">
+                <strong>
+                  <code>{item.worktree.branch}</code>
+                </strong>
+                <small>
+                  {item.worktree.agentName} · {item.worktree.slug}
+                </small>
+                <code className="worktree-path">{item.worktree.path}</code>
+                <div className="worktree-statuses">
+                  {/* 换了分支时没法判断登记的分支合没合入，不显示 */}
+                  {!item.branchSwitched && (
+                    <span className={item.merged ? "passed" : ""}>
+                      {item.merged ? t("已合入") : t("尚未合入")}
+                    </span>
+                  )}
+                  <span>{item.dirty || item.untracked ? t("有未提交文件") : t("工作区干净")}</span>
+                  {item.ignored && <span>{t("有忽略文件，需先自行处理")}</span>}
+                  {item.activeInvocationIds.length > 0 && <span>{t("有任务占用")}</span>}
+                  {item.removable && <span className="passed">{t("可清理")}</span>}
+                </div>
+                {item.error && !item.branchSwitched && <small role="alert">{item.error}</small>}
               </div>
-              {item.error && <small role="alert">{item.error}</small>}
-            </div>
-          </label>
+            </label>
+            {item.branchSwitched && (
+              <div className="worktree-switched" role="alert">
+                <strong>
+                  {t("分支已被切换：登记 {0}，当前 {1}", {
+                    0: item.branchSwitched.registered,
+                    1: item.branchSwitched.current,
+                  })}
+                </strong>
+                <p>
+                  {t(
+                    "处理前 Agent 不会再沿用这个目录，也不会自动清理。切回只在没有未提交文件时可用；重新登记要求新分支没被别的任务线占用。两种都要等占用它的任务结束。",
+                  )}
+                </p>
+                <div className="worktree-toolbar">
+                  <button
+                    type="button"
+                    disabled={
+                      busy ||
+                      !api.canManage ||
+                      item.dirty ||
+                      item.untracked ||
+                      item.activeInvocationIds.length > 0
+                    }
+                    onClick={() => void repair(item, "restore")}
+                  >
+                    {t("切回登记分支")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || !api.canManage || item.activeInvocationIds.length > 0}
+                    onClick={() => void repair(item, "adopt")}
+                  >
+                    {t("按当前分支重新登记")}
+                  </button>
+                </div>
+                {(item.dirty || item.untracked) && (
+                  <small>
+                    {t("目录里有未提交或未跟踪的文件，不能切回；可以按当前分支重新登记。")}
+                  </small>
+                )}
+                {item.activeInvocationIds.length > 0 && (
+                  <small>{t("还有任务在用这个目录，结束后才能处理。")}</small>
+                )}
+              </div>
+            )}
+          </div>
         ))}
       </div>
       {rows.length > 0 && (

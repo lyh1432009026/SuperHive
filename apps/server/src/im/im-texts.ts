@@ -55,6 +55,10 @@ export const imTexts = {
     zh: "请求清理 {count} 个 worktree",
     en: "Requested cleanup of {count} worktrees",
   },
+  "im.worktree.repairAudit": {
+    zh: "修复被换了分支的 worktree：{action}",
+    en: "Fixed a worktree whose branch was switched: {action}",
+  },
   "im.worktree.autoAudit": {
     zh: "修改 worktree 自动清理：{enabled}",
     en: "Changed automatic worktree cleanup: {enabled}",

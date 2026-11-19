@@ -551,12 +551,14 @@ export {
   removeWorktreeRequestSchema,
   managedWorktreeSchema,
   worktreeStatusSchema,
+  repairWorktreeRequestSchema,
 } from "./worktree.js";
 export type {
   WorktreeClaim,
   CreateWorktreeRequest,
   ManagedWorktree,
   WorktreeStatus,
+  RepairWorktreeRequest,
 } from "./worktree.js";
 
 export const whiteboardEntrySchema = z.object({

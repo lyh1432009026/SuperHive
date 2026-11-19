@@ -33,8 +33,13 @@ seed.createLocalAgent({
 });
 const actor = seed.upsertParticipant({ roomId: "general", username: "worker", type: "agent" });
 const manager = new WorktreeManager({ database: seed, activeInvocations: () => [] });
-for (const slug of ["ready", "in-review", "unfinished"]) {
+for (const slug of ["ready", "in-review", "unfinished", "switched"]) {
   const { worktree } = await manager.create(repo, actor, "Alice", [], { slug });
+  if (slug === "switched") {
+    // 有人在任务目录里直接换了分支：列表标出来，给房主两个修复操作
+    await git(worktree.path, ["switch", "-c", "feat/worker-next-task"]);
+    continue;
+  }
   if (slug !== "ready") writeFileSync(path.join(worktree.path, "file.txt"), `${slug}\n`);
   if (slug === "in-review") {
     await git(worktree.path, ["add", "."]);

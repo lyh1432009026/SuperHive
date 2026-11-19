@@ -441,6 +441,52 @@ describe("AgentBridge", () => {
     expect(responder.calls).toHaveLength(2);
   });
 
+  it("tells the agent and the task card when its last task workspace was not reused", async () => {
+    const notice = {
+      kind: "focus_dropped" as const,
+      path: "/repo-wt/agent-a-slow-ops",
+      reason: "任务目录 /repo-wt/agent-a-slow-ops 登记的分支是 feat/a，现在却在 feat/b",
+    };
+    taskWorkspace = {
+      resolve: async (messageId, onNotice) => {
+        onNotice?.(messageId, notice);
+        return undefined;
+      },
+      responder: () => responder,
+    };
+    await startBridge(baseState());
+    const message = chat();
+    room.messages.push(message);
+    room.handlers.onMention(message, message.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    const prompt = responder.calls[0]!.prompt;
+    expect(prompt).toContain("你上次用的任务目录 /repo-wt/agent-a-slow-ops 不能再用");
+    expect(prompt).toContain("现在却在 feat/b");
+    expect(prompt).toContain("先用 hive_worktree_create 以新的 slug 建任务目录");
+    expect(prompt).toContain("不要在默认工作目录里改代码");
+    expect(
+      room.reports.find(
+        (report) =>
+          report.messageId === message.id &&
+          report.detailText?.key === "bridge.worktreeFocusDropped",
+      ),
+    ).toMatchObject({
+      status: "running",
+      detailText: { params: { path: notice.path, reason: notice.reason } },
+    });
+    responder.finish("ok");
+    await waitUntil(() => room.statuses(message.id).includes("completed"));
+    // 说明只用一次：下一条任务没有新的说明就不再提
+    const next = chat();
+    room.messages.push(next);
+    taskWorkspace.resolve = async () => undefined;
+    room.handlers.onMention(next, next.seq, false);
+    await waitUntil(() => responder.calls.length === 2);
+    expect(responder.calls[1]!.prompt).not.toContain("不能再用");
+    responder.finish("ok");
+    await waitUntil(() => room.statuses(next.id).includes("completed"));
+  });
+
   it("finishes a cleaned task without a provider call and still runs the next unrelated task", async () => {
     const { TaskWorkspaceRemovedError } = await import("./task-workspace.js");
     const removed = chat();
@@ -1208,7 +1254,7 @@ describe("AgentBridge", () => {
       await waitUntil(() => responder.calls.length === 1);
       expect((await store.load())?.inflight?.messageIds).toEqual([first.id, second.id]);
       expect(resolveMany).toHaveBeenCalledOnce();
-      expect(resolveMany).toHaveBeenCalledWith([first.id, second.id]);
+      expect(resolveMany).toHaveBeenCalledWith([first.id, second.id], expect.any(Function));
       expect(resolve).not.toHaveBeenCalled();
       const late = chat({ content: "@agent-a add one more assertion" });
       if (mode === "unbound steer") unboundSteer = late.id;

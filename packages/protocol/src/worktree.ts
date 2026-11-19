@@ -50,6 +50,13 @@ export const worktreeStatusSchema = z.object({
   error: z.string().optional(),
   headCommit: z.string().optional(),
   missing: z.boolean().optional(),
+  /** 有人在任务目录里换了分支（同一个 checkout，只是不在登记的分支上）：标出来，交给房主处理 */
+  branchSwitched: z.object({ registered: z.string(), current: z.string() }).optional(),
+});
+
+/** 房主对「被换了分支」的任务目录能做的两个安全操作 */
+export const repairWorktreeRequestSchema = z.object({
+  action: z.enum(["restore", "adopt"]),
 });
 
 export const worktreeCleanupEventSchema = z.object({
@@ -65,3 +72,4 @@ export type WorktreeClaim = z.infer<typeof worktreeClaimSchema>;
 export type CreateWorktreeRequest = z.infer<typeof createWorktreeRequestSchema>;
 export type ManagedWorktree = z.infer<typeof managedWorktreeSchema>;
 export type WorktreeStatus = z.infer<typeof worktreeStatusSchema>;
+export type RepairWorktreeRequest = z.infer<typeof repairWorktreeRequestSchema>;
