@@ -137,8 +137,9 @@
 }
 
 .whiteboard-filter[data-active] {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--bg-active);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .whiteboard-filter > svg,
@@ -225,7 +226,7 @@
   }
 }
 
-/* 批量条：有选中时才出现，强调色底，主操作靠右 */
+/* 批量条：有选中时才出现，加深的中性底，主操作靠右 */
 .whiteboard-bulk {
   display: flex;
   align-items: center;
@@ -233,8 +234,9 @@
   min-width: 0;
   border-radius: var(--radius-pill);
   padding: 3px;
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--bg-active);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border);
   animation: whiteboard-bulk-in var(--duration) var(--ease-out);
 }
 
@@ -248,7 +250,7 @@
 .whiteboard-toolbar .whiteboard-bulk .whiteboard-icon-button {
   width: 26px;
   height: 26px;
-  color: var(--accent);
+  color: var(--text-secondary);
 }
 
 .whiteboard-bulk-count {
@@ -265,13 +267,13 @@
   flex: 0 0 auto;
   height: 26px;
   margin-left: auto;
-  background: var(--accent);
-  color: var(--text-inverse);
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
   font-variant-numeric: tabular-nums;
 }
 
 .whiteboard-toolbar .whiteboard-bulk-apply:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: var(--button-primary-hover);
 }
 
 .whiteboard-status {
