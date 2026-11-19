@@ -116,14 +116,18 @@ function NarrativeLine({ step }: { step: TraceStep }) {
   );
 }
 
-function Narrative({
-  steps,
-  expanded,
+/** 叙述区：新内容到达时跟到底部；用户往上翻了就不再跟，给一个「↓ 最新」回到底部 */
+function FollowScroll({
+  className,
   live,
+  version,
+  children,
 }: {
-  steps: readonly TraceStep[];
-  expanded: boolean;
+  className: string;
   live: boolean;
+  /** 内容变了就跟一次 */
+  version: unknown;
+  children: ReactNode;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
@@ -131,13 +135,12 @@ function Narrative({
   useLayoutEffect(() => {
     const element = scrollRef.current;
     if (element && followRef.current) element.scrollTop = element.scrollHeight;
-  }, [steps, expanded]);
-  if (steps.length === 0) return null;
+  }, [version]);
   return (
     <div className="thinking-card-narrative-wrap">
       <div
         ref={scrollRef}
-        className={`thinking-card-narrative${expanded ? " expanded" : ""}`}
+        className={className}
         aria-live="off"
         onScroll={(event) => {
           const element = event.currentTarget;
@@ -146,9 +149,7 @@ function Narrative({
           setBehind(!atBottom);
         }}
       >
-        {(expanded ? steps : steps.slice(-2)).map((step) => (
-          <NarrativeLine key={step.id} step={step} />
-        ))}
+        {children}
       </div>
       {live && behind && (
         <button
@@ -169,16 +170,14 @@ function Narrative({
   );
 }
 
-/** 卡片主体：叙述 + 收起的执行步骤；执行中的卡片和结束后的回顾共用 */
+/** 卡片主体：叙述 + 收起的执行步骤；结束后的回顾用 */
 function CardBody({
   invocation,
   steps,
-  expanded,
   now,
 }: {
   invocation: Invocation;
   steps: readonly TraceStep[];
-  expanded: boolean;
   now: number;
 }) {
   const live = isLiveInvocation(invocation);
@@ -187,7 +186,13 @@ function CardBody({
   const toolSummary = traceSummary(tools, now);
   return (
     <>
-      <Narrative steps={narrative} expanded={expanded} live={live} />
+      {narrative.length > 0 && (
+        <FollowScroll className="thinking-card-narrative expanded" live={live} version={narrative}>
+          {narrative.map((step) => (
+            <NarrativeLine key={step.id} step={step} />
+          ))}
+        </FollowScroll>
+      )}
       {tools.length > 0 && (
         <details className="thinking-card-steps">
           <summary>{toolSummary || t("执行步骤 {0} 个", { 0: tools.length })}</summary>
@@ -200,15 +205,95 @@ function CardBody({
   );
 }
 
+/**
+ * 完整时间线：说的话和执行步骤按发生顺序排在一起（连续的几步命令、文件操作照常合成一组）。
+ * 没有正文的思考（只有耗时）归到步骤里。
+ */
+function FullTimeline({
+  steps,
+  now,
+  live,
+}: {
+  steps: readonly TraceStep[];
+  now: number;
+  live: boolean;
+}) {
+  const narrative = new Set(narrativeSteps(steps));
+  const runs: Array<{ key: string; narrative?: TraceStep; tools?: TraceStep[] }> = [];
+  for (const step of steps) {
+    if (narrative.has(step)) {
+      runs.push({ key: step.id, narrative: step });
+      continue;
+    }
+    if (step.kind === "text") continue;
+    const last = runs.at(-1);
+    if (last?.tools) last.tools.push(step);
+    else runs.push({ key: `tools-${step.id}`, tools: [step] });
+  }
+  return (
+    <FollowScroll className="thinking-card-narrative full" live={live} version={steps}>
+      {runs.map((run) =>
+        run.narrative ? (
+          <NarrativeLine key={run.key} step={run.narrative} />
+        ) : (
+          <div key={run.key} className="thinking-card-timeline-run">
+            <TraceTimeline steps={run.tools!} now={now} live={live} />
+          </div>
+        ),
+      )}
+    </FollowScroll>
+  );
+}
+
+/**
+ * 卡片显示多少：
+ * - line：只留一行状态（谁、在干什么、多久）
+ * - recent：再加最近两段话和一行步骤汇总
+ * - full：完整时间线
+ */
+export type CardDetail = "line" | "recent" | "full";
+
+const detailOptions = (): Array<{ id: CardDetail; label: string; title: string }> => [
+  { id: "line", label: t("一行"), title: t("只看一行状态") },
+  { id: "recent", label: t("最近"), title: t("看最近两段话") },
+  { id: "full", label: t("全部"), title: t("看完整时间线") },
+];
+
+/** 等人处理的卡片：等你回答（这一轮停下在等人）、等你决定（中途中断，等人点继续或忽略） */
+export function cardAttention(invocation: Invocation): "question" | "decide" | undefined {
+  if (invocation.status === "waiting_human" && !invocation.finishedAt) return "question";
+  if (needsDecision(invocation)) return "decide";
+  return undefined;
+}
+
+/** 对话流底部的卡片：执行中的，加上等你回答、等你决定的 */
+export function showsCard(invocation: Invocation): boolean {
+  return showsLiveCard(invocation) || cardAttention(invocation) !== undefined;
+}
+
+/** 卡片排序：等你处理的置顶（等你回答在前），其余按开始时间 */
+export function sortCards(invocations: readonly Invocation[]): Invocation[] {
+  const rank = (invocation: Invocation) => {
+    const attention = cardAttention(invocation);
+    return attention === "question" ? 0 : attention === "decide" ? 1 : 2;
+  };
+  return [...invocations].sort(
+    (a, b) =>
+      rank(a) - rank(b) || (a.startedAt ?? a.createdAt).localeCompare(b.startedAt ?? b.createdAt),
+  );
+}
+
 function stateLabel(invocation: Invocation, steps: readonly TraceStep[]): string {
+  const attention = cardAttention(invocation);
+  if (attention === "question") return t("等你回答");
+  if (attention === "decide") return t("等你决定");
   if (invocation.status === "cancelling") return t("停止中");
-  if (invocation.status === "waiting_human") return t("等你回答");
   // 最近一步是还没结束的思考才叫「思考中」，在跑命令、改文件时是「执行中」
   const last = steps.filter((step) => step.kind !== "text").at(-1);
   return last?.kind === "thinking" && !last.endedAt ? t("思考中") : t("执行中");
 }
 
-/** 执行中的卡片 */
+/** 执行中（以及等你处理）的卡片 */
 export function ThinkingCard({
   invocation,
   steps,
@@ -232,14 +317,14 @@ export function ThinkingCard({
   avatar: ReactNode;
   /** 当前用户能不能看执行过程（房主，或邀请时开了「看执行过程」的访客） */
   traceAllowed?: boolean;
-  /** 同时有多张卡片时，较早的默认收起，只展开最新的；用户手动点过以后以用户为准 */
+  /** 同时有多张卡片时，较早的默认只留一行，只展开最新的；用户手动选过以后以用户为准 */
   defaultCollapsed?: boolean;
 }) {
-  const [userCollapsed, setUserCollapsed] = useState<boolean>();
-  const [expanded, setExpanded] = useState(false);
-  const waiting = invocation.status === "waiting_human";
-  // 等你回答时，提问消息、提醒、侧栏都已经标出来了，卡片默认只留一行
-  const collapsed = userCollapsed ?? (defaultCollapsed || waiting);
+  const [userDetail, setUserDetail] = useState<CardDetail>();
+  const attention = cardAttention(invocation);
+  const live = isLiveInvocation(invocation);
+  // 等你处理时，提问消息、失败卡片、提醒、侧栏都已经标出来了，卡片默认只留一行
+  const detail = userDetail ?? (defaultCollapsed || attention ? "line" : "recent");
   const now = useTraceClock(invocation);
   const list = steps ?? [];
   const current = currentTraceStep(list);
@@ -249,12 +334,30 @@ export function ThinkingCard({
   // 能看、只是第一步还没到（刚开工那一两秒）时叫「启动中」，不能误报成看不到
   const unobservable =
     !observable && (!traceAllowed || invocation.runtime?.observability === "heartbeat");
-  const hasNarrative = narrativeSteps(list).length > 0;
+  const narrative = narrativeSteps(list);
+  const tools = list.filter((step) => step.kind !== "text");
+  const toolSummary = traceSummary(tools, now);
+  const currentText =
+    attention === "decide"
+      ? (invocation.detail ?? invocation.progress ?? t("中途中断，等你决定是否继续"))
+      : observable
+        ? current
+        : unobservable
+          ? t("看不到具体步骤")
+          : live
+            ? t("启动中")
+            : undefined;
   return (
     <article
-      className={`thinking-card${collapsed ? " collapsed" : ""}`}
+      className={`thinking-card ${detail}${attention ? ` attention ${attention}` : ""}`}
       data-invocation-id={invocation.id}
-      aria-label={t("{0} 正在处理", { 0: invocation.agentName })}
+      aria-label={
+        attention === "question"
+          ? t("{0} 在等你回答", { 0: invocation.agentName })
+          : attention === "decide"
+            ? t("{0} 的任务等你决定", { 0: invocation.agentName })
+            : t("{0} 正在处理", { 0: invocation.agentName })
+      }
       title={unobservable ? t("这种 Agent 不上报执行过程，或你没有查看执行过程的权限") : undefined}
     >
       <span className="avatar agent" aria-hidden="true" onContextMenu={onAvatarContextMenu}>
@@ -275,27 +378,49 @@ export function ThinkingCard({
               {t("一起处理 {0}", { 0: batchSeqs.map((seq) => `#${seq}`).join("、") })}
             </span>
           ) : null}
-          <span className={`thinking-card-state ${invocation.status}`}>
+          <span className={`thinking-card-state ${attention ?? invocation.status}`}>
             <span className="thinking-card-dot" aria-hidden="true" />
             {stateLabel(invocation, list)}
           </span>
-          <span className="thinking-card-current" title={current}>
-            {observable ? current : unobservable ? t("看不到具体步骤") : t("启动中")}
-          </span>
-          {/* 等你回答时不再计时：这一轮已经停下在等人 */}
-          {!waiting && <span className="thinking-card-elapsed">{elapsed}</span>}
-          {observable && (
+          {detail === "line" && trigger && (
+            // 只留一行时，在处理哪条消息缩成一个序号，点了照样跳过去
             <button
               type="button"
-              className="thinking-card-toggle"
-              aria-expanded={!collapsed}
-              onClick={() => setUserCollapsed(!collapsed)}
+              className="thinking-card-trigger-chip"
+              disabled={!onJumpToTrigger}
+              title={t("回应 #{0}：{1}", { 0: trigger.seq, 1: trigger.preview })}
+              onClick={onJumpToTrigger}
             >
-              {collapsed ? t("展开") : t("收起")}
+              #{trigger.seq}
             </button>
           )}
+          <span className="thinking-card-current" title={currentText}>
+            {currentText}
+          </span>
+          {/* 等人处理时不再计时：这一轮已经停下 */}
+          {live && <span className="thinking-card-elapsed">{elapsed}</span>}
+          {attention === "decide" && onJumpToTrigger && (
+            <button type="button" className="thinking-card-act" onClick={onJumpToTrigger}>
+              {t("去处理")}
+            </button>
+          )}
+          {observable && (
+            <span className="thinking-card-detail" role="group" aria-label={t("显示多少")}>
+              {detailOptions().map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  aria-pressed={detail === option.id}
+                  title={option.title}
+                  onClick={() => setUserDetail(option.id)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </span>
+          )}
         </header>
-        {trigger && (
+        {detail !== "line" && trigger && (
           // 在处理哪个问题：引用触发消息的开头，点了跳到那条消息
           <button
             type="button"
@@ -308,35 +433,41 @@ export function ThinkingCard({
             <span className="thinking-card-trigger-text">{trigger.preview}</span>
           </button>
         )}
-        {collapsed && observable && (
-          // 收起时整块都能点开，不用去找右上角的小按钮
-          <button
-            type="button"
-            className="thinking-card-expand"
-            onClick={() => setUserCollapsed(false)}
-          >
-            {narrativeSteps(list).length
-              ? t("展开看过程（{0} 段话 · {1}）", {
-                  0: narrativeSteps(list).length,
-                  1: traceSummary(list, now) || t("暂无步骤"),
-                })
-              : t("展开看过程（{0}）", { 0: traceSummary(list, now) || t("暂无步骤") })}
-          </button>
-        )}
-        {!collapsed && observable && (
+        {detail === "recent" && observable && (
           <>
-            <CardBody invocation={invocation} steps={list} expanded={expanded} now={now} />
-            {hasNarrative && (
+            {narrative.length > 0 && (
+              <FollowScroll
+                className="thinking-card-narrative"
+                live={live}
+                version={narrative.slice(-2)}
+              >
+                {narrative.slice(-2).map((step) => (
+                  <NarrativeLine key={step.id} step={step} />
+                ))}
+              </FollowScroll>
+            )}
+            {(tools.length > 0 || narrative.length > 2) && (
+              // 步骤只留一行汇总，点了看完整时间线
               <button
                 type="button"
-                className="thinking-card-more"
-                onClick={() => setExpanded(!expanded)}
+                className="thinking-card-expand"
+                onClick={() => setUserDetail("full")}
               >
-                {expanded ? t("只看最近几行") : t("看全部")}
+                {[
+                  narrative.length > 2
+                    ? t("前面还有 {0} 段话", { 0: narrative.length - 2 })
+                    : undefined,
+                  toolSummary ||
+                    (tools.length ? t("执行步骤 {0} 个", { 0: tools.length }) : undefined),
+                  t("看完整时间线"),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </button>
             )}
           </>
         )}
+        {detail === "full" && observable && <FullTimeline steps={list} now={now} live={live} />}
       </div>
     </article>
   );
@@ -402,7 +533,7 @@ export function TraceRecap({
       </button>
       {open ? (
         <div className="trace-recap-body">
-          <CardBody invocation={invocation} steps={steps} expanded now={now} />
+          <CardBody invocation={invocation} steps={steps} now={now} />
         </div>
       ) : (
         lastWords && (

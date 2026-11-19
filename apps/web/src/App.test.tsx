@@ -3007,7 +3007,8 @@ describe("App mention autocomplete", () => {
     const card = await waitFor(() => list().getByRole("article", { name: "helper 正在处理" }));
     expect(within(card).getByText("运行 git status")).toBeTruthy();
     await waitFor(() => expect(within(card).getByText("先看一下改动")).toBeTruthy());
-    expect(within(card).getByText("运行 1 条命令")).toBeTruthy();
+    // 步骤收成一行汇总，点了看完整时间线
+    expect(within(card).getByRole("button", { name: /运行 1 条命令.*看完整时间线/ })).toBeTruthy();
     // 状态行不再重复当前这一步；底部「谁在干活」也不再重复列出有卡片的 Agent
     expect(list().getAllByText("运行 git status")).toHaveLength(1);
     expect(

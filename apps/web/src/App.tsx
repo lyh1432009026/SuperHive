@@ -77,7 +77,15 @@ import {
   plainPreview,
   type ActivityView,
 } from "./activity";
-import { ThinkingCard, TraceRecap, groupLiveCards, showsLiveCard } from "./thinking-card";
+import {
+  ThinkingCard,
+  TraceRecap,
+  cardAttention,
+  groupLiveCards,
+  showsCard,
+  showsLiveCard,
+  sortCards,
+} from "./thinking-card";
 import { buildGoToItems } from "./goto";
 import { GoToPalette } from "./goto-palette";
 import { KeyCombo } from "./key-combo";
@@ -5572,19 +5580,24 @@ export function App({
                     </Fragment>
                   ))}
                   {(() => {
-                    // 正在干活的 Agent：每人一张「思考中」卡片，出现在回复将来出现的位置；同时超过 3 张时只展开最新的
-                    const live = [...invocations.values()]
-                      .filter(
+                    // 正在干活的 Agent：每人一张「思考中」卡片，出现在回复将来出现的位置；同时超过 3 张时只展开最新的。
+                    // 等你回答、等你决定（只给房主，按钮在房主这边）的也各一张，置顶并标醒目
+                    const live = sortCards(
+                      [...invocations.values()].filter(
                         (invocation) =>
-                          invocation.roomId === currentRoomId && showsLiveCard(invocation),
-                      )
-                      .sort((a, b) =>
-                        (a.startedAt ?? a.createdAt).localeCompare(b.startedAt ?? b.createdAt),
-                      );
+                          invocation.roomId === currentRoomId &&
+                          (showsLiveCard(invocation) ||
+                            (cardAttention(invocation) === "decide"
+                              ? isOwner
+                              : showsCard(invocation))),
+                      ),
+                    );
                     const cards = groupLiveCards(live);
+                    const working = cards.filter((card) => !cardAttention(card.invocation));
+                    const latestWorking = working.at(-1);
                     const seqOf = new Map(messages.map((message) => [message.id, message.seq]));
                     const messageById = new Map(messages.map((message) => [message.id, message]));
-                    return cards.map(({ invocation, batch }, index) => (
+                    return cards.map(({ invocation, batch }) => (
                       <ThinkingCard
                         key={`card-${invocation.id}`}
                         invocation={invocation}
@@ -5603,7 +5616,9 @@ export function App({
                             name: invocation.agentName,
                           })
                         }
-                        defaultCollapsed={cards.length > 3 && index < cards.length - 1}
+                        defaultCollapsed={
+                          working.length > 3 && latestWorking?.invocation.id !== invocation.id
+                        }
                         {...(() => {
                           // 卡片上写明在处理哪条消息；合批时引用最早的一条
                           const first = [...batch]

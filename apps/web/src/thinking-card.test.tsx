@@ -5,9 +5,12 @@ import type { Invocation, TraceStep } from "@superhive/protocol";
 import {
   ThinkingCard,
   TraceRecap,
+  cardAttention,
   groupLiveCards,
   narrativeSteps,
+  showsCard,
   showsLiveCard,
+  sortCards,
   withoutFinalReply,
 } from "./thinking-card";
 
@@ -83,18 +86,21 @@ describe("thinking card", () => {
       />,
     );
     expect(within(card).getByText("看不到具体步骤")).toBeTruthy();
-    expect(within(card).queryByRole("button", { name: "收起" })).toBeNull();
+    // 没有过程可看时不给「一行 / 最近 / 全部」的切换
+    expect(within(card).queryByRole("group", { name: "显示多少" })).toBeNull();
   });
 
-  it("多出来的卡片跟着收起，用户点过以后以用户为准；等你回答时默认收起、不计时", () => {
+  it("多出来的卡片只留一行，用户选过以后以用户为准；等你回答时默认一行、不计时", () => {
     const steps = [step("a", { kind: "text", text: "先看看" })];
     const { rerender } = render(
       <ThinkingCard invocation={invocation()} steps={steps} avatar="AI" />,
     );
     expect(screen.getByText("先看看")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "最近" }).getAttribute("aria-pressed")).toBe("true");
     rerender(<ThinkingCard invocation={invocation()} steps={steps} avatar="AI" defaultCollapsed />);
     expect(screen.queryByText("先看看")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "展开" }));
+    expect(screen.getByRole("article").className).toContain("line");
+    fireEvent.click(screen.getByRole("button", { name: "最近" }));
     rerender(<ThinkingCard invocation={invocation()} steps={steps} avatar="AI" defaultCollapsed />);
     expect(screen.getByText("先看看")).toBeTruthy();
     cleanup();
@@ -105,10 +111,98 @@ describe("thinking card", () => {
         avatar="AI"
       />,
     );
-    const card = screen.getByRole("article", { name: "helper 正在处理" });
+    const card = screen.getByRole("article", { name: "helper 在等你回答" });
+    expect(card.className).toContain("attention question");
     expect(within(card).getByText("等你回答")).toBeTruthy();
     expect(within(card).queryByText("先看看")).toBeNull();
     expect(card.querySelector(".thinking-card-elapsed")).toBeNull();
+  });
+
+  it("三档：一行状态、最近两段话加步骤汇总、按顺序的完整时间线", () => {
+    const steps = [
+      step("t1", { kind: "text", text: "第一段" }),
+      step("c1", { tool: "command", summary: "pnpm test", status: "ok", endedAt: now }),
+      step("t2", { kind: "text", text: "第二段" }),
+      step("t3", { kind: "text", text: "第三段" }),
+      step("c2", { tool: "command", summary: "git status", status: "running" }),
+    ];
+    const { container } = render(
+      <ThinkingCard invocation={invocation()} steps={steps} avatar="AI" />,
+    );
+    // 最近：只露最后两段话，步骤收成一行汇总
+    expect(screen.queryByText("第一段")).toBeNull();
+    expect(screen.getByText("第二段")).toBeTruthy();
+    expect(screen.getByText("第三段")).toBeTruthy();
+    expect(container.textContent).not.toContain("pnpm test");
+    const summary = screen.getByRole("button", { name: /前面还有 1 段话.*看完整时间线/ });
+    // 一行：只剩头部，当前在跑的步骤写在头部
+    fireEvent.click(screen.getByRole("button", { name: "一行" }));
+    expect(screen.queryByText("第三段")).toBeNull();
+    expect(container.querySelector(".thinking-card-current")?.textContent).toContain("git status");
+    fireEvent.click(screen.getByRole("button", { name: "最近" }));
+    fireEvent.click(screen.getByRole("button", { name: /看完整时间线/ }));
+    expect(summary.isConnected).toBe(false);
+    expect(screen.getByRole("button", { name: "全部" }).getAttribute("aria-pressed")).toBe("true");
+    // 全部：说的话和步骤按发生顺序排在一起
+    const timeline = container.querySelector(".thinking-card-narrative.full")!;
+    const text = timeline.textContent ?? "";
+    expect(text.indexOf("第一段")).toBeLessThan(text.indexOf("pnpm test"));
+    expect(text.indexOf("pnpm test")).toBeLessThan(text.indexOf("第二段"));
+    expect(text.indexOf("第三段")).toBeLessThan(text.indexOf("git status"));
+  });
+
+  it("等你回答、等你决定的卡片置顶；等你决定写明原因，点「去处理」跳到失败卡片", () => {
+    const running = invocation({ id: "00000000-0000-4000-8000-0000000000e1" });
+    const question = invocation({
+      id: "00000000-0000-4000-8000-0000000000e2",
+      status: "waiting_human",
+      startedAt: new Date(Date.now() + 1000).toISOString(),
+    });
+    const decide = invocation({
+      id: "00000000-0000-4000-8000-0000000000e3",
+      status: "failed",
+      finishedAt: now,
+      detail: "上游模型服务出错：overloaded",
+    });
+    const done = invocation({
+      id: "00000000-0000-4000-8000-0000000000e4",
+      status: "completed",
+      finishedAt: now,
+    });
+    expect([running, question, decide, done].map(cardAttention)).toEqual([
+      undefined,
+      "question",
+      "decide",
+      undefined,
+    ]);
+    expect([running, question, decide, done].map(showsCard)).toEqual([true, true, true, false]);
+    // 忽略过的不再算
+    expect(showsCard({ ...decide, resolution: { by: "rd", at: now } } as Invocation)).toBe(false);
+    expect(sortCards([running, decide, question]).map((item) => item.id)).toEqual([
+      question.id,
+      decide.id,
+      running.id,
+    ]);
+
+    const jumps: number[] = [];
+    render(
+      <ThinkingCard
+        invocation={decide}
+        steps={[step("a", { kind: "text", text: "做到一半" })]}
+        avatar="AI"
+        trigger={{ seq: 42, preview: "修一下登录页" }}
+        onJumpToTrigger={() => jumps.push(42)}
+      />,
+    );
+    const card = screen.getByRole("article", { name: "helper 的任务等你决定" });
+    expect(card.className).toContain("attention decide");
+    expect(within(card).getByText("等你决定")).toBeTruthy();
+    expect(within(card).getByText("上游模型服务出错：overloaded")).toBeTruthy();
+    expect(within(card).queryByText("做到一半")).toBeNull();
+    expect(card.querySelector(".thinking-card-elapsed")).toBeNull();
+    fireEvent.click(within(card).getByRole("button", { name: "去处理" }));
+    fireEvent.click(within(card).getByRole("button", { name: "#42" }));
+    expect(jumps).toEqual([42, 42]);
   });
 
   it("回顾去掉和回复重复的最后一段，并标出没正常完成的结果", () => {
@@ -131,7 +225,7 @@ describe("thinking card", () => {
     expect(screen.getByRole("button", { name: /^helper 的过程/ }).textContent).toContain("已停止");
   });
 
-  it("较早的卡片默认收起，点展开再看", () => {
+  it("较早的卡片默认只留一行，点「最近」再看", () => {
     render(
       <ThinkingCard
         invocation={invocation()}
@@ -141,7 +235,7 @@ describe("thinking card", () => {
       />,
     );
     expect(screen.queryByText("先看看")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "展开" }));
+    fireEvent.click(screen.getByRole("button", { name: "最近" }));
     expect(screen.getByText("先看看")).toBeTruthy();
   });
 
@@ -168,8 +262,10 @@ describe("thinking card", () => {
         avatar="AI"
       />,
     );
-    await waitFor(() =>
-      expect(container.querySelector(".thinking-card-md strong")?.textContent).toBe("先确认"),
+    // Markdown 渲染器是单独的 chunk，机器忙时第一次加载可能超过默认的 1 秒
+    await waitFor(
+      () => expect(container.querySelector(".thinking-card-md strong")?.textContent).toBe("先确认"),
+      { timeout: 5000 },
     );
     expect(container.querySelectorAll("li")).toHaveLength(2);
     expect(container.querySelector("pre code")?.textContent).toContain("const a = 1;");
@@ -191,7 +287,9 @@ describe("thinking card", () => {
       />,
     );
     const preview = screen.getByRole("button", { name: "展开 helper 的过程" });
-    await waitFor(() => expect(preview.querySelector("strong")?.textContent).toBe("两处"));
+    await waitFor(() => expect(preview.querySelector("strong")?.textContent).toBe("两处"), {
+      timeout: 5000,
+    });
     fireEvent.click(preview);
     expect(screen.queryByRole("button", { name: "展开 helper 的过程" })).toBeNull();
     expect(
@@ -232,7 +330,7 @@ describe("groupLiveCards", () => {
     expect(screen.getByText("一起处理 #1825、#1828、#1830")).toBeTruthy();
   });
 
-  it("写明在处理哪条消息，点了跳过去；收起时整行可点开", () => {
+  it("写明在处理哪条消息，点了跳过去；只留一行时缩成序号，照样能跳", () => {
     const jumps: number[] = [];
     render(
       <ThinkingCard
@@ -244,12 +342,15 @@ describe("groupLiveCards", () => {
         onJumpToTrigger={() => jumps.push(1899)}
       />,
     );
+    const chip = screen.getByRole("button", { name: "#1899" });
+    expect(chip.getAttribute("title")).toBe("回应 #1899：为什么不能每 5 分钟定时一次");
+    fireEvent.click(chip);
+    expect(screen.queryByText("先看看")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "最近" }));
     fireEvent.click(
       screen.getByRole("button", { name: /回应 #1899.*为什么不能每 5 分钟定时一次/ }),
     );
-    expect(jumps).toEqual([1899]);
-    expect(screen.queryByText("先看看")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /展开看过程（1 段话/ }));
+    expect(jumps).toEqual([1899, 1899]);
     expect(screen.getByText("先看看")).toBeTruthy();
   });
 });

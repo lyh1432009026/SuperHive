@@ -23,8 +23,36 @@
   background: var(--bg-subtle);
 }
 
-.thinking-card.collapsed .thinking-card-content {
+.thinking-card.line .thinking-card-content {
   padding-bottom: 8px;
+}
+
+/* 等你处理的卡片置顶，左边一道醒目色：等你回答用强调色，等你决定用警示色 */
+.thinking-card.attention .thinking-card-content {
+  border-left: 3px solid var(--accent);
+  background: var(--bg-elevated);
+}
+
+.thinking-card.attention.decide .thinking-card-content {
+  border-left-color: var(--warning);
+}
+
+.thinking-card.attention .thinking-card-state {
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  font-weight: var(--weight-semibold);
+  line-height: 18px;
+}
+
+.thinking-card.attention.decide .thinking-card-state {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+/* 停下在等人：圆点不再闪 */
+.thinking-card.attention .thinking-card-dot {
+  animation: none;
 }
 
 .thinking-card header {
@@ -79,8 +107,9 @@
   font-variant-numeric: tabular-nums;
 }
 
-.thinking-card-toggle,
-.thinking-card-more,
+.thinking-card-detail button,
+.thinking-card-trigger-chip,
+.thinking-card-act,
 .thinking-card-latest {
   flex: 0 0 auto;
   padding: 0 6px;
@@ -94,8 +123,9 @@
   cursor: pointer;
 }
 
-.thinking-card-toggle:hover,
-.thinking-card-more:hover,
+.thinking-card-detail button:hover,
+.thinking-card-trigger-chip:not(:disabled):hover,
+.thinking-card-act:hover,
 .thinking-card-latest:hover {
   background: var(--bg-hover);
   color: var(--text);
@@ -189,8 +219,51 @@
   box-shadow: var(--shadow-popover);
 }
 
-.thinking-card-more {
-  margin: 2px 0 0 -6px;
+/* 显示多少：一行 / 最近 / 全部，三个挨在一起，当前这档加深 */
+.thinking-card-detail {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 1px;
+  padding: 1px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+}
+
+.thinking-card-detail button {
+  line-height: 20px;
+}
+
+.thinking-card-detail button[aria-pressed="true"] {
+  background: var(--bg-active);
+  color: var(--text);
+}
+
+.thinking-card-trigger-chip {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.thinking-card-trigger-chip:disabled {
+  cursor: default;
+}
+
+/* 等你决定：去触发消息下的失败卡片点「继续」或「忽略」 */
+.thinking-card-act {
+  border: 1px solid var(--border);
+  color: var(--text);
+  background: var(--bg-main);
+}
+
+/* 完整时间线：说的话和步骤按顺序排，最多约 40% 屏高，在卡片里滚动 */
+.thinking-card-narrative.full {
+  max-height: 40vh;
+  mask-image: none;
+}
+
+.thinking-card-timeline-run {
+  margin: 0 0 6px;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
 }
 
 .thinking-card-steps {
@@ -334,11 +407,25 @@
   .thinking-card-narrative {
     max-height: calc(1.6em * 6 + 4px);
   }
-  .thinking-card-narrative.expanded {
+  .thinking-card-narrative.expanded,
+  .thinking-card-narrative.full {
     max-height: 60vh;
   }
   .thinking-card-current {
     display: none;
+  }
+  /* 等你决定的原因要看得到：窄屏换到第二行整行显示 */
+  .thinking-card.attention .thinking-card-current {
+    display: block;
+    flex-basis: 100%;
+    order: 1;
+  }
+  /* 窄屏：显示多少的切换换到第二行靠右，名字和状态留在第一行 */
+  .thinking-card header {
+    flex-wrap: wrap;
+  }
+  .thinking-card-detail {
+    margin-left: auto;
   }
 }
 
