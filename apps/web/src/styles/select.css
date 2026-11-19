@@ -105,6 +105,8 @@
 
 .select-option {
   display: flex;
+  /* 面板是限高可滚动的纵向 flex：不许选项被压扁，说明折成两行时会和下一项叠在一起 */
+  flex-shrink: 0;
   align-items: center;
   gap: 10px;
   min-height: 36px;
