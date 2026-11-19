@@ -1,4 +1,5 @@
 ---
+import ImageZoom from "./ImageZoom.astro";
 import { getSiteConfig, withBase } from "../../scripts/site-config.mjs";
 
 const { site, base, indexable } = getSiteConfig();
@@ -63,3 +64,4 @@ const schema = {
     <script type="application/ld+json" set:html={JSON.stringify(schema).replace(/</g, "\\u003c")} />
   )
 }
+<ImageZoom />

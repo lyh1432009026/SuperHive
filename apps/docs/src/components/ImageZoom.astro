@@ -1,0 +1,270 @@
+<script>
+  // 正文配图点开看大图：Esc / 点空白关闭，← → 翻看本页其他图，点图在适应屏幕和原始大小之间切换。
+  const selector = ".sl-markdown-content img";
+
+  const visibleImages = () =>
+    [...document.querySelectorAll<HTMLImageElement>(selector)].filter(
+      (image) => image.offsetParent !== null,
+    );
+
+  function setup() {
+    const images = document.querySelectorAll<HTMLImageElement>(selector);
+    if (!images.length) return;
+
+    const dialog = document.createElement("dialog");
+    dialog.className = "zoom";
+    dialog.setAttribute("aria-label", "查看大图");
+    dialog.innerHTML = `
+      <div class="zoom-bar">
+        <span class="zoom-count" aria-live="polite"></span>
+        <button type="button" class="zoom-button" data-zoom="close" aria-label="关闭">✕</button>
+      </div>
+      <button type="button" class="zoom-nav zoom-prev" data-zoom="prev" aria-label="上一张">‹</button>
+      <div class="zoom-stage"><img alt="" /></div>
+      <button type="button" class="zoom-nav zoom-next" data-zoom="next" aria-label="下一张">›</button>
+      <p class="zoom-caption"></p>`;
+    document.body.append(dialog);
+
+    const stage = dialog.querySelector<HTMLElement>(".zoom-stage")!;
+    const big = dialog.querySelector<HTMLImageElement>(".zoom-stage img")!;
+    const count = dialog.querySelector<HTMLElement>(".zoom-count")!;
+    const caption = dialog.querySelector<HTMLElement>(".zoom-caption")!;
+    let list: HTMLImageElement[] = [];
+    let index = 0;
+    let opener: HTMLElement | null = null;
+
+    const show = (next: number) => {
+      index = (next + list.length) % list.length;
+      const source = list[index];
+      big.src = source.currentSrc || source.src;
+      big.alt = source.alt;
+      caption.textContent = source.alt;
+      count.textContent = list.length > 1 ? `${index + 1} / ${list.length}` : "";
+      dialog.classList.toggle("is-single", list.length < 2);
+      stage.classList.remove("is-actual");
+      big.style.width = "";
+      stage.scrollTo(0, 0);
+    };
+
+    const open = (image: HTMLImageElement) => {
+      list = visibleImages();
+      opener = image;
+      show(Math.max(0, list.indexOf(image)));
+      dialog.showModal();
+      document.documentElement.classList.add("zoom-open");
+    };
+
+    dialog.addEventListener("close", () => {
+      document.documentElement.classList.remove("zoom-open");
+      big.removeAttribute("src");
+      opener?.focus();
+    });
+
+    dialog.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
+      const action = target.closest<HTMLElement>("[data-zoom]")?.dataset.zoom;
+      if (action === "close") dialog.close();
+      else if (action === "prev") show(index - 1);
+      else if (action === "next") show(index + 1);
+      else if (target === big) {
+        // 原图比屏幕大时，点图切换到原始大小，可滚动查看细节
+        // 界面截图是 2 倍像素，原始大小按一半显示
+        const scale = big.src.includes("/media/screens/") ? 2 : 1;
+        const width = big.naturalWidth / scale;
+        const fits = width <= stage.clientWidth && big.naturalHeight / scale <= stage.clientHeight;
+        big.style.width = fits || stage.classList.contains("is-actual") ? "" : `${width}px`;
+        if (!fits) stage.classList.toggle("is-actual");
+      } else if (target === dialog || target === stage || target.classList.contains("zoom-caption"))
+        dialog.close();
+    });
+
+    dialog.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowLeft") show(index - 1);
+      else if (event.key === "ArrowRight") show(index + 1);
+    });
+
+    for (const image of images) {
+      if (image.closest("a")) continue;
+      image.classList.add("zoomable");
+      image.tabIndex = 0;
+      image.setAttribute("role", "button");
+      image.setAttribute("aria-haspopup", "dialog");
+      image.title = "点击查看大图";
+      image.addEventListener("click", () => open(image));
+      image.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          open(image);
+        }
+      });
+    }
+  }
+
+  setup();
+</script>
+
+<style is:global>
+  .sl-markdown-content img.zoomable {
+    cursor: zoom-in;
+  }
+
+  html.zoom-open {
+    overflow: hidden;
+  }
+
+  dialog.zoom {
+    width: 100vw;
+    max-width: none;
+    height: 100dvh;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: rgb(10 10 10 / 0.95);
+    color: #ececec;
+  }
+
+  dialog.zoom[open] {
+    display: grid;
+    grid-template: auto minmax(0, 1fr) auto / 3.5rem minmax(0, 1fr) 3.5rem;
+  }
+
+  dialog.zoom::backdrop {
+    background: transparent;
+  }
+
+  .zoom-bar {
+    display: flex;
+    grid-column: 1 / -1;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    font-size: 0.85rem;
+  }
+
+  .zoom-count {
+    font-variant-numeric: tabular-nums;
+    opacity: 0.8;
+  }
+
+  .zoom-button,
+  .zoom-nav {
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.1);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .zoom-button {
+    width: 2.25rem;
+    height: 2.25rem;
+    font-size: 1rem;
+  }
+
+  .zoom-nav {
+    align-self: center;
+    justify-self: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    font-size: 1.6rem;
+    line-height: 1;
+  }
+
+  .zoom-button:hover,
+  .zoom-nav:hover {
+    background: rgb(255 255 255 / 0.2);
+  }
+
+  dialog.zoom.is-single .zoom-nav {
+    visibility: hidden;
+  }
+
+  .zoom-prev {
+    grid-area: 2 / 1;
+  }
+
+  .zoom-next {
+    grid-area: 2 / 3;
+  }
+
+  .zoom-stage {
+    grid-area: 2 / 2;
+    display: grid;
+    place-items: center;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0.5rem;
+  }
+
+  .zoom-stage img {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 0.5rem;
+    background: #fff;
+    object-fit: contain;
+    cursor: zoom-in;
+  }
+
+  .zoom-stage.is-actual {
+    place-items: start;
+    overflow: auto;
+  }
+
+  .zoom-stage.is-actual img {
+    max-width: none;
+    max-height: none;
+    margin: auto;
+    cursor: zoom-out;
+  }
+
+  .zoom-caption {
+    grid-column: 1 / -1;
+    max-width: 60rem;
+    margin: 0 auto;
+    padding: 0.5rem 1.25rem 1rem;
+    font-size: 0.82rem;
+    line-height: 1.6;
+    text-align: center;
+    opacity: 0.85;
+  }
+
+  @media (max-width: 40rem) {
+    dialog.zoom[open] {
+      grid-template-columns: 0 minmax(0, 1fr) 0;
+    }
+
+    .zoom-nav {
+      position: fixed;
+      bottom: 0.75rem;
+    }
+
+    .zoom-prev {
+      left: 1rem;
+    }
+
+    .zoom-next {
+      right: 1rem;
+    }
+
+    .zoom-caption {
+      padding-bottom: 4rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    dialog.zoom[open] {
+      animation: zoom-fade 160ms ease-out;
+    }
+  }
+
+  @keyframes zoom-fade {
+    from {
+      opacity: 0;
+    }
+  }
+</style>
