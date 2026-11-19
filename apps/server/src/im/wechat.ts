@@ -17,7 +17,7 @@ import {
 /**
  * 个人微信：经 @wechatbot/wechatbot@2.2.0 走腾讯 iLink 通道（ilinkai.weixin.qq.com），
  * 扫码登录后长轮询收消息。这不是公开文档化的开放平台能力，有平台政策、封号和隐私风险，
- * 因此默认不显示、房主确认风险后才能启用，HIVE_IM_WECHAT=0 可整体关闭（参考 Zwork ADR-0090）。
+ * 因此默认不显示、房主确认风险后才能启用，HIVE_IM_WECHAT=0 可整体关闭。
  * 凭据只经加密存储，不用 SDK 默认的明文 ~/.wechatbot；只接受登录账号本人在私聊里发的文字。
  */
 export const WECHAT_AUTHORITY_HOSTS = ["ilinkai.weixin.qq.com"];

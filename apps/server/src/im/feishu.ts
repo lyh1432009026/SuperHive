@@ -21,7 +21,7 @@ import {
 /**
  * 飞书（含 Lark）：扫码时由官方 SDK 的 registerApp 引导创建或选择一个企业自建应用，
  * 返回应用凭据和扫码人的 open_id；之后用 WSClient 长连接收消息，本机不需要公网回调地址。
- * 参考 Zwork 的接入（apps/electron/src/main/im/feishu），只申请收发消息所需的最少权限。
+ * 只申请收发消息所需的最少权限。
  */
 const ADDONS: lark.AppAddons = {
   scopes: {
