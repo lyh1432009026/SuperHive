@@ -18,12 +18,14 @@ import type {
   WorkspaceDiffMode,
   WorkspaceFile,
   WorkspaceOverview,
+  WorkspaceSourceInfo,
   WorkspaceSearch,
   WorkspaceStatus,
   WorkspaceTree,
   WorkspaceTreeEntry,
 } from "@superhive/protocol";
 import { getLocale, t } from "./i18n";
+import { formatRelativeTime } from "./whiteboard";
 import { Select } from "./select";
 import { SheetPanel } from "./sheet-panel";
 import { serverError } from "./server-text";
@@ -195,6 +197,52 @@ function EmptyState({
   );
 }
 
+const SOURCE_KEY = "superhive.workspace-source";
+
+/** 工作区在前；任务线按最近改动排，已合入（或没改过）的、目录不存在的放最后 */
+export function sortSources(sources: WorkspaceSourceInfo[]): WorkspaceSourceInfo[] {
+  const rank = (item: WorkspaceSourceInfo) =>
+    item.kind === "workspace" ? 0 : item.missing ? 3 : item.merged ? 2 : 1;
+  return [...sources].sort(
+    (a, b) => rank(a) - rank(b) || (b.activeAt ?? "").localeCompare(a.activeAt ?? ""),
+  );
+}
+
+/**
+ * 打开面板时默认看哪份代码：
+ * 「看改动」点的那个 Agent 最近的任务线 → 上次手动选的（还在、没合入）→ 工作区有未提交改动就看工作区
+ * → 最近有改动、还没合入的任务线 → 工作区。大部分改动在 Agent 各自的任务线上，main 往往是干净的。
+ */
+export function defaultSource(
+  sources: WorkspaceSourceInfo[],
+  options: { remembered?: string | undefined; agent?: string | undefined } = {},
+): string {
+  const live = sources.filter((item) => item.kind === "worktree" && !item.missing);
+  const latest = (items: WorkspaceSourceInfo[]) =>
+    sortSources(items).find((item) => item.kind === "worktree")?.id;
+  if (options.agent) {
+    const lower = options.agent.toLocaleLowerCase();
+    const mine = live.filter((item) => item.agentName?.toLocaleLowerCase() === lower);
+    return latest(mine.filter((item) => !item.merged)) ?? latest(mine) ?? "workspace";
+  }
+  const remembered = sources.find((item) => item.id === options.remembered);
+  if (remembered && !remembered.missing && !remembered.merged) return remembered.id;
+  const workspace = sources.find((item) => item.kind === "workspace");
+  if (workspace?.changeCount) return "workspace";
+  return latest(live.filter((item) => !item.merged && item.activeAt)) ?? "workspace";
+}
+
+/** 下拉里每份代码后面的改动情况：未提交几个文件、领先几个提交、多久前改的、已合入 */
+function sourceActivity(item: WorkspaceSourceInfo): string[] {
+  if (item.missing) return [];
+  if (item.merged) return [t("已合入")];
+  const parts: string[] = [];
+  if (item.changeCount) parts.push(t("{0} 个文件未提交", { 0: item.changeCount }));
+  if (item.ahead) parts.push(t("领先 {0} 个提交", { 0: item.ahead }));
+  if (item.activeAt) parts.push(formatRelativeTime(item.activeAt, Date.now()));
+  return parts;
+}
+
 function Chevron({ open }: { open: boolean }) {
   return (
     <svg
@@ -320,6 +368,7 @@ export function WorkspacePanel({
   onOpenSettings,
   onOverview,
   revealFile,
+  focusAgent,
 }: {
   api: WorkspaceApi;
   roomId: string;
@@ -333,28 +382,48 @@ export function WorkspacePanel({
   onOverview?: (overview: WorkspaceOverview) => void;
   /** 本机房主：在访达里显示文件（代替下载）；远程设备、访客不传 */
   revealFile?: ((source: string, path: string) => Promise<void>) | undefined;
+  /** 「看改动」：切到这个 Agent 最近的任务线；nonce 变了就再切一次 */
+  focusAgent?: { agent: string; nonce: number } | undefined;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const [narrow, setNarrow] = useState(false);
   const [tab, setTab] = useState<Tab>("changes");
-  const [sourceId, setSourceId] = useState("workspace");
+  // 看哪份代码：没定下来时（刚打开、换房间、选中的被清理了）按 defaultSource 挑一次，之后不随刷新跳动
+  const [sourceId, setSourceId] = useState<string>();
   const [refreshTick, setRefreshTick] = useState(0);
   const overview = useAsync(async () => {
     if (!workspaceConfigured) return undefined;
-    const next = (await api("")) as WorkspaceOverview;
+    const next = (await api("", { detail: "1" })) as WorkspaceOverview;
     onOverview?.(next);
     return next;
   }, [api, workspaceConfigured, refreshTick]);
-  const sources = overview.data?.sources ?? [];
-  const source = sources.find((item) => item.id === sourceId) ?? sources[0];
+  const sources = useMemo(() => sortSources(overview.data?.sources ?? []), [overview.data]);
+  const source = sources.find((item) => item.id === sourceId);
+  const pendingFocus = useRef(focusAgent?.agent);
   useEffect(() => {
-    if (overview.data && !overview.data.sources.some((item) => item.id === sourceId))
-      setSourceId("workspace");
-  }, [overview.data, sourceId]);
+    pendingFocus.current = focusAgent?.agent;
+    if (focusAgent) setSourceId(undefined);
+  }, [focusAgent]);
   useEffect(() => {
-    setSourceId("workspace");
+    if (!overview.data) return;
+    if (sourceId !== undefined && overview.data.sources.some((item) => item.id === sourceId))
+      return;
+    setSourceId(
+      defaultSource(overview.data.sources, {
+        remembered: localStorage.getItem(`${SOURCE_KEY}:${roomId}`) ?? undefined,
+        agent: pendingFocus.current,
+      }),
+    );
+    pendingFocus.current = undefined;
+  }, [overview.data, sourceId, roomId]);
+  useEffect(() => {
+    setSourceId(undefined);
     setTab("changes");
   }, [roomId]);
+  const chooseSource = (id: string) => {
+    localStorage.setItem(`${SOURCE_KEY}:${roomId}`, id);
+    setSourceId(id);
+  };
 
   useLayoutEffect(() => {
     const panel = panelRef.current;
@@ -408,7 +477,7 @@ export function WorkspacePanel({
         </button>
       </div>
     );
-  } else if (!overview.data) {
+  } else if (!overview.data || !source) {
     body = <div className="workspace-loading">{t("加载中…")}</div>;
   } else if (tab === "files") {
     body = (
@@ -545,14 +614,14 @@ export function WorkspacePanel({
                 aria-label={t("查看哪份代码")}
                 menuMinWidth={460}
                 value={source?.id ?? "workspace"}
-                onChange={(value) => setSourceId(value)}
+                onChange={chooseSource}
                 options={sources.map((item) => ({
                   value: item.id,
                   label:
                     item.kind === "workspace"
                       ? t("工作区 · {0}", { 0: item.branch ?? item.label })
                       : item.label,
-                  description:
+                  description: [
                     item.kind === "workspace"
                       ? t("房间工作区当前的检出")
                       : item.missing
@@ -561,6 +630,8 @@ export function WorkspacePanel({
                             0: item.agentName ?? "",
                             1: item.base ?? "",
                           }),
+                    ...sourceActivity(item),
+                  ].join(" · "),
                   disabled: Boolean(item.missing),
                   group: item.kind === "workspace" ? t("工作区") : t("任务线（worktree）"),
                 }))}

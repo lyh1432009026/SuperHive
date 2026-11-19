@@ -55,9 +55,12 @@ export function InvocationDetails({
   onClose,
   onJump,
   onOpenTerminal,
+  onViewChanges,
 }: {
   /** 在终端里接着这个 Agent 的会话（本机 Agent 才有） */
   onOpenTerminal?: () => void;
+  /** 打开「代码」面板看这个 Agent 的改动（能看工作区的人才有） */
+  onViewChanges?: () => void;
   invocation: Invocation;
   /** 同房间的其它调用：解释排队时排在谁后面 */
   others?: readonly Invocation[];
@@ -324,8 +327,18 @@ export function InvocationDetails({
           </p>
         </details>
       </div>
-      {(onJump || onOpenTerminal) && (
+      {(onJump || onOpenTerminal || onViewChanges) && (
         <footer className="invocation-details-footer">
+          {onViewChanges && (
+            <button
+              type="button"
+              className="invocation-details-reply secondary"
+              title={t("在「代码」面板里打开它的任务线，看它改了什么")}
+              onClick={onViewChanges}
+            >
+              {t("看改动")}
+            </button>
+          )}
           {onOpenTerminal && (
             <button
               type="button"

@@ -34,6 +34,13 @@ export const workspaceSourceInfoSchema = z.object({
   agentName: z.string().optional(),
   base: z.string().optional(),
   missing: z.boolean().optional(),
+  /** 以下只在总览带 detail=1 时给：未提交改动的文件数、相对 base 领先的提交数 */
+  changeCount: z.number().int().nonnegative().optional(),
+  ahead: z.number().int().nonnegative().optional(),
+  /** 最近一次改动的时间：未提交文件的修改时间、分出来以后的最新提交，取较晚的；没有改动就没有 */
+  activeAt: z.string().optional(),
+  /** worktree 已合入（或从没改过）：排到最后，不作为默认选择 */
+  merged: z.boolean().optional(),
 });
 
 export const workspaceOverviewSchema = z.object({

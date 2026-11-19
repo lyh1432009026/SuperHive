@@ -424,8 +424,11 @@ export function InvocationChips({
   onSteer,
   onPreempt,
   onOpenTerminal,
+  onViewChanges,
   onRetryWithModel,
 }: {
+  /** 「看改动」：打开「代码」面板并切到这个 Agent 的任务线 */
+  onViewChanges?: ((invocation: Invocation) => void) | undefined;
   /** 「换个模型重试」：只有房主能用，失败的任务上才有 */
   onRetryWithModel?: ((invocation: Invocation) => void) | undefined;
   /** 「在终端打开会话」：本机 Agent 才返回处理函数 */
@@ -698,6 +701,14 @@ export function InvocationChips({
           others={[...(allInvocations?.values() ?? invocations)]}
           onClose={() => setSelectedId(undefined)}
           {...(onOpenTerminal?.(selected) ? { onOpenTerminal: onOpenTerminal(selected)! } : {})}
+          {...(onViewChanges
+            ? {
+                onViewChanges: () => {
+                  setSelectedId(undefined);
+                  onViewChanges(selected);
+                },
+              }
+            : {})}
           {...(selected.replyMessageId && canJumpTo(selected.replyMessageId)
             ? {
                 onJump: () => {

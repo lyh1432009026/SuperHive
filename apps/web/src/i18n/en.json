@@ -1592,5 +1592,10 @@
   "Agent 改了文件后，这里几秒内就会列出来。": "When an agent changes files, they show up here within seconds.",
   "可以切换统一视图或左右对照；图片会显示改前改后。": "Switch between unified and split views; images show before and after.",
   "只读预览：代码带高亮，图片、音视频和 PDF 直接显示。": "Read-only preview: code is highlighted; images, audio, video and PDFs display inline.",
-  "能看到提交说明、改了哪些文件和每个文件的 diff。": "See the commit message, the files it changed and each file's diff."
+  "能看到提交说明、改了哪些文件和每个文件的 diff。": "See the commit message, the files it changed and each file's diff.",
+  "看改动": "View changes",
+  "在「代码」面板里打开它的任务线，看它改了什么": "Open its worktree in the Code panel to see what it changed",
+  "看它的改动": "View its changes",
+  "{0} 个文件未提交": "{0} uncommitted {0|file|files}",
+  "领先 {0} 个提交": "{0} {0|commit|commits} ahead"
 }

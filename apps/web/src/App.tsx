@@ -1894,6 +1894,8 @@ export function App({
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [workspaceCounts, setWorkspaceCounts] = useState<ReadonlyMap<string, number>>(new Map());
   const workspaceButtonRef = useRef<HTMLButtonElement>(null);
+  /** 从任务卡片、成员菜单「看改动」打开时要切到的 Agent；nonce 让同一个 Agent 再点一次也生效 */
+  const [workspaceFocus, setWorkspaceFocus] = useState<{ agent: string; nonce: number }>();
   const canViewWorkspace =
     Boolean(authToken) &&
     (isOwner || Boolean(currentRoom?.workspaceFilesGuests && currentRoomWorkspace));
@@ -1913,6 +1915,12 @@ export function App({
   useEffect(() => {
     if (!canViewWorkspace) setWorkspaceOpen(false);
   }, [canViewWorkspace]);
+  /** 「看改动」：打开「代码」面板并切到这个 Agent 最近的任务线（没有就看工作区） */
+  function openWorkspaceFor(agent: string) {
+    setArtifactsOpen(false);
+    setWorkspaceFocus({ agent, nonce: Date.now() });
+    setWorkspaceOpen(true);
+  }
   // 头部入口上的改动数：面板关着时不轮询，只在进房间和有新消息（Agent 多半刚改完）后查一次，最快 10 秒一次
   const workspaceCountFetched = useRef<{ roomId?: string; at: number }>({ at: 0 });
   const currentLatestSeq = currentRoom?.latestSeq;
@@ -4256,6 +4264,14 @@ export function App({
         ? [
             "separator" as const,
             { label: t("查看 Agent 任务"), onSelect: () => openActivity("tasks") },
+            ...(canViewWorkspace && currentRoomWorkspace
+              ? [
+                  {
+                    label: t("看它的改动"),
+                    onSelect: () => openWorkspaceFor(participant.username),
+                  },
+                ]
+              : []),
             ...(isOwner
               ? [
                   lead
@@ -5388,6 +5404,11 @@ export function App({
                                       }
                                     : undefined
                                 }
+                                onViewChanges={
+                                  canViewWorkspace && currentRoomWorkspace
+                                    ? (invocation) => openWorkspaceFor(invocation.agentName)
+                                    : undefined
+                                }
                                 isOwner={isOwner}
                                 traces={traces}
                               />
@@ -6080,6 +6101,7 @@ export function App({
             workspaceConfigured={Boolean(currentRoomWorkspace)}
             isOwner={isOwner}
             onOverview={recordWorkspaceOverview}
+            focusAgent={workspaceFocus}
             revealFile={
               local.enabled && local.mode === "local"
                 ? (source, path) => local.revealWorkspaceFile(currentRoomId, source, path)

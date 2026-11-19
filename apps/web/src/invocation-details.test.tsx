@@ -55,6 +55,26 @@ describe("clickable invocation details", () => {
     expect(document.activeElement).toBe(trigger);
     expect(document.body.style.overflow).not.toBe("hidden");
   });
+  it("「看改动」关掉详情并打开这个 Agent 的改动", async () => {
+    const user = userEvent.setup();
+    const onViewChanges = vi.fn();
+    render(
+      <InvocationChips
+        {...props}
+        invocations={[invocation]}
+        connectionState="online"
+        onViewChanges={onViewChanges}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /查看调用详情/ }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "调用详情" })).getByRole("button", {
+        name: "看改动",
+      }),
+    );
+    expect(onViewChanges).toHaveBeenCalledWith(invocation);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
   it("uses current props while open and distinguishes disconnects, errors, progress and recovery", async () => {
     const user = userEvent.setup();
     const { rerender } = render(

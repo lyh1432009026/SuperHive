@@ -9,7 +9,7 @@ import type {
   WorkspaceStatus,
   WorkspaceTree,
 } from "@superhive/protocol";
-import { WorkspacePanel, type WorkspaceApi } from "./workspace-panel";
+import { WorkspacePanel, defaultSource, sortSources, type WorkspaceApi } from "./workspace-panel";
 
 afterEach(() => {
   cleanup();
@@ -342,5 +342,131 @@ describe("WorkspacePanel", () => {
     await userEvent.click(screen.getByRole("button", { name: /^tool\.bin/ }));
     expect(await screen.findByText("二进制文件，不能在这里预览。")).toBeTruthy();
     expect(screen.getByRole("button", { name: "下载" })).toBeTruthy();
+  });
+
+  it("默认打开最近有改动、还没合入的任务线；手动选过的下次记住；「看改动」切到那个 Agent", async () => {
+    const recent = "00000000-0000-4000-8000-0000000000b1";
+    const older = "00000000-0000-4000-8000-0000000000b2";
+    const merged = "00000000-0000-4000-8000-0000000000b3";
+    const api = fakeApi({
+      "": () => ({
+        ...overview,
+        changeCount: 0,
+        sources: [
+          { id: "workspace", kind: "workspace", label: "hive", branch: "main", changeCount: 0 },
+          {
+            id: merged,
+            kind: "worktree",
+            label: "feat/done",
+            agentName: "alpha",
+            base: "main",
+            merged: true,
+            activeAt: "2026-11-19T10:00:00.000Z",
+          },
+          {
+            id: older,
+            kind: "worktree",
+            label: "feat/older",
+            agentName: "beta",
+            base: "main",
+            changeCount: 1,
+            activeAt: "2026-11-19T08:00:00.000Z",
+          },
+          {
+            id: recent,
+            kind: "worktree",
+            label: "feat/recent",
+            agentName: "gamma",
+            base: "main",
+            ahead: 2,
+            activeAt: "2026-11-19T09:00:00.000Z",
+          },
+        ],
+      }),
+      "/compare": () => ({ base: "main", mergeBase: "abc", commits: [], changes: [] }),
+    });
+    const { unmount } = render(
+      <WorkspacePanel
+        api={api}
+        roomId="general"
+        workspaceConfigured
+        isOwner
+        onClose={() => undefined}
+      />,
+    );
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("/compare", expect.objectContaining({ source: recent })),
+    );
+    expect(api).toHaveBeenCalledWith("", { detail: "1" });
+    // 下拉里按最近改动排，已合入的在最后并标出来
+    await userEvent.click(screen.getByRole("combobox", { name: "查看哪份代码" }));
+    const options = screen.getAllByRole("option").map((item) => item.textContent ?? "");
+    expect(options[1]).toContain("feat/recent");
+    expect(options[1]).toContain("领先 2 个提交");
+    expect(options[2]).toContain("1 个文件未提交");
+    expect(options[3]).toContain("已合入");
+    await userEvent.click(screen.getByRole("option", { name: /feat\/older/ }));
+    expect(localStorage.getItem("superhive.workspace-source:general")).toBe(older);
+    unmount();
+
+    api.mockClear();
+    const { rerender } = render(
+      <WorkspacePanel
+        api={api}
+        roomId="general"
+        workspaceConfigured
+        isOwner
+        onClose={() => undefined}
+      />,
+    );
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("/compare", expect.objectContaining({ source: older })),
+    );
+    rerender(
+      <WorkspacePanel
+        api={api}
+        roomId="general"
+        workspaceConfigured
+        isOwner
+        onClose={() => undefined}
+        focusAgent={{ agent: "GAMMA", nonce: 1 }}
+      />,
+    );
+    await waitFor(() =>
+      expect(api).toHaveBeenLastCalledWith("/compare", expect.objectContaining({ source: recent })),
+    );
+  });
+});
+
+describe("defaultSource", () => {
+  const worktree = (id: string, extra: object = {}) => ({
+    id: `00000000-0000-4000-8000-00000000000${id}`,
+    kind: "worktree" as const,
+    label: id,
+    ...extra,
+  });
+  it("工作区有未提交改动就先看工作区；都没改动看工作区", () => {
+    const sources = [
+      { id: "workspace", kind: "workspace" as const, label: "hive", changeCount: 2 },
+      worktree("1", { activeAt: "2026-11-19T09:00:00.000Z", changeCount: 1 }),
+    ];
+    expect(defaultSource(sources)).toBe("workspace");
+    expect(
+      defaultSource([
+        { id: "workspace", kind: "workspace", label: "hive" },
+        worktree("2", { merged: true }),
+      ]),
+    ).toBe("workspace");
+  });
+
+  it("记住的选择已合入或被清理时重新挑；找不到 Agent 的任务线就看工作区", () => {
+    const live = worktree("3", { activeAt: "2026-11-19T09:00:00.000Z", agentName: "beta" });
+    const done = worktree("4", { merged: true, agentName: "alpha" });
+    const sources = [{ id: "workspace", kind: "workspace" as const, label: "hive" }, done, live];
+    expect(defaultSource(sources, { remembered: done.id })).toBe(live.id);
+    expect(defaultSource(sources, { remembered: "gone" })).toBe(live.id);
+    expect(defaultSource(sources, { agent: "nobody" })).toBe("workspace");
+    expect(defaultSource(sources, { agent: "alpha" })).toBe(done.id);
+    expect(sortSources(sources).map((item) => item.id)).toEqual(["workspace", live.id, done.id]);
   });
 });

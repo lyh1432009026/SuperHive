@@ -116,6 +116,8 @@ export function registerWorkspaceFileRoutes(
     defaultBranch: (workspace: string) => Promise<string | undefined>;
     /** 签发过的临时链接被使用时复核：访客会话、房主设备是否仍有效 */
     viewerActive: (viewer: WorkspaceViewer) => boolean;
+    /** 这个房间里已合入的 worktree（按 worktree 管理那套判断，含 squash 合入） */
+    mergedWorktrees: (roomId: string) => Promise<Set<string>>;
     now?: () => number;
   },
 ): void {
@@ -240,7 +242,7 @@ export function registerWorkspaceFileRoutes(
   }
 
   /** 总览：工作区名、是否 git、可切换的来源（工作区 + 这个房间的 worktree）、未提交改动数 */
-  app.get<{ Params: { roomId: string } }>(
+  app.get<{ Params: { roomId: string }; Querystring: { detail?: string } }>(
     "/api/rooms/:roomId/workspace",
     async (request, reply) => {
       const roomId = request.params.roomId;
@@ -248,6 +250,7 @@ export function registerWorkspaceFileRoutes(
       if (!viewer) return reply;
       const room = options.room(roomId);
       if (!room) return send(reply, 404, "error.room.notFound");
+      const detail = request.query.detail === "1";
       const guestsAllowed = Boolean(room.workspaceFilesGuests);
       if (viewer.kind === "guest" && !guestsAllowed)
         return send(reply, 403, "error.workspaceFiles.guestsDisabled");
@@ -293,6 +296,29 @@ export function registerWorkspaceFileRoutes(
               base: record.base,
               ...(missing ? { missing } : {}),
             });
+          }
+          // 面板打开时要挑默认显示哪份代码：补上每份的改动数、领先提交数、最近改动时间、是否已合入
+          if (detail) {
+            const merged = await options.mergedWorktrees(roomId).catch(() => new Set<string>());
+            await Promise.all(
+              sources.map(async (source) => {
+                if (source.missing) return;
+                const record =
+                  source.kind === "worktree"
+                    ? options.worktrees(roomId).find((item) => item.id === source.id)
+                    : undefined;
+                const sourceRoot = record ? await realpath(record.path) : root;
+                const activity = await new WorkspaceView(sourceRoot)
+                  .activity(record ? record.base : source.base)
+                  .catch(() => undefined);
+                if (activity) Object.assign(source, activity);
+                if (
+                  record &&
+                  (merged.has(record.id) || (!activity?.changeCount && !activity?.ahead))
+                )
+                  source.merged = true;
+              }),
+            );
           }
         }
       } catch (error) {

@@ -241,6 +241,45 @@ export class WorkspaceView {
     return repoPath.startsWith(prefix) ? repoPath.slice(prefix.length) : undefined;
   }
 
+  /**
+   * 最近有没有人在这里改：未提交文件数与它们的最晚修改时间，相对 base 领先的提交数与最新提交时间。
+   * 「代码」面板据此默认打开最近有动静的那份代码。
+   */
+  async activity(
+    base?: string,
+  ): Promise<{ changeCount: number; ahead: number; activeAt?: string }> {
+    const status = await this.status({ counts: false });
+    if (!status.git) return { changeCount: 0, ahead: 0 };
+    const paths = [...new Set(status.changes.map((item) => item.path))];
+    let latest = 0;
+    await Promise.all(
+      paths.slice(0, 200).map(async (file) => {
+        const info = await lstat(path.join(this.root, file)).catch(() => undefined);
+        if (info && info.mtimeMs > latest) latest = info.mtimeMs;
+      }),
+    );
+    let ahead = 0;
+    if (base && !base.startsWith("-") && !/[\0\s:]/.test(base)) {
+      const counted = await readOnlyGit(this.root, [
+        "rev-list",
+        "--count",
+        "--end-of-options",
+        `${base}..HEAD`,
+      ]);
+      if (counted.code === 0) ahead = Number(counted.stdout.toString("utf8").trim()) || 0;
+      if (ahead > 0) {
+        const time = await readOnlyGit(this.root, ["log", "-1", "--format=%ct", "HEAD"]);
+        const seconds = Number(time.stdout.toString("utf8").trim());
+        if (seconds * 1000 > latest) latest = seconds * 1000;
+      }
+    }
+    return {
+      changeCount: paths.length,
+      ahead,
+      ...(latest ? { activeAt: new Date(latest).toISOString() } : {}),
+    };
+  }
+
   async status(options: { counts?: boolean } = {}): Promise<WorkspaceStatus> {
     const repo = await this.repo();
     if (!repo) return { git: false, changes: [] };

@@ -4872,6 +4872,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       return session ? access.resolve(session, clock()).state === "active" : false;
     },
     now: clock,
+    mergedWorktrees: async (roomId) => {
+      const workspace = database.getRoom(roomId)?.workspace;
+      if (!workspace) return new Set<string>();
+      const statuses = await worktrees.list(workspace);
+      return new Set(
+        statuses
+          .filter((item) => item.worktree.roomId === roomId && item.merged)
+          .map((item) => item.worktree.id),
+      );
+    },
     worktrees: (roomId) =>
       worktrees
         .allRecords()

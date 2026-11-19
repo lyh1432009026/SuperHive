@@ -624,6 +624,42 @@ describe("工作区文件接口", () => {
     expect(invalid.statusCode).toBe(400);
   });
 
+  it("总览带 detail 时给出每份代码的改动数、领先提交数、最近改动时间与是否已合入", async () => {
+    const root = repository();
+    const tree = path.join(temp("ws-activity-"), "feature");
+    git(root, "worktree", "add", "-q", "-b", "feature", tree, "main");
+    write(tree, "a.txt", "feature\n");
+    git(tree, "commit", "-qam", "feature work");
+    write(tree, "new.txt", "draft\n");
+    const { app, worktreeId } = await start({
+      workspace: root,
+      worktree: { path: realpathSync(tree), branch: "feature" },
+    });
+    const plain = (
+      await app.inject({ url: "/api/rooms/general/workspace", headers: OWNER })
+    ).json();
+    expect(plain.sources[1].activeAt).toBeUndefined();
+    const detailed = (
+      await app.inject({ url: "/api/rooms/general/workspace?detail=1", headers: OWNER })
+    ).json();
+    expect(detailed.sources[0]).toMatchObject({ id: "workspace", changeCount: 0, ahead: 0 });
+    expect(detailed.sources[0].activeAt).toBeUndefined();
+    expect(detailed.sources[1]).toMatchObject({
+      id: worktreeId,
+      changeCount: 1,
+      ahead: 1,
+      activeAt: expect.any(String),
+    });
+    expect(detailed.sources[1].merged).toBeUndefined();
+    // 改动都撤掉、分支回到 main：算已合入，不再作为默认
+    git(tree, "reset", "-q", "--hard", "main");
+    rmSync(path.join(tree, "new.txt"));
+    const after = (
+      await app.inject({ url: "/api/rooms/general/workspace?detail=1", headers: OWNER })
+    ).json();
+    expect(after.sources[1]).toMatchObject({ changeCount: 0, ahead: 0, merged: true });
+  });
+
   describe("原始字节与临时链接", () => {
     const bytes = Buffer.from(Array.from({ length: 1000 }, (_, index) => index % 256));
 
