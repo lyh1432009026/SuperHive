@@ -141,6 +141,7 @@ type RoomRow = {
   archived_at: string | null;
   workspace: string | null;
   lead_agent: string | null;
+  workspace_files_guests: number | null;
   online_count: number;
   latest_seq: number;
   last_activity_at: string | null;
@@ -572,6 +573,7 @@ function mapRoom(row: RoomRow): RoomSummary {
     ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
     ...(row.workspace ? { workspace: row.workspace } : {}),
     ...(row.lead_agent ? { leadAgent: row.lead_agent } : {}),
+    ...(row.workspace_files_guests ? { workspaceFilesGuests: true } : {}),
     onlineCount: row.online_count,
     latestSeq: row.latest_seq,
     ...(row.last_activity_at ? { lastActivityAt: row.last_activity_at } : {}),
@@ -580,6 +582,7 @@ function mapRoom(row: RoomRow): RoomSummary {
 
 const roomSummarySelect = `
   SELECT r.id, r.name, r.created_at, r.created_by, r.archived_at, r.workspace, r.lead_agent,
+         r.workspace_files_guests,
          COALESCE(p.online_count, 0) AS online_count,
          COALESCE(m.latest_seq, 0) AS latest_seq,
          lm.created_at AS last_activity_at
@@ -872,6 +875,12 @@ export class HiveDatabase {
     if (!roomColumns.some((column) => column.name === "lead_agent")) {
       this.db.exec("ALTER TABLE rooms ADD COLUMN lead_agent TEXT");
     }
+    if (!roomColumns.some((column) => column.name === "workspace_files_guests")) {
+      // 房主允许访客只读查看工作区文件与 git 变更；默认关
+      this.db.exec(
+        "ALTER TABLE rooms ADD COLUMN workspace_files_guests INTEGER NOT NULL DEFAULT 0",
+      );
+    }
     if (!roomColumns.some((column) => column.name === "agent_turn_allowance")) {
       // 人为 Agent 互相对话追加的轮数；只在授予时的那条人类消息之后有效
       this.db.exec("ALTER TABLE rooms ADD COLUMN agent_turn_allowance INTEGER NOT NULL DEFAULT 0");
@@ -1007,6 +1016,7 @@ export class HiveDatabase {
       archived?: boolean | undefined;
       workspace?: string | null | undefined;
       leadAgent?: string | null | undefined;
+      workspaceFilesGuests?: boolean | undefined;
     },
   ): RoomSummary {
     const room = this.getRoom(id);
@@ -1022,6 +1032,11 @@ export class HiveDatabase {
     }
     if (patch.leadAgent !== undefined) {
       this.db.prepare("UPDATE rooms SET lead_agent = ? WHERE id = ?").run(patch.leadAgent, id);
+    }
+    if (patch.workspaceFilesGuests !== undefined) {
+      this.db
+        .prepare("UPDATE rooms SET workspace_files_guests = ? WHERE id = ?")
+        .run(patch.workspaceFilesGuests ? 1 : 0, id);
     }
     if (patch.archived === true) {
       this.db

@@ -15,6 +15,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { WorktreePanel } from "./worktree-panel";
+import { WorkspaceGlyph, WorkspacePanel, workspaceApi } from "./workspace-panel";
 import { sortParticipantsByLastSeen } from "@superhive/protocol";
 import type {
   ChatMessage,
@@ -33,6 +34,7 @@ import type {
   Schedule,
   TraceStep,
   UsageSummary,
+  WorkspaceOverview,
 } from "@superhive/protocol";
 import {
   applyMention,
@@ -1509,6 +1511,7 @@ export function App({
   const [roomDialogName, setRoomDialogName] = useState("");
   const [roomDialogWorkspace, setRoomDialogWorkspace] = useState("");
   const [roomDialogLead, setRoomDialogLead] = useState("");
+  const [roomDialogGuestFiles, setRoomDialogGuestFiles] = useState(false);
   const [roomWorkspacePicking, setRoomWorkspacePicking] = useState(false);
   const [roomDialogError, setRoomDialogError] = useState<string>();
   const [roomDialogBusy, setRoomDialogBusy] = useState(false);
@@ -1805,6 +1808,56 @@ export function App({
   );
   const currentRoomName = currentRoom?.name ?? currentRoomId;
   const currentRoomWorkspace = currentRoom?.workspace;
+
+  /* 工作区面板（文件与 git 变更，只读）：房主总能打开；访客要房主在房间设置里允许，服务端同样校验 */
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [workspaceCounts, setWorkspaceCounts] = useState<ReadonlyMap<string, number>>(new Map());
+  const workspaceButtonRef = useRef<HTMLButtonElement>(null);
+  const canViewWorkspace =
+    Boolean(authToken) &&
+    (isOwner || Boolean(currentRoom?.workspaceFilesGuests && currentRoomWorkspace));
+  const workspaceRequest = useMemo(
+    () => workspaceApi(base, currentRoomId, authToken),
+    [base, currentRoomId, authToken],
+  );
+  const recordWorkspaceOverview = useCallback(
+    (overview: WorkspaceOverview) =>
+      setWorkspaceCounts((current) => {
+        const count = overview.changeCount ?? 0;
+        if (current.get(currentRoomId) === count) return current;
+        return new Map(current).set(currentRoomId, count);
+      }),
+    [currentRoomId],
+  );
+  useEffect(() => {
+    if (!canViewWorkspace) setWorkspaceOpen(false);
+  }, [canViewWorkspace]);
+  // 头部入口上的改动数：面板关着时不轮询，只在进房间和有新消息（Agent 多半刚改完）后查一次，最快 10 秒一次
+  const workspaceCountFetched = useRef<{ roomId?: string; at: number }>({ at: 0 });
+  const currentLatestSeq = currentRoom?.latestSeq;
+  useEffect(() => {
+    if (!canViewWorkspace || !currentRoomWorkspace || workspaceOpen) return;
+    const last = workspaceCountFetched.current;
+    const wait =
+      last.roomId === currentRoomId ? Math.max(1500, last.at + 10_000 - Date.now()) : 300;
+    const timer = window.setTimeout(() => {
+      workspaceCountFetched.current = { roomId: currentRoomId, at: Date.now() };
+      workspaceRequest("").then(
+        (value) => recordWorkspaceOverview(value as WorkspaceOverview),
+        () => undefined,
+      );
+    }, wait);
+    return () => window.clearTimeout(timer);
+  }, [
+    canViewWorkspace,
+    currentRoomId,
+    currentRoomWorkspace,
+    currentLatestSeq,
+    recordWorkspaceOverview,
+    workspaceOpen,
+    workspaceRequest,
+  ]);
+  const workspaceChangeCount = currentRoomWorkspace ? (workspaceCounts.get(currentRoomId) ?? 0) : 0;
   const isLeadAgent = (participant: Participant) =>
     participant.type === "agent" &&
     currentRoom?.leadAgent?.toLocaleLowerCase() === participant.username.toLocaleLowerCase();
@@ -2311,6 +2364,9 @@ export function App({
       setRoomDialogName(dialog.mode === "manage" ? dialog.room.name : "");
       setRoomDialogWorkspace(dialog.mode === "manage" ? (dialog.room.workspace ?? "") : "");
       setRoomDialogLead(dialog.mode === "manage" ? (dialog.room.leadAgent ?? "") : "");
+      setRoomDialogGuestFiles(
+        dialog.mode === "manage" && Boolean(dialog.room.workspaceFilesGuests),
+      );
       setRoomWorkspacePicking(false);
       setRoomDialog(dialog);
     },
@@ -4233,6 +4289,9 @@ export function App({
         name,
         ...(workspace !== (room.workspace ?? "") ? { workspace: workspace || null } : {}),
         ...(roomDialogLead !== (room.leadAgent ?? "") ? { leadAgent: roomDialogLead || null } : {}),
+        ...(roomDialogGuestFiles !== Boolean(room.workspaceFilesGuests)
+          ? { workspaceFilesGuests: roomDialogGuestFiles }
+          : {}),
       });
       upsertRoom(updated);
       closeRoomDialog();
@@ -4758,6 +4817,29 @@ export function App({
                   </span>
                 ) : null}
               </button>
+              {canViewWorkspace && (
+                <button
+                  ref={workspaceButtonRef}
+                  type="button"
+                  className={`header-button workspace-toggle ${workspaceOpen ? "active" : ""}`}
+                  aria-pressed={workspaceOpen}
+                  aria-label={
+                    workspaceChangeCount
+                      ? t("工作区文件与改动（{0} 个文件有未提交改动）", { 0: workspaceChangeCount })
+                      : t("工作区文件与改动")
+                  }
+                  title={t("工作区文件与改动（只读）")}
+                  onClick={() => setWorkspaceOpen((current) => !current)}
+                >
+                  <WorkspaceGlyph />
+                  <span>{t("代码")}</span>
+                  {workspaceChangeCount > 0 && (
+                    <span className="header-count workspace-toggle-count" aria-hidden="true">
+                      {workspaceChangeCount > 999 ? "999+" : workspaceChangeCount}
+                    </span>
+                  )}
+                </button>
+              )}
               <button
                 type="button"
                 className={`header-button share-fab ${shareMode ? "active" : ""}`}
@@ -5927,6 +6009,25 @@ export function App({
             </div>
           </div>
         </section>
+
+        {workspaceOpen && canViewWorkspace && (
+          <WorkspacePanel
+            api={workspaceRequest}
+            roomId={currentRoomId}
+            workspaceConfigured={Boolean(currentRoomWorkspace)}
+            isOwner={isOwner}
+            onOverview={recordWorkspaceOverview}
+            onClose={() => {
+              setWorkspaceOpen(false);
+              window.requestAnimationFrame(() => workspaceButtonRef.current?.focus());
+            }}
+            onOpenSettings={() => {
+              if (!currentRoom || !workspaceButtonRef.current) return;
+              setWorkspaceOpen(false);
+              openRoomDialog({ mode: "manage", room: currentRoom }, workspaceButtonRef.current);
+            }}
+          />
+        )}
 
         <aside
           className={`members-panel panel ${mobilePanel === "members" ? "mobile-open" : ""}`}
@@ -7529,6 +7630,24 @@ export function App({
                         )}
                   </small>
                 </label>
+              )}
+              {isOwner && roomDialog.mode === "manage" && (
+                <div className="room-field room-field-check">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={roomDialogGuestFiles}
+                      aria-describedby="room-guest-files-hint"
+                      onChange={(event) => setRoomDialogGuestFiles(event.target.checked)}
+                    />
+                    {t("允许访客查看工作区文件与改动")}
+                  </label>
+                  <small id="room-guest-files-hint">
+                    {t(
+                      "只读：访客能浏览文件、看 git 变更与提交，不能修改；疑似密钥文件（.env、私钥等）的内容始终只有房主能看。默认关闭。",
+                    )}
+                  </small>
+                </div>
               )}
               {isOwner && roomDialog.mode === "manage" && (
                 <label className="room-field">

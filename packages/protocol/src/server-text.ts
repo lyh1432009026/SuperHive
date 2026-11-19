@@ -36,6 +36,58 @@ export const serverTexts = {
     zh: "这个房间里没有所选白板事项。",
     en: "The selected whiteboard item was not found in this room.",
   },
+  "error.workspaceFiles.notConfigured": {
+    zh: "这个房间还没有设工作区。",
+    en: "This room has no workspace yet.",
+  },
+  "error.workspaceFiles.missing": {
+    zh: "工作区目录不存在或无法访问。",
+    en: "The workspace folder doesn't exist or can't be accessed.",
+  },
+  "error.workspaceFiles.guestsDisabled": {
+    zh: "房主没有开放工作区文件查看。",
+    en: "The owner hasn't allowed viewing workspace files.",
+  },
+  "error.workspaceFiles.sourceNotFound": {
+    zh: "找不到这个工作区或 worktree，可能已被清理。",
+    en: "That workspace or worktree wasn't found. It may have been cleaned up.",
+  },
+  "error.workspaceFiles.pathInvalid": {
+    zh: "路径无效，只能查看工作区里的文件。",
+    en: "Invalid path. Only files inside the workspace can be viewed.",
+  },
+  "error.workspaceFiles.pathOutside": {
+    zh: "这个链接指向工作区外面，不能查看。",
+    en: "This link points outside the workspace and can't be viewed.",
+  },
+  "error.workspaceFiles.notFound": {
+    zh: "文件或目录不存在，可能刚被改动。",
+    en: "The file or folder doesn't exist. It may have just changed.",
+  },
+  "error.workspaceFiles.notGit": {
+    zh: "工作区不是 Git 仓库。",
+    en: "The workspace isn't a Git repository.",
+  },
+  "error.workspaceFiles.refNotFound": {
+    zh: "找不到这个提交或分支。",
+    en: "That commit or branch wasn't found.",
+  },
+  "error.workspaceFiles.tooLarge": {
+    zh: "内容太多，无法显示。",
+    en: "Too much content to show.",
+  },
+  "error.workspaceFiles.timeout": {
+    zh: "Git 响应超时，稍后再试。",
+    en: "Git took too long. Try again later.",
+  },
+  "error.workspaceFiles.failed": {
+    zh: "读取工作区失败：{reason}",
+    en: "Couldn't read the workspace: {reason}",
+  },
+  "error.workspaceFiles.revealOwnerOnly": {
+    zh: "只有房主可以查看疑似密钥文件的内容。",
+    en: "Only the owner can view files that may contain secrets.",
+  },
   "action.worktree": { zh: "管理工作区", en: "Manage worktrees" },
   "error.worktree.localOnly": {
     zh: "只有本机房主的可写 Agent 能管理工作区；访客、远端和只读 Agent 不行。",

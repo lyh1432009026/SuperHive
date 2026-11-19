@@ -877,6 +877,8 @@ export const roomSummarySchema = z.object({
   branch: z.string().max(200).optional(),
   /** 主 Agent 的名字：人发的、没有 @ 任何人的消息默认交给它接话和调度；不设就和以前一样没人接 */
   leadAgent: z.string().max(32).optional(),
+  /** 房主允许访客只读查看工作区文件与 git 变更；默认关（没有这个字段） */
+  workspaceFilesGuests: z.boolean().optional(),
   onlineCount: z.number().int().nonnegative(),
   latestSeq: z.number().int().nonnegative(),
   /** 最近一条消息的时间：侧栏不置顶的房间按它倒序排；还没有消息时没有 */
@@ -971,6 +973,8 @@ export const updateRoomRequestSchema = z.object({
   workspace: roomWorkspaceSchema.nullable().optional(),
   /** 设为 null 取消主 Agent */
   leadAgent: z.string().trim().min(1).max(32).nullable().optional(),
+  /** 允许访客只读查看工作区文件与 git 变更 */
+  workspaceFilesGuests: z.boolean().optional(),
 });
 
 export const metaResponseSchema = z.object({
@@ -1718,4 +1722,5 @@ export * from "./plural.js";
 export * from "./participant-order.js";
 export * from "./invocation-decision.js";
 export * from "./agent-clis.js";
+export * from "./workspace-files.js";
 export * from "./server-text.js";

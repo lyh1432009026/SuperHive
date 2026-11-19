@@ -1,0 +1,1765 @@
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
+import type {
+  WorkspaceChange,
+  WorkspaceChangeGroup,
+  WorkspaceChangeSet,
+  WorkspaceCommit,
+  WorkspaceDiff,
+  WorkspaceDiffMode,
+  WorkspaceFile,
+  WorkspaceOverview,
+  WorkspaceSearch,
+  WorkspaceStatus,
+  WorkspaceTree,
+  WorkspaceTreeEntry,
+} from "@superhive/protocol";
+import { getLocale, t } from "./i18n";
+import { Select } from "./select";
+import { serverError } from "./server-text";
+import {
+  MAX_RENDERED_DIFF_LINES,
+  diffBlocks,
+  diffStats,
+  formatBytes,
+  highlightHunks,
+  highlightLines,
+  languageFor,
+  parsePatch,
+  splitRows,
+  type DiffLine,
+  type Token,
+} from "./workspace-diff";
+
+/**
+ * 房间工作区面板：从聊天头部「代码」打开的宽抽屉，只读。
+ * - 变更：git status 分组（或 worktree 相对 base 的全部改动），点文件看 diff（统一 / 左右对照、高亮、折叠未改动）；
+ * - 文件：懒加载的目录树（默认遵守 .gitignore）、按文件名搜索、只读预览；
+ * - 提交：最近提交，点开看那次提交改了什么。
+ * 打开时每隔几秒刷新变更，关上就不再请求。权限由服务端校验，这里只按结果显示。
+ */
+
+type Tab = "changes" | "files" | "commits";
+type DiffView = "unified" | "split";
+
+const WIDTH_KEY = "superhive.workspace-width";
+const VIEW_KEY = "superhive.workspace-diff-view";
+const MIN_WIDTH = 560;
+/** 打开时变更列表的刷新间隔 */
+const STATUS_REFRESH_MS = 4000;
+
+export type WorkspaceApi = (
+  path: string,
+  query?: Record<string, string | undefined>,
+) => Promise<unknown>;
+
+/** 带上令牌的只读请求；失败时抛出服务端给的说明 */
+export function workspaceApi(
+  base: string,
+  roomId: string,
+  token: string | undefined,
+): WorkspaceApi {
+  return async (path, query = {}) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query))
+      if (value !== undefined) params.set(key, value);
+    const search = params.toString();
+    const response = await fetch(
+      `${base}/api/rooms/${encodeURIComponent(roomId)}/workspace${path}${search ? `?${search}` : ""}`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {}, cache: "no-store" },
+    );
+    const body: unknown = await response.json().catch(() => ({}));
+    if (!response.ok)
+      throw new Error(serverError(body) ?? t("加载失败（{0}）", { 0: response.status }));
+    return body;
+  };
+}
+
+function storedWidth(): number {
+  const value = Number(localStorage.getItem(WIDTH_KEY));
+  return Number.isFinite(value) && value >= MIN_WIDTH
+    ? value
+    : Math.max(MIN_WIDTH, Math.min(1120, Math.round(window.innerWidth * 0.68)));
+}
+
+function clampWidth(width: number): number {
+  return Math.round(Math.max(MIN_WIDTH, Math.min(width, window.innerWidth - 80)));
+}
+
+function useAsync<T>(load: () => Promise<T>, deps: unknown[]) {
+  const [state, setState] = useState<{ data?: T; error?: string; loading: boolean }>({
+    loading: true,
+  });
+  const version = useRef(0);
+  const run = useCallback(async (quiet = false) => {
+    const current = ++version.current;
+    if (!quiet) setState((previous) => ({ ...previous, loading: true }));
+    try {
+      const data = await load();
+      if (current === version.current) setState({ data, loading: false });
+    } catch (reason) {
+      if (current === version.current)
+        setState((previous) => ({
+          ...(quiet ? previous : {}),
+          error: reason instanceof Error ? reason.message : String(reason),
+          loading: false,
+        }));
+    }
+  }, deps);
+  useEffect(() => {
+    void run();
+  }, [run]);
+  return { ...state, reload: run };
+}
+
+/** 面板打开、页面在前台时按间隔静默刷新 */
+function useInterval(callback: () => void, ms: number, enabled: boolean) {
+  const saved = useRef(callback);
+  saved.current = callback;
+  useEffect(() => {
+    if (!enabled) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") saved.current();
+    }, ms);
+    return () => window.clearInterval(timer);
+  }, [ms, enabled]);
+}
+
+export function WorkspaceGlyph({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m8 7-5 5 5 5M16 7l5 5-5 5M13.5 4l-3 16" />
+    </svg>
+  );
+}
+
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      className={`workspace-chevron ${open ? "open" : ""}`}
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m9 6 6 6-6 6" />
+    </svg>
+  );
+}
+
+function FileGlyph({ directory }: { directory?: boolean }) {
+  return (
+    <svg
+      className="workspace-file-glyph"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {directory ? (
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      ) : (
+        <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5" />
+      )}
+    </svg>
+  );
+}
+
+const STATUS_LABELS: Record<string, () => string> = {
+  M: () => t("修改"),
+  A: () => t("新增"),
+  D: () => t("删除"),
+  R: () => t("重命名"),
+  C: () => t("复制"),
+  T: () => t("类型变化"),
+  U: () => t("冲突"),
+  "?": () => t("未跟踪"),
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const label = STATUS_LABELS[status]?.() ?? status;
+  return (
+    <span
+      className={`workspace-status status-${status === "?" ? "untracked" : status}`}
+      title={label}
+    >
+      {/* 和 VS Code 一样：未跟踪显示 U，冲突显示 !（git 的 U 是冲突，容易混） */}
+      <span aria-hidden="true">{status === "?" ? "U" : status === "U" ? "!" : status}</span>
+      <span className="sr-only">{label}</span>
+    </span>
+  );
+}
+
+function Counts({
+  additions,
+  deletions,
+  binary,
+}: Pick<WorkspaceChange, "additions" | "deletions" | "binary">) {
+  if (binary) return <span className="workspace-counts binary">{t("二进制")}</span>;
+  if (additions === undefined && deletions === undefined) return null;
+  return (
+    <span className="workspace-counts">
+      {additions ? <span className="add">+{additions}</span> : null}
+      {deletions ? <span className="del">−{deletions}</span> : null}
+    </span>
+  );
+}
+
+const GROUP_ORDER: WorkspaceChangeGroup[] = ["conflict", "staged", "unstaged", "untracked"];
+const GROUP_LABELS: Record<WorkspaceChangeGroup, () => string> = {
+  conflict: () => t("冲突"),
+  staged: () => t("已暂存"),
+  unstaged: () => t("未暂存"),
+  untracked: () => t("未跟踪"),
+};
+
+type SelectedChange = {
+  path: string;
+  oldPath?: string;
+  mode: WorkspaceDiffMode;
+  commit?: string;
+  /** 用来在内容变了时重新取 diff */
+  revision: string;
+};
+
+function changeKey(change: { path: string; mode: string; commit?: string }) {
+  return `${change.mode}:${change.commit ?? ""}:${change.path}`;
+}
+
+function formatTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString(getLocale(), {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export function WorkspacePanel({
+  api,
+  roomId,
+  workspaceConfigured,
+  isOwner,
+  onClose,
+  onOpenSettings,
+  onOverview,
+}: {
+  api: WorkspaceApi;
+  roomId: string;
+  /** 房间设了工作区：没设时直接给说明，不发请求 */
+  workspaceConfigured: boolean;
+  isOwner: boolean;
+  onClose: () => void;
+  /** 打开房间设置（设工作区、允许访客查看） */
+  onOpenSettings?: () => void;
+  /** 总览刷新后通知外面（头部入口上的改动数） */
+  onOverview?: (overview: WorkspaceOverview) => void;
+}) {
+  const panelRef = useRef<HTMLElement>(null);
+  const [width, setWidth] = useState(storedWidth);
+  const [narrow, setNarrow] = useState(false);
+  const [tab, setTab] = useState<Tab>("changes");
+  const [sourceId, setSourceId] = useState("workspace");
+  const [refreshTick, setRefreshTick] = useState(0);
+  const overview = useAsync(async () => {
+    if (!workspaceConfigured) return undefined;
+    const next = (await api("")) as WorkspaceOverview;
+    onOverview?.(next);
+    return next;
+  }, [api, workspaceConfigured, refreshTick]);
+  const sources = overview.data?.sources ?? [];
+  const source = sources.find((item) => item.id === sourceId) ?? sources[0];
+  useEffect(() => {
+    if (overview.data && !overview.data.sources.some((item) => item.id === sourceId))
+      setSourceId("workspace");
+  }, [overview.data, sourceId]);
+  useEffect(() => {
+    setSourceId("workspace");
+    setTab("changes");
+  }, [roomId]);
+
+  useEffect(() => {
+    localStorage.setItem(WIDTH_KEY, String(width));
+  }, [width]);
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!panel || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) =>
+      setNarrow((entry?.contentRect.width ?? 0) < 760),
+    );
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, []);
+
+  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    const startX = event.clientX;
+    const startWidth = width;
+    document.body.classList.add("resizing-panel");
+    const move = (moveEvent: PointerEvent) =>
+      setWidth(clampWidth(startWidth - (moveEvent.clientX - startX)));
+    const end = () => {
+      document.body.classList.remove("resizing-panel");
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", end);
+      handle.removeEventListener("pointercancel", end);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", end);
+    handle.addEventListener("pointercancel", end);
+  };
+
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key === "Escape" && !event.defaultPrevented) {
+      event.preventDefault();
+      onClose();
+    }
+  };
+
+  const tabs: Array<{ id: Tab; label: string }> = [
+    { id: "changes", label: t("改动") },
+    { id: "files", label: t("文件树") },
+    ...(overview.data?.git ? [{ id: "commits" as const, label: t("最近提交") }] : []),
+  ];
+  const changeCount = source?.id === "workspace" ? overview.data?.changeCount : undefined;
+  const sourceQuery = source?.id ?? "workspace";
+
+  let body: ReactNode;
+  if (!workspaceConfigured || overview.data?.configured === false) {
+    body = (
+      <div className="workspace-empty">
+        <p>{t("这个房间还没有设工作区。")}</p>
+        <p className="workspace-muted">
+          {t("设好工作区后，可以在这里浏览文件、查看 Agent 改了哪些代码。")}
+        </p>
+        {isOwner && onOpenSettings && (
+          <button type="button" className="workspace-primary" onClick={onOpenSettings}>
+            {t("去设置工作区")}
+          </button>
+        )}
+      </div>
+    );
+  } else if (overview.error && !overview.data) {
+    body = (
+      <div className="workspace-empty" role="alert">
+        <p>{overview.error}</p>
+        <button type="button" onClick={() => void overview.reload()}>
+          {t("重试")}
+        </button>
+      </div>
+    );
+  } else if (!overview.data) {
+    body = <div className="workspace-loading">{t("加载中…")}</div>;
+  } else if (tab === "files") {
+    body = (
+      <FilesView
+        key={`${roomId}:${sourceQuery}`}
+        api={api}
+        source={sourceQuery}
+        git={overview.data.git}
+        canReveal={overview.data.canReveal}
+        narrow={narrow}
+        refreshTick={refreshTick}
+      />
+    );
+  } else if (tab === "commits" && overview.data.git) {
+    body = (
+      <CommitsView
+        key={`${roomId}:${sourceQuery}`}
+        api={api}
+        source={sourceQuery}
+        canReveal={overview.data.canReveal}
+        narrow={narrow}
+        refreshTick={refreshTick}
+      />
+    );
+  } else if (!overview.data.git) {
+    body = (
+      <div className="workspace-empty">
+        <p>{t("工作区不是 Git 仓库，没有变更可看。")}</p>
+        <button type="button" onClick={() => setTab("files")}>
+          {t("浏览文件")}
+        </button>
+      </div>
+    );
+  } else {
+    body = (
+      <ChangesView
+        key={`${roomId}:${sourceQuery}`}
+        api={api}
+        source={sourceQuery}
+        base={source?.base}
+        defaultMode={source?.kind === "worktree" ? "base" : "local"}
+        canReveal={overview.data.canReveal}
+        narrow={narrow}
+        refreshTick={refreshTick}
+        onStatus={(status) => {
+          if (sourceQuery === "workspace" && overview.data)
+            onOverview?.({
+              ...overview.data,
+              changeCount: new Set(status.changes.map((item) => item.path)).size,
+            });
+        }}
+      />
+    );
+  }
+
+  return (
+    <aside
+      ref={panelRef}
+      className="workspace-panel"
+      style={{ width }}
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="workspace-panel-title"
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
+    >
+      <div
+        className="workspace-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t("拖动调整面板宽度")}
+        aria-valuemin={MIN_WIDTH}
+        aria-valuenow={width}
+        tabIndex={0}
+        onPointerDown={startResize}
+        onDoubleClick={() => setWidth(clampWidth(Math.round(window.innerWidth * 0.68)))}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          setWidth((current) => clampWidth(current + (event.key === "ArrowLeft" ? 32 : -32)));
+        }}
+      />
+      <header className="workspace-header">
+        <div className="workspace-title">
+          <WorkspaceGlyph size={17} />
+          <h2 id="workspace-panel-title">{t("工作区")}</h2>
+          {overview.data?.name && <span className="workspace-muted">{overview.data.name}</span>}
+        </div>
+        {sources.length > 1 && (
+          <Select
+            className="workspace-source"
+            aria-label={t("查看哪份代码")}
+            value={source?.id ?? "workspace"}
+            onChange={(value) => setSourceId(value)}
+            options={sources.map((item) => ({
+              value: item.id,
+              label:
+                item.kind === "workspace"
+                  ? t("工作区 · {0}", { 0: item.branch ?? item.label })
+                  : item.label,
+              description:
+                item.kind === "workspace"
+                  ? t("房间工作区当前的检出")
+                  : item.missing
+                    ? t("{0} 的任务线（目录已不存在）", { 0: item.agentName ?? "" })
+                    : t("{0} 的任务线，基于 {1}", { 0: item.agentName ?? "", 1: item.base ?? "" }),
+              disabled: Boolean(item.missing),
+              group: item.kind === "workspace" ? t("工作区") : t("任务线（worktree）"),
+            }))}
+          />
+        )}
+        <div className="workspace-header-actions">
+          <button
+            type="button"
+            className="workspace-icon-button"
+            aria-label={t("刷新")}
+            title={t("刷新")}
+            onClick={() => setRefreshTick((value) => value + 1)}
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.9"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="workspace-icon-button"
+            aria-label={t("关闭工作区面板")}
+            title={t("关闭")}
+            onClick={onClose}
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.9"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+      </header>
+      {overview.data?.configured && (
+        <div
+          className="workspace-tabs"
+          role="tablist"
+          aria-label={t("工作区视图")}
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+            event.preventDefault();
+            const index = tabs.findIndex((item) => item.id === tab);
+            const next =
+              tabs[(index + (event.key === "ArrowLeft" ? -1 : 1) + tabs.length) % tabs.length]!;
+            setTab(next.id);
+            window.requestAnimationFrame(() =>
+              panelRef.current?.querySelector<HTMLElement>(`#workspace-tab-${next.id}`)?.focus(),
+            );
+          }}
+        >
+          {tabs.map((item) => (
+            <button
+              key={item.id}
+              id={`workspace-tab-${item.id}`}
+              type="button"
+              role="tab"
+              aria-selected={tab === item.id}
+              aria-controls="workspace-tabpanel"
+              tabIndex={tab === item.id ? 0 : -1}
+              className={tab === item.id ? "active" : ""}
+              onClick={() => setTab(item.id)}
+            >
+              {item.label}
+              {item.id === "changes" && changeCount ? (
+                <span className="workspace-tab-count">{changeCount}</span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      )}
+      <div
+        className="workspace-body"
+        id="workspace-tabpanel"
+        role={overview.data?.configured ? "tabpanel" : undefined}
+        aria-labelledby={overview.data?.configured ? `workspace-tab-${tab}` : undefined}
+      >
+        {body}
+      </div>
+    </aside>
+  );
+}
+
+/* ---------- 变更 ---------- */
+
+function ChangesView({
+  api,
+  source,
+  base,
+  defaultMode,
+  canReveal,
+  narrow,
+  refreshTick,
+  onStatus,
+}: {
+  api: WorkspaceApi;
+  source: string;
+  base: string | undefined;
+  defaultMode: "local" | "base";
+  canReveal: boolean;
+  narrow: boolean;
+  refreshTick: number;
+  onStatus: (status: WorkspaceStatus) => void;
+}) {
+  const [mode, setMode] = useState<"local" | "base">(base ? defaultMode : "local");
+  const status = useAsync(async () => {
+    const next = (await api("/status", { source })) as WorkspaceStatus;
+    onStatus(next);
+    return next;
+  }, [api, source, refreshTick]);
+  const compare = useAsync(
+    async () =>
+      mode === "base" && base
+        ? ((await api("/compare", { source, base })) as WorkspaceChangeSet)
+        : undefined,
+    [api, source, base, mode, refreshTick],
+  );
+  useInterval(
+    () => {
+      void status.reload(true);
+      if (mode === "base") void compare.reload(true);
+    },
+    STATUS_REFRESH_MS,
+    true,
+  );
+  const [selected, setSelected] = useState<SelectedChange>();
+  const entries: Array<{
+    group?: WorkspaceChangeGroup;
+    change: WorkspaceChange;
+    mode: WorkspaceDiffMode;
+  }> = useMemo(() => {
+    if (mode === "base")
+      return (compare.data?.changes ?? []).map((change) => ({ change, mode: "base" as const }));
+    const changes = status.data?.changes ?? [];
+    return GROUP_ORDER.flatMap((group) =>
+      changes
+        .filter((change) => change.group === group)
+        .map((change) => ({ group, change, mode: group as WorkspaceDiffMode })),
+    );
+  }, [mode, compare.data, status.data]);
+  // 选中的文件不在列表里了（提交了、撤销了）就取消；内容变了用 revision 重新取 diff
+  useEffect(() => {
+    if (!selected) return;
+    const match = entries.find(
+      (entry) => changeKey({ path: entry.change.path, mode: entry.mode }) === changeKey(selected),
+    );
+    if (!match) {
+      if (!status.loading && !compare.loading) setSelected(undefined);
+      return;
+    }
+    const revision = `${match.change.additions ?? ""}/${match.change.deletions ?? ""}/${refreshTick}`;
+    if (revision !== selected.revision) setSelected({ ...selected, revision });
+  }, [entries, selected, refreshTick, status.loading, compare.loading]);
+  useEffect(() => {
+    if (narrow || selected || !entries.length) return;
+    const first = entries[0]!;
+    setSelected({
+      path: first.change.path,
+      ...(first.change.oldPath ? { oldPath: first.change.oldPath } : {}),
+      mode: first.mode,
+      revision: `${first.change.additions ?? ""}/${first.change.deletions ?? ""}/${refreshTick}`,
+    });
+  }, [entries, narrow, selected, refreshTick]);
+
+  const data = status.data;
+  const loading = mode === "base" ? compare.loading && !compare.data : status.loading && !data;
+  const error = mode === "base" ? compare.error : status.error;
+  const showList = !narrow || !selected;
+  const showDetail = !narrow || Boolean(selected);
+
+  return (
+    <div className={`workspace-split ${narrow ? "narrow" : ""}`}>
+      {showList && (
+        <div className="workspace-list" aria-label={t("改动的文件")}>
+          {data && (
+            <div className="workspace-branch">
+              <span className="workspace-branch-name" title={t("当前分支")}>
+                {data.detached ? t("分离 HEAD · {0}", { 0: data.branch ?? "" }) : data.branch}
+              </span>
+              {data.upstream && (
+                <span className="workspace-muted" title={t("上游分支 {0}", { 0: data.upstream })}>
+                  {data.ahead ? `↑${data.ahead}` : ""}
+                  {data.behind ? ` ↓${data.behind}` : ""}
+                  {!data.ahead && !data.behind ? t("与上游同步") : ""}
+                </span>
+              )}
+            </div>
+          )}
+          {base && (
+            <div className="workspace-segmented" role="radiogroup" aria-label={t("对比范围")}>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={mode === "local"}
+                className={mode === "local" ? "active" : ""}
+                onClick={() => {
+                  setMode("local");
+                  setSelected(undefined);
+                }}
+              >
+                {t("未提交")}
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={mode === "base"}
+                className={mode === "base" ? "active" : ""}
+                title={t("从和 {0} 分叉起的全部改动，含未提交的", { 0: base })}
+                onClick={() => {
+                  setMode("base");
+                  setSelected(undefined);
+                }}
+              >
+                {t("相对 {0}", { 0: base })}
+              </button>
+            </div>
+          )}
+          {mode === "base" && compare.data?.commits && (
+            <p className="workspace-muted workspace-list-note">
+              {t("{0} 个提交 · {1} 个文件", {
+                0: compare.data.commits.length,
+                1: compare.data.changes.length,
+              })}
+            </p>
+          )}
+          {error && (
+            <p className="workspace-error" role="alert">
+              {error}
+            </p>
+          )}
+          {loading ? (
+            <p className="workspace-muted workspace-list-note">{t("加载中…")}</p>
+          ) : !entries.length && !error ? (
+            <p className="workspace-muted workspace-list-note">
+              {mode === "base"
+                ? t("相对 {0} 没有改动。", { 0: base ?? "" })
+                : t("没有未提交的改动。")}
+            </p>
+          ) : (
+            <ChangeList
+              entries={entries}
+              selected={selected}
+              onSelect={(entry) =>
+                setSelected({
+                  path: entry.change.path,
+                  ...(entry.change.oldPath ? { oldPath: entry.change.oldPath } : {}),
+                  mode: entry.mode,
+                  revision: `${entry.change.additions ?? ""}/${entry.change.deletions ?? ""}/${refreshTick}`,
+                })
+              }
+            />
+          )}
+          {(data?.truncated || compare.data?.truncated) && (
+            <p className="workspace-muted workspace-list-note">{t("改动太多，只列出了一部分。")}</p>
+          )}
+        </div>
+      )}
+      {showDetail && (
+        <div className="workspace-detail">
+          {selected ? (
+            <DiffViewer
+              api={api}
+              source={source}
+              selection={selected}
+              base={mode === "base" ? base : undefined}
+              canReveal={canReveal}
+              onBack={narrow ? () => setSelected(undefined) : undefined}
+            />
+          ) : (
+            <div className="workspace-empty workspace-muted">{t("选择左侧的文件查看改动。")}</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChangeList({
+  entries,
+  selected,
+  onSelect,
+}: {
+  entries: Array<{
+    group?: WorkspaceChangeGroup;
+    change: WorkspaceChange;
+    mode: WorkspaceDiffMode;
+    commit?: string;
+  }>;
+  selected: SelectedChange | undefined;
+  onSelect: (entry: { change: WorkspaceChange; mode: WorkspaceDiffMode; commit?: string }) => void;
+}) {
+  const groups = new Map<string, typeof entries>();
+  for (const entry of entries) {
+    const key = entry.group ?? "";
+    groups.set(key, [...(groups.get(key) ?? []), entry]);
+  }
+  return (
+    <>
+      {[...groups].map(([group, items]) => (
+        <section key={group} className="workspace-group">
+          {group && (
+            <h3>
+              {GROUP_LABELS[group as WorkspaceChangeGroup]()}
+              <span className="workspace-muted">{items.length}</span>
+            </h3>
+          )}
+          <ul>
+            {items.map((entry) => {
+              const key = changeKey({
+                path: entry.change.path,
+                mode: entry.mode,
+                ...(entry.commit ? { commit: entry.commit } : {}),
+              });
+              const active = selected ? changeKey(selected) === key : false;
+              const slash = entry.change.path.lastIndexOf("/");
+              return (
+                <li key={key}>
+                  <button
+                    type="button"
+                    className={`workspace-change ${active ? "active" : ""}`}
+                    aria-current={active ? "true" : undefined}
+                    title={
+                      entry.change.oldPath
+                        ? `${entry.change.oldPath} → ${entry.change.path}`
+                        : entry.change.path
+                    }
+                    onClick={() => onSelect(entry)}
+                  >
+                    <StatusBadge status={entry.change.status} />
+                    <span className="workspace-change-name">
+                      <span>{entry.change.path.slice(slash + 1)}</span>
+                      {slash > 0 && (
+                        <span className="workspace-muted">{entry.change.path.slice(0, slash)}</span>
+                      )}
+                    </span>
+                    {entry.change.sensitive && (
+                      <span className="workspace-lock" title={t("可能含密钥")}>
+                        🔒<span className="sr-only">{t("可能含密钥")}</span>
+                      </span>
+                    )}
+                    <Counts {...entry.change} />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ))}
+    </>
+  );
+}
+
+/* ---------- diff ---------- */
+
+function useDiffView(): [DiffView, (view: DiffView) => void] {
+  const [view, setView] = useState<DiffView>(() =>
+    localStorage.getItem(VIEW_KEY) === "split" ? "split" : "unified",
+  );
+  return [
+    view,
+    (next) => {
+      localStorage.setItem(VIEW_KEY, next);
+      setView(next);
+    },
+  ];
+}
+
+function DiffViewer({
+  api,
+  source,
+  selection,
+  base,
+  canReveal,
+  onBack,
+}: {
+  api: WorkspaceApi;
+  source: string;
+  selection: SelectedChange;
+  base?: string | undefined;
+  canReveal: boolean;
+  onBack?: (() => void) | undefined;
+}) {
+  const [view, setView] = useDiffView();
+  const [reveal, setReveal] = useState(false);
+  const [expandAll, setExpandAll] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [tooManyConfirmed, setTooManyConfirmed] = useState(false);
+  const identity = changeKey(selection);
+  useEffect(() => {
+    setReveal(false);
+    setExpanded(new Set());
+    setTooManyConfirmed(false);
+  }, [identity]);
+  const diff = useAsync(
+    async () =>
+      (await api("/diff", {
+        source,
+        path: selection.path,
+        oldPath: selection.oldPath,
+        mode: selection.mode,
+        commit: selection.commit,
+        base,
+        full: "1",
+        reveal: reveal ? "1" : undefined,
+      })) as WorkspaceDiff,
+    // revision 变了（文件又改了）就重新取
+    [api, source, identity, selection.revision, base, reveal],
+  );
+  const hunks = useMemo(
+    () => (diff.data?.patch !== undefined ? parsePatch(diff.data.patch) : undefined),
+    [diff.data],
+  );
+  const lineCount = hunks?.reduce((sum, hunk) => sum + hunk.lines.length, 0) ?? 0;
+  const tooMany = lineCount > MAX_RENDERED_DIFF_LINES && !tooManyConfirmed;
+  const language = languageFor(selection.path);
+  const tokens = useMemo(
+    () => (hunks && !tooMany ? highlightHunks(hunks, language) : new Map<DiffLine, Token[]>()),
+    [hunks, language, tooMany],
+  );
+  const blocks = useMemo(
+    () =>
+      hunks
+        ? diffBlocks(hunks, expandAll ? "all" : expanded, { showHunkHeaders: !diff.data?.full })
+        : [],
+    [hunks, expandAll, expanded, diff.data?.full],
+  );
+  const stats = hunks ? diffStats(hunks) : undefined;
+
+  let content: ReactNode;
+  if (diff.loading && !diff.data) content = <div className="workspace-loading">{t("加载中…")}</div>;
+  else if (diff.error)
+    content = (
+      <div className="workspace-empty" role="alert">
+        <p>{diff.error}</p>
+        <button type="button" onClick={() => void diff.reload()}>
+          {t("重试")}
+        </button>
+      </div>
+    );
+  else if (diff.data?.sensitive && diff.data.patch === undefined)
+    content = <SensitiveNotice canReveal={canReveal} onReveal={() => setReveal(true)} />;
+  else if (diff.data?.binary)
+    content = (
+      <div className="workspace-empty workspace-muted">{t("二进制文件，不显示内容。")}</div>
+    );
+  else if (diff.data?.tooLarge)
+    content = (
+      <div className="workspace-empty workspace-muted">{t("改动太大，不在这里显示。")}</div>
+    );
+  else if (!hunks) content = <pre className="workspace-raw">{diff.data?.patch}</pre>;
+  else if (!hunks.length)
+    content = (
+      <div className="workspace-empty workspace-muted">
+        {t("没有内容改动（可能只改了权限或是空文件）。")}
+      </div>
+    );
+  else if (tooMany)
+    content = (
+      <div className="workspace-empty">
+        <p className="workspace-muted">
+          {t("这个文件改了 {0} 行，一次显示可能会卡。", { 0: lineCount.toLocaleString() })}
+        </p>
+        <button type="button" onClick={() => setTooManyConfirmed(true)}>
+          {t("仍然显示")}
+        </button>
+      </div>
+    );
+  else
+    content = (
+      <div
+        className={`workspace-code workspace-diff ${view}`}
+        role="table"
+        aria-label={t("{0} 的改动", { 0: selection.path })}
+      >
+        {blocks.map((block, index) => {
+          if (block.type === "hunk")
+            return (
+              <div key={index} className="diff-hunk" role="row">
+                <span role="cell">
+                  @@ -{block.oldStart} +{block.newStart} @@ {block.header}
+                </span>
+              </div>
+            );
+          if (block.type === "gap")
+            return (
+              <div key={block.gap.id} className="diff-gap" role="row">
+                <span role="cell">
+                  <button
+                    type="button"
+                    onClick={() => setExpanded((current) => new Set(current).add(block.gap.id))}
+                  >
+                    {t("展开 {0} 行未改动", { 0: block.gap.count })}
+                  </button>
+                </span>
+              </div>
+            );
+          return view === "split" ? (
+            <Fragment key={index}>
+              {splitRows(block.lines).map((row, rowIndex) => (
+                <div key={rowIndex} className="diff-row split" role="row">
+                  <DiffCell line={row.left} side="old" tokens={row.left && tokens.get(row.left)} />
+                  <DiffCell
+                    line={row.right}
+                    side="new"
+                    tokens={row.right && tokens.get(row.right)}
+                  />
+                </div>
+              ))}
+            </Fragment>
+          ) : (
+            <Fragment key={index}>
+              {block.lines.map((line, lineIndex) => (
+                <div key={lineIndex} className={`diff-row ${line.kind}`} role="row">
+                  <span className="diff-number" role="cell" aria-hidden="true">
+                    {line.oldNumber ?? ""}
+                  </span>
+                  <span className="diff-number" role="cell" aria-hidden="true">
+                    {line.newNumber ?? ""}
+                  </span>
+                  <span className="diff-text" role="cell">
+                    <span className="sr-only">
+                      {line.kind === "add" ? t("新增：") : line.kind === "del" ? t("删除：") : ""}
+                    </span>
+                    <span className="diff-marker" aria-hidden="true">
+                      {line.kind === "add" ? "+" : line.kind === "del" ? "−" : " "}
+                    </span>
+                    <TokenLine tokens={tokens.get(line)} fallback={line.text} />
+                    {line.noNewline && (
+                      <span className="diff-eof" title={t("文件末尾没有换行")}>
+                        ⏎̸
+                      </span>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </Fragment>
+          );
+        })}
+      </div>
+    );
+
+  return (
+    <div className="workspace-viewer">
+      <div className="workspace-viewer-bar">
+        {onBack && (
+          <button type="button" className="workspace-back" onClick={onBack}>
+            ← {t("返回列表")}
+          </button>
+        )}
+        <span className="workspace-viewer-path" title={selection.path}>
+          {selection.oldPath && selection.oldPath !== selection.path
+            ? `${selection.oldPath} → `
+            : ""}
+          {selection.path}
+        </span>
+        {stats && <Counts additions={stats.additions} deletions={stats.deletions} />}
+        <div className="workspace-viewer-actions">
+          {hunks && hunks.length > 0 && diff.data?.full && (
+            <button
+              type="button"
+              aria-pressed={expandAll}
+              className={expandAll ? "active" : ""}
+              onClick={() => setExpandAll((value) => !value)}
+            >
+              {expandAll ? t("折叠未改动") : t("全部展开")}
+            </button>
+          )}
+          <div className="workspace-segmented" role="radiogroup" aria-label={t("diff 视图")}>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={view === "unified"}
+              className={view === "unified" ? "active" : ""}
+              onClick={() => setView("unified")}
+            >
+              {t("统一")}
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={view === "split"}
+              className={view === "split" ? "active" : ""}
+              onClick={() => setView("split")}
+            >
+              {t("左右对照")}
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className="workspace-viewer-scroll">{content}</div>
+    </div>
+  );
+}
+
+function DiffCell({
+  line,
+  side,
+  tokens,
+}: {
+  line: DiffLine | undefined;
+  side: "old" | "new";
+  tokens: Token[] | undefined;
+}) {
+  if (!line)
+    return (
+      <>
+        <span className="diff-number empty" role="cell" aria-hidden="true" />
+        <span className="diff-text empty" role="cell" />
+      </>
+    );
+  const number = side === "old" ? line.oldNumber : line.newNumber;
+  return (
+    <>
+      <span className={`diff-number ${line.kind}`} role="cell" aria-hidden="true">
+        {number ?? ""}
+      </span>
+      <span className={`diff-text ${line.kind}`} role="cell">
+        <span className="sr-only">
+          {line.kind === "add" ? t("新增：") : line.kind === "del" ? t("删除：") : ""}
+        </span>
+        <TokenLine tokens={tokens} fallback={line.text} />
+      </span>
+    </>
+  );
+}
+
+function TokenLine({ tokens, fallback }: { tokens: Token[] | undefined; fallback: string }) {
+  if (!tokens) return <>{fallback}</>;
+  return (
+    <>
+      {tokens.map((token, index) =>
+        token.className ? (
+          <span key={index} className={token.className}>
+            {token.text}
+          </span>
+        ) : (
+          <Fragment key={index}>{token.text}</Fragment>
+        ),
+      )}
+    </>
+  );
+}
+
+function SensitiveNotice({ canReveal, onReveal }: { canReveal: boolean; onReveal: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <div className="workspace-empty workspace-sensitive">
+      <p>
+        <strong>{t("这个文件可能含有密钥，默认不显示内容。")}</strong>
+      </p>
+      {canReveal ? (
+        confirming ? (
+          <div className="workspace-confirm" role="alert">
+            <p className="workspace-muted">{t("显示后内容会出现在屏幕上，注意周围和屏幕共享。")}</p>
+            <div>
+              <button type="button" onClick={() => setConfirming(false)}>
+                {t("取消")}
+              </button>
+              <button type="button" className="workspace-primary" onClick={onReveal}>
+                {t("确认显示")}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" onClick={() => setConfirming(true)}>
+            {t("显示内容…")}
+          </button>
+        )
+      ) : (
+        <p className="workspace-muted">{t("只有房主可以查看。")}</p>
+      )}
+    </div>
+  );
+}
+
+/* ---------- 文件 ---------- */
+
+function FilesView({
+  api,
+  source,
+  git,
+  canReveal,
+  narrow,
+  refreshTick,
+}: {
+  api: WorkspaceApi;
+  source: string;
+  git: boolean;
+  canReveal: boolean;
+  narrow: boolean;
+  refreshTick: number;
+}) {
+  const [showIgnored, setShowIgnored] = useState(false);
+  const [trees, setTrees] = useState<Map<string, WorkspaceTree | { error: string }>>(new Map());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set([""]));
+  const [selected, setSelected] = useState<string>();
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<WorkspaceSearch>();
+  const [searchError, setSearchError] = useState<string>();
+  const loading = useRef(new Set<string>());
+
+  const load = useCallback(
+    async (directory: string) => {
+      if (loading.current.has(directory)) return;
+      loading.current.add(directory);
+      try {
+        const tree = (await api("/tree", {
+          source,
+          path: directory,
+          ignored: showIgnored ? "1" : undefined,
+        })) as WorkspaceTree;
+        setTrees((current) => new Map(current).set(directory, tree));
+      } catch (reason) {
+        setTrees((current) =>
+          new Map(current).set(directory, {
+            error: reason instanceof Error ? reason.message : String(reason),
+          }),
+        );
+      } finally {
+        loading.current.delete(directory);
+      }
+    },
+    [api, source, showIgnored],
+  );
+  // 切换「显示忽略的文件」或刷新：已经展开的目录全部重新取
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
+  useEffect(() => {
+    for (const directory of expandedRef.current) void load(directory);
+  }, [load, refreshTick]);
+
+  useEffect(() => {
+    const needle = query.trim();
+    if (!needle) {
+      setResults(undefined);
+      setSearchError(undefined);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      api("/search", { source, q: needle }).then(
+        (value) => {
+          if (!cancelled) {
+            setResults(value as WorkspaceSearch);
+            setSearchError(undefined);
+          }
+        },
+        (reason: unknown) => {
+          if (!cancelled) setSearchError(reason instanceof Error ? reason.message : String(reason));
+        },
+      );
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [api, source, query]);
+
+  const toggle = (directory: string) => {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(directory)) next.delete(directory);
+      else {
+        next.add(directory);
+        if (!trees.has(directory)) void load(directory);
+      }
+      return next;
+    });
+  };
+
+  /** 搜索结果里点文件：展开它的上级目录，方便看周围 */
+  const reveal = (file: string) => {
+    setSelected(file);
+    const parts = file.split("/").slice(0, -1);
+    const parents = parts.map((_, index) => parts.slice(0, index + 1).join("/"));
+    setExpanded((current) => {
+      const next = new Set(current);
+      for (const parent of parents) {
+        next.add(parent);
+        if (!trees.has(parent)) void load(parent);
+      }
+      return next;
+    });
+  };
+
+  const renderDirectory = (directory: string, depth: number): ReactNode => {
+    const tree = trees.get(directory);
+    if (!tree)
+      return (
+        <li
+          className="workspace-tree-note workspace-muted"
+          style={{ paddingLeft: 12 + depth * 14 }}
+        >
+          {t("加载中…")}
+        </li>
+      );
+    if ("error" in tree)
+      return (
+        <li
+          className="workspace-tree-note workspace-error"
+          style={{ paddingLeft: 12 + depth * 14 }}
+          role="alert"
+        >
+          {tree.error}
+        </li>
+      );
+    if (!tree.entries.length && depth > 0)
+      return (
+        <li
+          className="workspace-tree-note workspace-muted"
+          style={{ paddingLeft: 12 + depth * 14 }}
+        >
+          {t("空目录")}
+        </li>
+      );
+    return (
+      <>
+        {tree.entries.map((entry) => (
+          <TreeRow
+            key={entry.path}
+            entry={entry}
+            depth={depth}
+            open={expanded.has(entry.path)}
+            selected={selected === entry.path}
+            onToggle={() => toggle(entry.path)}
+            onOpen={() => setSelected(entry.path)}
+          >
+            {entry.type === "directory" && !entry.outside && expanded.has(entry.path) && (
+              <ul role="group">{renderDirectory(entry.path, depth + 1)}</ul>
+            )}
+          </TreeRow>
+        ))}
+        {tree.truncated && (
+          <li
+            className="workspace-tree-note workspace-muted"
+            style={{ paddingLeft: 12 + depth * 14 }}
+          >
+            {t("条目太多，只列出了一部分，可以用上面的搜索找文件。")}
+          </li>
+        )}
+      </>
+    );
+  };
+
+  const showList = !narrow || !selected;
+  const showDetail = !narrow || Boolean(selected);
+  return (
+    <div className={`workspace-split ${narrow ? "narrow" : ""}`}>
+      {showList && (
+        <div className="workspace-list workspace-files">
+          <div className="workspace-search">
+            <input
+              type="search"
+              value={query}
+              placeholder={t("按文件名搜索")}
+              aria-label={t("按文件名搜索")}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape" && query) {
+                  event.preventDefault();
+                  setQuery("");
+                }
+              }}
+            />
+          </div>
+          {git && (
+            <label className="workspace-check">
+              <input
+                type="checkbox"
+                checked={showIgnored}
+                onChange={(event) => setShowIgnored(event.target.checked)}
+              />
+              {t("显示被 .gitignore 忽略的文件")}
+            </label>
+          )}
+          {query.trim() ? (
+            <div className="workspace-search-results" aria-live="polite">
+              {searchError ? (
+                <p className="workspace-error" role="alert">
+                  {searchError}
+                </p>
+              ) : !results ? (
+                <p className="workspace-muted workspace-list-note">{t("搜索中…")}</p>
+              ) : !results.paths.length ? (
+                <p className="workspace-muted workspace-list-note">{t("没有匹配的文件。")}</p>
+              ) : (
+                <ul>
+                  {results.paths.map((file) => {
+                    const slash = file.lastIndexOf("/");
+                    return (
+                      <li key={file}>
+                        <button
+                          type="button"
+                          className={`workspace-change ${selected === file ? "active" : ""}`}
+                          aria-current={selected === file ? "true" : undefined}
+                          onClick={() => reveal(file)}
+                        >
+                          <FileGlyph />
+                          <span className="workspace-change-name">
+                            <span>{file.slice(slash + 1)}</span>
+                            {slash > 0 && (
+                              <span className="workspace-muted">{file.slice(0, slash)}</span>
+                            )}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                  {results.truncated && (
+                    <li className="workspace-muted workspace-list-note">
+                      {t("只显示前 {0} 个结果。", { 0: results.paths.length })}
+                    </li>
+                  )}
+                </ul>
+              )}
+            </div>
+          ) : (
+            <ul className="workspace-tree" aria-label={t("工作区文件")}>
+              {renderDirectory("", 0)}
+            </ul>
+          )}
+        </div>
+      )}
+      {showDetail && (
+        <div className="workspace-detail">
+          {selected ? (
+            <FilePreview
+              key={selected}
+              api={api}
+              source={source}
+              path={selected}
+              canReveal={canReveal}
+              refreshTick={refreshTick}
+              onBack={narrow ? () => setSelected(undefined) : undefined}
+            />
+          ) : (
+            <div className="workspace-empty workspace-muted">{t("选择左侧的文件查看内容。")}</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TreeRow({
+  entry,
+  depth,
+  open,
+  selected,
+  onToggle,
+  onOpen,
+  children,
+}: {
+  entry: WorkspaceTreeEntry;
+  depth: number;
+  open: boolean;
+  selected: boolean;
+  onToggle: () => void;
+  onOpen: () => void;
+  children?: ReactNode;
+}) {
+  const directory = entry.type === "directory";
+  const disabled = Boolean(entry.outside) || entry.type === "other";
+  const statusClass = entry.status
+    ? `status-${entry.status === "?" ? "untracked" : entry.status}`
+    : "";
+  return (
+    <li>
+      <button
+        type="button"
+        className={`workspace-tree-row ${statusClass} ${selected ? "active" : ""} ${entry.ignored ? "ignored" : ""}`}
+        style={{ paddingLeft: 8 + depth * 14 }}
+        aria-expanded={directory && !disabled ? open : undefined}
+        aria-current={selected ? "true" : undefined}
+        disabled={disabled}
+        title={
+          entry.outside
+            ? t("{0} 指向工作区外面或已失效，不能查看", { 0: entry.name })
+            : entry.ignored
+              ? t("{0}（被 .gitignore 忽略）", { 0: entry.path })
+              : entry.path
+        }
+        onClick={directory ? onToggle : onOpen}
+      >
+        {directory ? <Chevron open={open} /> : <span className="workspace-chevron-space" />}
+        <FileGlyph directory={directory} />
+        <span className="workspace-tree-name">
+          {entry.name}
+          {entry.symlink && <span className="workspace-muted"> ↗</span>}
+        </span>
+        {entry.sensitive && (
+          <span className="workspace-lock" title={t("可能含密钥")}>
+            🔒<span className="sr-only">{t("可能含密钥")}</span>
+          </span>
+        )}
+        {entry.status && <StatusBadge status={entry.status} />}
+      </button>
+      {children}
+    </li>
+  );
+}
+
+function FilePreview({
+  api,
+  source,
+  path,
+  canReveal,
+  refreshTick,
+  onBack,
+}: {
+  api: WorkspaceApi;
+  source: string;
+  path: string;
+  canReveal: boolean;
+  refreshTick: number;
+  onBack?: (() => void) | undefined;
+}) {
+  const [reveal, setReveal] = useState(false);
+  const file = useAsync(
+    async () =>
+      (await api("/file", { source, path, reveal: reveal ? "1" : undefined })) as WorkspaceFile,
+    [api, source, path, reveal, refreshTick],
+  );
+  const lines = useMemo(() => {
+    const content = file.data?.content;
+    if (content === undefined) return undefined;
+    const text = content.endsWith("\n") ? content.slice(0, -1) : content;
+    return highlightLines(text, languageFor(path));
+  }, [file.data, path]);
+
+  let content: ReactNode;
+  if (file.loading && !file.data) content = <div className="workspace-loading">{t("加载中…")}</div>;
+  else if (file.error)
+    content = (
+      <div className="workspace-empty" role="alert">
+        <p>{file.error}</p>
+      </div>
+    );
+  else if (file.data?.sensitive && file.data.content === undefined && !file.data.binary)
+    content = <SensitiveNotice canReveal={canReveal} onReveal={() => setReveal(true)} />;
+  else if (file.data?.binary)
+    content = (
+      <div className="workspace-empty workspace-muted">{t("二进制文件，不显示内容。")}</div>
+    );
+  else if (lines)
+    content = (
+      <>
+        {file.data?.truncated && (
+          <p className="workspace-banner">
+            {t("文件较大，只显示前 {0}。", { 0: formatBytes(512 * 1024) })}
+          </p>
+        )}
+        <div className="workspace-code workspace-source-view" role="table" aria-label={path}>
+          {lines.map((tokens, index) => (
+            <div key={index} className="diff-row context" role="row">
+              <span className="diff-number" role="cell" aria-hidden="true">
+                {index + 1}
+              </span>
+              <span className="diff-text" role="cell">
+                <TokenLine tokens={tokens} fallback="" />
+              </span>
+            </div>
+          ))}
+        </div>
+      </>
+    );
+
+  return (
+    <div className="workspace-viewer">
+      <div className="workspace-viewer-bar">
+        {onBack && (
+          <button type="button" className="workspace-back" onClick={onBack}>
+            ← {t("返回列表")}
+          </button>
+        )}
+        <span className="workspace-viewer-path" title={path}>
+          {path}
+        </span>
+        {file.data && <span className="workspace-muted">{formatBytes(file.data.size)}</span>}
+      </div>
+      <div className="workspace-viewer-scroll">{content}</div>
+    </div>
+  );
+}
+
+/* ---------- 提交 ---------- */
+
+function CommitsView({
+  api,
+  source,
+  canReveal,
+  narrow,
+  refreshTick,
+}: {
+  api: WorkspaceApi;
+  source: string;
+  canReveal: boolean;
+  narrow: boolean;
+  refreshTick: number;
+}) {
+  const [commits, setCommits] = useState<WorkspaceCommit[]>([]);
+  const [more, setMore] = useState(false);
+  const [error, setError] = useState<string>();
+  const [loading, setLoading] = useState(true);
+  const [selectedCommit, setSelectedCommit] = useState<string>();
+  const [selectedFile, setSelectedFile] = useState<SelectedChange>();
+  const loadPage = useCallback(
+    async (skip: number) => {
+      setLoading(true);
+      try {
+        const page = (
+          (await api("/log", { source, skip: String(skip) })) as { commits: WorkspaceCommit[] }
+        ).commits;
+        setCommits((current) => (skip ? [...current, ...page] : page));
+        setMore(page.length >= 30);
+        setError(undefined);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [api, source],
+  );
+  useEffect(() => {
+    void loadPage(0);
+  }, [loadPage, refreshTick]);
+  const detail = useAsync(
+    async () =>
+      selectedCommit
+        ? ((await api("/commit", { source, commit: selectedCommit })) as WorkspaceChangeSet)
+        : undefined,
+    [api, source, selectedCommit],
+  );
+  useEffect(() => setSelectedFile(undefined), [selectedCommit]);
+
+  const showList = !narrow || !selectedCommit;
+  const showDetail = !narrow || Boolean(selectedCommit);
+  return (
+    <div className={`workspace-split ${narrow ? "narrow" : ""}`}>
+      {showList && (
+        <div className="workspace-list">
+          {error && (
+            <p className="workspace-error" role="alert">
+              {error}
+            </p>
+          )}
+          {!commits.length && !loading && !error && (
+            <p className="workspace-muted workspace-list-note">{t("还没有提交。")}</p>
+          )}
+          <ul className="workspace-commits">
+            {commits.map((commit) => (
+              <li key={commit.hash}>
+                <button
+                  type="button"
+                  className={`workspace-commit ${selectedCommit === commit.hash ? "active" : ""}`}
+                  aria-current={selectedCommit === commit.hash ? "true" : undefined}
+                  onClick={() => setSelectedCommit(commit.hash)}
+                >
+                  <span className="workspace-commit-subject">{commit.subject}</span>
+                  <span className="workspace-muted">
+                    <code>{commit.shortHash}</code> · {commit.author} · {formatTime(commit.date)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {loading && <p className="workspace-muted workspace-list-note">{t("加载中…")}</p>}
+          {more && !loading && (
+            <button
+              type="button"
+              className="workspace-more"
+              onClick={() => void loadPage(commits.length)}
+            >
+              {t("加载更多")}
+            </button>
+          )}
+        </div>
+      )}
+      {showDetail && (
+        <div className="workspace-detail">
+          {!selectedCommit ? (
+            <div className="workspace-empty workspace-muted">{t("选择一个提交查看改动。")}</div>
+          ) : selectedFile ? (
+            <DiffViewer
+              api={api}
+              source={source}
+              selection={selectedFile}
+              canReveal={canReveal}
+              onBack={() => setSelectedFile(undefined)}
+            />
+          ) : (
+            <div className="workspace-viewer">
+              <div className="workspace-viewer-bar">
+                {narrow && (
+                  <button
+                    type="button"
+                    className="workspace-back"
+                    onClick={() => setSelectedCommit(undefined)}
+                  >
+                    ← {t("返回列表")}
+                  </button>
+                )}
+                <span className="workspace-viewer-path">
+                  {detail.data?.commit?.subject ?? selectedCommit.slice(0, 7)}
+                </span>
+              </div>
+              <div className="workspace-viewer-scroll workspace-commit-detail">
+                {detail.loading && !detail.data ? (
+                  <div className="workspace-loading">{t("加载中…")}</div>
+                ) : detail.error ? (
+                  <p className="workspace-error" role="alert">
+                    {detail.error}
+                  </p>
+                ) : detail.data ? (
+                  <>
+                    <p className="workspace-muted">
+                      <code>{detail.data.commit?.hash}</code>
+                      <br />
+                      {detail.data.commit?.author} ·{" "}
+                      {detail.data.commit ? formatTime(detail.data.commit.date) : ""}
+                    </p>
+                    {detail.data.body && (
+                      <pre className="workspace-commit-body">{detail.data.body}</pre>
+                    )}
+                    <ChangeList
+                      entries={detail.data.changes.map((change) => ({
+                        change,
+                        mode: "commit" as const,
+                        commit: selectedCommit,
+                      }))}
+                      selected={selectedFile}
+                      onSelect={(entry) =>
+                        setSelectedFile({
+                          path: entry.change.path,
+                          ...(entry.change.oldPath ? { oldPath: entry.change.oldPath } : {}),
+                          mode: "commit",
+                          commit: selectedCommit,
+                          revision: selectedCommit,
+                        })
+                      }
+                    />
+                    {detail.data.truncated && (
+                      <p className="workspace-muted">{t("改动太多，只列出了一部分。")}</p>
+                    )}
+                  </>
+                ) : null}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

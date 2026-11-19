@@ -1,0 +1,299 @@
+import { realpath } from "node:fs/promises";
+import path from "node:path";
+import {
+  serverText,
+  workspaceDiffModeSchema,
+  workspaceRelativePathSchema,
+  workspaceSourceSchema,
+  type ManagedWorktree,
+  type RoomSummary,
+  type ServerTextKey,
+  type WorkspaceOverview,
+  type WorkspaceSourceInfo,
+} from "@superhive/protocol";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { z } from "zod";
+import { HiveError } from "./database.js";
+import { WorkspaceView } from "./workspace-files.js";
+import { errorText } from "./texts.js";
+
+/**
+ * 房间工作区只读浏览的接口（GET /api/rooms/:roomId/workspace/...）。
+ *
+ * 谁能看：房主（总令牌、房主设备）；访客要房主在房间设置里打开「允许访客查看工作区文件」，由这里校验。
+ * 疑似密钥文件的内容只给房主，且要带 reveal=1。响应一律 no-store；审计只记谁看了哪个路径，不记内容。
+ */
+
+export type WorkspaceViewer = { kind: "admin" | "guest"; who: string };
+
+const ERRORS: Record<string, { status: number; key: ServerTextKey }> = {
+  WORKSPACE_PATH_INVALID: { status: 400, key: "error.workspaceFiles.pathInvalid" },
+  WORKSPACE_PATH_OUTSIDE: { status: 403, key: "error.workspaceFiles.pathOutside" },
+  WORKSPACE_PATH_NOT_FOUND: { status: 404, key: "error.workspaceFiles.notFound" },
+  WORKSPACE_NOT_FILE: { status: 400, key: "error.workspaceFiles.notFound" },
+  WORKSPACE_NOT_DIRECTORY: { status: 400, key: "error.workspaceFiles.notFound" },
+  WORKSPACE_NOT_GIT: { status: 409, key: "error.workspaceFiles.notGit" },
+  WORKSPACE_REF_INVALID: { status: 400, key: "error.workspaceFiles.refNotFound" },
+  WORKSPACE_REF_NOT_FOUND: { status: 404, key: "error.workspaceFiles.refNotFound" },
+  WORKSPACE_TOO_LARGE: { status: 413, key: "error.workspaceFiles.tooLarge" },
+  WORKSPACE_GIT_TIMEOUT: { status: 504, key: "error.workspaceFiles.timeout" },
+  WORKSPACE_REVEAL_FORBIDDEN: { status: 403, key: "error.workspaceFiles.revealOwnerOnly" },
+};
+
+const sourceQuery = z.object({ source: workspaceSourceSchema.default("workspace") });
+const flag = z
+  .enum(["0", "1", "true", "false"])
+  .optional()
+  .transform((value) => value === "1" || value === "true");
+
+const querySchemas = {
+  status: sourceQuery,
+  log: sourceQuery.extend({ skip: z.coerce.number().int().min(0).max(100_000).default(0) }),
+  commit: sourceQuery.extend({ commit: z.string().min(4).max(64) }),
+  compare: sourceQuery.extend({ base: z.string().min(1).max(200).optional() }),
+  diff: sourceQuery.extend({
+    path: workspaceRelativePathSchema.pipe(z.string().min(1)),
+    oldPath: workspaceRelativePathSchema.optional(),
+    mode: workspaceDiffModeSchema,
+    commit: z.string().min(4).max(64).optional(),
+    base: z.string().min(1).max(200).optional(),
+    reveal: flag,
+    full: flag,
+  }),
+  tree: sourceQuery.extend({ path: workspaceRelativePathSchema.default(""), ignored: flag }),
+  file: sourceQuery.extend({
+    path: workspaceRelativePathSchema.pipe(z.string().min(1)),
+    reveal: flag,
+  }),
+  search: sourceQuery.extend({ q: z.string().max(200).default("") }),
+};
+
+export function registerWorkspaceFileRoutes(
+  app: FastifyInstance,
+  options: {
+    room: (roomId: string) => RoomSummary | undefined;
+    /** 通过返回查看者；不通过时已经回复了错误（401/403） */
+    authorize: (
+      request: FastifyRequest,
+      reply: FastifyReply,
+      roomId: string,
+    ) => WorkspaceViewer | undefined;
+    /** 这个房间登记的 worktree */
+    worktrees: (roomId: string) => ManagedWorktree[];
+    /** 工作区仓库的默认分支（worktree 默认的 base）；不是仓库或找不到时 undefined */
+    defaultBranch: (workspace: string) => Promise<string | undefined>;
+  },
+): void {
+  const send = (reply: FastifyReply, status: number, key: ServerTextKey, params = {}) =>
+    reply
+      .code(status)
+      .header("Cache-Control", "no-store")
+      .send({ ...errorText(serverText(key, params)), code: key });
+
+  /** 解析成一个只读视图；不能看时已经回复 */
+  async function viewFor(
+    request: FastifyRequest<{ Params: { roomId: string } }>,
+    reply: FastifyReply,
+    source: string,
+  ): Promise<
+    { view: WorkspaceView; viewer: WorkspaceViewer; record?: ManagedWorktree } | undefined
+  > {
+    const roomId = request.params.roomId;
+    const viewer = options.authorize(request, reply, roomId);
+    if (!viewer) return undefined;
+    const room = options.room(roomId);
+    if (!room) return void send(reply, 404, "error.room.notFound");
+    if (viewer.kind === "guest" && !room.workspaceFilesGuests)
+      return void send(reply, 403, "error.workspaceFiles.guestsDisabled");
+    if (!room.workspace) return void send(reply, 404, "error.workspaceFiles.notConfigured");
+    let root: string;
+    let record: ManagedWorktree | undefined;
+    if (source === "workspace") root = room.workspace;
+    else {
+      record = options.worktrees(roomId).find((item) => item.id === source);
+      if (!record) return void send(reply, 404, "error.workspaceFiles.sourceNotFound");
+      root = record.path;
+    }
+    try {
+      root = await realpath(root);
+    } catch {
+      return void send(
+        reply,
+        404,
+        record ? "error.workspaceFiles.sourceNotFound" : "error.workspaceFiles.missing",
+      );
+    }
+    return { view: new WorkspaceView(root), viewer, ...(record ? { record } : {}) };
+  }
+
+  function failed(reply: FastifyReply, error: unknown) {
+    if (error instanceof HiveError) {
+      const mapped = ERRORS[error.code];
+      if (mapped) return send(reply, mapped.status, mapped.key);
+      if (error.code === "WORKSPACE_GIT_FAILED")
+        return send(reply, 500, "error.workspaceFiles.failed", { reason: error.message });
+    }
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    if (code === "ENOENT" || code === "ENOTDIR")
+      return send(reply, 404, "error.workspaceFiles.notFound");
+    if (code === "EACCES" || code === "EPERM")
+      return send(reply, 403, "error.workspaceFiles.missing");
+    throw error;
+  }
+
+  function audit(
+    request: FastifyRequest<{ Params: { roomId: string } }>,
+    viewer: WorkspaceViewer,
+    action: "file" | "diff",
+    detail: { source: string; path: string; revealed?: boolean },
+  ) {
+    request.log.info(
+      { workspaceFiles: { room: request.params.roomId, by: viewer.who, action, ...detail } },
+      "workspace file viewed",
+    );
+  }
+
+  function route<K extends keyof typeof querySchemas>(
+    name: K,
+    handler: (input: {
+      request: FastifyRequest<{ Params: { roomId: string } }>;
+      query: z.infer<(typeof querySchemas)[K]>;
+      view: WorkspaceView;
+      viewer: WorkspaceViewer;
+      record?: ManagedWorktree;
+    }) => Promise<unknown>,
+  ) {
+    app.get<{ Params: { roomId: string } }>(
+      `/api/rooms/:roomId/workspace/${name}`,
+      async (request, reply) => {
+        const parsed = querySchemas[name].safeParse(request.query);
+        if (!parsed.success) return send(reply, 400, "error.request.invalid");
+        const query = parsed.data as z.infer<(typeof querySchemas)[K]>;
+        const resolved = await viewFor(request, reply, query.source);
+        if (!resolved) return reply;
+        try {
+          const body = await handler({ request, query, ...resolved });
+          return reply.header("Cache-Control", "no-store").send(body);
+        } catch (error) {
+          return failed(reply, error);
+        }
+      },
+    );
+  }
+
+  /** 总览：工作区名、是否 git、可切换的来源（工作区 + 这个房间的 worktree）、未提交改动数 */
+  app.get<{ Params: { roomId: string } }>(
+    "/api/rooms/:roomId/workspace",
+    async (request, reply) => {
+      const roomId = request.params.roomId;
+      const viewer = options.authorize(request, reply, roomId);
+      if (!viewer) return reply;
+      const room = options.room(roomId);
+      if (!room) return send(reply, 404, "error.room.notFound");
+      const guestsAllowed = Boolean(room.workspaceFilesGuests);
+      if (viewer.kind === "guest" && !guestsAllowed)
+        return send(reply, 403, "error.workspaceFiles.guestsDisabled");
+      const base: WorkspaceOverview = {
+        configured: Boolean(room.workspace),
+        git: false,
+        sources: [],
+        guestsAllowed,
+        canReveal: viewer.kind === "admin",
+      };
+      if (!room.workspace) return reply.header("Cache-Control", "no-store").send(base);
+      let root: string;
+      try {
+        root = await realpath(room.workspace);
+      } catch {
+        return send(reply, 404, "error.workspaceFiles.missing");
+      }
+      const view = new WorkspaceView(root);
+      const name = path.basename(root);
+      const sources: WorkspaceSourceInfo[] = [{ id: "workspace", kind: "workspace", label: name }];
+      const overview: WorkspaceOverview = { ...base, name, sources };
+      try {
+        const status = await view.status({ counts: false });
+        if (status.git) {
+          overview.git = true;
+          if (status.branch) sources[0]!.branch = status.branch;
+          // 工作区不在默认分支上时，可以看它相对默认分支的改动
+          const defaultBranch = await options.defaultBranch(root);
+          if (defaultBranch && !status.detached && status.branch !== defaultBranch)
+            sources[0]!.base = defaultBranch;
+          overview.changeCount = new Set(status.changes.map((item) => item.path)).size;
+          for (const record of options.worktrees(roomId)) {
+            const missing = await realpath(record.path).then(
+              () => false,
+              () => true,
+            );
+            sources.push({
+              id: record.id,
+              kind: "worktree",
+              label: record.branch,
+              branch: record.branch,
+              agentName: record.agentName,
+              base: record.base,
+              ...(missing ? { missing } : {}),
+            });
+          }
+        }
+      } catch (error) {
+        request.log.warn({ err: error }, "workspace overview failed");
+      }
+      return reply.header("Cache-Control", "no-store").send(overview);
+    },
+  );
+
+  route("status", ({ view }) => view.status());
+
+  route("log", async ({ view, query }) => ({ commits: await view.log({ skip: query.skip }) }));
+
+  route("commit", ({ view, query }) => view.commit(query.commit));
+
+  /** 相对 base 的改动：worktree 默认它登记的 base，工作区默认仓库的默认分支 */
+  route("compare", async ({ view, query, record }) => {
+    const base = query.base ?? record?.base ?? (await options.defaultBranch(view.root));
+    if (!base) throw new HiveError("WORKSPACE_REF_NOT_FOUND", "No base");
+    return view.compare(base);
+  });
+
+  route("diff", async ({ request, view, viewer, query, record }) => {
+    if (query.reveal && viewer.kind !== "admin")
+      throw new HiveError("WORKSPACE_REVEAL_FORBIDDEN", "Owner only");
+    const base =
+      query.mode === "base"
+        ? (query.base ?? record?.base ?? (await options.defaultBranch(view.root)))
+        : undefined;
+    const diff = await view.diff({
+      path: query.path,
+      oldPath: query.oldPath,
+      mode: query.mode,
+      commit: query.commit,
+      base,
+      reveal: query.reveal,
+      full: query.full,
+    });
+    audit(request, viewer, "diff", {
+      source: query.source,
+      path: diff.path,
+      ...(diff.sensitive && query.reveal ? { revealed: true } : {}),
+    });
+    return diff;
+  });
+
+  route("tree", ({ view, query }) => view.tree(query.path, { ignored: query.ignored }));
+
+  route("file", async ({ request, view, viewer, query }) => {
+    if (query.reveal && viewer.kind !== "admin")
+      throw new HiveError("WORKSPACE_REVEAL_FORBIDDEN", "Owner only");
+    const file = await view.file(query.path, query.reveal);
+    audit(request, viewer, "file", {
+      source: query.source,
+      path: file.path,
+      ...(file.sensitive && query.reveal ? { revealed: true } : {}),
+    });
+    return file;
+  });
+
+  route("search", ({ view, query }) => view.search(query.q));
+}

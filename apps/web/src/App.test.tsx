@@ -13,6 +13,7 @@ import type {
   WhiteboardEntry,
 } from "@superhive/protocol";
 import { App } from "./App";
+import type { GuestAccess } from "./access-gate";
 import { setLocalePreference } from "./i18n";
 
 type RoomSnapshotEvent = Extract<ServerEvent, { type: "room.snapshot" }>;
@@ -3568,5 +3569,149 @@ describe("App mention autocomplete", () => {
       type: "participant.join",
       roomId: "frontend",
     });
+  });
+  it("工作区入口：显示未提交改动数，打开只读面板，房主可在房间设置里允许访客查看", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    const original = globalThis.fetch;
+    const patches: unknown[] = [];
+    let guestsAllowed = false;
+    const general = () =>
+      roomSummary("general", {
+        workspace: "/Users/alice/hive",
+        ...(guestsAllowed ? { workspaceFilesGuests: true } : {}),
+      });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/api/rooms/general/workspace/status"))
+          return jsonResponse({ git: true, branch: "main", changes: [] });
+        if (url.includes("/api/rooms/general/workspace"))
+          return jsonResponse({
+            configured: true,
+            name: "hive",
+            git: true,
+            changeCount: 3,
+            guestsAllowed,
+            canReveal: true,
+            sources: [{ id: "workspace", kind: "workspace", label: "hive", branch: "main" }],
+          });
+        if (url.endsWith("/api/rooms/general") && init?.method === "PATCH") {
+          const body = JSON.parse(String(init.body)) as { workspaceFilesGuests?: boolean };
+          patches.push(body);
+          guestsAllowed = Boolean(body.workspaceFilesGuests);
+          return jsonResponse({ room: general() });
+        }
+        if (/\/api\/rooms(\?|$)/.test(url) && !init?.method)
+          return jsonResponse({ rooms: [general(), roomSummary("frontend")] });
+        return original(input, init);
+      }),
+    );
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self],
+        messages: [],
+        latestSeq: 0,
+      }),
+    );
+    // 进房间后稍等再查改动数（避免和首屏请求挤在一起），全量并行跑测试时可能更慢
+    const entry = await screen.findByRole(
+      "button",
+      { name: "工作区文件与改动（3 个文件有未提交改动）" },
+      { timeout: 5000 },
+    );
+    expect(entry.textContent).toContain("3");
+    await user.click(entry);
+    const panel = await screen.findByRole("dialog", { name: "工作区" });
+    expect(await within(panel).findByText("没有未提交的改动。")).toBeTruthy();
+    fireEvent.keyDown(panel, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "工作区" })).toBeNull());
+
+    await user.click(screen.getByRole("button", { name: "管理房间 general" }));
+    const dialog = screen.getByRole("dialog", { name: "房间设置 · # general" });
+    const allow = within(dialog).getByRole<HTMLInputElement>("checkbox", {
+      name: "允许访客查看工作区文件与改动",
+    });
+    expect(allow.checked).toBe(false);
+    await user.click(allow);
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(patches).toEqual([{ name: "general", workspaceFilesGuests: true }]));
+  });
+
+  it("访客只在房主允许后才看到工作区入口", async () => {
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    const original = globalThis.fetch;
+    let allowed = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/api/meta"))
+          return jsonResponse({
+            name: "SuperHive",
+            roomId: "general",
+            httpUrl: "http://localhost:8787",
+            wsUrl: "ws://localhost:8787/ws",
+            mcpUrl: "http://localhost:8787/mcp",
+          });
+        if (url.includes("/workspace"))
+          return jsonResponse({ configured: true, git: true, changeCount: 1, sources: [] });
+        if (/\/api\/rooms(\?|$)/.test(url))
+          return jsonResponse({
+            rooms: [
+              roomSummary("general", {
+                workspace: "/Users/alice/hive",
+                ...(allowed ? { workspaceFilesGuests: true } : {}),
+              }),
+            ],
+          });
+        return original(input, init);
+      }),
+    );
+    const guest = {
+      role: "guest",
+      token: "hvs_guest",
+      username: "bob",
+      roomId: "general",
+      expiresAt: null,
+      allowAgents: false,
+      showTrace: true,
+    } as unknown as GuestAccess;
+    render(<App guest={guest} />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = participant("00000000-0000-4000-8000-000000000002", "bob", "human");
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self],
+        messages: [],
+        latestSeq: 0,
+      }),
+    );
+    await screen.findByRole("heading", { name: "general" });
+    expect(screen.queryByRole("button", { name: /工作区文件与改动/ })).toBeNull();
+    allowed = true;
+    act(() =>
+      socket.serverEvent({
+        type: "rooms.changed",
+        room: roomSummary("general", {
+          workspace: "/Users/alice/hive",
+          workspaceFilesGuests: true,
+        }),
+      }),
+    );
+    expect(await screen.findByRole("button", { name: /工作区文件与改动/ })).toBeTruthy();
   });
 });

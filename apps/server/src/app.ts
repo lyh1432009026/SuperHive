@@ -76,6 +76,7 @@ import { createHiveMcpServer, type AttachmentReadResult, type InboxDigest } from
 import { readMessageContent } from "./message-content.js";
 import { gitBranch } from "./git-branch.js";
 import { WorktreeManager, worktreeRepository } from "./worktrees.js";
+import { registerWorkspaceFileRoutes } from "./workspace-files-routes.js";
 import {
   LocalAgentSupervisor,
   autoSteerKey,
@@ -4777,6 +4778,33 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     },
   );
 
+  /** 工作区文件与 git 变更的只读浏览：房主可看；访客要房主在房间设置里打开 */
+  registerWorkspaceFileRoutes(app, {
+    room: (roomId) => database.getRoom(roomId),
+    authorize: (request, reply, roomId) => {
+      const principal = guard(request, reply, roomId);
+      if (!principal) return undefined;
+      return principal.kind === "admin"
+        ? {
+            kind: "admin",
+            who: principal.deviceId ? `owner-device:${principal.deviceId}` : "owner",
+          }
+        : {
+            kind: "guest",
+            who: `${principal.resolved.session.kind}:${principal.resolved.session.username}`,
+          };
+    },
+    worktrees: (roomId) =>
+      worktrees
+        .allRecords()
+        .filter((record) => record.roomId === roomId && record.phase !== "removing"),
+    defaultBranch: (workspace) =>
+      worktreeRepository(workspace).then(
+        (repository) => repository.target,
+        () => undefined,
+      ),
+  });
+
   /** 房主置顶的房间，按置顶区里的顺序存在服务端设置里，换设备也一样 */
   function roomPins(): string[] {
     try {
@@ -4881,7 +4909,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       (body.data.name === undefined &&
         body.data.archived === undefined &&
         body.data.workspace === undefined &&
-        body.data.leadAgent === undefined)
+        body.data.leadAgent === undefined &&
+        body.data.workspaceFilesGuests === undefined)
     ) {
       return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
     }
