@@ -148,6 +148,53 @@ export function WorkspaceGlyph({ size = 16 }: { size?: number }) {
   );
 }
 
+const EMPTY_ICONS: Record<string, ReactNode> = {
+  folder: <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />,
+  check: <path d="M20 6 9 17l-5-5" />,
+  file: <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5" />,
+  diff: (
+    <path d="M8 3v12M5 6h6M14 18h6M17 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM7 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+  ),
+  commit: <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3 12h6M15 12h6" />,
+};
+
+/** 空状态：图标 + 一句话 + 次要说明（和「产物」面板一致）；compact 用在左栏列表里 */
+function EmptyState({
+  icon,
+  title,
+  hint,
+  compact = false,
+  children,
+}: {
+  icon: keyof typeof EMPTY_ICONS;
+  title: string;
+  hint?: string;
+  compact?: boolean;
+  children?: ReactNode;
+}) {
+  return (
+    <div className={`workspace-empty-state ${compact ? "compact" : ""}`}>
+      <span className="workspace-empty-icon" aria-hidden="true">
+        <svg
+          width={compact ? 16 : 20}
+          height={compact ? 16 : 20}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          {EMPTY_ICONS[icon]}
+        </svg>
+      </span>
+      <p className="workspace-empty-title">{title}</p>
+      {hint && <p className="workspace-empty-hint">{hint}</p>}
+      {children}
+    </div>
+  );
+}
+
 function Chevron({ open }: { open: boolean }) {
   return (
     <svg
@@ -324,22 +371,33 @@ export function WorkspacePanel({
     ...(overview.data?.git ? [{ id: "commits" as const, label: t("最近提交") }] : []),
   ];
   const changeCount = source?.id === "workspace" ? overview.data?.changeCount : undefined;
+  // 分段控件的滑块：量出选中那一格的位置和宽度，切换时滑过去（和右侧栏标签一样）
+  const tabsRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = tabsRef.current;
+    const active = element?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!element || !active) return;
+    element.style.setProperty("--tab-indicator-x", `${active.offsetLeft}px`);
+    element.style.setProperty("--tab-indicator-width", `${active.offsetWidth}px`);
+    const frame = window.requestAnimationFrame(() => element.classList.add("indicator-ready"));
+    return () => window.cancelAnimationFrame(frame);
+  });
   const sourceQuery = source?.id ?? "workspace";
 
   let body: ReactNode;
   if (!workspaceConfigured || overview.data?.configured === false) {
     body = (
-      <div className="workspace-empty">
-        <p>{t("这个房间还没有设工作区。")}</p>
-        <p className="workspace-muted">
-          {t("设好工作区后，可以在这里浏览文件、查看 Agent 改了哪些代码。")}
-        </p>
+      <EmptyState
+        icon="folder"
+        title={t("这个房间还没有设工作区。")}
+        hint={t("设好工作区后，可以在这里浏览文件、查看 Agent 改了哪些代码。")}
+      >
         {isOwner && onOpenSettings && (
           <button type="button" className="workspace-primary" onClick={onOpenSettings}>
             {t("去设置工作区")}
           </button>
         )}
-      </div>
+      </EmptyState>
     );
   } else if (overview.error && !overview.data) {
     body = (
@@ -417,34 +475,6 @@ export function WorkspacePanel({
         subtitle={overview.data?.name}
         closeLabel={t("关闭工作区面板")}
         onClose={onClose}
-        headerExtra={
-          sources.length > 1 && (
-            <Select
-              className="workspace-source"
-              aria-label={t("查看哪份代码")}
-              value={source?.id ?? "workspace"}
-              onChange={(value) => setSourceId(value)}
-              options={sources.map((item) => ({
-                value: item.id,
-                label:
-                  item.kind === "workspace"
-                    ? t("工作区 · {0}", { 0: item.branch ?? item.label })
-                    : item.label,
-                description:
-                  item.kind === "workspace"
-                    ? t("房间工作区当前的检出")
-                    : item.missing
-                      ? t("{0} 的任务线（目录已不存在）", { 0: item.agentName ?? "" })
-                      : t("{0} 的任务线，基于 {1}", {
-                          0: item.agentName ?? "",
-                          1: item.base ?? "",
-                        }),
-                disabled: Boolean(item.missing),
-                group: item.kind === "workspace" ? t("工作区") : t("任务线（worktree）"),
-              }))}
-            />
-          )
-        }
         actions={
           <button
             type="button"
@@ -470,40 +500,71 @@ export function WorkspacePanel({
         }
       >
         {overview.data?.configured && (
-          <div
-            className="workspace-tabs"
-            role="tablist"
-            aria-label={t("工作区视图")}
-            onKeyDown={(event) => {
-              if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-              event.preventDefault();
-              const index = tabs.findIndex((item) => item.id === tab);
-              const next =
-                tabs[(index + (event.key === "ArrowLeft" ? -1 : 1) + tabs.length) % tabs.length]!;
-              setTab(next.id);
-              window.requestAnimationFrame(() =>
-                panelRef.current?.querySelector<HTMLElement>(`#workspace-tab-${next.id}`)?.focus(),
-              );
-            }}
-          >
-            {tabs.map((item) => (
-              <button
-                key={item.id}
-                id={`workspace-tab-${item.id}`}
-                type="button"
-                role="tab"
-                aria-selected={tab === item.id}
-                aria-controls="workspace-tabpanel"
-                tabIndex={tab === item.id ? 0 : -1}
-                className={tab === item.id ? "active" : ""}
-                onClick={() => setTab(item.id)}
-              >
-                {item.label}
-                {item.id === "changes" && changeCount ? (
-                  <span className="workspace-tab-count">{changeCount}</span>
-                ) : null}
-              </button>
-            ))}
+          <div className="workspace-toolbar">
+            <div
+              ref={tabsRef}
+              className="workspace-tabs"
+              role="tablist"
+              aria-label={t("工作区视图")}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                event.preventDefault();
+                const index = tabs.findIndex((item) => item.id === tab);
+                const next =
+                  tabs[(index + (event.key === "ArrowLeft" ? -1 : 1) + tabs.length) % tabs.length]!;
+                setTab(next.id);
+                window.requestAnimationFrame(() =>
+                  panelRef.current
+                    ?.querySelector<HTMLElement>(`#workspace-tab-${next.id}`)
+                    ?.focus(),
+                );
+              }}
+            >
+              {tabs.map((item) => (
+                <button
+                  key={item.id}
+                  id={`workspace-tab-${item.id}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === item.id}
+                  aria-controls="workspace-tabpanel"
+                  tabIndex={tab === item.id ? 0 : -1}
+                  className={tab === item.id ? "active" : ""}
+                  onClick={() => setTab(item.id)}
+                >
+                  {item.label}
+                  {item.id === "changes" && changeCount ? (
+                    <span className="workspace-tab-count">{changeCount}</span>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+            {sources.length > 1 && (
+              <Select
+                className="workspace-source"
+                aria-label={t("查看哪份代码")}
+                value={source?.id ?? "workspace"}
+                onChange={(value) => setSourceId(value)}
+                options={sources.map((item) => ({
+                  value: item.id,
+                  label:
+                    item.kind === "workspace"
+                      ? t("工作区 · {0}", { 0: item.branch ?? item.label })
+                      : item.label,
+                  description:
+                    item.kind === "workspace"
+                      ? t("房间工作区当前的检出")
+                      : item.missing
+                        ? t("{0} 的任务线（目录已不存在）", { 0: item.agentName ?? "" })
+                        : t("{0} 的任务线，基于 {1}", {
+                            0: item.agentName ?? "",
+                            1: item.base ?? "",
+                          }),
+                  disabled: Boolean(item.missing),
+                  group: item.kind === "workspace" ? t("工作区") : t("任务线（worktree）"),
+                }))}
+              />
+            )}
           </div>
         )}
         <div
@@ -670,11 +731,16 @@ function ChangesView({
           {loading ? (
             <p className="workspace-muted workspace-list-note">{t("加载中…")}</p>
           ) : !entries.length && !error ? (
-            <p className="workspace-muted workspace-list-note">
-              {mode === "base"
-                ? t("相对 {0} 没有改动。", { 0: base ?? "" })
-                : t("没有未提交的改动。")}
-            </p>
+            <EmptyState
+              compact
+              icon="check"
+              title={
+                mode === "base"
+                  ? t("相对 {0} 没有改动。", { 0: base ?? "" })
+                  : t("没有未提交的改动。")
+              }
+              hint={t("Agent 改了文件后，这里几秒内就会列出来。")}
+            />
           ) : (
             <ChangeList
               entries={entries}
@@ -707,7 +773,11 @@ function ChangesView({
               onBack={narrow ? () => setSelected(undefined) : undefined}
             />
           ) : (
-            <div className="workspace-empty workspace-muted">{t("选择左侧的文件查看改动。")}</div>
+            <EmptyState
+              icon="diff"
+              title={t("选择左侧的文件查看改动。")}
+              hint={t("可以切换统一视图或左右对照；图片会显示改前改后。")}
+            />
           )}
         </div>
       )}
@@ -1414,7 +1484,11 @@ function FilesView({
               onBack={narrow ? () => setSelected(undefined) : undefined}
             />
           ) : (
-            <div className="workspace-empty workspace-muted">{t("选择左侧的文件查看内容。")}</div>
+            <EmptyState
+              icon="file"
+              title={t("选择左侧的文件查看内容。")}
+              hint={t("只读预览：代码带高亮，图片、音视频和 PDF 直接显示。")}
+            />
           )}
         </div>
       )}
@@ -1658,7 +1732,7 @@ function CommitsView({
             </p>
           )}
           {!commits.length && !loading && !error && (
-            <p className="workspace-muted workspace-list-note">{t("还没有提交。")}</p>
+            <EmptyState compact icon="commit" title={t("还没有提交。")} />
           )}
           <ul className="workspace-commits">
             {commits.map((commit) => (
@@ -1692,7 +1766,11 @@ function CommitsView({
       {showDetail && (
         <div className="workspace-detail">
           {!selectedCommit ? (
-            <div className="workspace-empty workspace-muted">{t("选择一个提交查看改动。")}</div>
+            <EmptyState
+              icon="commit"
+              title={t("选择一个提交查看改动。")}
+              hint={t("能看到提交说明、改了哪些文件和每个文件的 diff。")}
+            />
           ) : selectedFile ? (
             <DiffViewer
               api={api}
@@ -1713,7 +1791,7 @@ function CommitsView({
                     ← {t("返回列表")}
                   </button>
                 )}
-                <span className="workspace-viewer-path">
+                <span className="workspace-viewer-path is-title">
                   {detail.data?.commit?.subject ?? selectedCommit.slice(0, 7)}
                 </span>
               </div>

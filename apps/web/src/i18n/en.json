@@ -1588,5 +1588,9 @@
   "图片显示方式": "Image layout",
   "网格": "Grid",
   "列表": "List",
-  "拖动调整详情栏宽度": "Drag to resize the details pane"
+  "拖动调整详情栏宽度": "Drag to resize the details pane",
+  "Agent 改了文件后，这里几秒内就会列出来。": "When an agent changes files, they show up here within seconds.",
+  "可以切换统一视图或左右对照；图片会显示改前改后。": "Switch between unified and split views; images show before and after.",
+  "只读预览：代码带高亮，图片、音视频和 PDF 直接显示。": "Read-only preview: code is highlighted; images, audio, video and PDFs display inline.",
+  "能看到提交说明、改了哪些文件和每个文件的 diff。": "See the commit message, the files it changed and each file's diff."
 }

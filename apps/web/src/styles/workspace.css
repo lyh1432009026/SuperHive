@@ -5,9 +5,29 @@
   color: var(--warning);
 }
 
-.workspace-source {
-  min-width: 180px;
-  max-width: 320px;
+/* 视图切换与来源选择：在标题栏下面单独一条，侧栏底色，和内容区分开 */
+.workspace-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-sidebar);
+}
+
+/* 来源选择：和「产物」左栏的筛选控件一样，小号、浅边、主底色 */
+.select-trigger.workspace-source {
+  width: auto;
+  min-width: 200px;
+  max-width: 340px;
+  min-height: 32px;
+  margin-left: auto;
+  padding: 0 10px;
+  border-color: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-main);
+  font-size: var(--text-sm);
 }
 
 .workspace-muted {
@@ -21,43 +41,75 @@
   font-size: var(--text-sm);
 }
 
+/* 「改动 / 文件树 / 最近提交」：和右侧栏标签同款的分段控件，选中的底是一块会滑动的滑块 */
 .workspace-tabs {
-  display: flex;
+  position: relative;
+  display: inline-flex;
   flex: 0 0 auto;
-  gap: 4px;
-  padding: 6px 12px 0;
-  border-bottom: 1px solid var(--border-light);
+  padding: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+}
+
+.workspace-tabs::before {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  width: var(--tab-indicator-width, 0);
+  border-radius: var(--radius-pill);
+  background: var(--bg-main);
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 0.12),
+    0 0 0 1px var(--border-light);
+  content: "";
+  transform: translateX(var(--tab-indicator-x, 0));
+}
+
+:root[data-theme="dark"] .workspace-tabs::before {
+  background: var(--bg-active);
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 0.4),
+    0 0 0 1px var(--border);
+}
+
+.workspace-tabs.indicator-ready::before {
+  transition:
+    transform 260ms var(--ease-out),
+    width 260ms var(--ease-out);
 }
 
 .workspace-tabs button {
+  position: relative;
   display: inline-flex;
+  height: 30px;
   align-items: center;
   gap: 6px;
-  padding: 7px 10px 9px;
+  padding: 0 14px;
   border: 0;
-  border-bottom: 2px solid transparent;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--text-secondary);
-  font-size: var(--text-base);
-}
-
-.workspace-tabs button:hover {
-  color: var(--text);
-}
-
-.workspace-tabs button.active {
-  border-bottom-color: var(--text);
-  color: var(--text);
+  font-size: var(--text-sm);
   font-weight: var(--weight-medium);
+  transition: color var(--duration);
+}
+
+.workspace-tabs button:hover,
+.workspace-tabs button.active {
+  color: var(--text);
 }
 
 .workspace-tab-count {
-  padding: 0 6px;
+  min-width: 18px;
+  padding: 0 5px;
   border-radius: var(--radius-pill);
-  background: var(--bg-muted);
-  color: var(--text-secondary);
+  background: var(--warning-soft);
+  color: var(--warning);
   font-size: 11px;
   line-height: 17px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .workspace-body {
@@ -83,6 +135,68 @@
 .workspace-empty p {
   max-width: 420px;
   margin: 0;
+}
+
+/* 空状态：圆底图标 + 一句话 + 次要说明 */
+.workspace-empty-state {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.workspace-empty-state.compact {
+  flex: 0 0 auto;
+  padding: 28px 16px;
+}
+
+.workspace-empty-icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 6px;
+  place-items: center;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-tertiary);
+}
+
+.workspace-empty-state.compact .workspace-empty-icon {
+  width: 34px;
+  height: 34px;
+  margin-bottom: 2px;
+  background: var(--bg-main);
+}
+
+.workspace-empty-title {
+  max-width: 420px;
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.workspace-empty-hint {
+  max-width: 360px;
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+.workspace-empty-state .workspace-primary {
+  margin-top: 8px;
+  padding: 6px 14px;
+  border: 1px solid var(--button-primary-bg);
+  border-radius: var(--radius-md);
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
+  font-size: var(--text-sm);
 }
 
 .workspace-empty button,
@@ -139,11 +253,13 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* 左栏（改动列表、文件树、提交列表）用侧栏底色，和右边的内容区分开 */
 .workspace-list {
   min-height: 0;
   overflow: auto;
-  padding: 8px 0 16px;
+  padding: 10px 8px 16px;
   border-right: 1px solid var(--border-light);
+  background: var(--bg-sidebar);
 }
 
 .workspace-split.narrow .workspace-list {
@@ -157,14 +273,15 @@
 }
 
 .workspace-list-note {
-  margin: 8px 14px;
+  margin: 8px 8px;
 }
 
 .workspace-branch {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
-  padding: 2px 14px 8px;
+  margin: 0 0 10px;
+  padding: 0 8px;
 }
 
 .workspace-branch-name {
@@ -176,42 +293,81 @@
   white-space: nowrap;
 }
 
+/* 分段控件（未提交 / 相对 base、统一 / 左右对照、并排 / 滑动）：和顶上的视图切换同一套 */
 .workspace-segmented {
   display: inline-flex;
   padding: 2px;
-  border-radius: var(--radius-md);
-  background: var(--bg-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
 }
 
 .workspace-list > .workspace-segmented {
-  margin: 0 12px 8px;
+  margin: 0 8px 10px;
 }
 
 .workspace-segmented button {
-  padding: 3px 10px;
+  height: 26px;
+  padding: 0 12px;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--text-secondary);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
   white-space: nowrap;
+  transition:
+    background var(--duration),
+    color var(--duration),
+    box-shadow var(--duration);
+}
+
+.workspace-segmented button:hover {
+  color: var(--text);
 }
 
 .workspace-segmented button.active {
-  background: var(--bg-elevated);
-  box-shadow: 0 0 0 1px var(--border-light);
+  background: var(--bg-main);
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 0.12),
+    0 0 0 1px var(--border-light);
   color: var(--text);
+}
+
+:root[data-theme="dark"] .workspace-segmented button.active {
+  background: var(--bg-active);
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 0.4),
+    0 0 0 1px var(--border);
+}
+
+/* 分组标题：小号、浅色、带计数 */
+.workspace-group + .workspace-group {
+  margin-top: 6px;
 }
 
 .workspace-group h3 {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 10px 14px 4px;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
+  margin: 8px 8px 4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
   font-weight: var(--weight-semibold);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.workspace-group h3 .workspace-muted {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: var(--weight-medium);
+  letter-spacing: 0;
+  line-height: 16px;
+  text-align: center;
 }
 
 .workspace-change,
@@ -222,12 +378,16 @@
   min-width: 0;
   align-items: center;
   gap: 8px;
-  padding: 5px 12px;
-  border: 0;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--text);
   font-size: var(--text-sm);
   text-align: left;
+  transition:
+    background var(--duration-fast),
+    border-color var(--duration-fast);
 }
 
 .workspace-change:hover,
@@ -236,9 +396,11 @@
   background: var(--bg-hover);
 }
 
+/* 选中：加深底 + 细边框，黑白灰 */
 .workspace-change.active,
 .workspace-commit.active,
 .workspace-tree-row.active {
+  border-color: var(--border);
   background: var(--bg-active);
 }
 
@@ -290,34 +452,50 @@
   font-family: var(--font-sans);
 }
 
+/* 状态徽标：语义色的小胶囊（新增绿、删除红、修改琥珀、冲突橙、重命名中性） */
 .workspace-status {
   display: inline-flex;
-  width: 16px;
+  min-width: 18px;
+  height: 18px;
   flex: 0 0 auto;
+  align-items: center;
   justify-content: center;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: var(--weight-semibold);
 }
 
 .workspace-status.status-M,
 .workspace-status.status-T {
+  background: var(--warning-soft);
   color: var(--warning);
 }
 
 .workspace-status.status-A,
 .workspace-status.status-untracked,
 .workspace-status.status-C {
+  background: var(--success-soft);
   color: var(--success);
 }
 
-.workspace-status.status-D,
-.workspace-status.status-U {
+.workspace-status.status-D {
+  background: var(--danger-soft);
   color: var(--danger);
 }
 
+.workspace-status.status-U {
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
 .workspace-status.status-R {
-  color: var(--accent);
+  background: var(--bg-active);
+  color: var(--text);
 }
 
 .workspace-lock {
@@ -327,7 +505,7 @@
 
 /* 文件树：按 git 状态给文件名着色 */
 .workspace-search {
-  padding: 0 12px 8px;
+  padding: 0 0 8px;
 }
 
 .workspace-search input {
@@ -345,7 +523,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 14px 8px;
+  padding: 0 8px 8px;
   color: var(--text-secondary);
   font-size: var(--text-xs);
 }
@@ -416,14 +594,23 @@
 .workspace-commit {
   flex-direction: column;
   align-items: stretch;
-  gap: 2px;
-  padding: 7px 14px;
+  gap: 3px;
+  padding: 8px 10px;
 }
 
 .workspace-commit-subject {
   overflow: hidden;
+  font-weight: var(--weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.workspace-commit code {
+  padding: 0 4px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-size: 11px;
 }
 
 .workspace-commit .workspace-muted {
@@ -434,17 +621,8 @@
   margin: 8px 14px;
 }
 
-.workspace-commit-detail {
-  padding: 12px 0;
-}
-
-.workspace-commit-detail > p {
-  margin: 0 14px 8px;
-  word-break: break-all;
-}
-
 .workspace-commit-body {
-  margin: 0 14px 12px;
+  margin: 0 0 12px;
   padding: 10px 12px;
   border-radius: var(--radius-md);
   background: var(--bg-subtle);
@@ -468,23 +646,27 @@
   flex-direction: column;
 }
 
+/* diff / 文件的标题条：浅底 + 底线，和代码区分开 */
 .workspace-viewer-bar {
   display: flex;
-  min-height: 40px;
+  min-height: 44px;
   flex: 0 0 auto;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 10px;
-  padding: 6px 12px;
+  padding: 6px 16px;
   border-bottom: 1px solid var(--border-light);
+  background: var(--bg-sidebar);
 }
 
 .workspace-viewer-path {
   min-width: 0;
   flex: 1 1 160px;
   overflow: hidden;
+  color: var(--text);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -543,10 +725,13 @@
   --hl-attr: #0550ae;
   --hl-symbol: #116329;
   --hl-deletion: #82071e;
-  --diff-add-bg: rgb(16 163 127 / 0.1);
-  --diff-add-number: rgb(16 163 127 / 0.18);
-  --diff-del-bg: rgb(217 58 53 / 0.08);
-  --diff-del-number: rgb(217 58 53 / 0.16);
+  --diff-add-bg: color-mix(in srgb, var(--success) 12%, transparent);
+  --diff-add-number: color-mix(in srgb, var(--success) 22%, transparent);
+  --diff-add-marker: var(--success);
+  --diff-del-bg: color-mix(in srgb, var(--danger) 10%, transparent);
+  --diff-del-number: color-mix(in srgb, var(--danger) 20%, transparent);
+  --diff-del-marker: var(--danger);
+  --diff-gutter: var(--bg-sidebar);
 
   min-width: max-content;
   font-family: var(--font-mono);
@@ -564,10 +749,11 @@
   --hl-attr: #79c0ff;
   --hl-symbol: #7ee787;
   --hl-deletion: #ffa198;
-  --diff-add-bg: rgb(63 207 142 / 0.12);
-  --diff-add-number: rgb(63 207 142 / 0.2);
-  --diff-del-bg: rgb(255 122 115 / 0.11);
-  --diff-del-number: rgb(255 122 115 / 0.18);
+  --diff-add-bg: color-mix(in srgb, var(--success) 14%, transparent);
+  --diff-add-number: color-mix(in srgb, var(--success) 26%, transparent);
+  --diff-del-bg: color-mix(in srgb, var(--danger) 13%, transparent);
+  --diff-del-number: color-mix(in srgb, var(--danger) 24%, transparent);
+  --diff-gutter: var(--bg-subtle);
 }
 
 .diff-row {
@@ -595,6 +781,7 @@
 
 .diff-number {
   padding: 0 8px;
+  background: var(--diff-gutter);
   color: var(--text-tertiary);
   text-align: right;
   user-select: none;
@@ -608,6 +795,16 @@
 
 .diff-row.split .diff-number:nth-child(3) {
   border-left: 1px solid var(--border-light);
+}
+
+.diff-row.add .diff-marker,
+.diff-text.add .diff-marker {
+  color: var(--diff-add-marker);
+}
+
+.diff-row.del .diff-marker,
+.diff-text.del .diff-marker {
+  color: var(--diff-del-marker);
 }
 
 .diff-row.add .diff-number,
@@ -649,28 +846,46 @@
 
 .diff-hunk {
   padding: 4px 12px;
-  background: var(--accent-soft);
-  color: var(--text-secondary);
+  border-block: 1px solid var(--border-light);
+  background: var(--bg-subtle);
+  color: var(--text-tertiary);
   white-space: pre;
 }
 
+/* 折叠的未改动区块：居中的细条按钮 */
 .diff-gap > span {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 16px;
+  background: var(--diff-gutter);
+}
+
+.diff-gap > span::before,
+.diff-gap > span::after {
+  height: 1px;
+  flex: 1;
+  background: var(--border);
+  content: "";
 }
 
 .diff-gap button {
-  width: 100%;
-  padding: 3px 12px;
-  border: 0;
-  background: var(--bg-subtle);
-  color: var(--accent);
+  flex: 0 0 auto;
+  padding: 2px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-main);
+  color: var(--text-secondary);
   font-family: var(--font-sans);
   font-size: var(--text-xs);
-  text-align: left;
+  transition:
+    border-color var(--duration-fast),
+    color var(--duration-fast);
 }
 
 .diff-gap button:hover {
-  background: var(--accent-soft);
+  border-color: var(--border-heavy);
+  color: var(--text);
 }
 
 .workspace-code .hljs-comment,
@@ -1004,4 +1219,39 @@
   .workspace-media-skeleton {
     animation: none;
   }
+}
+
+/* 提交详情：标题用正文字体；哈希、作者一行做成浅底信息条；改动文件列表和左栏同样的行 */
+.workspace-viewer-path.is-title {
+  font-family: var(--font-sans);
+  font-weight: var(--weight-semibold);
+}
+
+.workspace-commit-detail {
+  padding: 16px;
+}
+
+.workspace-commit-detail > p {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-sidebar);
+  word-break: break-all;
+}
+
+.workspace-commit-detail > p code {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.workspace-commit-detail .workspace-commit-body {
+  margin: 0 0 12px;
+}
+
+.workspace-commit-detail .workspace-group ul,
+.workspace-commit-detail ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
