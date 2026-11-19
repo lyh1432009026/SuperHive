@@ -429,12 +429,46 @@ describe("WorkspacePanel", () => {
         workspaceConfigured
         isOwner
         onClose={() => undefined}
-        focusAgent={{ agent: "GAMMA", nonce: 1 }}
+        focus={{ agent: "GAMMA", nonce: 1 }}
       />,
     );
     await waitFor(() =>
       expect(api).toHaveBeenLastCalledWith("/compare", expect.objectContaining({ source: recent })),
     );
+  });
+});
+
+describe("从消息里的提交号打开", () => {
+  it("切到「最近提交」并直接打开那个提交", async () => {
+    const api = fakeApi({
+      "/commit": (query) => ({
+        commit: {
+          hash: query.commit,
+          shortHash: "6c28c9a",
+          subject: "媒体预览",
+          author: "rd",
+          date: "",
+        },
+        changes: [{ path: "logo.png", group: "unstaged", status: "A", binary: true }],
+      }),
+    });
+    render(
+      <WorkspacePanel
+        api={api}
+        roomId="general"
+        workspaceConfigured
+        isOwner
+        onClose={() => undefined}
+        focus={{ source: "workspace", commit: "6c28c9a0f1e2", nonce: 1 }}
+      />,
+    );
+    expect(
+      (await screen.findByRole("tab", { name: "最近提交" })).getAttribute("aria-selected"),
+    ).toBe("true");
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("/commit", { source: "workspace", commit: "6c28c9a0f1e2" }),
+    );
+    expect(await screen.findByText("媒体预览")).toBeTruthy();
   });
 });
 

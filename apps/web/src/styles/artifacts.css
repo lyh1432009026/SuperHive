@@ -24,12 +24,12 @@
   display: grid;
   min-height: 0;
   flex: 1 1 auto;
-  grid-template-columns: 232px minmax(0, 1fr);
+  grid-template-columns: var(--artifacts-sidebar-width, 232px) minmax(0, 1fr);
 }
 
 /* 详情栏默认约占面板三分之一（铺满时看图够大），可拖左边缘调宽并记在本机 */
 .artifacts-layout.with-detail {
-  grid-template-columns: 232px minmax(360px, 1fr) var(
+  grid-template-columns: var(--artifacts-sidebar-width, 232px) minmax(360px, 1fr) var(
       --artifact-detail-width,
       clamp(360px, 34%, 720px)
     );
@@ -856,7 +856,7 @@ tr.selected .artifact-actions,
 /* 详情栏放不下就盖在列表右侧 */
 @container artifacts (max-width: 1100px) {
   .artifacts-layout.with-detail {
-    grid-template-columns: 232px minmax(0, 1fr);
+    grid-template-columns: var(--artifacts-sidebar-width, 232px) minmax(0, 1fr);
   }
 
   .artifact-detail {
@@ -876,6 +876,10 @@ tr.selected .artifact-actions,
 
 /* 窄：筛选收到顶上横排，表格只留名称、大小、时间 */
 @container artifacts (max-width: 760px) {
+  .artifacts-layout > .split-resizer {
+    display: none;
+  }
+
   .artifacts-layout,
   .artifacts-layout.with-detail {
     grid-template-columns: minmax(0, 1fr);

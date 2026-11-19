@@ -660,6 +660,35 @@ describe("工作区文件接口", () => {
     expect(after.sources[1]).toMatchObject({ changeCount: 0, ahead: 0, merged: true });
   });
 
+  it("批量确认消息里的提交号和分支名：只认这个仓库真实存在的提交、登记过的任务线与当前分支", async () => {
+    const root = repository();
+    const head = git(root, "rev-parse", "HEAD").trim();
+    const tree = path.join(temp("ws-refs-"), "feature");
+    git(root, "worktree", "add", "-q", "-b", "feat/x", tree, "main");
+    const { app, worktreeId, guestToken } = await start({
+      workspace: root,
+      worktree: { path: realpathSync(tree), branch: "feat/x" },
+    });
+    const short = head.slice(0, 7);
+    const q = [short, "deadbeef1", "1234567", head, "feat/x", "main", "feat/missing", "--all"].join(
+      ",",
+    );
+    const response = await app.inject({
+      url: `/api/rooms/general/workspace/refs?q=${encodeURIComponent(q)}`,
+      headers: OWNER,
+    });
+    expect(response.json()).toEqual({
+      commits: { [short]: head, [head]: head },
+      branches: { "feat/x": worktreeId, main: "workspace" },
+    });
+    // 访客没被允许看工作区时，连哪些提交存在也不告诉
+    const guest = await guestToken();
+    expect(
+      (await app.inject({ url: `/api/rooms/general/workspace/refs?q=${short}`, headers: guest }))
+        .statusCode,
+    ).toBe(403);
+  });
+
   describe("原始字节与临时链接", () => {
     const bytes = Buffer.from(Array.from({ length: 1000 }, (_, index) => index % 256));
 

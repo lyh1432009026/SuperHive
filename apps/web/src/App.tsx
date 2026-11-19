@@ -16,7 +16,13 @@ import {
 import { flushSync } from "react-dom";
 import { WorktreePanel } from "./worktree-panel";
 import { SlowOpsIndicator, SlowOpsSettingsEntry, useSlowOps } from "./slow-ops";
-import { WorkspaceGlyph, WorkspacePanel, workspaceApi } from "./workspace-panel";
+import {
+  WorkspaceGlyph,
+  WorkspacePanel,
+  workspaceApi,
+  type WorkspaceFocus,
+} from "./workspace-panel";
+import { RefResolver, WorkspaceRefsContext, type RefTarget } from "./workspace-refs";
 import { isTaskDirectoryEntry, sortParticipantsByLastSeen } from "@superhive/protocol";
 import type {
   ChatMessage,
@@ -1885,7 +1891,7 @@ export function App({
   const [workspaceCounts, setWorkspaceCounts] = useState<ReadonlyMap<string, number>>(new Map());
   const workspaceButtonRef = useRef<HTMLButtonElement>(null);
   /** 从任务卡片、成员菜单「看改动」打开时要切到的 Agent；nonce 让同一个 Agent 再点一次也生效 */
-  const [workspaceFocus, setWorkspaceFocus] = useState<{ agent: string; nonce: number }>();
+  const [workspaceFocus, setWorkspaceFocus] = useState<WorkspaceFocus>();
   const canViewWorkspace =
     Boolean(authToken) &&
     (isOwner || Boolean(currentRoom?.workspaceFilesGuests && currentRoomWorkspace));
@@ -1911,6 +1917,25 @@ export function App({
     setWorkspaceFocus({ agent, nonce: Date.now() });
     setWorkspaceOpen(true);
   }
+  // 消息、白板里的提交号和任务分支名：能看代码的人才变成链接，点了打开「代码」面板定位过去
+  const workspaceRefs = useMemo(
+    () =>
+      canViewWorkspace && currentRoomWorkspace
+        ? {
+            resolver: new RefResolver(workspaceRequest),
+            open: (target: RefTarget) => {
+              setArtifactsOpen(false);
+              setWorkspaceFocus(
+                target.kind === "commit"
+                  ? { source: "workspace", commit: target.hash, nonce: Date.now() }
+                  : { source: target.source, nonce: Date.now() },
+              );
+              setWorkspaceOpen(true);
+            },
+          }
+        : undefined,
+    [canViewWorkspace, currentRoomWorkspace, workspaceRequest],
+  );
   // 头部入口上的改动数：面板关着时不轮询，只在进房间和有新消息（Agent 多半刚改完）后查一次，最快 10 秒一次
   const workspaceCountFetched = useRef<{ roomId?: string; at: number }>({ at: 0 });
   const currentLatestSeq = currentRoom?.latestSeq;
@@ -4525,7 +4550,8 @@ export function App({
     </>
   );
 
-  return (
+  // 外面包一层：消息、白板里的提交号要能拿到「代码」面板的上下文（不改下面的缩进）
+  const page = (
     <main className="app-shell">
       <a className="skip-link" href="#main-content">
         {t("跳到消息区")}
@@ -6120,7 +6146,7 @@ export function App({
             workspaceConfigured={Boolean(currentRoomWorkspace)}
             isOwner={isOwner}
             onOverview={recordWorkspaceOverview}
-            focusAgent={workspaceFocus}
+            focus={workspaceFocus}
             revealFile={
               local.enabled && local.mode === "local"
                 ? (source, path) => local.revealWorkspaceFile(currentRoomId, source, path)
@@ -7951,5 +7977,8 @@ export function App({
         </button>
       )}
     </main>
+  );
+  return (
+    <WorkspaceRefsContext.Provider value={workspaceRefs}>{page}</WorkspaceRefsContext.Provider>
   );
 }

@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import type {
@@ -25,6 +26,7 @@ import type {
   WorkspaceTreeEntry,
 } from "@superhive/protocol";
 import { getLocale, t } from "./i18n";
+import { SplitResizer, useSplitWidth } from "./split-resizer";
 import { formatRelativeTime } from "./whiteboard";
 import { Select } from "./select";
 import { SheetPanel } from "./sheet-panel";
@@ -199,6 +201,14 @@ function EmptyState({
 
 const SOURCE_KEY = "superhive.workspace-source";
 
+/** 打开面板时要定位到哪：某个 Agent 的任务线、某份代码、某个提交；nonce 变了就再定位一次 */
+export type WorkspaceFocus = {
+  agent?: string;
+  source?: string;
+  commit?: string;
+  nonce: number;
+};
+
 /** 工作区在前；任务线按最近改动排，已合入（或没改过）的、目录不存在的放最后 */
 export function sortSources(sources: WorkspaceSourceInfo[]): WorkspaceSourceInfo[] {
   const rank = (item: WorkspaceSourceInfo) =>
@@ -241,6 +251,33 @@ function sourceActivity(item: WorkspaceSourceInfo): string[] {
   if (item.ahead) parts.push(t("领先 {0} 个提交", { 0: item.ahead }));
   if (item.activeAt) parts.push(formatRelativeTime(item.activeAt, Date.now()));
   return parts;
+}
+
+const LIST_WIDTH_KEY = "superhive.workspace-list-width";
+const LIST_DEFAULT_WIDTH = 300;
+const LIST_MIN_WIDTH = 220;
+
+/** 左栏（改动 / 文件树 / 提交）+ 右侧内容；中间的分隔条拖动调宽，三个视图共用一个宽度 */
+function SplitLayout({ narrow, children }: { narrow: boolean; children: ReactNode }) {
+  const split = useSplitWidth(LIST_WIDTH_KEY, LIST_DEFAULT_WIDTH, LIST_MIN_WIDTH);
+  return (
+    <div
+      className={`workspace-split ${narrow ? "narrow" : ""}`}
+      style={
+        narrow ? undefined : ({ "--workspace-list-width": `${split.width}px` } as CSSProperties)
+      }
+    >
+      {children}
+      {!narrow && (
+        <SplitResizer
+          width={split.width}
+          min={LIST_MIN_WIDTH}
+          onChange={split.set}
+          label={t("拖动调整左栏宽度，双击恢复默认")}
+        />
+      )}
+    </div>
+  );
 }
 
 function Chevron({ open }: { open: boolean }) {
@@ -368,7 +405,7 @@ export function WorkspacePanel({
   onOpenSettings,
   onOverview,
   revealFile,
-  focusAgent,
+  focus,
 }: {
   api: WorkspaceApi;
   roomId: string;
@@ -383,7 +420,7 @@ export function WorkspacePanel({
   /** 本机房主：在访达里显示文件（代替下载）；远程设备、访客不传 */
   revealFile?: ((source: string, path: string) => Promise<void>) | undefined;
   /** 「看改动」：切到这个 Agent 最近的任务线；nonce 变了就再切一次 */
-  focusAgent?: { agent: string; nonce: number } | undefined;
+  focus?: WorkspaceFocus | undefined;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const [narrow, setNarrow] = useState(false);
@@ -399,27 +436,39 @@ export function WorkspacePanel({
   }, [api, workspaceConfigured, refreshTick]);
   const sources = useMemo(() => sortSources(overview.data?.sources ?? []), [overview.data]);
   const source = sources.find((item) => item.id === sourceId);
-  const pendingFocus = useRef(focusAgent?.agent);
-  useEffect(() => {
-    pendingFocus.current = focusAgent?.agent;
-    if (focusAgent) setSourceId(undefined);
-  }, [focusAgent]);
+  const pendingFocus = useRef(focus?.agent);
+  const pendingSource = useRef(focus?.source);
+  const [focusCommit, setFocusCommit] = useState(focus?.commit);
   useEffect(() => {
     if (!overview.data) return;
     if (sourceId !== undefined && overview.data.sources.some((item) => item.id === sourceId))
       return;
+    const wanted = pendingSource.current;
     setSourceId(
-      defaultSource(overview.data.sources, {
-        remembered: localStorage.getItem(`${SOURCE_KEY}:${roomId}`) ?? undefined,
-        agent: pendingFocus.current,
-      }),
+      wanted && overview.data.sources.some((item) => item.id === wanted)
+        ? wanted
+        : defaultSource(overview.data.sources, {
+            remembered: localStorage.getItem(`${SOURCE_KEY}:${roomId}`) ?? undefined,
+            agent: pendingFocus.current,
+          }),
     );
     pendingFocus.current = undefined;
+    pendingSource.current = undefined;
   }, [overview.data, sourceId, roomId]);
   useEffect(() => {
     setSourceId(undefined);
-    setTab("changes");
+    setTab(focus?.commit ? "commits" : "changes");
+    // 只在换房间时复位；focus 由下面单独处理
   }, [roomId]);
+  // 「看改动」、点消息里的提交号 / 分支名：切到对应的那份代码，提交号还要打开「最近提交」里的那一条
+  useEffect(() => {
+    if (!focus) return;
+    pendingFocus.current = focus.agent;
+    pendingSource.current = focus.source;
+    setSourceId(undefined);
+    setFocusCommit(focus.commit);
+    setTab(focus.commit ? "commits" : "changes");
+  }, [focus]);
   const chooseSource = (id: string) => {
     localStorage.setItem(`${SOURCE_KEY}:${roomId}`, id);
     setSourceId(id);
@@ -500,6 +549,7 @@ export function WorkspacePanel({
         canReveal={overview.data.canReveal}
         narrow={narrow}
         refreshTick={refreshTick}
+        initialCommit={focusCommit}
       />
     );
   } else if (!overview.data.git) {
@@ -741,7 +791,7 @@ function ChangesView({
   const showDetail = !narrow || Boolean(selected);
 
   return (
-    <div className={`workspace-split ${narrow ? "narrow" : ""}`}>
+    <SplitLayout narrow={narrow}>
       {showList && (
         <div className="workspace-list" aria-label={t("改动的文件")}>
           {data && (
@@ -853,7 +903,7 @@ function ChangesView({
           )}
         </div>
       )}
-    </div>
+    </SplitLayout>
   );
 }
 
@@ -1467,7 +1517,7 @@ function FilesView({
   const showList = !narrow || !selected;
   const showDetail = !narrow || Boolean(selected);
   return (
-    <div className={`workspace-split ${narrow ? "narrow" : ""}`}>
+    <SplitLayout narrow={narrow}>
       {showList && (
         <div className="workspace-list workspace-files">
           <div className="workspace-search">
@@ -1564,7 +1614,7 @@ function FilesView({
           )}
         </div>
       )}
-    </div>
+    </SplitLayout>
   );
 }
 
@@ -1749,18 +1799,24 @@ function CommitsView({
   canReveal,
   narrow,
   refreshTick,
+  initialCommit,
 }: {
   api: WorkspaceApi;
   source: string;
   canReveal: boolean;
   narrow: boolean;
   refreshTick: number;
+  /** 从消息里的提交号点过来：直接打开这个提交（不在已加载的列表里也行） */
+  initialCommit?: string | undefined;
 }) {
   const [commits, setCommits] = useState<WorkspaceCommit[]>([]);
   const [more, setMore] = useState(false);
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
-  const [selectedCommit, setSelectedCommit] = useState<string>();
+  const [selectedCommit, setSelectedCommit] = useState<string | undefined>(initialCommit);
+  useEffect(() => {
+    if (initialCommit) setSelectedCommit(initialCommit);
+  }, [initialCommit]);
   const [selectedFile, setSelectedFile] = useState<SelectedChange>();
   const loadPage = useCallback(
     async (skip: number) => {
@@ -1795,7 +1851,7 @@ function CommitsView({
   const showList = !narrow || !selectedCommit;
   const showDetail = !narrow || Boolean(selectedCommit);
   return (
-    <div className={`workspace-split ${narrow ? "narrow" : ""}`}>
+    <SplitLayout narrow={narrow}>
       {showList && (
         <div className="workspace-list">
           {error && (
@@ -1913,6 +1969,6 @@ function CommitsView({
           )}
         </div>
       )}
-    </div>
+    </SplitLayout>
   );
 }

@@ -27,6 +27,7 @@ import {
 } from "./attachments";
 import { getLocale, localized, t } from "./i18n";
 import { SheetPanel } from "./sheet-panel";
+import { SplitResizer, useSplitWidth } from "./split-resizer";
 import { formatRelativeTime } from "./whiteboard";
 
 /**
@@ -416,6 +417,9 @@ const VIEW_KEY = "superhive.artifacts-view";
 /** 详情栏宽度（拖动左边缘调整，记在本机）；没调过时按面板宽度的约三分之一 */
 const DETAIL_WIDTH_KEY = "superhive.artifacts-detail-width";
 const DETAIL_MIN_WIDTH = 320;
+const SIDEBAR_WIDTH_KEY = "superhive.artifacts-sidebar-width";
+const SIDEBAR_DEFAULT_WIDTH = 232;
+const SIDEBAR_MIN_WIDTH = 200;
 
 function storedDetailWidth(): number | undefined {
   const value = Number(localStorage.getItem(DETAIL_WIDTH_KEY));
@@ -493,6 +497,8 @@ export function ArtifactsPanel({
   const mainRef = useRef<HTMLDivElement>(null);
   const layoutRef = useRef<HTMLDivElement>(null);
   const [detailWidth, setDetailWidth] = useState(storedDetailWidth);
+  // 左边筛选栏也能拖宽（和「代码」面板左栏同一种分隔条）
+  const sidebar = useSplitWidth(SIDEBAR_WIDTH_KEY, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH);
 
   /** 拖动详情栏左边缘调宽度：至少 320，至多给列表留 360 */
   const resizeDetail = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -505,7 +511,10 @@ export function ArtifactsPanel({
     handle.setPointerCapture(event.pointerId);
     const startX = event.clientX;
     const startWidth = aside.getBoundingClientRect().width;
-    const max = Math.max(DETAIL_MIN_WIDTH, layout.getBoundingClientRect().width - 232 - 360);
+    const max = Math.max(
+      DETAIL_MIN_WIDTH,
+      layout.getBoundingClientRect().width - sidebar.width - 360,
+    );
     let latest = startWidth;
     document.body.classList.add("resizing-panel");
     const move = (moveEvent: PointerEvent) => {
@@ -1056,9 +1065,10 @@ export function ArtifactsPanel({
         ref={layoutRef}
         className={`artifacts-layout${detail ? " with-detail" : ""}`}
         style={
-          detailWidth
-            ? ({ "--artifact-detail-width": `${detailWidth}px` } as CSSProperties)
-            : undefined
+          {
+            "--artifacts-sidebar-width": `${sidebar.width}px`,
+            ...(detailWidth ? { "--artifact-detail-width": `${detailWidth}px` } : {}),
+          } as CSSProperties
         }
         onKeyDown={(event) => {
           // Esc 先关详情栏，再按一次才关面板
@@ -1068,6 +1078,12 @@ export function ArtifactsPanel({
           }
         }}
       >
+        <SplitResizer
+          width={sidebar.width}
+          min={SIDEBAR_MIN_WIDTH}
+          onChange={sidebar.set}
+          label={t("拖动调整筛选栏宽度，双击恢复默认")}
+        />
         <nav className="artifacts-sidebar" aria-label={t("筛选产物")}>
           <input
             type="search"

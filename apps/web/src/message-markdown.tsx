@@ -5,6 +5,7 @@ import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { copyTextToClipboard } from "./clipboard";
 import { t } from "./i18n";
+import { RefLink, remarkWorkspaceRefs } from "./workspace-refs";
 
 // @ 前紧贴 ASCII 字母数字时是邮箱，不高亮；中文后直接 @ 与服务端一样算提及
 const mentionPattern = /(?<![A-Za-z0-9_.])(@[\p{L}\p{N}_.-]+)/gu;
@@ -197,6 +198,14 @@ const markdownComponents: Components = {
     return <input {...rest} readOnly disabled />;
   },
   pre: CodeBlock,
+  // 提交号、任务分支名：能在「代码」面板里打开的变成按钮（见 workspace-refs）
+  span(props) {
+    const { node, ...rest } = props;
+    void node;
+    const token = (rest as Record<string, unknown>)["data-ref"];
+    if (typeof token === "string") return <RefLink token={token}>{rest.children}</RefLink>;
+    return <span {...rest} />;
+  },
 };
 
 /**
@@ -219,6 +228,11 @@ const inertComponents: Components = {
     void node;
     return <span className="md-inert-image">{alt ? `[${alt}]` : t("[图片]")}</span>;
   },
+  span(props) {
+    const { node, ...rest } = props;
+    void node;
+    return <span {...rest} />;
+  },
 };
 
 export const MessageMarkdown = memo(function MessageMarkdown({
@@ -239,6 +253,7 @@ export const MessageMarkdown = memo(function MessageMarkdown({
         remarkCjkAutolinks,
         remarkBreaks,
         remarkMentionHighlights,
+        remarkWorkspaceRefs,
       ]}
       // 不开语言自动检测：未标记语言的代码块要用全部语法逐一试探打分，遇到长文本是
       // 主线程热点（实测单块可达数百毫秒）；标记了语言的代码块仍正常高亮

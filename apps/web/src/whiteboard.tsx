@@ -5,6 +5,7 @@ import {
   type WhiteboardSlot,
 } from "@superhive/protocol";
 import { getLocale, localized, t } from "./i18n";
+import { RefLink, RefText } from "./workspace-refs";
 
 /** 阻塞最需要人关注，排在最前；里程碑是历史记录，放最后 */
 export const whiteboardSlots: Array<{ slot: WhiteboardSlot; label: string }> = localized(() => [
@@ -433,16 +434,22 @@ export function WhiteboardPanel({
                       <span>{entry.key}</span>
                     </label>
                   )}
-                  <p className="whiteboard-summary">{entry.summary}</p>
+                  <p className="whiteboard-summary">
+                    <RefText text={entry.summary} />
+                  </p>
                   {(entry.repo || entry.branch || entry.commit) && (
                     <p className="whiteboard-ref">
                       {entry.repo && <span title={entry.repo}>{entry.repo}</span>}
                       {entry.branch && (
-                        <span title={t("分支 {0}", { 0: entry.branch })}>{entry.branch}</span>
+                        <span title={t("分支 {0}", { 0: entry.branch })}>
+                          <RefLink token={entry.branch} explicit />
+                        </span>
                       )}
                       {entry.commit && (
                         <span title={t("提交 {0}", { 0: entry.commit })}>
-                          {shortCommit(entry.commit)}
+                          <RefLink token={entry.commit} explicit>
+                            {shortCommit(entry.commit)}
+                          </RefLink>
                         </span>
                       )}
                     </p>

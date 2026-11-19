@@ -247,7 +247,8 @@
   display: grid;
   min-height: 0;
   flex: 1;
-  grid-template-columns: minmax(240px, 30%) minmax(0, 1fr);
+  position: relative;
+  grid-template-columns: var(--workspace-list-width, 300px) minmax(0, 1fr);
 }
 
 .workspace-split.narrow {
@@ -1255,4 +1256,37 @@
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* 两栏之间的分隔条（「代码」左栏、「产物」筛选栏共用）：平时看不见，悬停、拖动、聚焦时显出一条细线 */
+.split-resizer {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  margin-left: -4px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.split-resizer::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: transparent;
+  content: "";
+  transition: background var(--duration-fast);
+}
+
+.split-resizer:hover::after,
+.split-resizer.dragging::after,
+.split-resizer:focus-visible::after {
+  background: var(--border-heavy);
+}
+
+.split-resizer:focus-visible {
+  outline: none;
 }

@@ -1171,3 +1171,31 @@ label.question-option:hover {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
+
+/* 消息、白板里能在「代码」面板打开的提交号和任务分支名：像链接，不跳页面 */
+.md-ref-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--text-tertiary);
+  text-decoration-style: dotted;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.md-ref-link:hover {
+  color: var(--text);
+  text-decoration-color: currentColor;
+  text-decoration-style: solid;
+}
+
+.md-ref-link:focus-visible {
+  border-radius: var(--radius-xs);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}

@@ -93,6 +93,7 @@ const querySchemas = {
     reveal: flag,
   }),
   search: sourceQuery.extend({ q: z.string().max(200).default("") }),
+  refs: sourceQuery.extend({ q: z.string().max(4000).default("") }),
   "raw-url": sourceQuery.extend({
     path: workspaceRelativePathSchema.pipe(z.string().min(1)),
     ref: z.string().max(210).default("worktree").refine(isBlobRef),
@@ -388,6 +389,25 @@ export function registerWorkspaceFileRoutes(
   route("search", ({ view, query }) => view.search(query.q));
 
   /**
+   * 聊天消息、白板里出现的提交号和分支名，哪些能在「代码」面板里打开：
+   * 提交号必须是这个仓库里真实存在的提交（任务线和工作区共用同一份对象库，按工作区查就够）；
+   * 分支名必须是这个房间登记的某条任务线，或工作区当前的分支。一次最多查 100 个。
+   */
+  route("refs", async ({ request, view }) => {
+    const tokens = [...new Set(refTokensOf(request.query))].slice(0, 100);
+    const commits = await view.resolveCommits(tokens);
+    const branches: Record<string, string> = {};
+    const records = options.worktrees(request.params.roomId);
+    const current = (await view.status({ counts: false }).catch(() => undefined))?.branch;
+    for (const token of tokens) {
+      const record = records.find((item) => item.branch === token);
+      if (record) branches[token] = record.id;
+      else if (current && token === current) branches[token] = "workspace";
+    }
+    return { commits: Object.fromEntries(commits), branches };
+  });
+
+  /**
    * 原始字节的临时链接：<img>/<video>/<audio> 带不了请求头，又不能把房主令牌放进 URL，
    * 所以先用正常凭证换一个只对这一个文件的这一个版本有效、10 分钟过期、绑定查看者的签名链接。
    * 审计在签发时记一次（视频拖动会发很多个 Range 请求，不逐个记）。
@@ -476,6 +496,16 @@ export function registerWorkspaceFileRoutes(
       return reply.send(blob.open(start, end));
     },
   );
+}
+
+function refTokensOf(query: unknown): string[] {
+  const raw = (query as { q?: unknown } | undefined)?.q;
+  return typeof raw === "string"
+    ? raw
+        .split(",")
+        .map((item) => item.trim())
+        .filter((item) => item && item.length <= 200)
+    : [];
 }
 
 /** 解析单段 Range（bytes=a-b、a-、-n）；多段或认不出的当没有；越界返回 invalid（416） */

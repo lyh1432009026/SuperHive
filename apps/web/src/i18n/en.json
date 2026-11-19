@@ -1662,5 +1662,9 @@
   "回应 #{0}：{1}": "Replying to #{0}: {1}",
   "去处理": "Handle it",
   "显示多少": "How much to show",
-  "前面还有 {0} 段话": "{0} earlier messages"
+  "前面还有 {0} 段话": "{0} earlier messages",
+  "拖动调整左栏宽度，双击恢复默认": "Drag to resize the left column; double-click to reset",
+  "拖动调整筛选栏宽度，双击恢复默认": "Drag to resize the filters; double-click to reset",
+  "在「代码」面板里查看提交 {0}": "View commit {0} in the Code panel",
+  "在「代码」面板里打开任务线 {0}": "Open worktree {0} in the Code panel"
 }

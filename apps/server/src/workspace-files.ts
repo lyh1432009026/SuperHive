@@ -652,6 +652,26 @@ export class WorkspaceView {
   }
 
   /**
+   * 批量确认哪些短哈希是这个仓库里真实存在的提交（聊天消息、白板里的提交号变成链接用）：
+   * 一次 cat-file --batch-check，不存在、有歧义或不是提交的都不返回。返回 输入 → 完整提交号。
+   */
+  async resolveCommits(candidates: string[]): Promise<Map<string, string>> {
+    const hashes = [...new Set(candidates.filter((item) => /^[0-9a-f]{7,40}$/i.test(item)))];
+    const found = new Map<string, string>();
+    if (!hashes.length || !(await this.repo())) return found;
+    const result = await readOnlyGit(this.root, ["cat-file", "--batch-check"], {
+      input: hashes.map((hash) => `${hash}^{commit}`).join("\n") + "\n",
+      maxBytes: 1024 * 1024,
+    });
+    const lines = result.stdout.toString("utf8").split("\n");
+    hashes.forEach((hash, index) => {
+      const [sha, type] = (lines[index] ?? "").split(" ");
+      if (type === "commit" && sha && /^[0-9a-f]{40,64}$/.test(sha)) found.set(hash, sha);
+    });
+    return found;
+  }
+
+  /**
    * 原始字节：工作区里的文件，或 git 里某个版本的 blob。返回大小和按区间打开的流（视频拖进度要 Range）。
    * ref：worktree 当前文件、index 暂存区、HEAD、提交号、parent:<提交号>（它的第一个父提交）、base:<分支>（与 HEAD 的分叉点）
    */
