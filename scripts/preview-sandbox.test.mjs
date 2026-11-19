@@ -177,6 +177,12 @@ test("截图参数：多主题加后缀、预置动作、首次引导跳过", as
   assert.throws(() => parseOptions(["--action", "fly"]), /不认识的动作/);
   assert.throws(() => parseOptions(["--theme", "blue"]), /light \/ dark/);
   assert.throws(() => parseOptions(["--compare", "one.png"]), /至少要两张图/);
+  // 测试替身脚本：解析成绝对路径；不存在的直接报错，不静默截一张没有替身的图
+  assert.deepEqual(parseOptions([]).initScripts, []);
+  assert.deepEqual(parseOptions(["--init-script", "scripts/screenshot.mjs"]).initScripts, [
+    path.resolve("scripts/screenshot.mjs"),
+  ]);
+  assert.throws(() => parseOptions(["--init-script", "nope.js"]), /文件不存在/);
   assert.deepEqual(initialStorage({ user: "rd", theme: "dark", room: "build" }), {
     "superhive.username": "rd",
     "superhive.theme": "dark",

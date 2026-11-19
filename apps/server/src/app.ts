@@ -3,6 +3,8 @@ import {
   serverText,
   type RoomClearOptions,
   isResumableUnknown,
+  isAgentOutdated,
+  type AgentCodeVersion,
 } from "@superhive/protocol";
 import { errorText, hiveErrorBody, wsText } from "./texts.js";
 import { observeRuntime } from "./runtime-observation.js";
@@ -121,6 +123,8 @@ type Connection = {
   lastHeartbeat: number;
   /** 连接来自 Server 所在的这台电脑（握手时按 isLocal 判断） */
   local: boolean;
+  /** Agent 加入时上报的代码版本 */
+  version?: AgentCodeVersion | undefined;
 };
 
 export type ConfiguredUrl = string | (() => string);
@@ -186,7 +190,13 @@ export type BuildAppOptions = {
   slowOps?: Partial<SlowOpsSettings>;
   localAgents?: Omit<
     LocalAgentSupervisorOptions,
-    "database" | "joinToken" | "isAgentOnline" | "isNameInUse"
+    | "database"
+    | "joinToken"
+    | "isAgentOnline"
+    | "isNameInUse"
+    | "runningVersion"
+    | "busyAgentNames"
+    | "onCurrentVersionChange"
   >;
   /**
    * 沙箱预览（HIVE_SANDBOX=1，给 Agent 做 UI 验证用）：数据往往是真实数据的副本，所以这里硬关掉
@@ -408,6 +418,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   }
 
   function broadcastAll(event: ServerEvent): void {
+    // 调用结束：那个 Agent 可能刚空闲下来，看看有没有等着它空闲的重启
+    if (
+      event.type === "invocation.updated" &&
+      !["queued", "running", "cancelling"].includes(event.invocation.status)
+    ) {
+      localAgents?.checkSoon();
+    }
     const roomId = eventRoomId(event);
     for (const connection of connections) {
       if (!connection.participant) continue;
@@ -482,6 +499,30 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           joinToken,
           isAgentOnline: (name) => onlineAnywhere(name, true),
           isNameInUse: (name) => onlineAnywhere(name, false),
+          runningVersion: (name) => {
+            const suffix = `:${name.toLocaleLowerCase()}`;
+            for (const [key, set] of onlineByName) {
+              if (!key.endsWith(suffix)) continue;
+              for (const connection of set) {
+                if (connection.participant?.type === "agent" && connection.version) {
+                  return connection.version;
+                }
+              }
+            }
+            return undefined;
+          },
+          busyAgentNames: () => database.busyAgentNames(),
+          // 合入或升级后：在线 Agent 的「旧版本」标记跟着刷新
+          onCurrentVersionChange: () => {
+            for (const connection of connections) {
+              const participant = connection.participant;
+              if (participant?.type !== "agent") continue;
+              broadcast(participant.roomId, {
+                type: "presence.changed",
+                participant: withAccess(participant),
+              });
+            }
+          },
           requestShutdown: (name) => {
             const suffix = `:${name.toLocaleLowerCase()}`;
             let sent = false;
@@ -783,8 +824,26 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       : undefined;
   }
 
-  /** 成员信息附上访客期限，成员列表据此显示剩余时间 */
-  function withAccess(participant: Participant): Participant {
+  /** 在线 Agent 的代码版本，以及是否在跑旧代码（本机 Agent 按同一份代码精确判断，别处的只比包版本） */
+  function withVersion(participant: Participant): Participant {
+    if (participant.type !== "agent" || participant.status === "offline") return participant;
+    const named = onlineByName.get(participantKey(participant.roomId, participant.username));
+    let version: AgentCodeVersion | undefined;
+    for (const connection of named ?? []) version ??= connection.version;
+    const outdated =
+      localAgents?.outdatedByName(participant.username) ??
+      isAgentOutdated(version, localAgents?.currentCodeVersion(), false);
+    if (!version && !outdated) return participant;
+    return {
+      ...participant,
+      ...(version ? { version } : {}),
+      ...(outdated ? { outdated: true } : {}),
+    };
+  }
+
+  /** 成员信息附上访客期限（成员列表据此显示剩余时间）和在线 Agent 的代码版本 */
+  function withAccess(input: Participant): Participant {
+    const participant = withVersion(input);
     const resolved = guestSessionOf(participant);
     if (!resolved) return participant;
     return {
@@ -5300,6 +5359,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             });
           connection.participant = participant;
           connection.lastHeartbeat = Date.now();
+          if (participant.type === "agent") connection.version = event.version;
           const activeConnections = namedConnections ?? new Set<Connection>();
           activeConnections.add(connection);
           onlineByName.set(key, activeConnections);

@@ -36,6 +36,8 @@ const HELP = `用法：
   --settle <毫秒>        每个动作后等页面稳定的时间（默认 800）
   --full-page            截整页（默认只截视口）
   --hide-sandbox-badge   隐藏沙箱预览标记
+  --init-script <文件>   页面加载前先执行的 JS（可重复），用来放测试替身，比如拦截 fetch
+                         返回沙箱里没有的本机 Agent 数据
   --out <文件>           输出 PNG（默认 output/screenshot-时间.png；多主题时自动加 -light/-dark）
   --chrome <路径>        Chrome 可执行文件（也可用环境变量 CHROME_PATH）`;
 
@@ -287,7 +289,8 @@ async function screenshot(options) {
           if (location.origin === ${JSON.stringify(url.origin)}) {
             for (const [key, value] of Object.entries(${JSON.stringify(storage)})) localStorage.setItem(key, value);
           }
-          ${options.hideSandboxBadge ? `document.addEventListener("DOMContentLoaded", () => { const style = document.createElement("style"); style.textContent = ".sandbox-badge{display:none!important}"; document.head.append(style); });` : ""}`,
+          ${options.hideSandboxBadge ? `document.addEventListener("DOMContentLoaded", () => { const style = document.createElement("style"); style.textContent = ".sandbox-badge{display:none!important}"; document.head.append(style); });` : ""}
+          ${options.initScripts.map((file) => fs.readFileSync(file, "utf8")).join("\n;\n")}`,
       });
       // 先回空白页：只差 #房间 的地址再 navigate 不会重新加载，换主题就不生效
       await cdp.send("Page.navigate", { url: "about:blank" });
@@ -408,6 +411,7 @@ export function parseOptions(argv) {
       settle: { type: "string", default: "800" },
       "full-page": { type: "boolean", default: false },
       "hide-sandbox-badge": { type: "boolean", default: false },
+      "init-script": { type: "string", multiple: true, default: [] },
       out: { type: "string" },
       chrome: { type: "string" },
       compare: { type: "boolean", default: false },
@@ -442,6 +446,11 @@ export function parseOptions(argv) {
     settle: number("settle", 0),
     fullPage: values["full-page"],
     hideSandboxBadge: values["hide-sandbox-badge"],
+    initScripts: values["init-script"].map((file) => {
+      const resolved = path.resolve(file);
+      if (!fs.existsSync(resolved)) throw new Error(`--init-script 文件不存在：${file}`);
+      return resolved;
+    }),
     out: values.out,
     chrome: values.chrome,
     compare: values.compare ? positionals : undefined,

@@ -119,6 +119,8 @@ import {
   type HostApprover,
   type OwnerDevice,
 } from "./local-agents";
+import { SettingsSwitch } from "./settings-switch";
+import { LocalAgentUpdatesGroup, OutdatedBadge } from "./local-agent-updates";
 import { agentNameFor, type SelectableAgentProvider } from "./agent-name";
 import { createFrameClock, easeInOutCubic, easeOutQuint } from "./easing";
 import { ShadowContent } from "./shadow-content";
@@ -360,7 +362,7 @@ const settingsTabs: Array<{ id: SettingsTab; label: string; description: string 
     { id: "chat", label: t("聊天与输入"), description: t("发送、草稿与时间") },
     { id: "notifications", label: t("通知"), description: t("提及、声音与状态") },
     { id: "appearance", label: t("外观"), description: t("语言、主题、密度与字号") },
-    { id: "computer", label: t("这台电脑"), description: t("熄屏后保持在线") },
+    { id: "computer", label: t("这台电脑"), description: t("本机 Agent、熄屏后保持在线") },
     { id: "runtimes", label: t("Agent 运行时"), description: t("CLI 升级与配置") },
   ],
 );
@@ -837,39 +839,6 @@ function resizeComposer(textarea: HTMLTextAreaElement, expanded = false): void {
   const nextHeight = Math.min(max, Math.max(composerMinHeight(expanded), textarea.scrollHeight));
   textarea.style.height = `${nextHeight}px`;
   textarea.style.overflowY = textarea.scrollHeight > max ? "auto" : "hidden";
-}
-
-function SettingsSwitch({
-  checked,
-  disabled = false,
-  label,
-  description,
-  onChange,
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  label: string;
-  description: string;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="settings-switch-row"
-      role="switch"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-    >
-      <span>
-        <strong>{label}</strong>
-        <small>{description}</small>
-      </span>
-      <i className="switch-control" aria-hidden="true">
-        <b />
-      </i>
-    </button>
-  );
 }
 
 /** 侧栏小月亮的悬停说明 */
@@ -4314,8 +4283,12 @@ export function App({
                   ...(live
                     ? [
                         {
-                          label: t("重启"),
-                          disabled: !local.canManage,
+                          // 等手上的任务做完再重启；要立即重启到「设置…」里确认
+                          label: agent.restartWhenIdle ? t("已安排空闲后重启") : t("重启"),
+                          ...(agent.busy && !agent.restartWhenIdle
+                            ? { hint: t("做完任务后") }
+                            : {}),
+                          disabled: !local.canManage || agent.restartWhenIdle === true,
                           onSelect: () => act("restart"),
                         },
                         {
@@ -6367,6 +6340,7 @@ export function App({
                               {t("主")}
                             </span>
                           )}
+                          <OutdatedBadge participant={participant} />
                           {participant.type === "agent" &&
                             localAgentNames.has(participant.username.toLocaleLowerCase()) && (
                               <>
@@ -7442,6 +7416,7 @@ export function App({
                       </p>
                     </div>
                     <HostManageNotice local={local} />
+                    <LocalAgentUpdatesGroup local={local} />
                     <KeepAwakeSettingsGroup local={local} />
                     <OwnerDevicesGroup local={local} />
                     {slowOpsState.enabled && (

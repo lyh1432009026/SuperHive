@@ -7,6 +7,7 @@ import type {
 } from "@superhive/protocol";
 import { localized, t } from "./i18n";
 import { LogViewer, localAgentStatusLabels, type LocalAgentsState } from "./local-agents";
+import { RestartNowButton, agentUpdateNotes } from "./local-agent-updates";
 import { ModelPicker } from "./model-picker";
 
 function CloseGlyph() {
@@ -339,11 +340,16 @@ export function AgentSettingsDialog({
           <div className={`agent-run-control local-agent ${agent.status}`}>
             <span className="local-agent-dot" aria-hidden="true" />
             <span className="agent-run-status">
-              <strong>{localAgentStatusLabels[agent.status]}</strong>
+              <strong>
+                {[localAgentStatusLabels[agent.status], ...agentUpdateNotes(agent)].join(" · ")}
+                {agent.outdated && <span className="agent-update-badge">{t("旧版本")}</span>}
+              </strong>
               <small>
-                {live
-                  ? t("重启会结束它手上正在执行的任务；排队中的任务重启后接着做。")
-                  : t("已停止，房间里不会再有人接它的 @。")}
+                {!live
+                  ? t("已停止，房间里不会再有人接它的 @。")
+                  : agent.restartWhenIdle
+                    ? t("已安排重启：手上的任务都做完就重启。")
+                    : t("「重启」等它手上的任务都做完再重启；「立即重启」会中断正在执行的任务。")}
               </small>
             </span>
             {live ? (
@@ -355,11 +361,19 @@ export function AgentSettingsDialog({
                 )}
                 <button
                   type="button"
-                  disabled={acting !== undefined || !local.canManage}
+                  disabled={
+                    acting !== undefined || !local.canManage || agent.restartWhenIdle === true
+                  }
                   onClick={() => void control("restart")}
                 >
                   {acting === "restart" ? t("重启中…") : t("重启")}
                 </button>
+                <RestartNowButton
+                  agent={agent}
+                  local={local}
+                  disabled={acting !== undefined || !local.canManage}
+                  onError={setError}
+                />
                 <button
                   type="button"
                   disabled={acting !== undefined || !local.canManage}

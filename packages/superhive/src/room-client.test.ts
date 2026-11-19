@@ -166,6 +166,12 @@ describe("RoomClient", () => {
       participantType: "agent",
       roomId: "general",
       token: "test-token",
+      // 源码运行：包版本之外还带上启动时的提交和 Agent 代码指纹
+      version: {
+        package: expect.stringMatching(/^\d+\.\d+\.\d+/),
+        commit: expect.stringMatching(/^[0-9a-f]{7,64}$/),
+        fingerprint: expect.stringMatching(/^[0-9a-f]{16}\.[0-9a-f]{16}$/),
+      },
     });
 
     const self = {

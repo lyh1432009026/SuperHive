@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { localizeServerPayload, serverError } from "./server-text";
 import type {
+  AgentCodeVersion,
   AgentCliInfo,
   AgentCliJob,
   AgentCliTool,
@@ -8,6 +9,7 @@ import type {
   KeepAwakeSettings,
   KeepAwakeState,
   LocalAgent,
+  LocalAgentsResponse,
   LocalAgentMcpResponse,
   LocalAgentModelsResponse,
   LocalAgentProvider,
@@ -94,8 +96,16 @@ export type LocalAgentsState = {
   agentCliJob(id: string): Promise<AgentCliJob>;
   providers: LocalProviderInfo[] | undefined;
   agents: LocalAgent[];
+  /** 重新拉一次本机 Agent 列表（接入面板打开时另有定时刷新） */
+  refreshAgents(): Promise<void>;
+  /** 代码更新后在空闲时自动重启落后的本机 Agent；旧版 Server 不返回时为 undefined */
+  autoUpdate: boolean | undefined;
+  setAutoUpdate(enabled: boolean): Promise<void>;
+  /** 本机 Agent 用的这份代码当前的版本 */
+  currentVersion: AgentCodeVersion | undefined;
   create(request: CreateLocalAgentRequest): Promise<LocalAgent>;
-  act(id: string, action: AgentAction): Promise<void>;
+  /** restart 默认等它手上的任务做完再重启；now 立即重启（会中断正在做的任务，调用方先让人确认） */
+  act(id: string, action: AgentAction, options?: { now?: boolean }): Promise<void>;
   /**
    * 在 Server 所在电脑上开终端，接着 Agent 在这个房间的同一个会话（只限本机）；
    * 返回执行的命令。还没有会话、正在执行或在别的设备上时抛错，错误里带 command 时可以复制手动运行。
@@ -397,10 +407,25 @@ export function useLocalAgents(
     [awaitApproval, request],
   );
 
+  const [autoUpdate, setAutoUpdateState] = useState<boolean | undefined>();
+  const [currentVersion, setCurrentVersion] = useState<AgentCodeVersion | undefined>();
   const refreshAgents = useCallback(async () => {
     const response = await request("/api/local/agents");
-    setAgents(((await response.json()) as { agents: LocalAgent[] }).agents);
+    const body = (await response.json()) as LocalAgentsResponse;
+    setAgents(body.agents);
+    setAutoUpdateState(body.autoUpdate);
+    setCurrentVersion(body.currentVersion);
   }, [request]);
+  const setAutoUpdate = useCallback(
+    async (next: boolean) => {
+      const response = await request("/api/local/agents/auto-update", {
+        method: "PUT",
+        body: JSON.stringify({ enabled: next }),
+      });
+      setAutoUpdateState(((await response.json()) as { autoUpdate: boolean }).autoUpdate);
+    },
+    [request],
+  );
 
   const enabled = session?.enabled;
   useEffect(() => {
@@ -429,9 +454,12 @@ export function useLocalAgents(
   );
 
   const act = useCallback(
-    async (id: string, action: AgentAction) => {
+    async (id: string, action: AgentAction, options: { now?: boolean } = {}) => {
       const response = await requestApproved(`/api/local/agents/${id}/${action}`, {
         method: "POST",
+        ...(action === "restart"
+          ? { body: JSON.stringify({ when: options.now ? "now" : "idle" }) }
+          : {}),
       });
       const { agent } = (await response.json()) as { agent: LocalAgent };
       setAgents((current) => current.map((item) => (item.id === id ? agent : item)));
@@ -855,6 +883,10 @@ export function useLocalAgents(
     writeRuntimeFile,
     providers,
     agents,
+    refreshAgents,
+    autoUpdate,
+    setAutoUpdate,
+    currentVersion,
     create,
     act,
     openTerminal,

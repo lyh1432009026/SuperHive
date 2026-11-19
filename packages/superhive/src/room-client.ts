@@ -10,6 +10,7 @@ import type {
   WhiteboardEntry,
 } from "./hive-protocol.js";
 import WebSocket from "ws";
+import { runningCodeVersion, type AgentCodeVersion } from "./code-version.js";
 
 export class RoomClientError extends Error {
   constructor(
@@ -36,6 +37,8 @@ export type RoomClientOptions = {
   token: string;
   persona?: string;
   provider?: string;
+  /** 上报的代码版本；默认是本进程的版本 */
+  version?: AgentCodeVersion;
 };
 
 export type Snapshot = {
@@ -278,6 +281,8 @@ export class RoomClient {
           token: this.options.token,
           ...(this.options.persona ? { persona: this.options.persona } : {}),
           ...(this.options.provider ? { provider: this.options.provider } : {}),
+          // 让 Server 知道这个进程跑的是哪份代码：落后时由本机 Server 在它空闲后重启
+          version: this.options.version ?? runningCodeVersion(),
         }),
       );
     });

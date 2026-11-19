@@ -632,6 +632,18 @@ export const imTexts = {
   },
   "im.audit.agentStarted": { zh: "启动了本机 Agent {name}", en: "started local agent {name}" },
   "im.audit.agentRestarted": { zh: "重启了本机 Agent {name}", en: "restarted local agent {name}" },
+  "im.audit.agentRestartQueued": {
+    zh: "安排本机 Agent {name} 在手上的任务做完后重启",
+    en: "scheduled local agent {name} to restart once its current tasks finish",
+  },
+  "im.audit.agentAutoUpdateOn": {
+    zh: "打开了本机 Agent 自动更新（落后时在空闲后自动重启）",
+    en: "turned on local agent auto-update (restart when idle after the code changes)",
+  },
+  "im.audit.agentAutoUpdateOff": {
+    zh: "关闭了本机 Agent 自动更新",
+    en: "turned off local agent auto-update",
+  },
   "im.audit.agentStopped": { zh: "停止了本机 Agent {name}", en: "stopped local agent {name}" },
   "im.audit.agentDeleted": { zh: "删除了本机 Agent {name}", en: "deleted local agent {name}" },
   "im.audit.roomCleared": { zh: "清空了房间 {room}", en: "cleared the room {room}" },

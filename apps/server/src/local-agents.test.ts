@@ -534,6 +534,8 @@ describe("local agent routes", () => {
       (await app.inject({ method: "GET", url: "/api/local/agents", headers: owner })).json(),
     ).toEqual({
       agents: [],
+      // 自动更新默认开；这里的 CLI 路径不存在，判断不出当前版本，所以不带 currentVersion
+      autoUpdate: true,
     });
   });
 

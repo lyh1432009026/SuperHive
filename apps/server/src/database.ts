@@ -684,6 +684,7 @@ export class HiveDatabase {
       );
       CREATE INDEX IF NOT EXISTS invocations_room ON invocations(room_id, created_at);
       CREATE INDEX IF NOT EXISTS invocations_agent_status ON invocations(agent_id, status);
+      CREATE INDEX IF NOT EXISTS invocations_status ON invocations(status);
       CREATE INDEX IF NOT EXISTS invocations_pair
         ON invocations(room_id, requester_id, agent_id, created_at);
 
@@ -1652,6 +1653,21 @@ export class HiveDatabase {
       )
       .all(agentId) as InvocationRow[];
     return rows.map(mapInvocation);
+  }
+
+  /**
+   * 手上有没结束的调用（排队、执行中、停止中、提问后本轮未结束）的 Agent 名字（小写），跨所有房间。
+   * 同一个本机 Agent 在每个房间是不同的成员，所以按名字而不是成员 ID 汇总。
+   */
+  busyAgentNames(): Set<string> {
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT agent_name AS name FROM invocations
+           WHERE status IN ('queued', 'running', 'cancelling')
+              OR (status = 'waiting_human' AND finished_at IS NULL)`,
+      )
+      .all() as Array<{ name: string }>;
+    return new Set(rows.map((row) => row.name.toLocaleLowerCase()));
   }
 
   /** Agent 当前正在执行（含停止中、提问后本轮尚未结束）的调用 */

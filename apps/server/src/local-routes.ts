@@ -6,7 +6,9 @@ import { z } from "zod";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   createLocalAgentRequestSchema,
+  localAgentAutoUpdateSchema,
   localAgentProviderSchema,
+  restartLocalAgentRequestSchema,
   updateLocalAgentSettingsRequestSchema,
   keepAwakeSettingsSchema,
   type KeepAwakeSettings,
@@ -709,7 +711,27 @@ export function registerLocalAgentRoutes(
 
   app.get("/api/local/agents", async (request, reply) => {
     if (!authorize(request, reply, "read")) return reply;
-    return { agents: supervisor!.list() };
+    const agents = supervisor!.list();
+    const currentVersion = supervisor!.currentCodeVersion();
+    return {
+      agents,
+      autoUpdate: supervisor!.autoUpdateEnabled(),
+      ...(currentVersion ? { currentVersion } : {}),
+    };
+  });
+
+  /** 自动更新开关：本机 Agent 落后于当前代码时，在空闲后自动重启 */
+  app.put("/api/local/agents/auto-update", async (request, reply) => {
+    const caller = authorize(request, reply, "manage");
+    if (!caller) return reply;
+    const parsed = localAgentAutoUpdateSchema.safeParse(request.body);
+    if (!parsed.success)
+      return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+    supervisor!.setAutoUpdate(parsed.data.enabled);
+    audit(request, caller, {
+      key: parsed.data.enabled ? "im.audit.agentAutoUpdateOn" : "im.audit.agentAutoUpdateOff",
+    });
+    return { autoUpdate: supervisor!.autoUpdateEnabled() };
   });
 
   app.post("/api/local/agents", async (request, reply) => {
@@ -766,6 +788,11 @@ export function registerLocalAgentRoutes(
         const caller = authorize(request, reply, "manage");
         if (!caller) return reply;
         const id = request.params.id;
+        // 重启默认等它手上的任务做完；when=now 立即重启（网页上要先确认）
+        const restartWhen = restartLocalAgentRequestSchema.safeParse(request.body ?? undefined);
+        if (action === "restart" && !restartWhen.success)
+          return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+        const now = restartWhen.success && restartWhen.data.when === "now";
         const target = supervisor!.list().find((agent) => agent.id === id);
         if (
           action !== "stop" &&
@@ -795,7 +822,7 @@ export function registerLocalAgentRoutes(
               ? supervisor!.startAgent(id)
               : action === "stop"
                 ? await supervisor!.stop(id)
-                : await supervisor!.restart(
+                : await supervisor![now ? "restart" : "restartWhenIdle"](
                     id,
                     approved ? (current) => configFingerprint(current) === approved : undefined,
                   );
@@ -807,7 +834,13 @@ export function registerLocalAgentRoutes(
           audit(
             request,
             caller,
-            { key: key[action], params: { name: agent.name } },
+            {
+              key:
+                action === "restart" && agent.restartWhenIdle
+                  ? "im.audit.agentRestartQueued"
+                  : key[action],
+              params: { name: agent.name },
+            },
             action !== "stop",
           );
           return { agent };

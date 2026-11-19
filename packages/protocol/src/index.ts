@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { agentCodeVersionSchema } from "./agent-version.js";
 import { serverTextSchema } from "./server-text.js";
 import { worktreeCleanupEventSchema } from "./worktree.js";
 
@@ -100,6 +101,10 @@ export const participantSchema = z.object({
   joinedAt: z.string().datetime(),
   lastSeenAt: z.string().datetime(),
   access: participantAccessSchema.optional(),
+  /** 在线的 Agent 上报的代码版本（旧版 Bridge 不上报） */
+  version: agentCodeVersionSchema.optional(),
+  /** 在线的 Agent 运行的代码比 Server 当前的旧：重启后才用上新代码 */
+  outdated: z.boolean().optional(),
 });
 
 /** 外部 IM 渠道：飞书（含 Lark）与个人微信 */
@@ -208,6 +213,8 @@ export const participantJoinEventSchema = z.object({
   token: z.string().min(1).max(256),
   persona: z.string().trim().max(500).optional(),
   provider: agentProviderSchema.optional(),
+  /** Agent 运行的代码版本；格式不对时当作没上报，不影响加入 */
+  version: agentCodeVersionSchema.optional().catch(undefined),
 });
 
 export const messageSendEventSchema = z.object({
@@ -1267,7 +1274,23 @@ export const localAgentSchema = z.object({
   autoSteer: z.boolean().default(false),
   /** 进程启动时还不支持设置文件（升级前就在运行）：MCP 勾选、模型要重启这个 Agent 一次才生效 */
   settingsPendingRestart: z.boolean().optional(),
+  /** 在任一房间有排队、执行中或停止中的调用（提问后本轮还没结束也算） */
+  busy: z.boolean().optional(),
+  /** 进程上报的代码版本；还没上线或旧版 Bridge 不上报时没有 */
+  version: agentCodeVersionSchema.optional(),
+  /** 运行的代码比当前的旧（含旧版 Bridge 不上报版本）：重启后才用上新代码 */
+  outdated: z.boolean().optional(),
+  /** 已安排在空闲后重启（手动点了「重启」，或自动更新在等它忙完） */
+  restartWhenIdle: z.boolean().optional(),
 });
+
+/** 重启本机 Agent：默认等它手上的任务做完再重启；now 立即重启，正在做的任务会中断 */
+export const restartLocalAgentRequestSchema = z
+  .object({ when: z.enum(["idle", "now"]).default("idle") })
+  .default({});
+
+/** 本机 Agent 落后于当前代码时，在空闲后自动重启一次（默认开） */
+export const localAgentAutoUpdateSchema = z.object({ enabled: z.boolean() });
 
 export const updateLocalAgentSettingsRequestSchema = z
   .object({
@@ -1378,7 +1401,13 @@ export const localDirectoryListingSchema = z.object({
   }),
 });
 
-export const localAgentsResponseSchema = z.object({ agents: z.array(localAgentSchema) });
+export const localAgentsResponseSchema = z.object({
+  agents: z.array(localAgentSchema),
+  /** 自动更新开关；旧版 Server 不返回 */
+  autoUpdate: z.boolean().optional(),
+  /** 本机 Agent 用的这份代码当前的版本；判断不出来时没有 */
+  currentVersion: agentCodeVersionSchema.optional(),
+});
 export const localAgentResponseSchema = z.object({ agent: localAgentSchema });
 export const localAgentLogsResponseSchema = z.object({ lines: z.array(z.string()) });
 
@@ -1428,6 +1457,8 @@ export type LocalAgentMcpResponse = z.infer<typeof localAgentMcpResponseSchema>;
 export type LocalModel = z.infer<typeof localModelSchema>;
 export type LocalAgentModelsResponse = z.infer<typeof localAgentModelsResponseSchema>;
 export type LocalAgent = z.infer<typeof localAgentSchema>;
+export type LocalAgentsResponse = z.infer<typeof localAgentsResponseSchema>;
+export type RestartLocalAgentRequest = z.infer<typeof restartLocalAgentRequestSchema>;
 export type LocalSessionResponse = z.infer<typeof localSessionResponseSchema>;
 
 /**
@@ -1801,3 +1832,4 @@ export * from "./invocation-decision.js";
 export * from "./agent-clis.js";
 export * from "./workspace-files.js";
 export * from "./server-text.js";
+export * from "./agent-version.js";

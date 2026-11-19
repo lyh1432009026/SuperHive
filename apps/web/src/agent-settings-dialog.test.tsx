@@ -246,7 +246,9 @@ describe("AgentSettingsDialog", () => {
     const { rerender } = render(
       <AgentSettingsDialog agent={agent} local={props} onClose={() => undefined} />,
     );
-    expect(screen.getByText("运行中")).toBeTruthy();
+    expect(screen.getByText("运行中 · 版本未上报 · 空闲")).toBeTruthy();
+    // 「重启」等它空闲；「立即重启」要先确认
+    expect(screen.getByRole("button", { name: "立即重启" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "重启" }));
     await waitFor(() => expect(act).toHaveBeenCalledWith(agent.id, "restart"));
     fireEvent.click(screen.getByRole("button", { name: "停止" }));

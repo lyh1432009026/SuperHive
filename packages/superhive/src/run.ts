@@ -20,6 +20,7 @@ import {
   type HiveMcpConnection,
 } from "./hive-mcp-config.js";
 import { fetchRooms } from "./room-client.js";
+import { runningCodeVersion } from "./code-version.js";
 import type { RoomSummary } from "./hive-protocol.js";
 import { allowedWorkspaceRoots, resolveRoomWorkspace } from "./workspace.js";
 import {
@@ -416,6 +417,11 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
     );
   }
 
+  // 启动时就记下这个进程跑的代码版本（加入房间时上报）：之后仓库再变，这个进程跑的仍是这一份
+  const codeVersion = runningCodeVersion();
+  console.log(
+    `[hive] 代码版本：${codeVersion.package}${codeVersion.commit ? `（${codeVersion.commit.slice(0, 7)}）` : ""}`,
+  );
   let stopAll: () => Promise<void>;
   let shuttingDown = false;
   /**

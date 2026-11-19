@@ -12,7 +12,9 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { isAgentOutdated } from "@superhive/protocol";
 import type {
+  AgentCodeVersion,
   CreateLocalAgentRequest,
   LocalAgent,
   LocalAgentMcpResponse,
@@ -21,6 +23,7 @@ import type {
   LocalAgentStatus,
   LocalProviderInfo,
 } from "@superhive/protocol";
+import { codeVersionAt, packageRootOfCli } from "./code-version.js";
 import { HiveError, type HiveDatabase, type LocalAgentConfig } from "./database.js";
 import { expandHome } from "./local-directories.js";
 import { slowOps } from "./slow-ops.js";
@@ -73,6 +76,16 @@ export type LocalAgentSupervisorOptions = {
   isNameInUse: (name: string) => boolean;
   /** 经 WebSocket 请这个名字的 Agent 自行退出；发出了就返回 true（Windows 上用来代替结束信号） */
   requestShutdown?: (name: string) => boolean;
+  /** 在线的这个名字的 Agent 上报的代码版本；不在线或旧版 Bridge 没报时为 undefined */
+  runningVersion?: (name: string) => AgentCodeVersion | undefined;
+  /** 手上有没结束调用的 Agent 名字（小写，跨所有房间）：忙的不重启 */
+  busyAgentNames?: () => ReadonlySet<string>;
+  /** 本机 Agent 那份代码现在的版本（测试注入）；默认按 cli 入口所在的包现算 */
+  currentVersion?: () => Promise<AgentCodeVersion | undefined>;
+  /** 隔多久检查一次要不要自动更新（默认 60 秒）；调用结束时另会尽快检查一次 */
+  updateCheckMs?: number;
+  /** 当前代码版本变了（合入、升级）：成员列表里谁是旧版本跟着变 */
+  onCurrentVersionChange?: () => void;
   log?: (message: string) => void;
   spawn?: SpawnAgent;
   adopt?: AdoptAgent;
@@ -103,6 +116,15 @@ const PROBE_CACHE_MS = 60_000;
 /** 单个 Agent 日志超过这个大小时，下次启动先轮转为 .1 */
 const LOG_FILE_MAX_BYTES = 5 * 1024 * 1024;
 const TAIL_INTERVAL_MS = 1_000;
+/** 当前代码版本的缓存：合入后最多这么久就能看出 Agent 落后了 */
+const VERSION_CACHE_MS = 10_000;
+const UPDATE_CHECK_MS = 60_000;
+/** 调用结束后稍等再查忙闲：同一轮里紧接着可能还有排队的调用被派出 */
+const IDLE_CHECK_DELAY_MS = 3_000;
+/** 同一个 Agent 两次自动重启至少隔这么久，免得版本判断出了岔子时反复重启 */
+export const AUTO_RESTART_COOLDOWN_MS = 10 * 60_000;
+/** 自动更新开关（设置项，默认开） */
+export const AUTO_UPDATE_SETTING = "local-agents:auto-update";
 
 export type McpLister = (args: string[]) => Promise<string>;
 export type ModelLister = (provider: LocalAgentProvider) => Promise<LocalAgentModelsResponse>;
@@ -146,7 +168,17 @@ type Runtime = {
   settingsApplied: boolean;
   /** 正在重启（等旧进程退出）：这期间不接受设置改动，免得新进程用上没批准过的配置 */
   transitioning?: boolean;
+  /** 人点了「重启」但它正忙：等手上的调用都结束再重启；guard 是批准单绑定的配置核对 */
+  pendingRestart?: { guard?: ((agent: LocalAgent) => boolean) | undefined } | undefined;
+  /** 上次自动更新重启时的目标版本：同一个目标只自动重启一次，重启后仍判为旧就不再重试 */
+  autoRestartedFor?: string | undefined;
+  lastAutoRestartAt?: number | undefined;
 };
+
+/** 用来判断「同一个目标版本」的键 */
+function versionKey(version: AgentCodeVersion): string {
+  return version.fingerprint ?? version.package;
+}
 
 // eslint-disable-next-line no-control-regex
 const ANSI_PATTERN = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
@@ -367,6 +399,12 @@ export class LocalAgentSupervisor {
     { at: number; result: Promise<LocalAgentModelsResponse> }
   >();
   private shuttingDown = false;
+  private current?: { at: number; version: AgentCodeVersion | undefined };
+  private refreshing?: Promise<AgentCodeVersion | undefined> | undefined;
+  private readonly currentVersion: () => Promise<AgentCodeVersion | undefined>;
+  private updateTimer?: { cancel(): void } | undefined;
+  private idleTimer?: { cancel(): void } | undefined;
+  private checking = false;
 
   constructor(private readonly options: LocalAgentSupervisorOptions) {
     this.spawnAgent = options.spawn ?? defaultSpawnAgent;
@@ -381,6 +419,10 @@ export class LocalAgentSupervisor {
         return { cancel: () => clearTimeout(timer) };
       });
     this.log = options.log ?? (() => undefined);
+    const packageRoot = packageRootOfCli(options.cli.args);
+    this.currentVersion =
+      options.currentVersion ??
+      (() => (packageRoot ? codeVersionAt(packageRoot) : Promise.resolve(undefined)));
     this.listMcp =
       options.listMcp ??
       ((args) =>
@@ -448,6 +490,11 @@ export class LocalAgentSupervisor {
         if (runtime.phase === "running") this.launch(runtime);
       }, delay);
     }
+    // 能拿到 Agent 上报的版本才做自动更新
+    if (this.options.runningVersion) {
+      void this.refreshVersion();
+      this.scheduleUpdateCheck();
+    }
   }
 
   /**
@@ -456,6 +503,7 @@ export class LocalAgentSupervisor {
    */
   detach(): void {
     this.shuttingDown = true;
+    this.cancelUpdateTimers();
     for (const runtime of this.runtimes.values()) {
       runtime.timer?.cancel();
       runtime.timer = undefined;
@@ -634,7 +682,9 @@ export class LocalAgentSupervisor {
   }
 
   list(): LocalAgent[] {
-    return [...this.runtimes.values()].map((runtime) => this.view(runtime));
+    this.currentCodeVersion();
+    const busy = this.busyNames();
+    return [...this.runtimes.values()].map((runtime) => this.view(runtime, busy));
   }
 
   get(id: string): LocalAgent {
@@ -703,6 +753,7 @@ export class LocalAgentSupervisor {
 
   async stop(id: string): Promise<LocalAgent> {
     const runtime = this.require(id);
+    runtime.pendingRestart = undefined;
     this.options.database.setLocalAgentAutostart(id, false);
     await this.terminate(runtime);
     runtime.phase = "stopped";
@@ -718,6 +769,7 @@ export class LocalAgentSupervisor {
     if (runtime.transitioning) {
       throw new HiveError("LOCAL_AGENT_BUSY", serverText("error.localAgent.restarting"));
     }
+    runtime.pendingRestart = undefined;
     runtime.transitioning = true;
     try {
       await this.terminate(runtime);
@@ -738,6 +790,177 @@ export class LocalAgentSupervisor {
     return this.view(runtime);
   }
 
+  /**
+   * 空闲后重启（「重启」按钮的默认做法）：手上没有排队或执行中的调用就马上重启；
+   * 正忙就先记下，等调用都结束后由 checkUpdates 重启，正在做的任务不会被打断。
+   */
+  async restartWhenIdle(id: string, guard?: (agent: LocalAgent) => boolean): Promise<LocalAgent> {
+    const runtime = this.require(id);
+    if (runtime.child && this.isBusy(runtime)) {
+      if (runtime.transitioning) {
+        throw new HiveError("LOCAL_AGENT_BUSY", serverText("error.localAgent.restarting"));
+      }
+      runtime.pendingRestart = { guard };
+      this.appendLog(runtime, "[hive] 手上还有任务，做完后重启\n");
+      return this.view(runtime);
+    }
+    return this.restart(id, guard);
+  }
+
+  /** 自动更新开关：本机 Agent 落后于当前代码时，在空闲后自动重启（默认开） */
+  autoUpdateEnabled(): boolean {
+    return this.options.database.getSetting(AUTO_UPDATE_SETTING) !== "0";
+  }
+
+  setAutoUpdate(enabled: boolean): void {
+    this.options.database.setSetting(AUTO_UPDATE_SETTING, enabled ? "1" : "0");
+    if (enabled) this.checkSoon();
+  }
+
+  /** 最近算出的当前代码版本（过期了在后台重算，这次先用旧值）；判断不出时为 undefined */
+  currentCodeVersion(): AgentCodeVersion | undefined {
+    if (!this.current || this.now() - this.current.at >= VERSION_CACHE_MS) {
+      void this.refreshVersion();
+    }
+    return this.current?.version;
+  }
+
+  private refreshVersion(): Promise<AgentCodeVersion | undefined> {
+    if (this.current && this.now() - this.current.at < VERSION_CACHE_MS) {
+      return Promise.resolve(this.current.version);
+    }
+    this.refreshing ??= this.currentVersion()
+      .catch(() => undefined)
+      .then((version) => {
+        const changed =
+          this.current !== undefined &&
+          (this.current.version ? versionKey(this.current.version) : undefined) !==
+            (version ? versionKey(version) : undefined);
+        this.current = { at: this.now(), version };
+        this.refreshing = undefined;
+        if (changed) this.options.onCurrentVersionChange?.();
+        return version;
+      });
+    return this.refreshing;
+  }
+
+  /** 有 Agent 可能刚变空闲（调用结束、忙碌状态解除）：稍等片刻再检查要不要重启 */
+  checkSoon(): void {
+    if (this.shuttingDown || this.idleTimer) return;
+    if (
+      !this.options.runningVersion &&
+      ![...this.runtimes.values()].some((r) => r.pendingRestart)
+    ) {
+      return;
+    }
+    this.idleTimer = this.setTimer(() => {
+      this.idleTimer = undefined;
+      void this.checkUpdates();
+    }, IDLE_CHECK_DELAY_MS);
+  }
+
+  private scheduleUpdateCheck(): void {
+    this.updateTimer?.cancel();
+    this.updateTimer = this.setTimer(() => {
+      this.updateTimer = undefined;
+      void this.checkUpdates().finally(() => {
+        if (!this.shuttingDown) this.scheduleUpdateCheck();
+      });
+    }, this.options.updateCheckMs ?? UPDATE_CHECK_MS);
+  }
+
+  private cancelUpdateTimers(): void {
+    this.updateTimer?.cancel();
+    this.updateTimer = undefined;
+    this.idleTimer?.cancel();
+    this.idleTimer = undefined;
+  }
+
+  /**
+   * 该重启的空闲 Agent 现在重启：人点过「重启」而当时正忙的；以及（自动更新开着时）落后于当前代码的。
+   * 忙的跳过，下次检查再看。自动更新每次只重启一个（重启完再接着查下一个，免得一下子起一堆进程），
+   * 同一个目标版本只自动重启一次，同一个 Agent 两次自动重启至少隔 AUTO_RESTART_COOLDOWN_MS。
+   */
+  async checkUpdates(): Promise<void> {
+    if (this.shuttingDown || this.checking) return;
+    this.checking = true;
+    try {
+      const current = this.options.runningVersion ? await this.refreshVersion() : undefined;
+      if (this.shuttingDown) return;
+      const autoUpdate = current !== undefined && this.autoUpdateEnabled();
+      // 忙闲在决定重启的同一刻读：从这里到发出结束信号之间不让出事件循环，不会有新调用插进来
+      const busy = this.busyNames();
+      let updating = false;
+      for (const runtime of this.runtimes.values()) {
+        if (!runtime.child || runtime.transitioning) continue;
+        const manual = runtime.pendingRestart;
+        const update = !manual && autoUpdate && !updating && this.updateDue(runtime, current!);
+        if (!manual && !update) continue;
+        if (busy.has(runtime.config.name.toLocaleLowerCase())) continue;
+        if (update) {
+          updating = true;
+          runtime.autoRestartedFor = versionKey(current!);
+          runtime.lastAutoRestartAt = this.now();
+          this.appendLog(runtime, "[hive] 代码已更新，Agent 空闲，自动重启以用上新代码\n");
+          this.log(`[local-agents] ${runtime.config.name} 运行的是旧代码，空闲后自动重启`);
+        } else {
+          this.appendLog(runtime, "[hive] 手上的任务做完了，按之前的要求重启\n");
+        }
+        void this.restart(runtime.config.id, manual?.guard)
+          .catch((error: unknown) => {
+            this.appendLog(
+              runtime,
+              `[hive] 重启没有完成：${error instanceof Error ? error.message : String(error)}\n`,
+            );
+          })
+          .finally(() => {
+            if (update) this.checkSoon();
+          });
+      }
+    } finally {
+      this.checking = false;
+    }
+  }
+
+  private busyNames(): ReadonlySet<string> {
+    return this.options.busyAgentNames?.() ?? new Set<string>();
+  }
+
+  private isBusy(runtime: Runtime, busy = this.busyNames()): boolean {
+    return busy.has(runtime.config.name.toLocaleLowerCase());
+  }
+
+  /**
+   * 在跑的进程落后于当前代码：上报的指纹或包版本旧，或者在线却没上报版本（还不会上报的旧版 Bridge）。
+   * 还没上线、当前版本判断不出来时不算。
+   */
+  private outdated(runtime: Runtime): boolean {
+    const current = this.current?.version;
+    if (!runtime.child || !current || !this.options.runningVersion) return false;
+    if (!this.options.isAgentOnline(runtime.config.name)) return false;
+    const running = this.options.runningVersion(runtime.config.name);
+    return running ? isAgentOutdated(running, current, true) : true;
+  }
+
+  /** 这个名字是本机 Agent 时，它是否在跑旧代码；不是本机 Agent 返回 undefined */
+  outdatedByName(name: string): boolean | undefined {
+    const key = name.toLocaleLowerCase();
+    for (const runtime of this.runtimes.values()) {
+      if (runtime.config.name.toLocaleLowerCase() === key) return this.outdated(runtime);
+    }
+    return undefined;
+  }
+
+  /** 落后、这个目标版本还没自动重启过、也过了冷却期 */
+  private updateDue(runtime: Runtime, current: AgentCodeVersion): boolean {
+    if (!this.outdated(runtime)) return false;
+    if (runtime.autoRestartedFor === versionKey(current)) return false;
+    return (
+      runtime.lastAutoRestartAt === undefined ||
+      this.now() - runtime.lastAutoRestartAt >= AUTO_RESTART_COOLDOWN_MS
+    );
+  }
+
   async remove(id: string): Promise<void> {
     const runtime = this.require(id);
     await this.terminate(runtime);
@@ -748,6 +971,7 @@ export class LocalAgentSupervisor {
   /** 服务关闭：先 SIGTERM 让 Agent 正常离线，宽限期后仍未退出再 SIGKILL */
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
+    this.cancelUpdateTimers();
     await Promise.all([...this.runtimes.values()].map((runtime) => this.terminate(runtime)));
   }
 
@@ -778,8 +1002,11 @@ export class LocalAgentSupervisor {
     return runtime;
   }
 
-  private view(runtime: Runtime): LocalAgent {
+  private view(runtime: Runtime, busy?: ReadonlySet<string>): LocalAgent {
     const { config } = runtime;
+    const running = runtime.child ? this.options.runningVersion?.(config.name) : undefined;
+    const outdated = this.outdated(runtime);
+    const current = this.current?.version;
     let status: LocalAgentStatus;
     if (runtime.child) {
       status = this.options.isAgentOnline(config.name) ? "running" : "starting";
@@ -806,12 +1033,25 @@ export class LocalAgentSupervisor {
       ...(runtime.child && !runtime.settingsApplied && this.settingsFile(config)
         ? { settingsPendingRestart: true }
         : {}),
+      busy: runtime.child ? this.isBusy(runtime, busy) : false,
+      ...(running ? { version: running } : {}),
+      ...(outdated ? { outdated: true } : {}),
+      // 点过「重启」在等它忙完，或自动更新会在它空闲后重启它
+      ...(runtime.pendingRestart ||
+      (outdated &&
+        current &&
+        this.autoUpdateEnabled() &&
+        runtime.autoRestartedFor !== versionKey(current))
+        ? { restartWhenIdle: true }
+        : {}),
     };
   }
 
   private launch(runtime: Runtime): void {
     if (this.shuttingDown || runtime.child) return;
     const { config } = runtime;
+    // 新进程跑的就是现在的代码：之前等着的重启不用再做了
+    runtime.pendingRestart = undefined;
     const settingsFile = this.writeSettings(config);
     runtime.settingsApplied = settingsFile !== undefined;
     const args = [
