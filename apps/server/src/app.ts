@@ -77,7 +77,7 @@ import { readMessageContent } from "./message-content.js";
 import { gitBranch } from "./git-branch.js";
 import { WorktreeManager, worktreeRepository } from "./worktrees.js";
 import { registerWorkspaceFileRoutes } from "./workspace-files-routes.js";
-import { resolveInside } from "./workspace-files.js";
+import { readOnlyGit, resolveInside } from "./workspace-files.js";
 import {
   LocalAgentSupervisor,
   autoSteerKey,
@@ -4872,15 +4872,31 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       return session ? access.resolve(session, clock()).state === "active" : false;
     },
     now: clock,
+    // 只看 HEAD 是否已在目标分支里（一次 merge-base，毫秒级）。不走 worktrees.list：那套要扫未跟踪/忽略文件、
+    // 逐个做 squash 等价判断，17 个任务线要一两分钟，面板会一直「加载中」。没改过、也没领先提交的另由调用方算已合入
     mergedWorktrees: async (roomId) => {
       const workspace = database.getRoom(roomId)?.workspace;
-      if (!workspace) return new Set<string>();
-      const statuses = await worktrees.list(workspace);
-      return new Set(
-        statuses
-          .filter((item) => item.worktree.roomId === roomId && item.merged)
-          .map((item) => item.worktree.id),
+      const merged = new Set<string>();
+      if (!workspace) return merged;
+      const target = await worktreeRepository(workspace).then(
+        (repository) => repository.target,
+        () => undefined,
       );
+      if (!target || target.startsWith("-")) return merged;
+      await Promise.all(
+        worktrees
+          .allRecords()
+          .filter((record) => record.roomId === roomId && record.phase !== "removing")
+          .map(async (record) => {
+            const result = await readOnlyGit(
+              record.path,
+              ["merge-base", "--is-ancestor", "HEAD", target],
+              { timeoutMs: 5_000 },
+            ).catch(() => undefined);
+            if (result?.code === 0) merged.add(record.id);
+          }),
+      );
+      return merged;
     },
     worktrees: (roomId) =>
       worktrees

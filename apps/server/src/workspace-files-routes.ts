@@ -314,7 +314,9 @@ export function registerWorkspaceFileRoutes(
                 if (activity) Object.assign(source, activity);
                 if (
                   record &&
-                  (merged.has(record.id) || (!activity?.changeCount && !activity?.ahead))
+                  // 还有未提交改动的不算已合入（刚分出来、正在改的任务线 HEAD 也在目标分支里）
+                  !activity?.changeCount &&
+                  (merged.has(record.id) || !activity?.ahead)
                 )
                   source.merged = true;
               }),
