@@ -2,14 +2,22 @@
 // 必须最先加载：给 Node 24 自带 fetch 的 setTypeOfService 崩溃打补丁
 import "./socket-tos-guard.js";
 import { createRequire } from "module";
-import updateNotifier from "update-notifier";
+import { fileURLToPath } from "node:url";
 import { autostartCommand } from "./autostart.js";
 import { mcpCommand } from "./mcp-command.js";
 import { modelsCommand } from "./models-command.js";
 import { run } from "./run.js";
-import { restartService, startService, stopService } from "./service.js";
+import { restartService, serviceRunning, startService, stopService } from "./service.js";
 import { readSkill } from "./skill.js";
 import { skillInstallCommand, skillStatusCommand, skillUninstallCommand } from "./skill-command.js";
+import {
+  checkLatest,
+  detectInstall,
+  packageRootOf,
+  shouldCheckForUpdate,
+  updateCommand,
+  updateNotice,
+} from "./update.js";
 
 // 兜底：某个异步调用漏了 catch（比如服务端正好重启时的一次 fetch）不应该把整个 Agent 进程带走，
 // 那样正在执行的回合全部变成「结果未知」。记下来继续跑；真正的同步异常仍按默认行为退出并由管家重启。
@@ -29,6 +37,7 @@ SuperHive（命令：hive；未全局安装时用 npx superhive 代替 hive）
   hive start [选项]   启动自己的 Hive Server 和 Web UI
   hive stop [选项]    停止由 hive start 启动的 Server（也可以写 hive off）
   hive restart [选项] 重启 Server，并沿用原有启动配置
+  hive update [--check]  更新到最新版；Server 在运行就用新版本自动重启
   hive autostart on|off|status  登录这台电脑后自动启动 Server
   hive join [选项]    将本机 Agent 加入 Hive（默认加入所有未归档房间）
   hive mcp list [选项] 列出 Agent 会加载的本机 MCP 及其开局 token 估算
@@ -43,25 +52,30 @@ SuperHive（命令：hive；未全局安装时用 npx superhive 代替 hive）
 运行 hive <命令> --help 查看详细选项。
 `;
 
-// 后台子进程每天最多查一次 npm registry 并缓存，有新版本时在下一次运行打印提示（NO_UPDATE_NOTIFIER=1 可关闭）
-updateNotifier({
-  pkg,
-  updateCheckInterval: 1000 * 60 * 60 * 24,
-  shouldNotifyInNpmScript: true,
-}).notify({
-  isGlobal: true,
-  message:
-    "SuperHive 有新版本 {currentVersion} → {latestVersion}\n" +
-    "在启动服务的电脑运行 npx superhive@latest restart 更新",
-  boxenOptions: {
-    title: "有新版本的 SuperHive 可用",
-    padding: 1,
-    margin: 1,
-    align: "center",
-    borderColor: "yellowBright",
-    borderStyle: "round",
-  },
-});
+const packageRoot = packageRootOf(fileURLToPath(import.meta.url));
+
+/**
+ * 每次在终端里运行 hive 都查一下有没有新版（限时 1.5 秒、结果缓存 1 小时，查不到不影响命令），
+ * 和命令同时进行，命令跑完再提示。Agent 用的 join / mcp / models、--skill 输出、hive update 自己不查。
+ */
+const QUIET_COMMANDS = new Set([
+  "join",
+  "mcp",
+  "models",
+  "--skill",
+  "update",
+  "-v",
+  "-V",
+  "--version",
+  "version",
+]);
+
+function startUpdateCheck(command: string | undefined): Promise<string | undefined> {
+  if ((command && QUIET_COMMANDS.has(command)) || !shouldCheckForUpdate()) {
+    return Promise.resolve(undefined);
+  }
+  return checkLatest(version).catch(() => undefined);
+}
 
 async function main(): Promise<void> {
   const command = process.argv[2];
@@ -105,10 +119,25 @@ async function main(): Promise<void> {
   if (command === "join") return run("codex");
   if (command === "mcp") return mcpCommand(process.argv.slice(3));
   if (command === "models") return modelsCommand(process.argv.slice(3));
+  if (command === "update" || command === "upgrade") {
+    return updateCommand(process.argv.slice(3), {
+      version,
+      packageRoot,
+      serviceRunning: () => serviceRunning(),
+    });
+  }
   throw new Error(`未知命令：“${command}”。\n${usage}`);
 }
 
-main().catch((error: unknown) => {
-  console.error(`[hive] ${error instanceof Error ? error.message : String(error)}`);
-  process.exitCode = 1;
-});
+const updateCheck = startUpdateCheck(process.argv[2]);
+
+main()
+  .catch((error: unknown) => {
+    console.error(`[hive] ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  })
+  .then(async () => {
+    // 命令跑完再提示，不打断它自己的输出；前台常驻的 hive start --foreground 不会走到这里，也就不提示
+    const latest = await updateCheck;
+    if (latest) console.log(updateNotice(version, latest, detectInstall(packageRoot)));
+  });

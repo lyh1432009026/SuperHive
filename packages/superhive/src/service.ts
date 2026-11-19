@@ -430,6 +430,12 @@ export async function stopService(args = process.argv.slice(3)): Promise<void> {
   console.log(`[hive] 已停止 Hive Server（PID ${state.pid}）。`);
 }
 
+/** 由 hive start 启动的 Server 是否还在运行（只看记录的进程在不在，不做健康检查） */
+export function serviceRunning(dataDir?: string): boolean {
+  const state = readState(pathsFor(dataDir).statePath);
+  return Boolean(state && processExists(state.pid));
+}
+
 /** 上次 hive start 的启动参数（host、port、public-url、是否关闭本机 Agent），给开机自启沿用 */
 export function savedStartArgs(dataDir?: string): string[] {
   const servicePaths = pathsFor(dataDir);
