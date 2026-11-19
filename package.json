@@ -14,11 +14,13 @@
     "start": "pnpm --filter @superhive/server start",
     "agent": "pnpm --filter superhive dev",
     "agent:echo": "pnpm --filter superhive echo",
+    "preview:sandbox": "node scripts/preview-sandbox.mjs",
+    "screenshot": "node scripts/screenshot.mjs",
     "docs:dev": "pnpm --filter @superhive/docs dev",
     "docs:build": "pnpm --filter @superhive/docs build",
     "docs:check": "pnpm --filter @superhive/docs check",
     "docs:verify": "pnpm --filter @superhive/docs verify",
-    "test:dev": "node --test scripts/dev-supervisor.test.mjs scripts/dev-reload.test.mjs",
+    "test:dev": "node --test scripts/dev-supervisor.test.mjs scripts/dev-reload.test.mjs scripts/preview-sandbox.test.mjs",
     "test:dev:smoke": "node scripts/dev-supervisor.smoke.mjs"
   },
   "keywords": [

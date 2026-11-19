@@ -255,6 +255,35 @@ describe("managed worktrees", () => {
     expect(existsSync(second.worktree.path)).toBe(false);
   }, 15_000);
 
+  it("read-only (sandbox) managers never create, remove or auto-clean real checkouts", async () => {
+    const { worktree } = await create();
+    await change(worktree);
+    await git(repo, "merge", "--ff-only", worktree.branch);
+    manager.setAutoCleanup("general", true);
+    const notify = vi.fn();
+    const preview = new WorktreeManager({
+      database,
+      activeInvocations: () => [],
+      onCleanup: notify,
+      readOnly: true,
+    });
+    expect((await preview.list(repo))[0]).toMatchObject({ removable: true });
+    await preview.scan();
+    expect(notify).not.toHaveBeenCalled();
+    expect(existsSync(worktree.path)).toBe(true);
+    await expect(preview.remove(repo, { path: worktree.path })).rejects.toMatchObject({
+      code: "SANDBOX_DISABLED",
+    });
+    await expect(
+      preview.create(repo, agent, "Alice", [randomUUID()], { slug: "other" }),
+    ).rejects.toMatchObject({ code: "SANDBOX_DISABLED" });
+    expect(existsSync(worktree.path)).toBe(true);
+    expect(preview.allRecords()).toHaveLength(1);
+    // 对照：同样的数据交给可写的管理器，自动清理会真的删掉
+    await manager.scan();
+    expect(existsSync(worktree.path)).toBe(false);
+  }, 15_000);
+
   it("retains a worktree if a cleanup batch becomes stale or a task starts", async () => {
     const notify = vi.fn();
     manager = new WorktreeManager({ database, activeInvocations: () => active, onCleanup: notify });

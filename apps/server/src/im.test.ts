@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -206,12 +209,21 @@ describe("IM 连接", () => {
     close = undefined;
   });
 
-  async function start(options: { richCards?: boolean } = {}) {
+  async function start(
+    options: {
+      richCards?: boolean;
+      databasePath?: string;
+      imKeyPath?: string;
+      sandbox?: boolean;
+    } = {},
+  ) {
     const fake = new FakeChannel();
     fake.richCards = Boolean(options.richCards);
     const clock = { offset: 0 };
     const app = await buildApp({
-      databasePath: ":memory:",
+      databasePath: options.databasePath ?? ":memory:",
+      ...(options.imKeyPath ? { imKeyPath: options.imKeyPath } : {}),
+      ...(options.sandbox ? { sandbox: true } : {}),
       now: () => Date.now() + clock.offset,
       token: "test-token",
       staticDir: "/definitely-not-present",
@@ -282,6 +294,45 @@ describe("IM 连接", () => {
     };
     return { app, port, api, join, connect, fake, clock, setLevel, base };
   }
+
+  it("沙箱预览不恢复已保存的 IM 连接、也不能扫码新连；正常重启照常恢复", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "hive-im-sandbox-"));
+    const files = {
+      databasePath: path.join(dir, "hive.sqlite"),
+      imKeyPath: path.join(dir, "im-secret.key"),
+    };
+    const restart = async () => {
+      for (const peer of peers.splice(0)) peer.socket.close();
+      const current = close;
+      close = undefined;
+      await current?.();
+    };
+    try {
+      const first = await start(files);
+      await first.connect();
+      expect(first.fake.transports).toBe(1);
+      await restart();
+
+      const preview = await start({ ...files, sandbox: true });
+      await preview.join("rd", "human");
+      const login = await preview.api("POST", "/api/rooms/general/im/login", {
+        channel: "feishu",
+        ownerName: "rd",
+      });
+      expect(login.status).not.toBe(201);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(preview.fake.transports).toBe(0);
+      expect(preview.fake.login).toBeUndefined();
+      await restart();
+
+      // 对照：同一份数据不带沙箱启动，连接会恢复（说明上面没恢复是沙箱拦下的）
+      const normal = await start(files);
+      await until(() => normal.fake.transports === 1);
+    } finally {
+      await restart();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 
   it("扫码连接后，房主在 IM 里发的消息以房主身份进入房间并唤醒 Agent，结果回到原会话", async () => {
     const { join, connect, fake, api } = await start();

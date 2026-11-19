@@ -986,6 +986,8 @@ export const metaResponseSchema = z.object({
   /** 只返回给 Server 所在电脑上的房主；远程访问者凭邀请兑换的会话访问 */
   joinToken: z.string().optional(),
   agentCommand: z.string().optional(),
+  /** 沙箱预览模式（HIVE_SANDBOX=1）：不连 IM、不起本机 Agent、不跑定时任务，网页顶部标出 */
+  sandbox: z.boolean().optional(),
 });
 
 /* ---------- 限时邀请（房主发给其他人类） ---------- */

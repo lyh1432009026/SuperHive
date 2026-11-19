@@ -129,6 +129,10 @@ export const serverTexts = {
     zh: "工作区不能清理：有改动、未跟踪/忽略文件、尚未合入或仍有任务占用。{path}",
     en: "Cannot remove this worktree: changes, untracked/ignored files, unmerged work or active tasks remain. {path}",
   },
+  "error.sandbox.disabled": {
+    zh: "沙箱预览模式下不能这样做：它会动到真实仓库、本机进程或外部服务。",
+    en: "Not available in sandbox preview: it would touch real repositories, local processes or external services.",
+  },
   "error.worktree.operation": {
     zh: "工作区操作失败，未强制删除：{reason}",
     en: "Worktree operation failed; nothing was forcibly deleted: {reason}",

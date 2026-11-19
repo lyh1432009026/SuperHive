@@ -186,6 +186,12 @@ export type BuildAppOptions = {
     LocalAgentSupervisorOptions,
     "database" | "joinToken" | "isAgentOnline" | "isNameInUse"
   >;
+  /**
+   * 沙箱预览（HIVE_SANDBOX=1，给 Agent 做 UI 验证用）：数据往往是真实数据的副本，所以这里硬关掉
+   * 一切会碰到外面的东西，不靠删数据保证——IM 不连、本机 Agent 不起、定时任务不发、
+   * 任务目录不建不删不自动清理、不开终端、不阻止睡眠、不读写运行时全局配置。
+   */
+  sandbox?: boolean;
 };
 
 function participantKey(roomId: string, username: string): string {
@@ -256,6 +262,7 @@ function consumeHandover(file: string | undefined): boolean {
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
+  const sandbox = options.sandbox === true;
   const app = Fastify({
     logger: options.logger ?? false,
     bodyLimit: LIMITS.maxClientPayloadBytes,
@@ -465,29 +472,30 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     return false;
   }
 
-  const localAgents = options.localAgents
-    ? new LocalAgentSupervisor({
-        ...options.localAgents,
-        database,
-        joinToken,
-        isAgentOnline: (name) => onlineAnywhere(name, true),
-        isNameInUse: (name) => onlineAnywhere(name, false),
-        requestShutdown: (name) => {
-          const suffix = `:${name.toLocaleLowerCase()}`;
-          let sent = false;
-          for (const [key, set] of onlineByName) {
-            if (!key.endsWith(suffix)) continue;
-            for (const connection of set) {
-              if (connection.participant?.type !== "agent") continue;
-              if (connection.socket.readyState !== connection.socket.OPEN) continue;
-              send(connection.socket, { type: "agent.shutdown" });
-              sent = true;
+  const localAgents =
+    options.localAgents && !sandbox
+      ? new LocalAgentSupervisor({
+          ...options.localAgents,
+          database,
+          joinToken,
+          isAgentOnline: (name) => onlineAnywhere(name, true),
+          isNameInUse: (name) => onlineAnywhere(name, false),
+          requestShutdown: (name) => {
+            const suffix = `:${name.toLocaleLowerCase()}`;
+            let sent = false;
+            for (const [key, set] of onlineByName) {
+              if (!key.endsWith(suffix)) continue;
+              for (const connection of set) {
+                if (connection.participant?.type !== "agent") continue;
+                if (connection.socket.readyState !== connection.socket.OPEN) continue;
+                send(connection.socket, { type: "agent.shutdown" });
+                sent = true;
+              }
             }
-          }
-          return sent;
-        },
-      })
-    : undefined;
+            return sent;
+          },
+        })
+      : undefined;
   /**
    * 清空房间：删除消息和调用记录后插入一条话题分隔，各 Agent 据此丢弃旧会话。
    * 只经本机房主接口调用（见 local-routes.ts），操作人必须是该房间里的人类成员。
@@ -611,7 +619,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       },
     },
     clearRoom,
-    ...(options.openTerminal ? { openTerminal: options.openTerminal } : {}),
+    ...(sandbox
+      ? {
+          openTerminal: () =>
+            Promise.reject(new HiveError("SANDBOX_DISABLED", serverText("error.sandbox.disabled"))),
+        }
+      : options.openTerminal
+        ? { openTerminal: options.openTerminal }
+        : {}),
     ...(options.revealInFolder ? { revealInFolder: options.revealInFolder } : {}),
     // 工作区面板「在访达中显示」：和只读浏览接口同样的来源解析与路径校验
     workspaceFile: async (roomId, source, file) => {
@@ -683,8 +698,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       },
     },
     notifyOwner: (text) => void imHub.notifyOwner(text),
-    ...(options.runtimeCredentials ? { runtimeCredentials: options.runtimeCredentials } : {}),
-    ...(options.agentClis ? { agentClis: options.agentClis } : {}),
+    ...(options.runtimeCredentials && !sandbox
+      ? { runtimeCredentials: options.runtimeCredentials }
+      : {}),
+    ...(options.agentClis && !sandbox ? { agentClis: options.agentClis } : {}),
     slowOps: () => slowOps.list(),
     keepAwake: {
       state: () => keepAwake?.state(),
@@ -2205,6 +2222,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   const worktrees = new WorktreeManager({
     database,
+    readOnly: sandbox,
     onCleanup: (batch) => {
       for (const connection of connections) {
         const person = connection.participant;
@@ -2714,7 +2732,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   function armScheduleTimer(): void {
     if (scheduleTimer) clearTimeout(scheduleTimer);
     scheduleTimer = undefined;
-    if (shuttingDown) return;
+    if (shuttingDown || sandbox) return;
     const next = database.nextScheduleRunAt();
     if (next === undefined) return;
     scheduleTimer = setTimeout(runSchedules, Math.min(Math.max(next - clock(), 0), 60_000));
@@ -2723,7 +2741,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   /** 到点的发出去；发出途中中断的补完；该补发说明的补发 */
   function runSchedules(): void {
-    if (shuttingDown) return;
+    // 沙箱里的定时任务是副本，到点发出去会唤醒（不存在的）Agent、往 IM 推消息：一律不跑
+    if (shuttingDown || sandbox) return;
     // 每个任务单独兜住：一个出错不能让同一轮其余的到点任务和补发说明都跳过
     const each = (schedules: Schedule[], step: (id: string) => void) => {
       for (const schedule of schedules) {
@@ -3374,7 +3393,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       return accepted;
     },
     store: imStore,
-    drivers: options.imDrivers ?? {},
+    drivers: sandbox ? {} : (options.imDrivers ?? {}),
     getRoom: (roomId) => database.getRoom(roomId),
     listRoomIds: () => database.listRooms(false).map((room) => room.id),
     findParticipant: (roomId, username) => database.findParticipant(roomId, username),
@@ -3485,7 +3504,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   /* ---------- 熄屏后保持在线 ---------- */
 
   const keepAwake =
-    (options.keepAwake ?? !process.env.VITEST)
+    !sandbox && (options.keepAwake ?? !process.env.VITEST)
       ? new KeepAwake({
           loadSettings: () => {
             try {
@@ -3686,6 +3705,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   app.get("/health", async () => ({
     status: "ok",
+    ...(sandbox ? { sandbox: true } : {}),
     // 本机 Agent 在原 Server 退出后据此认出接管它的新 Server
     pid: process.pid,
     ...(options.instanceId ? { instanceId: options.instanceId } : {}),
@@ -3778,6 +3798,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       httpUrl,
       wsUrl,
       mcpUrl: `${httpUrl}/mcp`,
+      ...(sandbox ? { sandbox: true } : {}),
       ...(isOwnerRequest(request)
         ? (() => {
             const token = ownerTokenFor(request);
@@ -5646,7 +5667,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   app.addHook("onReady", async () => {
     localAgents?.start();
-    imHub.start();
+    if (!sandbox) imHub.start();
     supersedeStale();
     for (const invocation of database.listPendingContinuations())
       deliverContinuation(invocation.id);

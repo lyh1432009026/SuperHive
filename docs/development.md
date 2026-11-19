@@ -72,6 +72,56 @@ pnpm build
 
 开发环境接入了 `ai-ins`：按住 macOS `Option` 或 Windows/Linux `Alt` 点选 DOM 元素，写下需求后会连同源码位置交给本机的 Agent CLI（Codex、Claude Code 等）直接改代码，热更新后即可看到结果。生产构建不会注入该面板。
 
+## UI 验证（沙箱预览 + 截图）
+
+Agent 改了网页、要给人看效果时，按这个流程走，不要自己手搓临时 Server 或截图脚本，也不要直接拿真实数据库起服务。
+
+**1. 起沙箱**：在任务线根目录运行
+
+```bash
+pnpm preview:sandbox                                            # 空库
+pnpm preview:sandbox --from-data ~/Coding/ai-hive/apps/server/data   # 真实数据的副本
+```
+
+- 先构建本任务线的 protocol 和网页，再直接跑本任务线的 Server 源码，看到的就是这条分支的效果。已经构建过可以加 `--no-build`。
+- 只监听 `127.0.0.1`，自动挑一个空闲端口，就绪后打印 `SANDBOX_URL=http://127.0.0.1:<端口>`。也可以用 `--port` 指定端口；端口被占用时直接报错，不会去结束别人的进程。
+- 数据放在临时目录里，退出（Ctrl+C）时删掉；加 `--keep` 可以保留。原数据目录只读打开（`VACUUM INTO` 快照），不会被改。
+- **复制时就剔除**：IM 连接、凭据和投递队列（`im_*`）、房主登录设备和配对票据（`owner_*`）、访客会话、邀请链接、join token、房主登录签名密钥、待执行的任务目录清理批次；本机 Agent 的自启和任务目录的自动清理都关掉。不拷 `im-secret.key`、`agent-logs`、`agent-settings`；附件默认一起拷，APFS 上是写时复制，加 `--no-attachments` 就不拷。剔除之后会 `VACUUM`，删掉的密钥不会留在文件的空闲页里。
+- **服务端还有一道硬开关**（`HIVE_SANDBOX=1` / `BuildAppOptions.sandbox`），不靠删数据来保证：
+  - IM 驱动不加载，已保存的连接不恢复，也不能扫码新连；
+  - 本机 Agent 不拉起，「在终端打开」不可用；
+  - 定时任务到点不发；
+  - 任务目录只读：不建、不删，也不自动清理。副本里登记的路径指向真实仓库，这一条是防止误删真实任务目录；
+  - 不阻止睡眠，也不读写 `~/.claude`、`~/.codex` 这类运行时全局配置（设置里的「Agent 运行时」分类因此不显示）。
+
+  `/health` 和 `/api/meta` 带 `sandbox: true`，网页顶部会显示「沙箱预览」标记，标题前也会加上「[沙箱]」。启动脚本会核对 `/health`，如果 Server 没有进入沙箱模式，就立刻把它停掉。
+
+**2. 截图**：用独立的无头 Chrome，临时 profile 用完即删，不碰你自己的浏览器和登录状态。
+
+```bash
+pnpm screenshot --url $SANDBOX_URL --room build --theme light,dark --out output/after.png
+pnpm screenshot --url $SANDBOX_URL --room build --action code --width 1440 --height 900 --scale 2
+pnpm screenshot --url $SANDBOX_URL --action settings:appearance --action "click:.some-button"
+pnpm screenshot --compare output/before.png output/after.png --out output/compare.png
+```
+
+- 自动跳过首次引导和通知授权提示，默认以 `rd` 进入（`--user` 可以改），并开启「减少动态效果」，截出来的图更稳定。
+- 预置动作有：`code`、`artifacts`（打开「代码」或「产物」面板）、`settings[:分类]`、`side:<members|whiteboard|schedules>`、`click:<选择器>`、`wait:<毫秒>`、`wait-for:<选择器>`、`eval:<JS>`，按顺序执行。元素 10 秒内没出现就报错，不会把截错的图当成功。
+- `--theme light,dark` 一次截两张，文件名自动加上 `-light`、`-dark`。`--compare` 会把多张图原尺寸并排拼起来，并加标签（默认「改前」「改后」）。
+- 「改前」的图：在 main 的工作区（或改动前的提交）上照样起一个沙箱再截。
+- `--hide-sandbox-badge` 可以隐藏顶部的沙箱标记。Chrome 按常见安装位置查找，也可以用 `--chrome` 或环境变量 `CHROME_PATH` 指定。
+
+**一次跑完**：在 `--` 后面写要执行的命令，Server 就绪后运行它。命令里的 `{url}` 会换成沙箱地址，环境变量 `SANDBOX_URL` 也会带上；命令结束后沙箱自动关闭，退出码和命令一致：
+
+```bash
+pnpm preview:sandbox --from-data ~/Coding/ai-hive/apps/server/data -- \
+  pnpm screenshot --url {url} --room build --action artifacts --theme light,dark --out output/artifacts.png
+```
+
+**3. 附到交付**：截图放在 `output/`（已被 gitignore），不要提交进仓库；交付消息里用附件发出。写清是空库还是副本、截了哪些画面、哪些画面没截到（比如窄屏、需要真实 IM 的界面）。
+
+沙箱里看不到这些：IM 收发、Agent 实际执行、定时任务触发，以及任务目录的建、删和清理。要验证这些，得用测试，或者在真实环境里经房主同意后再试。
+
 ## CLI 参数
 
 ```text
@@ -137,6 +187,7 @@ HIVE_PUBLIC_URL        对外访问地址，例如 https://hive.example.com
 HIVE_AGENT_COMMAND     页面生成的 Agent 命令前缀
 HIVE_LOCAL_AGENTS      设为 0 关闭网页上的「在本机启动」
 HIVE_IM_WECHAT         设为 0 整体不加载个人微信通道
+HIVE_SANDBOX           设为 1 进入沙箱预览：不连 IM、不起本机 Agent、不跑定时任务、不建删任务目录（见「UI 验证」）
 HIVE_ROOM_ATTACHMENT_QUOTA_MB     每个房间的附件总量，默认 1024
 HIVE_PENDING_ATTACHMENT_QUOTA_MB  每个上传者已上传未发出的附件总量，默认 200
 HIVE_NO_OPEN           设置后 hive start 不打开浏览器（BROWSER=none、CI 同样）

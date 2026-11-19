@@ -28,10 +28,13 @@ afterEach(async () => {
 });
 
 /** 时钟可拨：定时任务按 now() 判断到点；拨过去后调用 runSchedules() 让扫描立刻跑一次 */
-async function startRoom(options: { databasePath?: string; now?: () => number } = {}) {
+async function startRoom(
+  options: { databasePath?: string; now?: () => number; sandbox?: boolean } = {},
+) {
   let time = BASE;
   const app = await buildApp({
     databasePath: options.databasePath ?? ":memory:",
+    ...(options.sandbox ? { sandbox: true } : {}),
     token: "test-token",
     staticDir: "/definitely-not-present",
     now: options.now ?? (() => time),
@@ -94,8 +97,8 @@ const messageOf = (event: ServerEvent): ChatMessage =>
   (event as Extract<ServerEvent, { type: "message.created" }>).message;
 
 /** Alice @ helper，helper 开工；返回 helper 的 MCP 客户端与创建定时任务的快捷方法 */
-async function executingRoom() {
-  const started = await startRoom();
+async function executingRoom(options: { sandbox?: boolean } = {}) {
+  const started = await startRoom(options);
   const { peer: alice } = await started.join("Alice", "human");
   const { peer: helper } = await started.join("helper", "agent");
   alice.send({ type: "message.send", clientMessageId: "root", content: "@helper 今晚 0 点提醒我" });
@@ -116,6 +119,24 @@ async function executingRoom() {
 }
 
 describe("hive_schedule", () => {
+  it("never fires in sandbox preview, even when due", async () => {
+    const { helper, trigger, create, advance, app } = await executingRoom({ sandbox: true });
+    const created = await create({ runAt: local8(247), task: "到点提醒", clientMessageId: "s1" });
+    expect(created.isError).toBeFalsy();
+    const id = (created.structuredContent!.schedule as { id: string }).id;
+    helper.send({ type: "invocation.report", messageId: trigger.id, status: "completed" });
+
+    advance(5 * 60 * 60_000);
+    await expect(
+      helper.next(
+        (event) => event.type === "agent.mentioned" && event.message.kind === "schedule",
+        300,
+      ),
+    ).rejects.toThrow(/Timed out/);
+    const database = (app as unknown as { hiveDatabase: HiveDatabase }).hiveDatabase;
+    expect(database.getSchedule(id)).toMatchObject({ status: "scheduled" });
+  });
+
   it("lists the schedule tools with the server's current time", async () => {
     const { client } = await executingRoom();
     const { tools } = await client.listTools();

@@ -20,6 +20,8 @@ const port = Number.parseInt(process.env.HIVE_PORT ?? "8787", 10);
 const databasePath = process.env.HIVE_DATABASE ?? path.resolve("data/hive.sqlite");
 const staticDir = process.env.HIVE_STATIC_DIR;
 const instanceId = process.env.HIVE_INSTANCE_ID;
+/** 沙箱预览：不连 IM、不起本机 Agent、不跑定时任务、不动真实仓库（见 BuildAppOptions.sandbox） */
+const sandbox = process.env.HIVE_SANDBOX === "1";
 const wildcardHost = host === "0.0.0.0" || host === "::";
 const urlHost = (value: string) => (value.includes(":") ? `[${value}]` : value);
 const trimUrl = (value: string) => value.replace(/\/$/, "");
@@ -65,7 +67,7 @@ function localAgentCli(): AgentCli | undefined {
   const cli = path.resolve(import.meta.dirname, "../cli.js");
   return existsSync(cli) ? { command: process.execPath, args: [cli] } : undefined;
 }
-const agentCli = process.env.HIVE_LOCAL_AGENTS === "0" ? undefined : localAgentCli();
+const agentCli = sandbox || process.env.HIVE_LOCAL_AGENTS === "0" ? undefined : localAgentCli();
 // 本机 Agent 走回环地址连接，不受局域网 IP 变化影响；只监听了指定网卡时用那个地址
 const loopbackHost = ["0.0.0.0", "::", "localhost", "127.0.0.1"].includes(host)
   ? "127.0.0.1"
@@ -73,12 +75,14 @@ const loopbackHost = ["0.0.0.0", "::", "localhost", "127.0.0.1"].includes(host)
 const localServerUrl = `http://${loopbackHost.includes(":") ? `[${loopbackHost}]` : loopbackHost}:${port}`;
 
 // 个人微信走非官方通道：HIVE_IM_WECHAT=0 时整体不加载（网页上也不显示这个选项）
-const imDrivers: Partial<Record<"feishu" | "wechat", ImChannelDriver>> = {
-  feishu: feishuDriver,
-  ...(process.env.HIVE_IM_WECHAT === "0"
-    ? {}
-    : { wechat: (await import("./im/wechat.js")).wechatDriver }),
-};
+const imDrivers: Partial<Record<"feishu" | "wechat", ImChannelDriver>> = sandbox
+  ? {}
+  : {
+      feishu: feishuDriver,
+      ...(process.env.HIVE_IM_WECHAT === "0"
+        ? {}
+        : { wechat: (await import("./im/wechat.js")).wechatDriver }),
+    };
 
 /** 附件配额（MB）：房间总量与每个上传者的待发暂存量；未设置用默认的 1024 / 200 */
 function megabytes(value: string | undefined): number | undefined {
@@ -93,8 +97,9 @@ const app = await buildApp({
   ...(roomAttachmentQuotaBytes ? { roomAttachmentQuotaBytes } : {}),
   ...(pendingAttachmentQuotaBytes ? { pendingAttachmentQuotaBytes } : {}),
   imDrivers,
-  runtimeCredentials: new RuntimeCredentialStore(),
-  agentClis: new AgentCliManager(),
+  ...(sandbox
+    ? { sandbox: true }
+    : { runtimeCredentials: new RuntimeCredentialStore(), agentClis: new AgentCliManager() }),
   imKeyPath: path.join(path.dirname(databasePath), "im-secret.key"),
   publicUrl,
   webUrl,
@@ -158,6 +163,10 @@ const addresses = new Set([
 ]);
 
 app.log.info("SuperHive is ready");
+if (sandbox)
+  app.log.warn(
+    `Sandbox preview: IM, local Agents, schedules and worktree writes are disabled (data: ${databasePath})`,
+  );
 app.log.info(`Share URL: ${shareUrl}`);
 for (const address of addresses) app.log.info(`Web: ${address}`);
 app.log.info(

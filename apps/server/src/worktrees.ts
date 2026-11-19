@@ -245,6 +245,11 @@ export class WorktreeManager {
       onCleanup?: (batch: WorktreeCleanupBatch) => void;
       /** 只读状态（未提交/未跟踪/忽略文件）的缓存时长；写操作会立即作废对应任务线的缓存 */
       statusCacheMs?: number;
+      /**
+       * 沙箱预览：数据库是副本，但登记的路径指向真实仓库。只许读状态，不建、不删、不自动清理，
+       * 免得副本里的记录把真实的任务目录删掉。
+       */
+      readOnly?: boolean;
     },
   ) {
     options.database.connection().exec(`CREATE TABLE IF NOT EXISTS managed_worktrees (
@@ -388,7 +393,7 @@ export class WorktreeManager {
   }
 
   scan(): Promise<void> {
-    if (this.closed) return Promise.resolve();
+    if (this.closed || this.options.readOnly) return Promise.resolve();
     if (this.scanning) return this.scanning;
     this.scanning = this.scanInner().finally(() => {
       this.scanning = undefined;
@@ -488,6 +493,11 @@ export class WorktreeManager {
       this.saveBatch(batch);
       this.options.onCleanup?.(batch);
     }
+  }
+
+  private assertWritable(): void {
+    if (this.options.readOnly)
+      throw new HiveError("SANDBOX_DISABLED", serverText("error.sandbox.disabled"));
   }
 
   async close(): Promise<void> {
@@ -794,6 +804,7 @@ export class WorktreeManager {
     invocationIds: string[],
     input: CreateWorktreeRequest,
   ): Promise<{ worktree: ManagedWorktree; reused: boolean }> {
+    this.assertWritable();
     input = createWorktreeRequestSchema.parse(input);
     const repository = await worktreeRepository(workspace);
     return this.serial(repository.repo, "create", async () => {
@@ -1254,6 +1265,7 @@ export class WorktreeManager {
     workspace: string,
     input: { path: string; deleteBranch?: boolean; expectedCommit?: string },
   ): Promise<{ removed: true; branchDeleted: boolean; branchError?: string }> {
+    this.assertWritable();
     const repository = await worktreeRepository(workspace);
     return this.serial(repository.repo, "remove", async () => {
       const record = this.records(repository.repo).find((item) => item.path === input.path);
