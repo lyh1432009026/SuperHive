@@ -1562,5 +1562,6 @@
   "登录页重做": "redesign login page",
   "codex 审核通过，已合入 main": "codex approved, merged into main",
   "claude 正在输入…": "claude is typing…",
-  "发消息，@ 提及 Agent…": "Message, @ to mention an agent…"
+  "发消息，@ 提及 Agent…": "Message, @ to mention an agent…",
+  "没能进入，请再试一次。": "Couldn't enter. Try again."
 }

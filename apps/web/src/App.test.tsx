@@ -12,7 +12,7 @@ import type {
   ServerEvent,
   WhiteboardEntry,
 } from "@superhive/protocol";
-import { App } from "./App";
+import { App, LoginDialog } from "./App";
 import type { GuestAccess } from "./access-gate";
 import { setLocalePreference } from "./i18n";
 
@@ -1165,6 +1165,38 @@ describe("App mention autocomplete", () => {
     await user.type(input, "荣顶{Enter}");
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     expect(localStorage.getItem("superhive.username")).toBe("荣顶");
+  });
+
+  it("lets the join button be pressed again when the login page stays up", () => {
+    vi.useFakeTimers();
+    try {
+      const onJoin = vi.fn();
+      render(<LoginDialog reduceMotion onJoin={onJoin} />);
+      const input = screen.getByLabelText("你的用户名");
+      fireEvent.change(input, { target: { value: "荣顶" } });
+      fireEvent.submit(input.closest("form")!);
+      const button = screen.getByRole("button", { name: /正在进入/ });
+      expect(button.hasAttribute("disabled")).toBe(true);
+      // 加载中再提交不会重复进入
+      fireEvent.submit(input.closest("form")!);
+      expect(onJoin).toHaveBeenCalledTimes(1);
+
+      act(() => vi.advanceTimersByTime(4_000));
+      expect(screen.getByRole("button", { name: /进入聊天室/ }).hasAttribute("disabled")).toBe(
+        false,
+      );
+
+      onJoin.mockImplementationOnce(() => {
+        throw new Error("boom");
+      });
+      fireEvent.submit(input.closest("form")!);
+      expect(screen.getByRole("alert").textContent).toBe("没能进入，请再试一次。");
+      expect(screen.getByRole("button", { name: /进入聊天室/ }).hasAttribute("disabled")).toBe(
+        false,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows the workspace's git branch under the room name and keeps it updated", async () => {

@@ -1267,7 +1267,10 @@ function HostApproversGroup({
   );
 }
 
-function LoginDialog({
+/** 点了「进入」之后如果还停在登录页（进入失败、被拦回来），过这么久按钮恢复可点 */
+const LOGIN_BUSY_RESET_MS = 4_000;
+
+export function LoginDialog({
   reduceMotion,
   onJoin,
 }: {
@@ -1285,6 +1288,11 @@ function LoginDialog({
     // 记住的名字整段选中，直接回车进入，想换名字也能直接打
     input.select();
   }, []);
+  useEffect(() => {
+    if (!busy) return;
+    const timer = window.setTimeout(() => setBusy(false), LOGIN_BUSY_RESET_MS);
+    return () => window.clearTimeout(timer);
+  }, [busy]);
   return (
     <div className="login-shell">
       <main className="login-card">
@@ -1341,7 +1349,12 @@ function LoginDialog({
                   return;
                 }
                 setBusy(true);
-                onJoin(clean);
+                try {
+                  onJoin(clean);
+                } catch {
+                  setBusy(false);
+                  setError(t("没能进入，请再试一次。"));
+                }
               }}
             >
               <label htmlFor="username">{t("你的用户名")}</label>
