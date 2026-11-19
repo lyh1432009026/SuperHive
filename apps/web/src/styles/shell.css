@@ -184,17 +184,16 @@
   font-variant-numeric: tabular-nums;
 }
 
-.room-list {
+/* 置顶区和其余房间放在同一个滚动区里一起滚，置顶再多也不会挤小下面的列表 */
+.room-scroll {
   min-height: 0;
   flex: 1;
   overflow-y: auto;
   padding-bottom: 8px;
 }
 
-/* 置顶区：不跟着下面滚动，和按活跃度排的房间之间隔一条线；置顶太多时自己滚 */
+/* 置顶区：和按活跃度排的房间之间隔一条线 */
 .room-list.pinned {
-  flex: 0 0 auto;
-  max-height: 40%;
   margin-bottom: 6px;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--border-light);

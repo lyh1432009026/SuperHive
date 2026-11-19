@@ -94,6 +94,8 @@ const EDGE = 32;
  */
 export function useRoomReorder(ids: readonly string[], onReorder: (next: string[]) => void) {
   const listRef = useRef<HTMLDivElement>(null);
+  /** 真正滚动的容器（置顶区和其余房间共用一个滚动区）；没给就当列表自己滚 */
+  const scrollRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef(new Map<string, HTMLElement>());
   const dragRef = useRef<Drag | undefined>(undefined);
   const pendingRef = useRef<{ id: string; pointerId: number; x: number; y: number } | undefined>(
@@ -127,7 +129,7 @@ export function useRoomReorder(ids: readonly string[], onReorder: (next: string[
         slots,
         shift,
         startY: clientY,
-        startScroll: list.scrollTop,
+        startScroll: (scrollRef.current ?? list).scrollTop,
         offset: 0,
         over: from,
         dropping: false,
@@ -141,7 +143,8 @@ export function useRoomReorder(ids: readonly string[], onReorder: (next: string[
     const list = listRef.current;
     if (!current || current.dropping || !list) return;
     lastClientY.current = clientY;
-    const offset = clientY - current.startY + (list.scrollTop - current.startScroll);
+    const scroller = scrollRef.current ?? list;
+    const offset = clientY - current.startY + (scroller.scrollTop - current.startScroll);
     const self = current.slots[current.from]!;
     const center = self.top + offset + self.height / 2;
     let over = 0;
@@ -154,7 +157,7 @@ export function useRoomReorder(ids: readonly string[], onReorder: (next: string[
   }, []);
 
   const autoScroll = useCallback(() => {
-    const list = listRef.current;
+    const list = scrollRef.current ?? listRef.current;
     if (!dragRef.current || dragRef.current.dropping || !list) return;
     const rect = list.getBoundingClientRect();
     const y = lastClientY.current;
@@ -324,5 +327,5 @@ export function useRoomReorder(ids: readonly string[], onReorder: (next: string[
     },
   });
 
-  return { listRef, itemProps, itemStyle, dragging: Boolean(drag) };
+  return { listRef, scrollRef, itemProps, itemStyle, dragging: Boolean(drag) };
 }

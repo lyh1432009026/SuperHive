@@ -4403,30 +4403,33 @@ export function App({
             <span>{t("房间列表")}</span>
             <span className="panel-meta">{activeRoomCount}</span>
           </div>
-          {sidebarRooms.pinned.length > 0 && (
+          {/* 置顶区和其余房间一起滚动：置顶多了也不会把下面挤得只剩一小块 */}
+          <div className="room-scroll" ref={roomReorder.scrollRef}>
+            {sidebarRooms.pinned.length > 0 && (
+              <div
+                className={`room-list pinned ${roomReorder.dragging ? "reordering" : ""}`}
+                ref={roomReorder.listRef}
+                role="group"
+                aria-label={t("已置顶")}
+              >
+                {sidebarRooms.pinned.map((room, index) => renderRoomItem(room, index, true))}
+              </div>
+            )}
             <div
-              className={`room-list pinned ${roomReorder.dragging ? "reordering" : ""}`}
-              ref={roomReorder.listRef}
-              role="group"
-              aria-label={t("已置顶")}
+              className="room-list"
+              onPointerEnter={freezeRoomList}
+              onPointerLeave={(event) => thawRoomList(event.currentTarget)}
+              onFocus={freezeRoomList}
+              onBlur={(event) => {
+                const list = event.currentTarget;
+                // 焦点还在列表里（用 Tab 换到下一个房间）就继续保持
+                if (!list.contains(event.relatedTarget as Node | null)) {
+                  window.setTimeout(() => thawRoomList(list));
+                }
+              }}
             >
-              {sidebarRooms.pinned.map((room, index) => renderRoomItem(room, index, true))}
+              {sidebarRooms.others.map((room, index) => renderRoomItem(room, index, false))}
             </div>
-          )}
-          <div
-            className="room-list"
-            onPointerEnter={freezeRoomList}
-            onPointerLeave={(event) => thawRoomList(event.currentTarget)}
-            onFocus={freezeRoomList}
-            onBlur={(event) => {
-              const list = event.currentTarget;
-              // 焦点还在列表里（用 Tab 换到下一个房间）就继续保持
-              if (!list.contains(event.relatedTarget as Node | null)) {
-                window.setTimeout(() => thawRoomList(list));
-              }
-            }}
-          >
-            {sidebarRooms.others.map((room, index) => renderRoomItem(room, index, false))}
           </div>
           <button
             type="button"
