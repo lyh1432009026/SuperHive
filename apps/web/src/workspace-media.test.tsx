@@ -40,6 +40,10 @@ describe("mediaKind / changeSides", () => {
     expect(mediaKind("clip.mov")).toBe("video");
     expect(mediaKind("song.flac")).toBe("audio");
     expect(mediaKind("doc.pdf")).toBe("pdf");
+    expect(mediaKind("docs/报告.docx")).toBe("office");
+    expect(mediaKind("sales.XLSX")).toBe("office");
+    expect(mediaKind("data.csv")).toBe("office");
+    expect(mediaKind("deck.pptx")).toBe("office");
     expect(mediaKind("page.html")).toBeUndefined();
     expect(mediaKind("Makefile")).toBeUndefined();
   });
@@ -62,6 +66,32 @@ describe("mediaKind / changeSides", () => {
 });
 
 describe("MediaView", () => {
+  it("Office 文档：用同一个临时链接取原始字节在页面里解析；失败时给下载", async () => {
+    const api = fakeApi();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("broken")
+        ? new Response("gone", { status: 410 })
+        : new Response("城市,温度\n上海,18.5\n"),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      render(<MediaView api={api} source="workspace" path="docs/weather.csv" />);
+      const table = await screen.findByRole("table", { name: "Sheet1" }, { timeout: 5000 });
+      expect(table.textContent).toContain("上海");
+      expect(String(fetchMock.mock.calls[0]![0])).toBe(
+        "http://hive.test/api/rooms/general/workspace/raw?t=worktree-docs/weather.csv",
+      );
+      cleanup();
+
+      render(<MediaView api={api} source="workspace" path="docs/broken.xlsx" />);
+      const alert = await screen.findByRole("alert", {}, { timeout: 5000 });
+      expect(alert.textContent).toContain("无法读取文件（410）");
+      expect(within(alert).getByRole("button", { name: /下载/ })).toBeTruthy();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("图片：用临时链接作 src，显示尺寸大小类型，点开用看图器", async () => {
     const api = fakeApi();
     render(<MediaView api={api} source="workspace" path="img/logo.png" />);
@@ -96,11 +126,13 @@ describe("MediaView", () => {
     rerender(<MediaView api={api} source="workspace" path="song.mp3" />);
     await waitFor(() => expect(container.querySelector("audio[controls]")).toBeTruthy());
     rerender(<MediaView api={api} source="workspace" path="doc.pdf" />);
+    // iframe 而不是 <object>：网页 CSP 是 object-src 'none'
     await waitFor(() =>
-      expect(
-        container.querySelector('object[type="application/pdf"]')?.getAttribute("data"),
-      ).toContain("worktree-doc.pdf"),
+      expect(container.querySelector("iframe.workspace-media-pdf")?.getAttribute("src")).toContain(
+        "worktree-doc.pdf",
+      ),
     );
+    expect(container.querySelector("object")).toBeNull();
   });
 
   it("太大或浏览器显示不了时给下载按钮；取链接失败显示原因", async () => {

@@ -3,6 +3,8 @@ import { serverError } from "./server-text";
 import { createPortal } from "react-dom";
 import type { Attachment, UploadedAttachment } from "@superhive/protocol";
 import { t } from "./i18n";
+import { OfficePreview } from "./office-preview/office-preview";
+import { officeKind } from "./office-preview/office-kind";
 
 // 预览 Markdown 时才用到渲染器，和消息里的共用同一个 chunk
 const PreviewMarkdown = lazy(() =>
@@ -339,6 +341,10 @@ export function fetchAttachmentUrl(base: string, token: string, id: string): Pro
   return fetchAttachment(base, token, id).then((loaded) => loaded.url);
 }
 
+export function fetchAttachmentBlob(base: string, token: string, id: string): Promise<Blob> {
+  return fetchAttachment(base, token, id).then((loaded) => loaded.blob);
+}
+
 /**
  * 连同文件内容一起给出：预览要读正文、换 MIME 时直接用这份 Blob。不能再 fetch(blob:) 一遍，
  * 生产环境网页的 CSP connect-src 不含 blob:，会被拦下
@@ -461,13 +467,14 @@ function isPdf(attachment: Attachment): boolean {
   );
 }
 
-/** 页面内能预览的：网页（HTML）、文本类（含代码、Markdown）、PDF、音视频；其他照旧下载 */
+/** 页面内能预览的：网页（HTML）、文本类（含代码、Markdown）、PDF、音视频、Office 文档；其他照旧下载 */
 export function previewKind(
   attachment: Attachment,
-): "html" | "markdown" | "text" | "pdf" | "video" | "audio" | undefined {
+): "html" | "markdown" | "text" | "pdf" | "video" | "audio" | "office" | undefined {
   if (isPdf(attachment)) return "pdf";
   const media = mediaType(attachment);
   if (media) return media.kind;
+  if (officeKind(attachment.name)) return "office";
   if (attachment.kind !== "text") return undefined;
   if (/\.html?$/i.test(attachment.name)) return "html";
   return /\.(md|markdown|mdx)$/i.test(attachment.name) ? "markdown" : "text";
@@ -558,7 +565,8 @@ export function FilePreview({
   onClose: () => void;
 }) {
   const kind = previewKind(attachment)!;
-  const { url, blob, error } = useAttachmentUrl(base, token, attachment.id, true);
+  // Office 文档由 OfficePreview 自己取（超过大小上限就不下载）
+  const { url, blob, error } = useAttachmentUrl(base, token, attachment.id, kind !== "office");
   // HTML 默认看渲染后的页面，可以切回源码
   const [htmlView, setHtmlView] = useState<"page" | "source">("page");
   // 放大：铺满窗口，选择记在本机，下次打开预览照旧
@@ -618,7 +626,8 @@ export function FilePreview({
   }, [attachment, blob, kind, url]);
 
   useEffect(() => {
-    if (!blob || kind === "pdf" || kind === "video" || kind === "audio") return;
+    if (!blob || kind === "pdf" || kind === "video" || kind === "audio" || kind === "office")
+      return;
     let alive = true;
     void readBlobText(blob).then((value) => {
       if (!alive) return;
@@ -636,6 +645,8 @@ export function FilePreview({
     closeRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      // 幻灯片全屏放映时 Esc 只退出全屏，不连预览一起关
+      if (document.fullscreenElement) return;
       event.preventDefault();
       event.stopPropagation();
       onClose();
@@ -644,8 +655,32 @@ export function FilePreview({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
+  function startDownload() {
+    if (!token) return;
+    setDownloadError(undefined);
+    downloadAttachment(base, token, attachment).catch((cause: unknown) =>
+      setDownloadError(cause instanceof Error ? cause.message : String(cause)),
+    );
+  }
+
   const body = error ? (
     <p className="file-preview-status danger">{error}</p>
+  ) : kind === "office" ? (
+    token ? (
+      <OfficePreview
+        name={attachment.name}
+        size={attachment.size}
+        source={attachment.id}
+        load={() => fetchAttachmentBlob(base, token, attachment.id)}
+        download={
+          <button type="button" onClick={startDownload}>
+            {t("下载")}
+          </button>
+        }
+      />
+    ) : (
+      <p className="file-preview-status">{t("加载中…")}</p>
+    )
   ) : kind === "html" && htmlView === "page" ? (
     pageUrl.error ? (
       <p className="file-preview-status danger">{pageUrl.error}</p>
@@ -744,16 +779,7 @@ export function FilePreview({
               </button>
             </>
           )}
-          <button
-            type="button"
-            onClick={() => {
-              if (!token) return;
-              setDownloadError(undefined);
-              downloadAttachment(base, token, attachment).catch((cause: unknown) =>
-                setDownloadError(cause instanceof Error ? cause.message : String(cause)),
-              );
-            }}
-          >
+          <button type="button" onClick={startDownload}>
             {t("下载")}
           </button>
           <button

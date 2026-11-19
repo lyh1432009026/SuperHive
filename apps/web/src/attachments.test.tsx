@@ -1,12 +1,22 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { utils, write } from "xlsx";
 import {
   ComposerAttachments,
   MessageAttachments,
   formatBytes,
   nameForPastedFile,
+  previewKind,
   useAttachmentQueue,
   wheelZoomFactor,
   type QueuedAttachment,
@@ -385,6 +395,64 @@ describe("文件预览", () => {
       "http://hive/api/attachments/00000000-0000-4000-8000-0000000000d1",
     ]);
   });
+
+  it("Office 文档在页面内预览；超过大小上限的不下载，提示并给出下载", async () => {
+    const book = utils.book_new();
+    utils.book_append_sheet(
+      book,
+      utils.aoa_to_sheet([
+        ["城市", "温度"],
+        ["上海", 18.5],
+      ]),
+      "天气",
+    );
+    const xlsx = write(book, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+    const fetchMock = vi.fn<(input: RequestInfo | URL) => Promise<Response>>(
+      async () => new Response(xlsx),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:x" }));
+    const huge = {
+      ...file(
+        "00000000-0000-4000-8000-0000000000e2",
+        "huge.pptx",
+        "file",
+        "application/octet-stream",
+      ),
+      size: 60 * 1024 * 1024,
+    };
+    render(
+      <MessageAttachments
+        attachments={[
+          file(
+            "00000000-0000-4000-8000-0000000000e1",
+            "weather.xlsx",
+            "file",
+            "application/octet-stream",
+          ),
+          huge,
+        ]}
+        base="http://hive"
+        token="t"
+      />,
+    );
+    expect(previewKind(huge)).toBe("office");
+    fireEvent.click(screen.getByRole("button", { name: "预览 weather.xlsx" }));
+    const dialog = await screen.findByRole("dialog", { name: "预览 weather.xlsx" });
+    // 表格渲染器按需加载，机器忙时第一次可能要多等一会
+    const table = await within(dialog).findByRole("table", { name: "天气" }, { timeout: 10_000 });
+    expect(table.textContent).toContain("18.5");
+    // 文件只取一次，交给 OfficePreview，不再按文本读
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(dialog).getByRole("button", { name: "关闭" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "预览 huge.pptx" }));
+    const second = await screen.findByRole("dialog", { name: "预览 huge.pptx" });
+    const alert = within(second).getByRole("alert");
+    expect(alert.textContent).toContain("文件超过 50.0 MB");
+    expect(within(alert).getByRole("button", { name: "下载" })).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  }, 15_000);
 
   it("HTML 默认显示渲染后的页面（sandbox iframe、不同源），可切到源码，新窗口打开会重新申请预览链接", async () => {
     const calls: Array<{ url: string; method: string }> = [];

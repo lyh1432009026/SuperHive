@@ -4,6 +4,7 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Artifact, ArtifactCounts, ArtifactsResponse } from "@superhive/protocol";
+import { utils, write } from "xlsx";
 import { ArtifactsPanel } from "./artifacts";
 
 let serial = 0;
@@ -292,6 +293,56 @@ describe("ArtifactsPanel", () => {
     expect(document.activeElement?.textContent).toContain("plan.md");
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("Office 文档在详情栏里直接预览，点「预览」打开大窗口", async () => {
+    const user = userEvent.setup();
+    const book = utils.book_new();
+    utils.book_append_sheet(
+      book,
+      utils.aoa_to_sheet([
+        ["门店", "销量"],
+        ["静安店", 42],
+      ]),
+      "明细",
+    );
+    const xlsx = write(book, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/rooms/general/attachments"))
+          return new Response(JSON.stringify(serve(url)), {
+            headers: { "Content-Type": "application/json" },
+          });
+        return new Response(xlsx);
+      }),
+    );
+    store = [
+      item("sales.xlsx", { kind: "file", mime: "application/octet-stream", category: "data" }),
+      item("huge.docx", {
+        kind: "file",
+        mime: "application/octet-stream",
+        size: 30 * 1024 * 1024,
+      }),
+    ];
+    render(panel());
+    await user.click(await screen.findByRole("button", { name: /^sales\.xlsx，/ }));
+    const detail = screen.getByRole("complementary", { name: "sales.xlsx 的详情" });
+    const table = await within(detail).findByRole("table", { name: "明细" }, { timeout: 5000 });
+    expect(table.textContent).toContain("静安店");
+    await user.click(within(detail).getByRole("button", { name: "预览" }));
+    const dialog = await screen.findByRole("dialog", { name: "预览 sales.xlsx" });
+    expect(
+      (await within(dialog).findByRole("table", { name: "明细" }, { timeout: 5000 })).textContent,
+    ).toContain("42");
+    await user.keyboard("{Escape}");
+
+    // 太大的不在详情栏里自动下载解析，照旧显示图标，「预览」仍可用
+    await user.click(screen.getByRole("button", { name: /^huge\.docx，/ }));
+    const big = screen.getByRole("complementary", { name: "huge.docx 的详情" });
+    expect(big.querySelector(".office-preview")).toBeNull();
+    expect(within(big).getByRole("button", { name: "预览" })).toBeTruthy();
   });
 
   it("opens maximized and restores to a side drawer, remembered under its own key", async () => {

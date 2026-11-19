@@ -344,6 +344,57 @@ describe("WorkspacePanel", () => {
     expect(screen.getByRole("button", { name: "下载" })).toBeTruthy();
   });
 
+  it("Office 文档：文件树里直接预览，CSV 可切到源码；改动里 CSV 先看文本 diff", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("城市,温度\n上海,18.5\n")),
+    );
+    try {
+      const api = fakeApi({
+        "/status": () => ({
+          git: true,
+          branch: "main",
+          changes: [
+            { path: "weather.csv", group: "unstaged", status: "M", additions: 1, deletions: 0 },
+          ],
+        }),
+        "/diff": (query) => ({
+          path: query.path,
+          patch: "@@ -1,1 +1,2 @@\n 城市,温度\n+上海,18.5\n",
+          full: true,
+        }),
+        "/tree": () => ({
+          path: "",
+          entries: [{ name: "weather.csv", path: "weather.csv", type: "file", size: 30 }],
+        }),
+        "/file": (query) => ({ path: query.path, size: 30, content: "城市,温度\n上海,18.5\n" }),
+      });
+      open(api);
+      // 改动：CSV 默认文本 diff，可切到预览对照
+      expect(await screen.findByText("上海,18.5")).toBeTruthy();
+      await userEvent.click(screen.getByRole("button", { name: "看预览对照" }));
+      expect(await screen.findByRole("button", { name: "看文本 diff" })).toBeTruthy();
+      expect(
+        await screen.findAllByRole("table", { name: "Sheet1" }, { timeout: 10_000 }),
+      ).toHaveLength(2);
+
+      await userEvent.click(screen.getByRole("tab", { name: "文件树" }));
+      await userEvent.click(await screen.findByRole("button", { name: /^weather\.csv/ }));
+      expect(
+        (await screen.findByRole("table", { name: "Sheet1" }, { timeout: 10_000 })).textContent,
+      ).toContain("18.5");
+      expect(api).not.toHaveBeenCalledWith(
+        "/file",
+        expect.objectContaining({ path: "weather.csv" }),
+      );
+      await userEvent.click(screen.getByRole("button", { name: "看源码" }));
+      expect(await screen.findByRole("table", { name: "weather.csv" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "看表格" })).toBeTruthy();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }, 30_000);
+
   it("默认打开最近有改动、还没合入的任务线；手动选过的下次记住；「看改动」切到那个 Agent", async () => {
     const recent = "00000000-0000-4000-8000-0000000000b1";
     const older = "00000000-0000-4000-8000-0000000000b2";

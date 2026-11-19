@@ -20,16 +20,20 @@
     "@tiptap/react": "^3.33.0",
     "@tiptap/starter-kit": "^3.33.0",
     "@vitejs/plugin-react": "latest",
+    "docx-preview": "0.4.1",
+    "dompurify": "^3.4.18",
     "html-to-image": "^1.11.13",
     "lowlight": "^3.3.0",
     "marked": "^17.0.6",
+    "pptx-preview": "1.0.7",
     "react": "latest",
     "react-dom": "latest",
     "react-markdown": "^10.1.0",
     "rehype-highlight": "^7.0.2",
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
-    "vite": "latest"
+    "vite": "latest",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@ai-ins/vite": "^1.0.8",

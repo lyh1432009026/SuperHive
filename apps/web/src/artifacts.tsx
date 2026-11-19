@@ -21,11 +21,13 @@ import {
   FilePreview,
   Lightbox,
   downloadAttachment,
+  fetchAttachmentBlob,
   formatBytes,
   previewKind,
   useAttachmentUrl,
 } from "./attachments";
 import { getLocale, localized, t } from "./i18n";
+import { OfficePreview } from "./office-preview/office-preview";
 import { SheetPanel } from "./sheet-panel";
 import { SplitResizer, useSplitWidth } from "./split-resizer";
 import { formatRelativeTime } from "./whiteboard";
@@ -44,6 +46,8 @@ import { formatRelativeTime } from "./whiteboard";
 const PAGE_SIZE = 40;
 /** 「全部」里最新图片那一块最多放几张 */
 const IMAGE_STRIP_SIZE = 12;
+/** 详情栏里直接预览的 Office 文档上限：选中就会下载解析，更大的点「预览」再看 */
+const DETAIL_OFFICE_LIMIT = 10 * 1024 * 1024;
 /** 刷新时最多一次重新取回这么多项（服务端单页上限） */
 const MAX_REFRESH = 200;
 
@@ -959,6 +963,19 @@ export function ArtifactsPanel({
           >
             <DetailImage key={selectedItem.id} item={selectedItem} base={base} token={token} />
           </button>
+        ) : previewKind(selectedItem) === "office" &&
+          token &&
+          selectedItem.size <= DETAIL_OFFICE_LIMIT ? (
+          <div className="artifact-detail-preview office">
+            <OfficePreview
+              key={selectedItem.id}
+              name={selectedItem.name}
+              size={selectedItem.size}
+              source={selectedItem.id}
+              load={() => fetchAttachmentBlob(base, token, selectedItem.id)}
+              compact
+            />
+          </div>
         ) : (
           <div className="artifact-detail-preview">
             <span className={`artifact-icon large ${selectedItem.category}`} aria-hidden="true">

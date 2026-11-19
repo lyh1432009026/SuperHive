@@ -2,6 +2,8 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import type { Attachment, WorkspaceChangeStatus, WorkspaceRawUrl } from "@superhive/protocol";
 import { Lightbox } from "./attachments";
 import { t } from "./i18n";
+import { OfficePreview } from "./office-preview/office-preview";
+import { officeKind } from "./office-preview/office-kind";
 import { formatBytes } from "./workspace-diff";
 
 /**
@@ -18,7 +20,7 @@ export type RawUrlApi = ((
   query?: Record<string, string | undefined>,
 ) => Promise<unknown>) & { base?: string };
 
-export type MediaKind = "image" | "video" | "audio" | "pdf";
+export type MediaKind = "image" | "video" | "audio" | "pdf" | "office";
 
 const KINDS: Record<string, MediaKind> = {
   png: "image",
@@ -43,8 +45,9 @@ const KINDS: Record<string, MediaKind> = {
   pdf: "pdf",
 };
 
-/** 按扩展名判断能不能在页面里预览（和服务端的类型白名单一致） */
+/** 按扩展名判断能不能在页面里预览（和服务端的类型白名单一致；Office 文档在浏览器里解析，不在白名单里） */
 export function mediaKind(path: string): MediaKind | undefined {
+  if (officeKind(path)) return "office";
   const name = path.slice(path.lastIndexOf("/") + 1).toLowerCase();
   const dot = name.lastIndexOf(".");
   return dot > 0 ? KINDS[name.slice(dot + 1)] : undefined;
@@ -279,7 +282,25 @@ export function MediaView({
       </p>
     );
   else if (!raw.data || !kind) body = null;
-  else if (!raw.data.inline)
+  else if (kind === "office") {
+    // 原始字节走同一个签名临时链接，在浏览器里解析；Office 不在服务端的内嵌白名单里，链接按下载签发
+    const src = raw.data.src;
+    body = (
+      <OfficePreview
+        name={name}
+        size={raw.data.size}
+        source={src}
+        load={() =>
+          fetch(src).then((response) => {
+            if (!response.ok) throw new Error(t("无法读取文件（{0}）", { 0: response.status }));
+            return response.blob();
+          })
+        }
+        download={<DownloadButton api={api} source={source} path={path} ref={ref} />}
+        compact={compact}
+      />
+    );
+  } else if (!raw.data.inline)
     body = (
       <div className="workspace-media-fallback">
         <p className="workspace-muted">{t("文件太大，不在页面里显示。")}</p>
@@ -344,19 +365,9 @@ export function MediaView({
       />
     );
   else
-    body = (
-      <object
-        className="workspace-media-pdf"
-        data={raw.data.src}
-        type="application/pdf"
-        aria-label={name}
-      >
-        <div className="workspace-media-fallback">
-          <p className="workspace-muted">{t("浏览器无法内嵌显示 PDF。")}</p>
-          <DownloadButton api={api} source={source} path={path} ref={ref} />
-        </div>
-      </object>
-    );
+    // 和聊天附件一样用 iframe 交给浏览器自带的 PDF 查看器：网页的 CSP 是 object-src 'none'，
+    // <object> 在正式环境里会被拦下，只剩「无法内嵌显示」
+    body = <iframe className="workspace-media-pdf" src={raw.data.src} title={name} />;
 
   return (
     <figure className={`workspace-media ${kind ?? ""}`}>

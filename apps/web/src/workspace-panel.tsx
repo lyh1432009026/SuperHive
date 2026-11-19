@@ -28,6 +28,7 @@ import type {
 import { getLocale, t } from "./i18n";
 import { SplitResizer, useSplitWidth } from "./split-resizer";
 import { formatRelativeTime } from "./whiteboard";
+import { isTextOffice, officeKind } from "./office-preview/office-kind";
 import { Select } from "./select";
 import { SheetPanel } from "./sheet-panel";
 import { serverError } from "./server-text";
@@ -1017,16 +1018,17 @@ function DiffViewer({
   const [expandAll, setExpandAll] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [tooManyConfirmed, setTooManyConfirmed] = useState(false);
-  // 图片、音视频默认看改前改后对照；SVG 还能切回文本 diff
+  // 图片、音视频、Office 文档默认看改前改后对照；SVG 还能切回文本 diff，CSV 默认就看文本 diff
   const media = mediaKind(selection.path);
-  const [showText, setShowText] = useState(false);
+  const textFirst = isTextOffice(officeKind(selection.path));
+  const [showText, setShowText] = useState(textFirst);
   const identity = changeKey(selection);
   useEffect(() => {
     setReveal(false);
     setExpanded(new Set());
     setTooManyConfirmed(false);
-    setShowText(false);
-  }, [identity]);
+    setShowText(textFirst);
+  }, [identity, textFirst]);
   const sides = changeSides({ ...selection, base });
   const showMedia = Boolean(media) && !showText;
   const diff = useAsync(
@@ -1222,7 +1224,11 @@ function DiffViewer({
               className={showText ? "active" : ""}
               onClick={() => setShowText((value) => !value)}
             >
-              {showText ? t("看图片对照") : t("看文本 diff")}
+              {!showText
+                ? t("看文本 diff")
+                : media === "office"
+                  ? t("看预览对照")
+                  : t("看图片对照")}
             </button>
           )}
           {!showMedia && hunks && hunks.length > 0 && diff.data?.full && (
@@ -1692,8 +1698,9 @@ function FilePreview({
   onBack?: (() => void) | undefined;
 }) {
   const [reveal, setReveal] = useState(false);
-  // 图片、音视频、PDF 直接预览；SVG 还能切到源码
+  // 图片、音视频、PDF、Office 文档直接预览；SVG、CSV 还能切到源码
   const media = mediaKind(path);
+  const hasSource = /\.svg$/i.test(path) || isTextOffice(officeKind(path));
   const [showSource, setShowSource] = useState(false);
   const showMedia = Boolean(media) && !showSource;
   const file = useAsync(
@@ -1773,7 +1780,7 @@ function FilePreview({
           {path}
         </span>
         {file.data && <span className="workspace-muted">{formatBytes(file.data.size)}</span>}
-        {media && path.toLowerCase().endsWith(".svg") && (
+        {media && hasSource && (
           <div className="workspace-viewer-actions">
             <button
               type="button"
@@ -1781,7 +1788,7 @@ function FilePreview({
               className={showSource ? "active" : ""}
               onClick={() => setShowSource((value) => !value)}
             >
-              {showSource ? t("看图片") : t("看源码")}
+              {!showSource ? t("看源码") : media === "office" ? t("看表格") : t("看图片")}
             </button>
           </div>
         )}

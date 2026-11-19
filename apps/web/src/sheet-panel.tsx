@@ -106,7 +106,8 @@ export function SheetPanel({
   };
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
-    if (event.key === "Escape" && !event.defaultPrevented) {
+    // 面板里有元素全屏（幻灯片放映）时，Esc 交给浏览器退出全屏
+    if (event.key === "Escape" && !event.defaultPrevented && !document.fullscreenElement) {
       event.preventDefault();
       onClose();
     }
