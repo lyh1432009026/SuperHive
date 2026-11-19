@@ -230,3 +230,9 @@
 .agent-cli.focused {
   box-shadow: 0 0 0 2px var(--accent);
 }
+
+.agent-cli-buttons {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}

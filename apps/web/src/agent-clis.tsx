@@ -9,6 +9,7 @@ import type {
 import { ConfirmPopover } from "./confirm-popover";
 import { t } from "./i18n";
 import type { AgentCliWithAgents, LocalAgentsState } from "./local-agents";
+import { RuntimeConfigPanel, type RuntimeConfigApi } from "./runtime-config-panel";
 import "./styles/agent-clis.css";
 
 /**
@@ -20,8 +21,15 @@ import "./styles/agent-clis.css";
 
 export type AgentClisApi = Pick<
   LocalAgentsState,
-  "agentClis" | "agentCliCurrent" | "upgradeAgentCli" | "installAgentCli" | "agentCliJob" | "act"
->;
+  | "agentClis"
+  | "agentCliCurrent"
+  | "upgradeAgentCli"
+  | "installAgentCli"
+  | "agentCliJob"
+  | "act"
+  | "runtimeCredentials"
+> &
+  RuntimeConfigApi;
 
 export const JOB_POLL_MS = 1_000;
 
@@ -74,7 +82,20 @@ export function AgentClisGroup({
   const [starting, setStarting] = useState<Activity>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
-  const { agentClis, agentCliCurrent, agentCliJob } = api;
+  const { agentClis, agentCliCurrent, agentCliJob, runtimeCredentials } = api;
+  // 没装的 CLI 只要有配置文件也给「配置」按钮
+  const [configured, setConfigured] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    void Promise.resolve()
+      .then(runtimeCredentials)
+      .then(
+        (runtimes) =>
+          setConfigured(
+            new Set(runtimes.filter((runtime) => runtime.configured).map((r) => r.provider)),
+          ),
+        () => undefined,
+      );
+  }, [runtimeCredentials]);
 
   const adopt = useCallback((next: AgentCliJob | null) => {
     // 打开页面时有任务在跑：接着显示进度；已经结束的旧结果不再翻出来
@@ -199,6 +220,8 @@ export function AgentClisGroup({
           info={tool}
           job={job?.tool === tool.tool ? job : undefined}
           activity={activity}
+          configurable={tool.status !== "notInstalled" || configured.has(tool.tool)}
+          focused={focusTool === tool.tool}
           onStart={(action, command) => start(tool, action, command)}
         />
       ))}
@@ -212,15 +235,24 @@ function AgentCliCard({
   info,
   job,
   activity,
+  configurable,
+  focused,
   onStart,
 }: {
   api: AgentClisApi;
   info: AgentCliWithAgents;
   job: AgentCliJob | undefined;
   activity: Activity | undefined;
+  configurable: boolean;
+  /** 从接入 Agent 弹窗跳过来看这个 CLI：能配置就直接展开配置面板 */
+  focused: boolean;
   onStart: (action: AgentCliAction, command: string) => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
+  useEffect(() => {
+    if (focused && configurable) setConfigOpen(true);
+  }, [focused, configurable]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -272,26 +304,38 @@ function AgentCliCard({
           <h5>{info.name}</h5>
           <StatusLine info={info} />
         </div>
-        {(offered || mine) && (
-          <button
-            type="button"
-            ref={buttonRef}
-            className="settings-action agent-cli-button"
-            aria-expanded={confirming}
-            disabled={Boolean(activity) || submitting}
-            title={
-              other
-                ? other.action === "install"
-                  ? t("正在安装 {0}，完成后再试", { 0: other.name })
-                  : t("正在升级 {0}，完成后再试", { 0: other.name })
-                : undefined
-            }
-            onClick={() => setConfirming(true)}
-          >
-            {mine && <span className="agent-cli-spinner" aria-hidden />}
-            {label}
-          </button>
-        )}
+        <div className="agent-cli-buttons">
+          {configurable && (
+            <button
+              type="button"
+              className="settings-action agent-cli-button"
+              aria-expanded={configOpen}
+              onClick={() => setConfigOpen((open) => !open)}
+            >
+              {configOpen ? t("收起配置") : t("配置")}
+            </button>
+          )}
+          {(offered || mine) && (
+            <button
+              type="button"
+              ref={buttonRef}
+              className="settings-action agent-cli-button"
+              aria-expanded={confirming}
+              disabled={Boolean(activity) || submitting}
+              title={
+                other
+                  ? other.action === "install"
+                    ? t("正在安装 {0}，完成后再试", { 0: other.name })
+                    : t("正在升级 {0}，完成后再试", { 0: other.name })
+                  : undefined
+              }
+              onClick={() => setConfirming(true)}
+            >
+              {mine && <span className="agent-cli-spinner" aria-hidden />}
+              {label}
+            </button>
+          )}
+        </div>
       </div>
       {primary && (
         <small className="agent-cli-path">
@@ -371,6 +415,7 @@ function AgentCliCard({
           }}
         />
       )}
+      {configOpen && <RuntimeConfigPanel api={api} provider={info.tool} />}
       {error && <p className="settings-note error">{error}</p>}
     </section>
   );

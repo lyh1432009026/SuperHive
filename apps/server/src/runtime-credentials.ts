@@ -206,14 +206,14 @@ function providerOf(model: string | undefined): string | undefined {
   return slash > 0 ? model.slice(0, slash) : undefined;
 }
 
-type Write = { file: string; content: string };
+export type Write = { file: string; content: string };
 
 export class RuntimeCredentialStore {
-  private readonly home: string;
-  private readonly claudeDir: string;
-  private readonly codexHome: string;
+  readonly home: string;
+  readonly claudeDir: string;
+  readonly codexHome: string;
   private readonly managed: string;
-  private readonly env: NodeJS.ProcessEnv;
+  readonly env: NodeJS.ProcessEnv;
   private readonly now: () => number;
   private readonly writeContent: (fd: number, content: string) => void;
 
@@ -234,7 +234,8 @@ export class RuntimeCredentialStore {
     this.writeContent = options.writeFile ?? ((fd, content) => writeSync(fd, content));
   }
 
-  private display(file: string): string {
+  /** 给人看的路径：家目录写成 ~ */
+  display(file: string): string {
     return file.startsWith(this.home + path.sep) ? `~${file.slice(this.home.length)}` : file;
   }
 
@@ -298,7 +299,7 @@ export class RuntimeCredentialStore {
       }
       pending.set(file, next);
     }
-    this.commit([...pending].map(([file, content]) => ({ file, content })));
+    this.writeFiles([...pending].map(([file, content]) => ({ file, content })));
     return this.get(provider, context);
   }
 
@@ -532,10 +533,8 @@ export class RuntimeCredentialStore {
   }
 
   private opencode(pending?: Map<string, string>): Snapshot {
-    const dir = path.join(this.env.XDG_CONFIG_HOME || path.join(this.home, ".config"), "opencode");
-    const jsonc = path.join(dir, "opencode.jsonc");
-    const json = path.join(dir, "opencode.json");
-    const file = this.text(jsonc, pending) !== undefined ? jsonc : json;
+    const file = this.opencodeFile(pending);
+    const json = path.join(this.opencodeDir(), "opencode.json");
     const text = this.text(file, pending);
     if (text === undefined) return this.missing(json);
     const data = record(parseJsonc(text));
@@ -578,7 +577,31 @@ export class RuntimeCredentialStore {
     };
   }
 
-  private ompAgentDir(): string {
+  /** opencode 的全局配置目录：$XDG_CONFIG_HOME/opencode（默认 ~/.config/opencode） */
+  opencodeDir(): string {
+    return path.join(this.env.XDG_CONFIG_HOME || path.join(this.home, ".config"), "opencode");
+  }
+
+  /** opencode.jsonc 优先，没有就是 opencode.json（不存在时也返回它） */
+  opencodeFile(pending?: Map<string, string>): string {
+    const jsonc = path.join(this.opencodeDir(), "opencode.jsonc");
+    return this.text(jsonc, pending) !== undefined
+      ? jsonc
+      : path.join(this.opencodeDir(), "opencode.json");
+  }
+
+  openclawFile(): string {
+    return (
+      this.env.OPENCLAW_CONFIG_PATH ||
+      path.join(this.env.OPENCLAW_STATE_DIR || path.join(this.home, ".openclaw"), "openclaw.json")
+    );
+  }
+
+  copilotDir(): string {
+    return this.env.COPILOT_HOME || path.join(this.home, ".copilot");
+  }
+
+  ompAgentDir(): string {
     const root = path.join(this.home, this.env.PI_CONFIG_DIR || ".omp");
     const profile = (this.env.OMP_PROFILE ?? this.env.PI_PROFILE ?? "").trim();
     if (profile && profile !== "default") return path.join(root, "profiles", profile, "agent");
@@ -642,9 +665,7 @@ export class RuntimeCredentialStore {
   }
 
   private openclaw(pending?: Map<string, string>): Snapshot {
-    const file =
-      this.env.OPENCLAW_CONFIG_PATH ||
-      path.join(this.env.OPENCLAW_STATE_DIR || path.join(this.home, ".openclaw"), "openclaw.json");
+    const file = this.openclawFile();
     const display = this.display(file);
     const text = this.text(file, pending);
     if (text === undefined) return this.missing(file);
@@ -694,7 +715,7 @@ export class RuntimeCredentialStore {
   }
 
   private copilot(pending?: Map<string, string>): Snapshot {
-    const dir = this.env.COPILOT_HOME || path.join(this.home, ".copilot");
+    const dir = this.copilotDir();
     const file = this.env.COPILOT_PROVIDERS_CONFIG || path.join(dir, "providers.json");
     const display = this.display(file);
     // 设了 COPILOT_PROVIDER_* 时 Copilot 完全不读 providers.json
@@ -738,8 +759,8 @@ export class RuntimeCredentialStore {
     };
   }
 
-  /** 逐个文件备份并原子替换；中途失败把已经换掉的还原回去 */
-  private commit(writes: Write[]) {
+  /** 逐个文件备份并原子替换；中途失败把已经换掉的还原回去（配置面板的其它写入也走这里） */
+  writeFiles(writes: Write[]) {
     const done: Array<{ target: string; original: string | undefined; mode: number }> = [];
     try {
       for (const { file, content } of writes) {

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
+  RuntimeCredentialEffect,
   RuntimeCredentialField,
   RuntimeCredentialFieldInfo,
   RuntimeCredentialProvider,
@@ -10,7 +11,7 @@ import { t } from "./i18n";
 import type { LocalAgentsState, RuntimeCredentialsWithAgents } from "./local-agents";
 
 /**
- * 运行时接口地址与密钥（只在 Server 所在电脑上的本机房主页面显示）：
+ * 运行时接口地址与密钥的一行（Agent CLI 配置面板的「接入」里用）：
  * 读写的是 CLI 自己的全局配置，同一运行时的 Agent 和终端里的 CLI 一起变。
  * 默认打码；「显示」要就地确认，完整值 30 秒后自动收起；改之前提示会影响终端里的 CLI。
  * 值只在这个组件的状态里，不进聊天、不经过 Agent。
@@ -18,12 +19,12 @@ import type { LocalAgentsState, RuntimeCredentialsWithAgents } from "./local-age
 
 export type RuntimeCredentialsApi = Pick<
   LocalAgentsState,
-  "runtimeCredentials" | "revealRuntimeCredential" | "updateRuntimeCredentials" | "act"
+  "revealRuntimeCredential" | "updateRuntimeCredentials" | "act"
 >;
 
 export const REVEAL_MS = 30_000;
 
-const RUNTIME_LABELS: Record<RuntimeCredentialProvider, string> = {
+export const RUNTIME_LABELS: Record<RuntimeCredentialProvider, string> = {
   claude: "Claude Code",
   codex: "Codex",
   opencode: "opencode",
@@ -38,52 +39,22 @@ const fieldLabel = (field: RuntimeCredentialField) =>
 const errorMessage = (reason: unknown) =>
   reason instanceof Error ? reason.message : String(reason);
 
-export function RuntimeCredentialsGroup({ api }: { api: RuntimeCredentialsApi }) {
-  const [runtimes, setRuntimes] = useState<RuntimeCredentialsWithAgents[]>();
-  const [error, setError] = useState<string>();
-  const { runtimeCredentials } = api;
-  useEffect(() => {
-    runtimeCredentials().then(setRuntimes, (reason: unknown) => setError(errorMessage(reason)));
-  }, [runtimeCredentials]);
-  const replace = useCallback((next: RuntimeCredentialsWithAgents) => {
-    setRuntimes((current) =>
-      current?.map((runtime) => (runtime.provider === next.provider ? next : runtime)),
-    );
-  }, []);
-  return (
-    <div className="settings-group">
-      <div className="settings-section-heading">
-        <div>
-          <h4>{t("运行时接口地址与密钥")}</h4>
-          <p>
-            {t(
-              "直接读写各 CLI 在这台电脑上的全局配置（当前模型用的那个 provider）：这台电脑上用同一运行时的 Agent 和终端里的 CLI 都会用新值。只在这台电脑上能看、能改，值不会发进聊天或交给 Agent。",
-            )}
-          </p>
-        </div>
-      </div>
-      {runtimes?.map((runtime) => (
-        <RuntimeCard key={runtime.provider} api={api} runtime={runtime} onSaved={replace} />
-      ))}
-      {error && <p className="settings-note error">{error}</p>}
-    </div>
-  );
-}
-
-function RuntimeCard({
+/** 改完配置后的提示：按运行时说明要不要重启，常驻的给一键重启用这个运行时的本机 Agent */
+export function RestartNotice({
   api,
-  runtime,
-  onSaved,
+  provider,
+  effect,
+  agents,
 }: {
-  api: RuntimeCredentialsApi;
-  runtime: RuntimeCredentialsWithAgents;
-  onSaved: (next: RuntimeCredentialsWithAgents) => void;
+  api: Pick<RuntimeCredentialsApi, "act">;
+  provider: RuntimeCredentialProvider;
+  effect: RuntimeCredentialEffect;
+  agents: RuntimeCredentialsWithAgents["agents"];
 }) {
-  const [saved, setSaved] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [restartResult, setRestartResult] = useState<string>();
-  const label = RUNTIME_LABELS[runtime.provider];
-  const live = runtime.agents.filter((agent) => agent.status !== "stopped");
+  const label = RUNTIME_LABELS[provider];
+  const live = agents.filter((agent) => agent.status !== "stopped");
 
   const restart = async () => {
     setRestarting(true);
@@ -104,84 +75,50 @@ function RuntimeCard({
     );
   };
 
-  if (!runtime.configured) {
-    return (
-      <section className="runtime-credentials unconfigured" aria-label={label}>
-        <h5>
-          {label}
-          <span className="runtime-credentials-badge">{t("未配置")}</span>
-        </h5>
-        {runtime.note && <small className="runtime-credentials-files">{runtime.note}</small>}
-      </section>
-    );
-  }
-
   return (
-    <section className="runtime-credentials" aria-label={label}>
-      <h5>
-        {label}
-        {runtime.providerId && (
-          <span className="runtime-credentials-badge">{runtime.providerId}</span>
-        )}
-      </h5>
-      <small className="runtime-credentials-files">{runtime.files.join(t("、"))}</small>
-      {(["baseUrl", "apiKey"] as const).map((field) => (
-        <CredentialRow
-          key={field}
-          api={api}
-          provider={runtime.provider}
-          runtimeLabel={label}
-          field={field}
-          info={runtime[field]}
-          onSaved={(next) => {
-            onSaved(next);
-            setSaved(true);
-            setRestartResult(undefined);
-          }}
-        />
-      ))}
-      {saved && (
-        <div className="runtime-credentials-restart" role="status">
-          <p>{savedMessage(runtime, label)}</p>
-          {runtime.effect === "restart" && live.length > 0 && (
-            <button
-              type="button"
-              className="settings-action"
-              disabled={restarting}
-              onClick={() => void restart()}
-            >
-              {restarting ? t("正在重启…") : t("重启这 {0} 个 Agent", { 0: live.length })}
-            </button>
-          )}
-          {restartResult && <p className="settings-note">{restartResult}</p>}
-        </div>
+    <div className="runtime-credentials-restart" role="status">
+      <p>{savedMessage(effect, agents, label)}</p>
+      {effect === "restart" && live.length > 0 && (
+        <button
+          type="button"
+          className="settings-action"
+          disabled={restarting}
+          onClick={() => void restart()}
+        >
+          {restarting ? t("正在重启…") : t("重启这 {0} 个 Agent", { 0: live.length })}
+        </button>
       )}
-    </section>
+      {restartResult && <p className="settings-note">{restartResult}</p>}
+    </div>
   );
 }
 
 /** 保存后怎么生效：按运行时实际的运行方式写 */
-function savedMessage(runtime: RuntimeCredentialsWithAgents, label: string): string {
-  const names = runtime.agents.map((agent) => agent.name).join(t("、"));
-  if (runtime.effect === "nextTurn") {
+function savedMessage(
+  effect: RuntimeCredentialEffect,
+  agents: RuntimeCredentialsWithAgents["agents"],
+  label: string,
+): string {
+  const names = agents.map((agent) => agent.name).join(t("、"));
+  if (effect === "nextTurn") {
     return t(
       "已保存，不用重启：{0} 每一轮都新起进程，Agent 从下一轮起就用新值（正在跑的这一轮仍用旧值），终端里新开的 {0} 也一样。",
       { 0: label },
     );
   }
-  if (runtime.effect === "gateway") {
+  if (effect === "gateway") {
     return t(
       "已保存。OpenClaw Agent 每一轮都新起进程，但默认经 OpenClaw gateway 执行；没生效的话，在终端运行 openclaw gateway restart 重启 gateway。",
     );
   }
-  return runtime.agents.length
+  return agents.length
     ? t("已保存。{0} 的 Agent 是常驻进程，需要重启才生效：{1}", { 0: label, 1: names })
     : t("已保存。这台电脑上还没有用 {0} 的 Agent；终端里新开的 {0} 会直接用新值。", {
         0: label,
       });
 }
 
-function CredentialRow({
+export function CredentialRow({
   api,
   provider,
   runtimeLabel,

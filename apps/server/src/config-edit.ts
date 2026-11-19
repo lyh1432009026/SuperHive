@@ -1,4 +1,5 @@
 import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
+import { parse as parseTomlDocument } from "smol-toml";
 import { isAlias, isCollection, isNode, isScalar, parseDocument, visit, type YAMLMap } from "yaml";
 
 /**
@@ -158,6 +159,149 @@ export function tomlValue(
   return tables.get(table.length ? tomlKey(table) : "")?.entries.get(tomlKey([key]))?.value;
 }
 
+/** 解析整份 TOML（读取和保存前校验用）；语法错误时返回 undefined */
+export function parseToml(content: string): Record<string, unknown> | undefined {
+  try {
+    return parseTomlDocument(content) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
+export type TomlScalar = string | boolean | number | string[];
+
+/** TOML 字面量：字符串用基本字符串（与 JSON 转义兼容），数组只收字符串 */
+export function tomlLiteral(value: TomlScalar): string {
+  if (Array.isArray(value)) return `[${value.map((item) => tomlQuote(item)).join(", ")}]`;
+  if (typeof value === "string") return tomlQuote(value);
+  return String(value);
+}
+
+const TOML_BARE_SCALAR =
+  /^(true|false|[-+]?[0-9][0-9_]*(?:\.[0-9_]+)?(?:[eE][-+]?[0-9_]+)?)(\s*(?:#.*)?)$/;
+
+/** 改完核对：除了目标键，整份内容解析出来必须和原来一样 */
+function checkToml(before: string, after: string, path: string[], value: TomlScalar | undefined) {
+  const expected = parseToml(before);
+  const actual = parseToml(after);
+  if (!expected || !actual) throw new Error("invalid TOML");
+  let target = expected;
+  for (const part of path.slice(0, -1)) {
+    const next = target[part];
+    if (typeof next !== "object" || next === null || Array.isArray(next)) throw new Error("path");
+    target = next as Record<string, unknown>;
+  }
+  if (value === undefined) delete target[path.at(-1)!];
+  else target[path.at(-1)!] = value;
+  if (JSON.stringify(sortKeys(actual)) !== JSON.stringify(sortKeys(expected))) {
+    throw new Error("edit mismatch");
+  }
+}
+
+function sortKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeys);
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, sortKeys((value as Record<string, unknown>)[key])]),
+  );
+}
+
+/**
+ * 把表 table 里的 key 设成 value（undefined 表示删掉这一行）：已有就只替换那一行的值、保留行尾注释，
+ * 没有就加在小节末尾；表不存在时在文件末尾新建。只认单行的字符串、布尔、数字值，改完重新解析核对。
+ */
+export function setTomlValue(
+  content: string,
+  table: string[],
+  key: string,
+  value: TomlScalar | undefined,
+): string {
+  const tables = scanToml(content);
+  const section = tables.get(table.length ? tomlKey(table) : "");
+  const lines = content.split("\n");
+  let next: string;
+  const entry = section?.entries.get(tomlKey([key]));
+  if (entry) {
+    const line = lines[entry.line]!;
+    let end: number;
+    if (entry.value !== "complex") end = entry.value.end;
+    else {
+      const bare = TOML_BARE_SCALAR.exec(line.slice(entry.prefixEnd));
+      if (!bare) throw new Error("complex value");
+      end = entry.prefixEnd + bare[1]!.length;
+    }
+    if (value === undefined) lines.splice(entry.line, 1);
+    else
+      lines[entry.line] =
+        `${line.slice(0, entry.prefixEnd)}${tomlLiteral(value)}${line.slice(end)}`;
+    next = lines.join("\n");
+  } else if (value === undefined) {
+    return content;
+  } else {
+    const assignment = `${tomlBareKey(key)} = ${tomlLiteral(value)}`;
+    if (section) {
+      // 插在小节最后一个非空行后面
+      let at = section.end;
+      while (at - 1 > section.header && !lines[at - 1]!.trim()) at -= 1;
+      lines.splice(at, 0, assignment);
+      next = lines.join("\n");
+    } else {
+      const header = `[${table.map(tomlBareKey).join(".")}]`;
+      const base = content.replace(/\n*$/, "");
+      next = `${base}${base ? "\n\n" : ""}${header}\n${assignment}\n`;
+    }
+  }
+  checkToml(content, next, [...table, key], value);
+  return next;
+}
+
+export function tomlBareKey(key: string): string {
+  return /^[A-Za-z0-9_-]+$/.test(key) ? key : tomlQuote(key);
+}
+
+/**
+ * 删掉表 prefix 及其所有子表（[prefix]、[prefix.env] …），其余内容原样保留；
+ * 用内联写法（prefix = {...} 或 a.b = ...）定义的认不出，抛错由调用方当只读处理。
+ */
+export function removeTomlTable(content: string, prefix: string[]): string {
+  const lines = content.split("\n");
+  const keep: string[] = [];
+  let dropping = false;
+  let found = false;
+  for (const line of lines) {
+    const header = /^\s*\[\[?([^[\]]+)\]\]?\s*(?:#.*)?$/.exec(line);
+    if (header) {
+      const keys = parseDottedKey(header[1]!);
+      dropping = Boolean(keys && prefix.every((part, index) => keys[index] === part));
+      if (dropping) found = true;
+    }
+    if (!dropping) keep.push(line);
+  }
+  if (!found) throw new Error("table not found");
+  const next = keep.join("\n").replace(/\n{3,}/g, "\n\n");
+  const after = parseToml(next);
+  const before = parseToml(content);
+  if (!after || !before) throw new Error("invalid TOML");
+  let target: Record<string, unknown> = before;
+  for (const part of prefix.slice(0, -1)) target = target[part] as Record<string, unknown>;
+  delete target[prefix.at(-1)!];
+  if (JSON.stringify(sortKeys(after)) !== JSON.stringify(sortKeys(before))) {
+    throw new Error("edit mismatch");
+  }
+  return next;
+}
+
+/** 在文件末尾追加一段 TOML（新建表用），追加后必须仍能解析 */
+export function appendToml(content: string, text: string): string {
+  const base = content.replace(/\n*$/, "");
+  const next = `${base}${base ? "\n\n" : ""}${text.replace(/\n*$/, "")}\n`;
+  if (!parseToml(next)) throw new Error("invalid TOML");
+  return next;
+}
+
 /* ---------- JSON / JSONC：jsonc-parser 只改目标路径，注释和其余格式不动 ---------- */
 
 export type JsonPath = Array<string | number>;
@@ -182,11 +326,17 @@ function indentOf(content: string): { insertSpaces: boolean; tabSize: number } {
 
 /** 把 path 处的值设成字符串 value；中间缺的对象会建出来 */
 export function setJsoncString(content: string, path: JsonPath, value: string): string {
+  return setJsoncValue(content, path, value);
+}
+
+/** 把 path 处设成任意 JSON 值；undefined 表示删掉这个键。改完再读一遍，目标处确实是新值才算 */
+export function setJsoncValue(content: string, path: JsonPath, value: unknown): string {
   const base = content.trim() ? content : "{}\n";
   if (parseJsonc(base) === undefined) throw new Error("invalid JSON");
-  const edits = modify(base, path, value, { formattingOptions: { ...indentOf(base), eol: "\n" } });
+  const edits = modify(base, path, value, {
+    formattingOptions: { ...indentOf(base), eol: "\n" },
+  });
   const next = applyEdits(base, edits);
-  // 改完再读一遍：目标处确实是新值，否则不写
   let current: unknown = parseJsonc(next);
   for (const key of path) {
     current =
@@ -194,7 +344,7 @@ export function setJsoncString(content: string, path: JsonPath, value: string): 
         ? (current as Record<string | number, unknown>)[key]
         : undefined;
   }
-  if (current !== value) throw new Error("edit not applied");
+  if (JSON.stringify(current) !== JSON.stringify(value)) throw new Error("edit not applied");
   return next;
 }
 

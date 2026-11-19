@@ -32,6 +32,7 @@ import { renderImMessage, type ImMessage } from "./im/im-texts.js";
 import { openTerminal } from "./open-terminal.js";
 import type { LocalAgentSupervisor } from "./local-agents.js";
 import type { RuntimeCredentialStore } from "./runtime-credentials.js";
+import { registerRuntimeConfigRoutes } from "./runtime-config-routes.js";
 import type { AgentCliManager } from "./agent-clis.js";
 import { registerAgentCliRoutes } from "./agent-cli-routes.js";
 
@@ -643,6 +644,11 @@ export function registerLocalAgentRoutes(
   if (supervisor) {
     registerAgentCliRoutes(app, {
       manager: rooms.agentClis,
+      supervisor,
+      authorizeLocal: (request, reply) => Boolean(authorize(request, reply, "local")),
+    });
+    registerRuntimeConfigRoutes(app, {
+      credentials: rooms.runtimeCredentials,
       supervisor,
       authorizeLocal: (request, reply) => Boolean(authorize(request, reply, "local")),
     });

@@ -17,7 +17,9 @@ import type {
   RoomClearOptions,
   RuntimeCredentialField,
   RuntimeCredentialProvider,
+  RuntimeConfig,
   RuntimeCredentials,
+  RuntimeMcpServerInput,
   UpdateRuntimeCredentialsRequest,
   WorktreeStatus,
 } from "@superhive/protocol";
@@ -139,10 +141,44 @@ export type LocalAgentsState = {
     provider: RuntimeCredentialProvider,
     input: UpdateRuntimeCredentialsRequest,
   ): Promise<RuntimeCredentialsWithAgents>;
+  /** 本机：Agent CLI 的配置面板（附加项、行为、MCP、提示词、原始文件） */
+  runtimeConfig(provider: RuntimeCredentialProvider): Promise<RuntimeConfigResult>;
+  updateRuntimeFields(
+    provider: RuntimeCredentialProvider,
+    values: Record<string, string | boolean | null>,
+  ): Promise<RuntimeConfigResult>;
+  putRuntimeMcp(
+    provider: RuntimeCredentialProvider,
+    name: string,
+    server: RuntimeMcpServerInput,
+    previousName?: string,
+  ): Promise<RuntimeConfigResult>;
+  deleteRuntimeMcp(provider: RuntimeCredentialProvider, name: string): Promise<RuntimeConfigResult>;
+  toggleRuntimeMcp(
+    provider: RuntimeCredentialProvider,
+    name: string,
+    enabled: boolean,
+  ): Promise<RuntimeConfigResult>;
+  /** 整份原文（原始配置里有密钥，确认后才调） */
+  readRuntimeFile(
+    provider: RuntimeCredentialProvider,
+    file: string,
+  ): Promise<{ content: string; hash: string | null; exists: boolean }>;
+  writeRuntimeFile(
+    provider: RuntimeCredentialProvider,
+    file: string,
+    content: string,
+    baseHash: string | null,
+  ): Promise<RuntimeConfigResult & { hash: string | null }>;
 };
 
 export type RuntimeCredentialsWithAgents = RuntimeCredentials & {
   agents: Array<{ id: string; name: string; status: LocalAgent["status"] }>;
+};
+
+export type RuntimeConfigResult = {
+  config: RuntimeConfig;
+  agents: RuntimeCredentialsWithAgents["agents"];
 };
 
 export type AgentCliWithAgents = AgentCliInfo & {
@@ -623,6 +659,75 @@ export function useLocalAgents(
     },
     [request],
   );
+  const configRequest = useCallback(
+    async (path: string, init: RequestInit = {}) => {
+      const response = await request(`/api/local/runtime-config/${path}`, init);
+      return localizeServerPayload((await response.json()) as RuntimeConfigResult);
+    },
+    [request],
+  );
+  const runtimeConfig = useCallback(
+    (provider: RuntimeCredentialProvider) => configRequest(provider),
+    [configRequest],
+  );
+  const updateRuntimeFields = useCallback(
+    (provider: RuntimeCredentialProvider, values: Record<string, string | boolean | null>) =>
+      configRequest(`${provider}/fields`, { method: "PUT", body: JSON.stringify({ values }) }),
+    [configRequest],
+  );
+  const putRuntimeMcp = useCallback(
+    (
+      provider: RuntimeCredentialProvider,
+      name: string,
+      server: RuntimeMcpServerInput,
+      previousName?: string,
+    ) =>
+      configRequest(`${provider}/mcp`, {
+        method: "PUT",
+        body: JSON.stringify({ name, server, ...(previousName ? { previousName } : {}) }),
+      }),
+    [configRequest],
+  );
+  const deleteRuntimeMcp = useCallback(
+    (provider: RuntimeCredentialProvider, name: string) =>
+      configRequest(`${provider}/mcp/${encodeURIComponent(name)}`, { method: "DELETE" }),
+    [configRequest],
+  );
+  const toggleRuntimeMcp = useCallback(
+    (provider: RuntimeCredentialProvider, name: string, enabled: boolean) =>
+      configRequest(`${provider}/mcp/${encodeURIComponent(name)}/toggle`, {
+        method: "POST",
+        body: JSON.stringify({ enabled }),
+      }),
+    [configRequest],
+  );
+  const readRuntimeFile = useCallback(
+    async (provider: RuntimeCredentialProvider, file: string) => {
+      const response = await request(
+        `/api/local/runtime-config/${provider}/files/${encodeURIComponent(file)}/read`,
+        { method: "POST", cache: "no-store" },
+      );
+      return (await response.json()) as { content: string; hash: string | null; exists: boolean };
+    },
+    [request],
+  );
+  const writeRuntimeFile = useCallback(
+    async (
+      provider: RuntimeCredentialProvider,
+      file: string,
+      content: string,
+      baseHash: string | null,
+    ) => {
+      const response = await request(
+        `/api/local/runtime-config/${provider}/files/${encodeURIComponent(file)}`,
+        { method: "PUT", body: JSON.stringify({ content, baseHash }) },
+      );
+      return localizeServerPayload(
+        (await response.json()) as RuntimeConfigResult & { hash: string | null },
+      );
+    },
+    [request],
+  );
   const revokeAllOwnerDevices = useCallback(async () => {
     const response = await request("/api/local/owner-devices/revoke-all", { method: "POST" });
     return ((await response.json()) as { revoked: number }).revoked;
@@ -729,6 +834,13 @@ export function useLocalAgents(
     runtimeCredentials,
     revealRuntimeCredential,
     updateRuntimeCredentials,
+    runtimeConfig,
+    updateRuntimeFields,
+    putRuntimeMcp,
+    deleteRuntimeMcp,
+    toggleRuntimeMcp,
+    readRuntimeFile,
+    writeRuntimeFile,
     providers,
     agents,
     create,

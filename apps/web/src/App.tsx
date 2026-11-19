@@ -346,7 +346,7 @@ const settingsTabs: Array<{ id: SettingsTab; label: string; description: string 
     { id: "notifications", label: t("通知"), description: t("提及、声音与状态") },
     { id: "appearance", label: t("外观"), description: t("语言、主题、密度与字号") },
     { id: "computer", label: t("这台电脑"), description: t("熄屏后保持在线") },
-    { id: "runtimes", label: t("Agent 运行时"), description: t("接口地址与密钥、CLI 升级") },
+    { id: "runtimes", label: t("Agent 运行时"), description: t("CLI 升级与配置") },
   ],
 );
 

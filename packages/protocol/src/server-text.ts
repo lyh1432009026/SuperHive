@@ -873,6 +873,30 @@ export const serverTexts = {
     zh: "{file} 用了 JSON5 写法（如不带引号的键），为免改坏不在网页上改，请手动修改",
     en: "{file} uses JSON5 syntax (such as unquoted keys); change it by hand so nothing breaks",
   },
+  "error.runtimeConfig.invalid": {
+    zh: "配置值不合法：{reason}",
+    en: "Invalid config value: {reason}",
+  },
+  "error.runtimeConfig.changed": {
+    zh: "{file} 在你打开之后被改过了，为免覆盖没有保存；请重新打开再改。",
+    en: "{file} changed after you opened it, so nothing was saved to avoid overwriting it. Reopen it and try again.",
+  },
+  "runtimeConfig.note.terminalOnly": {
+    zh: "Hive 里的 Agent 按接入时选的权限档位自己设置这一项，这里只影响终端里直接运行的 CLI",
+    en: "Hive agents set this from the access level chosen when they joined; this only affects the CLI run directly in a terminal",
+  },
+  "runtimeConfig.note.mcpUnsupported": {
+    zh: "{name} 还不支持在配置文件里管理 MCP",
+    en: "{name} doesn't support managing MCP servers in its config file yet",
+  },
+  "runtimeConfig.note.noToggle": {
+    zh: "这个 CLI 的全局配置没有单独停用的开关，不用了就删掉",
+    en: "This CLI's global config has no switch to disable a single server; delete it instead",
+  },
+  "runtimeConfig.note.ompOwned": {
+    zh: "omp 自己管理 config.yml（带锁文件），请在 omp 里用 /model 切换",
+    en: "omp manages config.yml itself (with a lock file); switch models with /model inside omp",
+  },
   "error.localAgent.configChanged": {
     zh: "Agent 的配置在批准后变了，已停下没有启动，请重新申请批准。",
     en: "The agent's configuration changed after approval, so it was stopped instead of started. Request approval again.",

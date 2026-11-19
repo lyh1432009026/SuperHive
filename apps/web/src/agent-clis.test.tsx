@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentCliJob } from "@superhive/protocol";
 import { AgentClisGroup, JOB_POLL_MS } from "./agent-clis";
@@ -84,8 +84,24 @@ function api(tools: AgentCliWithAgents[] = [codex(), claude()]) {
     ),
     agentCliJob: vi.fn(async () => job()),
     act: vi.fn(async () => undefined),
+    // 配置面板用的接口：这些用例不打开面板
+    runtimeCredentials: vi.fn(async () => []),
+    ...unusedConfigApi,
   };
 }
+
+const unused = () => vi.fn(() => Promise.reject(new Error("unused")));
+const unusedConfigApi = {
+  runtimeConfig: unused(),
+  updateRuntimeFields: unused(),
+  putRuntimeMcp: unused(),
+  deleteRuntimeMcp: unused(),
+  toggleRuntimeMcp: unused(),
+  readRuntimeFile: unused(),
+  writeRuntimeFile: unused(),
+  revealRuntimeCredential: unused(),
+  updateRuntimeCredentials: unused(),
+};
 
 describe("AgentClisGroup", () => {
   it("shows versions, source, and what can't be updated", async () => {
@@ -119,11 +135,16 @@ describe("AgentClisGroup", () => {
     // 认不出来源：只给原因，没有升级按钮
     const copilot = screen.getByRole("region", { name: "GitHub Copilot CLI" });
     expect(copilot.textContent).toContain("请用原来的安装方式升级");
-    expect(copilot.querySelector("button")).toBeNull();
+    // 装了的都有「配置」，但没有升级按钮
+    const buttons = (region: HTMLElement) =>
+      [...region.querySelectorAll("button")].map((button) => button.textContent);
+    expect(buttons(copilot)).toEqual(["配置"]);
     // Node 不满足：不给升级
     const openclaw = screen.getByRole("region", { name: "OpenClaw" });
     expect(openclaw.textContent).toContain("新版需要 Node >=24.16.0");
-    expect(openclaw.querySelector("button")).toBeNull();
+    expect(buttons(openclaw)).toEqual(["配置"]);
+    // 没装、也没有配置文件：没有「配置」
+    expect(buttons(screen.getByRole("region", { name: "Claude Code" }))).not.toContain("配置");
     expect(client.agentClis).toHaveBeenCalledWith(false);
 
     fireEvent.click(screen.getByRole("button", { name: "重新检测" }));
@@ -425,5 +446,32 @@ describe("AgentClisGroup", () => {
     expect(alert.textContent).toContain("没有真的升级");
     expect(screen.queryByText(/已升级到/)).toBeNull();
     expect(screen.queryByRole("button", { name: /重启这/ })).toBeNull();
+  });
+});
+
+describe("AgentClisGroup config button", () => {
+  it("opens the CLI's config panel from its card, also for a missing CLI that has a config file", async () => {
+    const client = api();
+    client.runtimeCredentials.mockResolvedValue([
+      { provider: "claude", configured: true } as never,
+    ]);
+    client.runtimeConfig.mockRejectedValue(new Error("读不到配置"));
+    render(<AgentClisGroup api={client} />);
+    const claudeCard = await screen.findByRole("region", { name: "Claude Code" });
+    const open = await within(claudeCard).findByRole("button", { name: "配置" });
+    fireEvent.click(open);
+    expect(client.runtimeConfig).toHaveBeenCalledWith("claude");
+    expect(await within(claudeCard).findByText("读不到配置")).toBeTruthy();
+    fireEvent.click(within(claudeCard).getByRole("button", { name: "收起配置" }));
+    expect(within(claudeCard).queryByText("读不到配置")).toBeNull();
+  });
+
+  it("opens the config panel directly when jumped to from the connect dialog", async () => {
+    const client = api();
+    client.runtimeConfig.mockRejectedValue(new Error("读不到配置"));
+    render(<AgentClisGroup api={client} focusTool="codex" />);
+    const codexCard = await screen.findByRole("region", { name: "Codex" });
+    expect(await within(codexCard).findByRole("button", { name: "收起配置" })).toBeTruthy();
+    expect(client.runtimeConfig).toHaveBeenCalledWith("codex");
   });
 });

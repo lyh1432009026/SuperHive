@@ -1441,6 +1441,105 @@ export type RuntimeCredentials = z.infer<typeof runtimeCredentialsSchema>;
 export type RuntimeCredentialEffect = z.infer<typeof runtimeCredentialEffectSchema>;
 export type UpdateRuntimeCredentialsRequest = z.infer<typeof updateRuntimeCredentialsRequestSchema>;
 
+/**
+ * Agent CLI 的配置面板（只限本机房主）：在接入地址与密钥之外，补上模型等附加项、常用行为设置、
+ * 全局 MCP 服务器、全局提示词文件和原始配置文件。读写的都是 CLI 自己的全局配置。
+ */
+export const runtimeConfigFieldSchema = z.object({
+  id: z.string(),
+  group: z.enum(["access", "behavior"]),
+  /** text：自由文本；select：只能选 options 之一；boolean：开关 */
+  kind: z.enum(["text", "select", "boolean"]),
+  options: z.array(z.string()).optional(),
+  /** 当前值；没设置时为 null（CLI 用自己的默认） */
+  value: z.union([z.string(), z.boolean()]).nullable(),
+  editable: z.boolean(),
+  /** 值写在哪里 */
+  location: z.string(),
+  note: z.string().optional(),
+  noteText: serverTextSchema.optional(),
+  shadowedBy: z.string().optional(),
+});
+export const runtimeMcpServerSchema = z.object({
+  name: z.string(),
+  transport: z.enum(["stdio", "http", "sse"]),
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  url: z.string().optional(),
+  /** 只给变量名，不给值（值里常有密钥） */
+  envKeys: z.array(z.string()),
+  enabled: z.boolean(),
+});
+export const runtimeConfigFileSchema = z.object({
+  id: z.string(),
+  path: z.string(),
+  format: z.enum(["json", "jsonc", "toml", "yaml", "markdown"]),
+  exists: z.boolean(),
+});
+export const runtimeConfigSchema = z.object({
+  provider: runtimeCredentialProviderSchema,
+  credentials: runtimeCredentialsSchema,
+  fields: z.array(runtimeConfigFieldSchema),
+  mcp: z.object({
+    /** 不支持时 note 说明原因 */
+    supported: z.boolean(),
+    file: z.string(),
+    /** 能不能单独停用某个 MCP（Claude Code 的全局配置没有停用开关） */
+    canToggle: z.boolean(),
+    servers: z.array(runtimeMcpServerSchema),
+    note: z.string().optional(),
+    noteText: serverTextSchema.optional(),
+  }),
+  /** 全局提示词文件（CLAUDE.md、AGENTS.md…）；不支持时为 null */
+  prompt: runtimeConfigFileSchema.nullable(),
+  /** 可以查看、编辑原文的配置文件 */
+  rawFiles: z.array(runtimeConfigFileSchema),
+});
+const mcpNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z0-9_.-]+$/);
+export const runtimeMcpServerInputSchema = z
+  .object({
+    transport: z.enum(["stdio", "http", "sse"]),
+    command: z.string().trim().min(1).max(4096).optional(),
+    args: z.array(z.string().max(4096)).max(100).optional(),
+    url: z
+      .string()
+      .trim()
+      .max(2048)
+      .regex(/^https?:\/\/\S+$/)
+      .optional(),
+    /** null 表示保留原来的值（列表里只给了变量名） */
+    env: z
+      .record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.string().max(8192).nullable())
+      .optional(),
+    enabled: z.boolean().optional(),
+  })
+  .refine((value) => (value.transport === "stdio" ? Boolean(value.command) : Boolean(value.url)));
+export const putRuntimeMcpServerRequestSchema = z.object({
+  name: mcpNameSchema,
+  /** 改名时原来的名字 */
+  previousName: mcpNameSchema.optional(),
+  server: runtimeMcpServerInputSchema,
+});
+export const updateRuntimeConfigFieldsRequestSchema = z.object({
+  /** null 表示删掉这一项、回到 CLI 默认 */
+  values: z.record(z.string(), z.union([z.string().max(4096), z.boolean()]).nullable()),
+});
+export const updateRuntimeConfigFileRequestSchema = z.object({
+  content: z.string().max(2 * 1024 * 1024),
+  /** 打开时那份内容的哈希：期间被别人改过就拒绝，免得覆盖 */
+  baseHash: z.string().nullable(),
+});
+export type RuntimeConfigField = z.infer<typeof runtimeConfigFieldSchema>;
+export type RuntimeMcpServer = z.infer<typeof runtimeMcpServerSchema>;
+export type RuntimeMcpServerInput = z.infer<typeof runtimeMcpServerInputSchema>;
+export type RuntimeConfigFile = z.infer<typeof runtimeConfigFileSchema>;
+export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
+
 export const keepAwakeSettingsSchema = z.object({
   whenIm: z.boolean(),
   whenTasks: z.boolean(),

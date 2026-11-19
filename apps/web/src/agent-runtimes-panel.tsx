@@ -3,7 +3,6 @@ import type { AgentCliTool } from "@superhive/protocol";
 import { t } from "./i18n";
 import type { LocalAgentsState } from "./local-agents";
 import { AgentClisGroup } from "./agent-clis";
-import { RuntimeCredentialsGroup } from "./runtime-credentials";
 
 /**
  * 设置里的「Agent 运行时」：管理这台电脑上各 Agent CLI 的设置，只给本机房主（调用方按 local.mode 判断）。
@@ -17,7 +16,6 @@ type RuntimeBlock = {
 };
 
 const blocks: RuntimeBlock[] = [
-  { id: "credentials", render: (local) => <RuntimeCredentialsGroup api={local} /> },
   {
     id: "clis",
     render: (local, focusTool) => <AgentClisGroup api={local} focusTool={focusTool} />,
