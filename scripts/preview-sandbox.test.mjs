@@ -144,7 +144,7 @@ test("沙箱数据目录不能就是原数据目录", () => {
   }
 });
 
-test("截图参数：多主题加后缀、预置动作、首次引导跳过", () => {
+test("截图参数：多主题加后缀、预置动作、首次引导跳过", async () => {
   const options = parseOptions([
     "--url",
     "http://127.0.0.1:4000/#build",
@@ -167,6 +167,13 @@ test("截图参数：多主题加后缀、预置动作、首次引导跳过", ()
   assert.match(actionScript("settings:appearance"), /settings-panel-appearance/);
   assert.match(actionScript("side:whiteboard"), /#side-tab-whiteboard/);
   assert.match(actionScript("click:a:hover"), /"a:hover"/);
+  // wait-for 只等元素出现，不把元素当结果按值回传（DOM 元素回传会报错）
+  const element = { tagName: "DIV" };
+  element.self = element;
+  const waited = await new Function("window", `return ${actionScript("wait-for:.x")}`)({
+    __shot: { find: async () => element },
+  });
+  assert.equal(waited, undefined);
   assert.throws(() => parseOptions(["--action", "fly"]), /不认识的动作/);
   assert.throws(() => parseOptions(["--theme", "blue"]), /light \/ dark/);
   assert.throws(() => parseOptions(["--compare", "one.png"]), /至少要两张图/);

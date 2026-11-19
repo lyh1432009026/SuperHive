@@ -4,7 +4,8 @@ import type { SlowOperation, SlowOperationsResponse } from "@superhive/protocol"
 
 /**
  * 慢操作记录：锁、git 子进程、重查询、HTTP 请求超过阈值时写一条结构化日志，并在内存里留最近 N 条，
- * 供「这台电脑」设置页查看（#3944：锁被占 110 秒，当时只能靠读代码推断）。
+ * 供本机房主页面查看（#3944：锁被占 110 秒，当时只能靠读代码推断）。新记的一条经 subscribe()
+ * 实时推给本机房主的页面；特别慢的（默认合计 15 秒或等锁 10 秒）标上 alert，页面据此弹一次提示。
  *
  * 只记操作名、耗时、仓库/房间和调用来源；git 只记子命令，HTTP 只记路由模板，不记参数、查询串和内容。
  * 调用来源经 AsyncLocalStorage 传下去：HTTP 请求、MCP 工具和 track() 包住的操作会成为里面
@@ -20,12 +21,18 @@ export type SlowOpsSettings = {
   requestThresholdMs: number;
   /** 内存里最多保留几条 */
   capacity: number;
+  /** 合计耗时到这个值就标 alert（毫秒） */
+  alertMs: number;
+  /** 等锁到这个值就标 alert（毫秒） */
+  lockWaitAlertMs: number;
 };
 
 export const DEFAULT_SLOW_OPS: SlowOpsSettings = {
   thresholdMs: 3_000,
   requestThresholdMs: 5_000,
   capacity: 200,
+  alertMs: 15_000,
+  lockWaitAlertMs: 10_000,
 };
 
 type Context = { source: string; roomId?: string | undefined };
@@ -37,12 +44,17 @@ function positive(value: string | undefined): number | undefined {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-/** 从环境变量读阈值：HIVE_SLOW_OP_MS、HIVE_SLOW_REQUEST_MS、HIVE_SLOW_OP_HISTORY */
+/**
+ * 从环境变量读阈值：HIVE_SLOW_OP_MS、HIVE_SLOW_REQUEST_MS、HIVE_SLOW_OP_HISTORY，
+ * 提醒阈值 HIVE_SLOW_ALERT_MS、HIVE_SLOW_LOCK_ALERT_MS
+ */
 export function slowOpsSettingsFromEnv(env: NodeJS.ProcessEnv = process.env): SlowOpsSettings {
   return {
     thresholdMs: positive(env.HIVE_SLOW_OP_MS) ?? DEFAULT_SLOW_OPS.thresholdMs,
     requestThresholdMs: positive(env.HIVE_SLOW_REQUEST_MS) ?? DEFAULT_SLOW_OPS.requestThresholdMs,
     capacity: positive(env.HIVE_SLOW_OP_HISTORY) ?? DEFAULT_SLOW_OPS.capacity,
+    alertMs: positive(env.HIVE_SLOW_ALERT_MS) ?? DEFAULT_SLOW_OPS.alertMs,
+    lockWaitAlertMs: positive(env.HIVE_SLOW_LOCK_ALERT_MS) ?? DEFAULT_SLOW_OPS.lockWaitAlertMs,
   };
 }
 
@@ -51,6 +63,7 @@ export class SlowOps {
   private logger: Logger | undefined;
   private entries: SlowOperation[] = [];
   private readonly context = new AsyncLocalStorage<Context>();
+  private readonly listeners = new Set<(operation: SlowOperation) => void>();
 
   configure(settings: Partial<SlowOpsSettings>, logger?: Logger): void {
     this.settings = { ...this.settings, ...settings };
@@ -66,6 +79,12 @@ export class SlowOps {
   /** 在给定的调用来源下执行：里面的锁、git 调用都记成这个来源 */
   within<Result>(context: Context, operation: () => Result): Result {
     return this.context.run(context, operation);
+  }
+
+  /** 每记一条就通知一次；返回取消订阅 */
+  subscribe(listener: (operation: SlowOperation) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   /** 超过阈值就记一条；返回是否记了 */
@@ -85,10 +104,20 @@ export class SlowOps {
         ? { source: context.source }
         : {}),
       ...(entry.roomId === undefined && context?.roomId ? { roomId: context.roomId } : {}),
+      ...(total >= this.settings.alertMs || (entry.waitMs ?? 0) >= this.settings.lockWaitAlertMs
+        ? { alert: true }
+        : {}),
     };
     this.entries.push(item);
     if (this.entries.length > this.settings.capacity) this.entries.shift();
     this.logger?.warn({ slowOp: item }, "slow operation");
+    for (const listener of this.listeners) {
+      try {
+        listener(item);
+      } catch {
+        // 推送失败不影响记录，也不影响被计时的操作本身
+      }
+    }
     return true;
   }
 

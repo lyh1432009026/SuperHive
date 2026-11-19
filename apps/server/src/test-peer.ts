@@ -8,8 +8,8 @@ export class Peer {
   private readonly listeners = new Set<() => void>();
   closed = false;
 
-  private constructor(url: string) {
-    this.socket = new WebSocket(url);
+  private constructor(url: string, headers?: Record<string, string>) {
+    this.socket = new WebSocket(url, headers ? { headers } : undefined);
     this.socket.on("message", (raw) => {
       this.events.push(JSON.parse(raw.toString()) as ServerEvent);
       for (const listener of this.listeners) listener();
@@ -20,8 +20,9 @@ export class Peer {
     });
   }
 
-  static async connect(url: string): Promise<Peer> {
-    const peer = new Peer(url);
+  /** headers：握手请求头，例如模拟经过代理的连接 */
+  static async connect(url: string, headers?: Record<string, string>): Promise<Peer> {
+    const peer = new Peer(url, headers);
     await new Promise<void>((resolve, reject) => {
       peer.socket.once("open", resolve);
       peer.socket.once("error", reject);

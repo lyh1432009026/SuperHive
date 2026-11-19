@@ -76,7 +76,8 @@ export function actionScript(action) {
       return click(arg);
     case "wait-for":
       if (!arg) throw new Error("wait-for 要带 CSS 选择器");
-      return `window.__shot.find(${JSON.stringify(arg)})`;
+      // 只等，不把元素当返回值：按值回传 DOM 元素会报「Object reference chain is too long」
+      return `window.__shot.find(${JSON.stringify(arg)}).then(() => undefined)`;
     case "wait": {
       const ms = Number.parseInt(arg, 10);
       if (!(ms >= 0)) throw new Error(`wait 要带毫秒数：${action}`);

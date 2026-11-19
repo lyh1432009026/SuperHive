@@ -119,6 +119,8 @@ type Connection = {
   participant?: Participant;
   principal?: Principal;
   lastHeartbeat: number;
+  /** 连接来自 Server 所在的这台电脑（握手时按 isLocal 判断） */
+  local: boolean;
 };
 
 export type ConfiguredUrl = string | (() => string);
@@ -933,6 +935,28 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
    */
   const traces = new Map<string, { roomId: string; steps: Map<string, TraceStep> }>();
   const TRACE_LIVE_STATUSES: readonly Invocation["status"][] = ["running", "cancelling"];
+
+  /**
+   * 这台电脑上的房主页面：用总令牌（不是登录设备、不是访客）、从本机连进来的人。
+   * 慢操作带着仓库路径和调用来源，只给他们看。不要求本机凭证（x-hive-owner）：它随本机 Agent
+   * 管理一起关掉（沙箱里就没有），而能用总令牌从本机连进来的，本来就能读这台电脑上的数据库。
+   */
+  function isLocalOwner(connection: Connection): boolean {
+    return (
+      connection.local &&
+      connection.participant?.type === "human" &&
+      connection.principal?.kind === "admin" &&
+      connection.principal.deviceId === undefined
+    );
+  }
+
+  const stopSlowOpsPush = slowOps.subscribe((operation) => {
+    for (const connection of connections) {
+      if (isLocalOwner(connection))
+        send(connection.socket, { type: "slow-op.recorded", operation });
+    }
+  });
+  app.addHook("onClose", async () => stopSlowOpsPush());
 
   /** 这个连接能不能看执行过程：房主可以；访客看邀请时的开关，期限、撤销按当前状态重新核对 */
   function canSeeTrace(connection: Connection, roomId: string): boolean {
@@ -5121,8 +5145,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     });
   }
 
-  app.get("/ws", { websocket: true }, (socket) => {
-    const connection: Connection = { socket, lastHeartbeat: Date.now() };
+  app.get("/ws", { websocket: true }, (socket, request) => {
+    const connection: Connection = {
+      socket,
+      lastHeartbeat: Date.now(),
+      local: isLocal(request).local,
+    };
     connections.add(connection);
 
     socket.on("message", (raw) => {
@@ -5277,6 +5305,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
               .map((item) => item.questionId),
             features: ["trace", "approval", "session"],
           });
+          // 这台电脑上的房主：先给慢操作全集，补上断开期间漏掉的推送；沙箱里也一样
+          if (isLocalOwner(connection))
+            send(socket, { type: "slow-op.snapshot", ...slowOps.list() });
           // 房主（或允许看过程的访客）刚打开或重连：把正在执行的调用的过程补上
           if (canSeeTrace(connection, event.roomId)) {
             for (const [invocationId, trace] of traces) {

@@ -15,7 +15,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { WorktreePanel } from "./worktree-panel";
-import { SlowOpsGroup } from "./slow-ops";
+import { SlowOpsIndicator, SlowOpsSettingsEntry, useSlowOps } from "./slow-ops";
 import { WorkspaceGlyph, WorkspacePanel, workspaceApi } from "./workspace-panel";
 import { isTaskDirectoryEntry, sortParticipantsByLastSeen } from "@superhive/protocol";
 import type {
@@ -1552,6 +1552,7 @@ export function App({
   const [onlineInvocationIds, setOnlineInvocationIds] = useState<ReadonlySet<string>>(new Set());
   const activityTriggerRef = useRef<HTMLElement | null>(null);
   const attentionRef = useRef<ReturnType<typeof useAttention> | undefined>(undefined);
+  const slowOpsRef = useRef<ReturnType<typeof useSlowOps> | undefined>(undefined);
   const globalEventsRef = useRef<{
     onInvocation: (invocation: Invocation) => void;
     onRoomActivity: () => void;
@@ -1749,6 +1750,9 @@ export function App({
   }
   // Hive Server 就在这台电脑上时，可以直接在网页上拉起 Agent
   const local = useLocalAgents(base, agentDialogOpen, authToken);
+  // 最近慢操作：服务端只给这台电脑上的房主页面发（连上时 slow-op.snapshot，之后逐条 slow-op.recorded）
+  const slowOpsState = useSlowOps();
+  slowOpsRef.current = slowOpsState;
   // 「Agent 运行时」只给页面开在 Server 所在电脑上的本机房主
   const visibleSettingsTabs = settingsTabs.filter(
     (tab) => tab.id !== "runtimes" || local.mode === "local",
@@ -2801,6 +2805,10 @@ export function App({
               );
             }
           }
+        } else if (event.type === "slow-op.snapshot") {
+          slowOpsRef.current?.receiveSnapshot(event);
+        } else if (event.type === "slow-op.recorded") {
+          slowOpsRef.current?.receive(event.operation);
         } else if (event.type === "worktree.cleanup") {
           worktreeNoticeVersion.current++;
           setWorktreeNotices((current) => {
@@ -4863,6 +4871,7 @@ export function App({
               </span>
             </div>
             <div className="chat-header-actions">
+              <SlowOpsIndicator state={slowOpsState} />
               <button
                 type="button"
                 className="header-button new-topic"
@@ -7417,7 +7426,16 @@ export function App({
                     <HostManageNotice local={local} />
                     <KeepAwakeSettingsGroup local={local} />
                     <OwnerDevicesGroup local={local} />
-                    {local.mode === "local" && <SlowOpsGroup local={local} />}
+                    {slowOpsState.enabled && (
+                      <SlowOpsSettingsEntry
+                        state={slowOpsState}
+                        onOpen={() => {
+                          closeSettings();
+                          // 等设置弹窗收起、焦点归位后再打开，焦点落进慢操作弹层
+                          window.requestAnimationFrame(() => slowOpsState.setOpen(true));
+                        }}
+                      />
+                    )}
                   </section>
                 )}
                 {settingsTab === "runtimes" && local.mode === "local" && (

@@ -15,7 +15,9 @@ import {
   slowOps,
   slowOpsSettingsFromEnv,
 } from "./slow-ops.js";
+import { Peer } from "./test-peer.js";
 import { WorktreeManager, worktreeGit } from "./worktrees.js";
+import type { AddressInfo } from "node:net";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -53,6 +55,27 @@ describe("slow operation recorder", () => {
     expect(operations[1]).toMatchObject({ waitMs: 80, durationMs: 30 });
     expect(warnings).toHaveLength(3);
     expect(warnings[0]).toMatchObject({ slowOp: { name: "git status", durationMs: 100 } });
+  });
+
+  it("flags very slow operations and long lock waits as alerts and notifies subscribers", () => {
+    const recorder = new SlowOps();
+    recorder.configure({ thresholdMs: 100, alertMs: 1_000, lockWaitAlertMs: 500 });
+    const pushed: string[] = [];
+    const stop = recorder.subscribe((item) => pushed.push(`${item.name}:${item.alert ?? false}`));
+    recorder.record({ kind: "git", name: "git status", durationMs: 50 });
+    recorder.record({ kind: "git", name: "git fetch", durationMs: 999 });
+    recorder.record({ kind: "git", name: "git push", durationMs: 1_000 });
+    // 等锁单独看：合计没到 1 秒，但等了 600 毫秒
+    recorder.record({ kind: "lock", name: "worktrees.lock create", waitMs: 600, durationMs: 10 });
+    stop();
+    recorder.record({ kind: "git", name: "git gc", durationMs: 2_000 });
+    expect(pushed).toEqual(["git fetch:false", "git push:true", "worktrees.lock create:true"]);
+    expect(recorder.list()).toMatchObject({ alertMs: 1_000, lockWaitAlertMs: 500 });
+    // 订阅方出错不影响记录
+    recorder.subscribe(() => {
+      throw new Error("socket gone");
+    });
+    expect(recorder.record({ kind: "git", name: "git gc", durationMs: 2_000 })).toBe(true);
   });
 
   it("tags nested operations with the enclosing source and records failures", async () => {
@@ -96,8 +119,16 @@ describe("slow operation recorder", () => {
         HIVE_SLOW_OP_MS: "1500",
         HIVE_SLOW_REQUEST_MS: "8000",
         HIVE_SLOW_OP_HISTORY: "nope",
+        HIVE_SLOW_ALERT_MS: "4000",
+        HIVE_SLOW_LOCK_ALERT_MS: "2000",
       }),
-    ).toEqual({ ...DEFAULT_SLOW_OPS, thresholdMs: 1500, requestThresholdMs: 8000 });
+    ).toEqual({
+      ...DEFAULT_SLOW_OPS,
+      thresholdMs: 1500,
+      requestThresholdMs: 8000,
+      alertMs: 4000,
+      lockWaitAlertMs: 2000,
+    });
   });
 });
 
@@ -227,5 +258,95 @@ describe("slow operations in the server", () => {
     } finally {
       await app.close();
     }
+  });
+  it("pushes new slow operations over WebSocket to the local owner page only", async () => {
+    const app = await buildApp({
+      databasePath: ":memory:",
+      token: "test-token",
+      staticDir: "/definitely-not-present",
+      slowOps: { thresholdMs: 100 },
+    });
+    const peers: Peer[] = [];
+    try {
+      await app.listen({ host: "127.0.0.1", port: 0 });
+      const port = (app.server.address() as AddressInfo).port;
+      const base = `http://127.0.0.1:${port}`;
+      const join = async (
+        username: string,
+        participantType: "human" | "agent",
+        token = "test-token",
+        headers?: Record<string, string>,
+      ) => {
+        const peer = await Peer.connect(`ws://127.0.0.1:${port}/ws`, headers);
+        peers.push(peer);
+        peer.send({
+          type: "participant.join",
+          username,
+          participantType,
+          token,
+          roomId: "general",
+        });
+        await peer.next((event) => event.type === "room.snapshot");
+        return peer;
+      };
+      const json = { Authorization: "Bearer test-token", "Content-Type": "application/json" };
+      const invite = (await (
+        await fetch(`${base}/api/rooms/general/invites`, {
+          method: "POST",
+          headers: json,
+          body: JSON.stringify({ expiresInMinutes: 60, allowAgents: false }),
+        })
+      ).json()) as { token: string };
+      const guestToken = (
+        (await (
+          await fetch(`${base}/api/invites/redeem`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: invite.token, username: "Guest" }),
+          })
+        ).json()) as { token: string }
+      ).token;
+
+      slowOps.record({ kind: "git", name: "git fetch", durationMs: 200 });
+      const owner = await join("Alice", "human");
+      const agent = await join("helper", "agent");
+      const guest = await join("Guest", "human", guestToken);
+      // 经过代理连进来的不算本机：同机反向代理会让外部访问者看起来像本机
+      const proxied = await join("Bob", "human", "test-token", { "x-forwarded-for": "10.0.0.9" });
+      // 连上时先给一份全集（沙箱里没有本机 Agent 管理，也照样给）
+      expect(await owner.next((event) => event.type === "slow-op.snapshot")).toMatchObject({
+        operations: [{ name: "git fetch" }],
+        thresholdMs: 100,
+        alertMs: DEFAULT_SLOW_OPS.alertMs,
+      });
+
+      slowOps.record({ kind: "git", name: "git status", durationMs: 50 });
+      slowOps.record({
+        kind: "lock",
+        name: "worktrees.lock create",
+        waitMs: 12_000,
+        durationMs: 5,
+      });
+      const pushed = await owner.next((event) => event.type === "slow-op.recorded");
+      expect(pushed).toMatchObject({
+        type: "slow-op.recorded",
+        operation: { name: "worktrees.lock create", waitMs: 12_000, alert: true },
+      });
+      // 没到阈值的那条不推
+      expect(owner.events.some((event) => event.type === "slow-op.recorded")).toBe(false);
+      await sleep(100);
+      for (const peer of [agent, guest, proxied]) {
+        expect(peer.events.some((event) => event.type.startsWith("slow-op."))).toBe(false);
+      }
+    } finally {
+      for (const peer of peers) peer.socket.close();
+      await app.close();
+      slowOps.configure(DEFAULT_SLOW_OPS);
+      slowOps.clear();
+    }
+    // 关掉之后不再往已关的连接推
+    expect(() =>
+      slowOps.record({ kind: "git", name: "git push", durationMs: 60_000 }),
+    ).not.toThrow();
   });
 });

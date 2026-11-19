@@ -85,6 +85,7 @@ pnpm preview:sandbox --from-data ~/Coding/ai-hive/apps/server/data   # 真实数
 
 - 先构建本任务线的 protocol 和网页，再直接跑本任务线的 Server 源码，看到的就是这条分支的效果。已经构建过可以加 `--no-build`。
 - 只监听 `127.0.0.1`，自动挑一个空闲端口，就绪后打印 `SANDBOX_URL=http://127.0.0.1:<端口>`。也可以用 `--port` 指定端口；端口被占用时直接报错，不会去结束别人的进程。
+- 外面带进来的 `HIVE_*` 环境变量不会传给沙箱 Server，只有慢操作阈值 `HIVE_SLOW_*` 例外：例如 `HIVE_SLOW_REQUEST_MS=1 HIVE_SLOW_ALERT_MS=1 pnpm preview:sandbox` 能马上造出慢操作，看顶栏「性能」和提示的样子。
 - 数据放在临时目录里，退出（Ctrl+C）时删掉；加 `--keep` 可以保留。原数据目录只读打开（`VACUUM INTO` 快照），不会被改。
 - **复制时就剔除**：IM 连接、凭据和投递队列（`im_*`）、房主登录设备和配对票据（`owner_*`）、访客会话、邀请链接、join token、房主登录签名密钥、待执行的任务目录清理批次；本机 Agent 的自启和任务目录的自动清理都关掉。不拷 `im-secret.key`、`agent-logs`、`agent-settings`；附件默认一起拷，APFS 上是写时复制，加 `--no-attachments` 就不拷。剔除之后会 `VACUUM`，删掉的密钥不会留在文件的空闲页里。
 - **服务端还有一道硬开关**（`HIVE_SANDBOX=1` / `BuildAppOptions.sandbox`），不靠删数据来保证：
@@ -188,6 +189,11 @@ HIVE_AGENT_COMMAND     页面生成的 Agent 命令前缀
 HIVE_LOCAL_AGENTS      设为 0 关闭网页上的「在本机启动」
 HIVE_IM_WECHAT         设为 0 整体不加载个人微信通道
 HIVE_SANDBOX           设为 1 进入沙箱预览：不连 IM、不起本机 Agent、不跑定时任务、不建删任务目录（见「UI 验证」）
+HIVE_SLOW_OP_MS        锁、git、重查询超过多少毫秒记为慢操作，默认 3000
+HIVE_SLOW_REQUEST_MS   HTTP 请求和 MCP 工具超过多少毫秒记为慢操作，默认 5000
+HIVE_SLOW_OP_HISTORY   内存里保留最近多少条慢操作，默认 200
+HIVE_SLOW_ALERT_MS     慢操作合计超过多少毫秒时在本机房主页面弹提示，默认 15000
+HIVE_SLOW_LOCK_ALERT_MS  等锁超过多少毫秒时弹提示，默认 10000
 HIVE_ROOM_ATTACHMENT_QUOTA_MB     每个房间的附件总量，默认 1024
 HIVE_PENDING_ATTACHMENT_QUOTA_MB  每个上传者已上传未发出的附件总量，默认 200
 HIVE_NO_OPEN           设置后 hive start 不打开浏览器（BROWSER=none、CI 同样）

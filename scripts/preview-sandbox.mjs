@@ -93,10 +93,15 @@ async function build() {
   }
 }
 
-/** 子进程的环境：去掉外面带进来的 HIVE_*（比如 Agent 自己连 Hive 用的配置），只留沙箱要的 */
+/**
+ * 子进程的环境：去掉外面带进来的 HIVE_*（比如 Agent 自己连 Hive 用的配置），只留沙箱要的。
+ * 慢操作阈值（HIVE_SLOW_*）例外：调低了好在沙箱里造出慢操作看提醒的样子
+ */
 function sandboxEnv(dataDir, port) {
   const env = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith("HIVE_")),
+    Object.entries(process.env).filter(
+      ([key]) => !key.startsWith("HIVE_") || key.startsWith("HIVE_SLOW_"),
+    ),
   );
   return {
     ...env,
