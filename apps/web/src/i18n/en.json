@@ -1313,9 +1313,7 @@
   "默认": "default",
   "正在升级…": "Updating…",
   "升级失败：{0}": "Update failed: {0}",
-  "命令执行成功，但这一处的版本仍是 {0}，可能装到了别处。": "The command succeeded, but this installation is still {0}; the update may have gone somewhere else.",
   "已升级到 {0}。": "Updated to {0}.",
-  "升级命令执行成功。": "The update command succeeded.",
   "用 {0} 的 Agent 重启后才用上新版：{1}": "Agents using {0} pick up the new version after a restart: {1}",
   "这台电脑上还没有用 {0} 的 Agent。": "No agent on this computer uses {0} yet.",
   "官方安装器": "official installer",
@@ -1344,5 +1342,10 @@
   "在这台电脑上安装 {0}": "Install {0} on this computer",
   "安装失败：{0}": "Install failed: {0}",
   "已安装 {0} {1}。": "Installed {0} {1}.",
-  "安装命令执行成功，但登录终端的 PATH 里还找不到 {0}。把它的目录加进 PATH 后重新检测。": "The install command succeeded, but {0} still isn't on your login shell's PATH. Add its directory to PATH, then check again."
+  "安装命令执行成功，但登录终端的 PATH 里还找不到 {0}。把它的目录加进 PATH 后重新检测。": "The install command succeeded, but {0} still isn't on your login shell's PATH. Add its directory to PATH, then check again.",
+  "先用官方安装脚本安装，失败了再自动改用 npm。": "Tries the official install script first, then falls back to npm if it fails.",
+  "先用 {0} 自带的升级命令，失败了再自动改用下一种方式。": "Tries {0}'s own update command first, then falls back to the next step if it fails.",
+  "会先把官方安装脚本下载到临时文件，再运行它。": "Downloads the official install script to a temporary file, then runs it.",
+  "先试": "First",
+  "失败再用": "If that fails"
 }

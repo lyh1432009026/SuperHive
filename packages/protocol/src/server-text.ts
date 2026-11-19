@@ -1046,6 +1046,14 @@ export const serverTexts = {
     zh: "{tool} {latest} 需要 Node {required}，这台电脑用的是 Node {current}。先升级 Node 再来。",
     en: "{tool} {latest} requires Node {required}, but this computer uses Node {current}. Update Node first.",
   },
+  "error.agentCli.versionUnchanged": {
+    zh: "命令执行完了，但 {tool} 的版本还是 {version}，没有真的升级。可能是网络不通，或者装到了别处。",
+    en: "The command finished, but {tool} is still {version}, so it wasn't actually updated. The network may be down, or it was installed somewhere else.",
+  },
+  "error.agentCli.versionUnknown": {
+    zh: "命令执行完了，但检测不到 {tool} 的版本，不确定升级是否成功。",
+    en: "The command finished, but {tool}'s version couldn't be detected, so it's unclear whether the update worked.",
+  },
   "error.agentCli.alreadyInstalled": {
     zh: "{tool} 已经装好了，重新检测看看。",
     en: "{tool} is already installed. Check again.",
@@ -1057,10 +1065,6 @@ export const serverTexts = {
   "agentCli.manual.noNode": {
     zh: "这台电脑上找不到 Node.js 和 npm，先装好 Node.js",
     en: "Node.js and npm weren't found on this computer; install Node.js first",
-  },
-  "agentCli.manual.needBun": {
-    zh: "Oh My Pi 要用 bun 安装，这台电脑上没有 bun；按官方说明安装",
-    en: "Oh My Pi is installed with bun, which isn't on this computer; follow the official instructions",
   },
   "error.agentCli.timeout": {
     zh: "升级超过 {minutes} 分钟还没结束，已停止。",

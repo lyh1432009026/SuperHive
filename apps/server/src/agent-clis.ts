@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { accessSync, constants, readdirSync, realpathSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import {
   serverText,
@@ -75,12 +75,30 @@ export const TOOLS: Record<AgentCliTool, ToolSpec> = {
 
 export const AGENT_CLI_TOOLS = Object.keys(TOOLS) as AgentCliTool[];
 
-/** Codex 官方独立安装器；锚定升级时带上原来的安装目录重跑（`codex update` 断网时也报成功） */
-const CODEX_INSTALLER =
-  "bash -c 'tmp=$(mktemp) && curl -fsSL https://chatgpt.com/codex/install.sh -o $tmp && sh $tmp; status=$?; rm -f $tmp; exit $status'";
+/**
+ * 官方安装脚本（cc-switch 的 *_INSTALL_UNIX）：地址写死在这里，不拼任何外部输入。
+ * 一律先下载到临时文件再交给 shell 执行，不用 `curl | sh`：curl 失败时整条命令稳定失败，
+ * 不会把读到的空脚本当成成功。binDir 是脚本默认把命令放进的目录（相对家目录），装前提示 PATH 用。
+ */
+export const OFFICIAL_INSTALLERS = {
+  claude: { url: "https://claude.ai/install.sh", shell: "bash", binDir: ".local/bin" },
+  opencode: { url: "https://opencode.ai/install", shell: "bash", binDir: ".opencode/bin" },
+  omp: { url: "https://omp.sh/install", shell: "sh", binDir: ".local/bin" },
+  // 只用于升级独立安装版：它的 `codex update` 内部是 `curl | sh`，断网时也打印成功并 exit 0
+  codex: { url: "https://chatgpt.com/codex/install.sh", shell: "sh", binDir: ".local/bin" },
+} as const satisfies Partial<
+  Record<AgentCliTool, { url: string; shell: "bash" | "sh"; binDir: string }>
+>;
 
-/** omp 的官方安装说明（npm 包的 homepage）；它的 npm 包只有 bun 装得出能跑的版本 */
-export const OMP_HOMEPAGE = "https://omp.sh";
+export function installerCommand(tool: keyof typeof OFFICIAL_INSTALLERS): string {
+  const { url, shell } = OFFICIAL_INSTALLERS[tool];
+  // 比 cc-switch 多一步：下载到的必须是脚本（以 #! 开头）才执行。被墙、被重定向时这些地址可能返回
+  // 200 的 HTML 页面（本机实测 claude.ai/install.sh 就是），交给 bash 会把 <、> 当重定向乱建文件
+  return `bash -c 'tmp=$(mktemp) && curl -fsSL ${url} -o $tmp && head -c 2 $tmp | grep -q "#!" && ${shell} $tmp; status=$?; rm -f $tmp; exit $status'`;
+}
+
+/** 这些工具新装时先跑官方脚本：claude、opencode 失败再退回 npm，omp 只用官方脚本 */
+const SCRIPT_FIRST_INSTALL: ReadonlySet<AgentCliTool> = new Set(["claude", "opencode", "omp"]);
 
 const VERSION_RE = /\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/;
 const DETECT_CACHE_MS = 60_000;
@@ -407,7 +425,7 @@ export function planUpdate(
       const home = real.slice(0, index);
       return {
         kind: "anchored",
-        command: `CODEX_NON_INTERACTIVE=1 CODEX_INSTALL_DIR=${shellQuote(path.posix.dirname(bin))} CODEX_HOME=${shellQuote(home)} ${CODEX_INSTALLER}`,
+        command: `CODEX_NON_INTERACTIVE=1 CODEX_INSTALL_DIR=${shellQuote(path.posix.dirname(bin))} CODEX_HOME=${shellQuote(home)} ${installerCommand("codex")}`,
       };
     }
   }
@@ -437,10 +455,14 @@ export function planUpdate(
         ? `npm_config_allow_scripts=${spec.package} npm_config_ignore_scripts=false npm_config_include=optional `
         : "";
     const update = `${scripts}${official}`;
-    return {
-      kind: "anchored",
-      command: fallback && "command" in fallback ? `${update} || ${fallback.command}` : update,
-    };
+    // omp：自带的 update 失败就重跑官方脚本（cc-switch 的 `omp update || <installer>`）
+    const chained =
+      tool === "omp"
+        ? installerCommand("omp")
+        : fallback && "command" in fallback
+          ? fallback.command
+          : undefined;
+    return { kind: "anchored", command: chained ? `${update} || ${chained}` : update };
   }
   if (fallback && "command" in fallback) return { kind: "anchored", command: fallback.command };
   if (fallback && "missing" in fallback) {
@@ -454,38 +476,35 @@ export function planUpdate(
 export type InstallContext = {
   platform: NodeJS.Platform;
   isExecutable: (file: string) => boolean;
-  /** 登录 shell PATH 里的 npm / bun（绝对路径） */
+  /** 登录 shell PATH 里的 npm（绝对路径） */
   npm?: string | undefined;
-  bun?: string | undefined;
 };
 
 /**
- * 没装的工具怎么装（cc-switch 的 npm_install_command）：用登录 shell PATH 里实际的 npm（绝对路径）
- * `npm i -g <包>@latest`，npm 同目录有 node 时把这个目录放到 PATH 最前，用的就是这一处的 node。
- * omp 的 npm 包入口是 bun 脚本，只用 bun 装；没有 bun 不给命令，指向官方说明（官方安装脚本是远程
- * 下载执行的，不替人跑）。找不到 npm 时提示先装 Node.js。
+ * 没装的工具怎么装（cc-switch 的 posix_install_command_for）：
+ * - claude、opencode：先跑官方安装脚本，失败再用 `||` 退回 npm；没有 npm 就只跑脚本；
+ * - omp：只跑官方脚本（它有 bun 时用 bun 装，没有就下载校验预编译程序），不要求本机先有 bun；
+ * - codex、copilot、openclaw：npm。
+ * npm 用登录 shell PATH 里实际的那个（绝对路径），同目录有 node 时把这个目录放到 PATH 最前。
  */
 export function planInstall(tool: AgentCliTool, context: InstallContext): AgentCliUpdatePlan {
   if (context.platform === "win32") return manual(serverText("agentCli.manual.windows"));
   const spec = TOOLS[tool];
-  if (tool === "omp") {
-    if (!context.bun || !safePath(context.bun)) {
-      return manual(serverText("agentCli.manual.needBun"), OMP_HOMEPAGE);
-    }
-    return {
-      kind: "anchored",
-      command: `${shellQuote(context.bun)} add -g ${spec.package}@latest`,
-    };
+  let npm: string | undefined;
+  if (context.npm && safePath(context.npm)) {
+    const dir = path.posix.dirname(context.npm);
+    const pathPrefix = context.isExecutable(path.posix.join(dir, "node"))
+      ? `PATH=${shellQuote(dir)}:"$PATH" `
+      : "";
+    npm = `${pathPrefix}${shellQuote(context.npm)} i -g ${spec.package}@latest${spec.npmArgs ?? ""}`;
   }
-  if (!context.npm || !safePath(context.npm)) return manual(serverText("agentCli.manual.noNode"));
-  const dir = path.posix.dirname(context.npm);
-  const pathPrefix = context.isExecutable(path.posix.join(dir, "node"))
-    ? `PATH=${shellQuote(dir)}:"$PATH" `
-    : "";
-  return {
-    kind: "anchored",
-    command: `${pathPrefix}${shellQuote(context.npm)} i -g ${spec.package}@latest${spec.npmArgs ?? ""}`,
-  };
+  if (tool === "omp") return { kind: "anchored", command: installerCommand("omp") };
+  if (tool === "claude" || tool === "opencode") {
+    const script = installerCommand(tool);
+    return { kind: "anchored", command: npm ? `${script} || ${npm}` : script };
+  }
+  if (!npm) return manual(serverText("agentCli.manual.noNode"));
+  return { kind: "anchored", command: npm };
 }
 
 /** 多处安装是否算冲突：版本不同，或者有的能跑有的跑不起来；同版本装两份都能跑不打扰 */
@@ -624,6 +643,8 @@ function killGroup(pid: number | undefined, signal: NodeJS.Signals = "SIGTERM") 
 export const defaultSpawnUpgrade: SpawnUpgrade = (command, env) => {
   const child = spawn("/bin/sh", ["-c", command], {
     env,
+    // 在临时目录里跑：安装脚本出意外也不会在 Server 的工作目录里留下文件
+    cwd: tmpdir(),
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
   });
@@ -956,12 +977,16 @@ export class AgentCliManager {
     return undefined;
   }
 
-  /** 全局安装会把命令放进哪个目录：npm 用 `npm prefix -g`/bin，bun 用 $BUN_INSTALL/bin（默认 ~/.bun/bin） */
+  /**
+   * 全局安装会把命令放进哪个目录：先跑官方脚本的看脚本默认目录（omp 的 PI_INSTALL_DIR 可改），
+   * npm 用 `npm prefix -g`/bin
+   */
   private async globalBin(tool: AgentCliTool, context: InstallContext, loginPath: string) {
-    if (tool === "omp") {
-      return context.bun
-        ? path.join(this.env.BUN_INSTALL ?? path.join(this.home, ".bun"), "bin")
-        : undefined;
+    if (tool === "claude" || tool === "opencode" || tool === "omp") {
+      const custom = tool === "omp" ? this.env.PI_INSTALL_DIR : undefined;
+      return custom && path.isAbsolute(custom)
+        ? custom
+        : path.join(this.home, OFFICIAL_INSTALLERS[tool].binDir);
     }
     if (!context.npm) return undefined;
     const result = await this.runProbe(context.npm, ["prefix", "-g"], {
@@ -982,7 +1007,6 @@ export class AgentCliManager {
       platform: this.platform,
       isExecutable: this.isExecutable,
       npm: this.findOnPath("npm", loginPath),
-      bun: this.findOnPath("bun", loginPath),
     };
   }
 
@@ -996,9 +1020,9 @@ export class AgentCliManager {
     const plan = planInstall(tool, context);
     if (plan.kind !== "anchored") return { ...base, plan };
     const latest = await this.latest(tool, refresh);
-    // bun 装的 omp 不由 node 运行；npm 装的用 npm 同目录的 node，没有就用 PATH 里的
+    // 先跑官方脚本的装的是原生程序，不看 Node；npm 装的用 npm 同目录的 node，没有就用 PATH 里的
     const node =
-      tool === "omp" || !context.npm
+      SCRIPT_FIRST_INSTALL.has(tool) || !context.npm
         ? undefined
         : this.isExecutable(path.join(path.dirname(context.npm), "node"))
           ? path.join(path.dirname(context.npm), "node")
@@ -1192,26 +1216,52 @@ export class AgentCliManager {
       lastPush = this.now();
     };
     let child: UpgradeChild;
+    let settled = false;
+    const fail = (text: ServerText, tail: string) => {
+      job.state = "failed";
+      job.reason = zhText(text);
+      job.reasonText = text;
+      if (tail) job.error = tail;
+      if (this.running === job) this.running = undefined;
+    };
     const finish = (code: number | null, error?: Error | ServerText) => {
-      if (job.state !== "running") return;
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       if (flush) clearTimeout(flush);
       push();
       job.finishedAt = new Date(this.now()).toISOString();
       const tail = tailLines(output, ERROR_TAIL_LINES);
       if (code === 0 && !error) {
-        job.state = "succeeded";
-        if (this.running === job) this.running = undefined;
         this.detectCache = undefined;
-        // 重新探测这一处的版本；网页等到 versionAfter 出现再提示结果
-        void this.detectTool(job.tool, loginPath).then(
-          (detected) => {
-            job.versionAfter = (detected.primary ?? detected.installations[0])?.version ?? null;
-          },
-          () => {
-            job.versionAfter = null;
-          },
-        );
+        // 退出码 0 不算数：重新探测这一处的版本再定成败（自带升级命令断网、装到别处时也会 exit 0）。
+        // 核对完之前任务仍算进行中，锁也不放
+        void this.detectTool(job.tool, loginPath)
+          .then(
+            (detected) => (detected.primary ?? detected.installations[0])?.version ?? null,
+            () => null,
+          )
+          .then((after) => {
+            job.versionAfter = after;
+            const name = TOOLS[job.tool].name;
+            if (job.action === "upgrade" && after === null) {
+              fail(serverText("error.agentCli.versionUnknown", { tool: name }), tail);
+            } else if (
+              job.action === "upgrade" &&
+              after &&
+              job.versionBefore &&
+              (compareVersions(after, job.versionBefore) ??
+                (after === job.versionBefore ? 0 : 1)) <= 0
+            ) {
+              fail(
+                serverText("error.agentCli.versionUnchanged", { tool: name, version: after }),
+                tail,
+              );
+            } else {
+              job.state = "succeeded";
+              if (this.running === job) this.running = undefined;
+            }
+          });
         return;
       }
       const text: ServerText =
@@ -1220,11 +1270,7 @@ export class AgentCliManager {
           : error
             ? serverText("error.agentCli.spawnFailed", { reason: error.message })
             : serverText("error.agentCli.exitCode", { code: String(code) });
-      job.state = "failed";
-      job.reason = zhText(text);
-      job.reasonText = text;
-      if (tail) job.error = tail;
-      if (this.running === job) this.running = undefined;
+      fail(text, tail);
     };
     const timer = setTimeout(() => {
       child.kill();

@@ -326,7 +326,7 @@ describe("AgentClisGroup", () => {
     expect(client.agentClis).toHaveBeenCalledTimes(2);
   });
 
-  it("offers no install button without Node, and links omp's official instructions", async () => {
+  it("offers no install button without Node, and links official instructions when given", async () => {
     const client = api([
       claude({
         plan: { kind: "manual", reason: "这台电脑上找不到 Node.js 和 npm，先装好 Node.js" },
@@ -366,5 +366,64 @@ describe("AgentClisGroup", () => {
     const codexCard = screen.getByRole("region", { name: "Codex" });
     expect(codexCard.querySelector("button")?.textContent).toBe("安装");
     expect(codexCard.textContent).toContain("/opt/npm/bin，这个目录不在登录终端的 PATH 里");
+  });
+
+  it("splits a fallback chain into readable steps and explains it", async () => {
+    const script =
+      "bash -c 'tmp=$(mktemp) && curl -fsSL https://claude.ai/install.sh -o $tmp && bash $tmp; status=$?; rm -f $tmp; exit $status'";
+    const npm = "'/usr/local/bin/npm' i -g @anthropic-ai/claude-code@latest";
+    const omp =
+      "bash -c 'tmp=$(mktemp) && curl -fsSL https://omp.sh/install -o $tmp && sh $tmp; status=$?; rm -f $tmp; exit $status'";
+    const client = api([
+      claude({ plan: { kind: "anchored", command: `${script} || ${npm}` } }),
+      claude({ tool: "omp", name: "Oh My Pi", plan: { kind: "anchored", command: omp } }),
+      codex({ plan: { kind: "anchored", command: `'/a/opencode' upgrade || ${npm}` } }),
+    ]);
+    render(<AgentClisGroup api={client} />);
+    const claudeCard = await screen.findByRole("region", { name: "Claude Code" });
+    fireEvent.click(claudeCard.querySelector("button")!);
+    let dialog = screen.getByRole("dialog");
+    expect(dialog.textContent).toContain("先用官方安装脚本安装，失败了再自动改用 npm。");
+    const steps = dialog.querySelectorAll("ol li code");
+    expect(Array.from(steps).map((step) => step.textContent)).toEqual([script, npm]);
+    expect(dialog.textContent).toContain("先试");
+    expect(dialog.textContent).toContain("失败再用");
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+
+    fireEvent.click(screen.getByRole("region", { name: "Oh My Pi" }).querySelector("button")!);
+    dialog = screen.getByRole("dialog");
+    expect(dialog.textContent).toContain("会先把官方安装脚本下载到临时文件，再运行它。");
+    expect(dialog.querySelector("ol")).toBeNull();
+    expect(dialog.querySelector("code")?.textContent).toBe(omp);
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "升级到 0.170.0" }));
+    expect(screen.getByRole("dialog").textContent).toContain(
+      "先用 Codex 自带的升级命令，失败了再自动改用下一种方式。",
+    );
+  });
+
+  it("shows an unchanged version as a failure, not a success", async () => {
+    const client = api();
+    client.agentClis.mockImplementation(async () => ({ tools: [codex()], job: job() }));
+    client.agentCliJob.mockImplementation(async () =>
+      job({
+        state: "failed",
+        versionAfter: "0.160.0",
+        reason:
+          "命令执行完了，但 Codex 的版本还是 0.160.0，没有真的升级。可能是网络不通，或者装到了别处。",
+        error: "Update ran successfully",
+      }),
+    );
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    render(<AgentClisGroup api={client} />);
+    await screen.findByText("正在升级…", { selector: "span" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(JOB_POLL_MS);
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("没有真的升级");
+    expect(screen.queryByText(/已升级到/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /重启这/ })).toBeNull();
   });
 });

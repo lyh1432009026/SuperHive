@@ -327,8 +327,7 @@ function AgentCliCard({
           }
           message={
             <>
-              <span>{t("将在这台电脑上运行：")}</span>
-              <code className="agent-cli-command">{command}</code>
+              <CommandSteps action={action} name={info.name} command={command} />
               {action === "upgrade" && (
                 <span>
                   {t("正在用 {0} 的 Agent 不会自动重启，升级完再手动重启。", { 0: info.name })}
@@ -349,6 +348,49 @@ function AgentCliCard({
       )}
       {error && <p className="settings-note error">{error}</p>}
     </section>
+  );
+}
+
+/**
+ * 确认气泡里的命令：用 `||` 串起来的回退链拆成「先试 / 失败再用」几步，每步等宽、自动换行、
+ * 太长可以滚动；上面一句话说明回退的含义。展示用，执行的仍是整条原样命令。
+ */
+function CommandSteps({
+  action,
+  name,
+  command,
+}: {
+  action: AgentCliAction;
+  name: string;
+  command: string;
+}) {
+  const steps = command.split(" || ");
+  const script = steps[0]!.includes("curl -fsSL https://");
+  const hint =
+    steps.length > 1
+      ? action === "install"
+        ? t("先用官方安装脚本安装，失败了再自动改用 npm。")
+        : t("先用 {0} 自带的升级命令，失败了再自动改用下一种方式。", { 0: name })
+      : script
+        ? t("会先把官方安装脚本下载到临时文件，再运行它。")
+        : undefined;
+  return (
+    <>
+      {hint && <span className="agent-cli-hint">{hint}</span>}
+      <span>{t("将在这台电脑上运行：")}</span>
+      {steps.length > 1 ? (
+        <ol className="agent-cli-steps">
+          {steps.map((step, index) => (
+            <li key={index}>
+              <span>{index === 0 ? t("先试") : t("失败再用")}</span>
+              <code className="agent-cli-command">{step}</code>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <code className="agent-cli-command">{command}</code>
+      )}
+    </>
   );
 }
 
@@ -469,15 +511,11 @@ function JobStatus({
     );
   }
 
-  const unchanged = job.versionAfter && job.versionAfter === job.versionBefore;
+  // 服务端按重新检测的版本定成败：版本没变的已经报成失败，这里只会是真的升上去了
   return (
     <div className="agent-cli-job done" role="status">
       <p>
-        {unchanged
-          ? t("命令执行成功，但这一处的版本仍是 {0}，可能装到了别处。", { 0: job.versionAfter })
-          : job.versionAfter
-            ? t("已升级到 {0}。", { 0: job.versionAfter })
-            : t("升级命令执行成功。")}{" "}
+        {t("已升级到 {0}。", { 0: job.versionAfter ?? "" })}{" "}
         {info.agents.length
           ? t("用 {0} 的 Agent 重启后才用上新版：{1}", {
               0: info.name,
@@ -485,7 +523,7 @@ function JobStatus({
             })
           : t("这台电脑上还没有用 {0} 的 Agent。", { 0: info.name })}
       </p>
-      {live.length > 0 && !unchanged && (
+      {live.length > 0 && (
         <button
           type="button"
           className="settings-action"

@@ -20,7 +20,8 @@ import {
   mergePath,
   nodeRangeSatisfied,
   pathFromEnvOutput,
-  OMP_HOMEPAGE,
+  OFFICIAL_INSTALLERS,
+  installerCommand,
   planInstall,
   planUpdate,
   shellQuote,
@@ -206,25 +207,6 @@ describe("planUpdate", () => {
         "'/Users/a/.npm-global/bin/claude' update || '/usr/local/bin/npm' i -g --prefix '/Users/a/.npm-global' " +
         "@anthropic-ai/claude-code@latest --ignore-scripts=false --include=optional --allow-scripts=@anthropic-ai/claude-code",
     );
-    // omp：只有 bun 装得出能跑的 omp；Nix 的不执行
-    expect(
-      planUpdate("omp", install("omp", "/Users/a/.bun/bin/omp"), mac(["/Users/a/.bun/bin/bun"])),
-    ).toEqual({
-      kind: "anchored",
-      command:
-        "'/Users/a/.bun/bin/omp' update || '/Users/a/.bun/bin/bun' add -g @oh-my-pi/pi-coding-agent@latest",
-    });
-    expect(planUpdate("omp", install("omp", "/Users/a/.local/bin/omp"), mac())).toEqual({
-      kind: "anchored",
-      command: "'/Users/a/.local/bin/omp' update",
-    });
-    expect(
-      planUpdate(
-        "omp",
-        install("omp", "/Users/a/.nix-profile/bin/omp", "/nix/store/x-omp/bin/omp"),
-        mac(),
-      ),
-    ).toMatchObject({ kind: "manual", reasonText: { key: "agentCli.manual.nix" } });
   });
 
   it("refuses sources it can't recognise and Windows", () => {
@@ -595,6 +577,27 @@ describe("AgentCliManager upgrade", () => {
     await expect(clis.upgrade("codex", command)).resolves.toMatchObject({ state: "running" });
   });
 
+  it("doesn't report success when the version didn't change", async () => {
+    const { clis, children, command } = await setup();
+    const job = await clis.upgrade("codex", command);
+    children[0]!.write("Update ran successfully\n");
+    children[0]!.exit(0);
+    // 核对版本期间仍算进行中，锁不放
+    expect(clis.job(job.id)?.state).toBe("running");
+    await expect(clis.upgrade("codex", command)).rejects.toMatchObject({ code: "AGENT_CLI_BUSY" });
+    await vi.waitFor(() => expect(clis.job(job.id)?.state).toBe("failed"));
+    expect(clis.job(job.id)).toMatchObject({
+      versionAfter: "0.160.0",
+      reasonText: {
+        key: "error.agentCli.versionUnchanged",
+        params: { tool: "Codex", version: "0.160.0" },
+      },
+      error: "Update ran successfully",
+    });
+    // 结束后可以重试
+    await expect(clis.upgrade("codex", command)).resolves.toMatchObject({ state: "running" });
+  });
+
   it("stops a command that runs too long", async () => {
     const { clis, children, command } = await setup({ upgradeTimeoutMs: 50 });
     const job = await clis.upgrade("codex", command);
@@ -619,6 +622,7 @@ describe("agent cli routes", () => {
     const pkg = bin(".nvm/versions/node/v22.1.0/lib/node_modules/@openai/codex/bin");
     symlinkSync(script(pkg, "codex.js", 'echo "0.160.0"'), path.join(nvm, "codex"));
     script(nvm, "npm", "exit 0");
+    const bump = () => script(pkg, "codex.js", 'echo "0.170.0"');
     const children: FakeUpgrade[] = [];
     const { clis, spawnUpgrade } = manager({
       loginPath: nvm,
@@ -647,11 +651,18 @@ describe("agent cli routes", () => {
     const session = (await app.inject({ method: "GET", url: "/api/local/session" })).json() as {
       ownerToken: string;
     };
-    return { app, owner: { "x-hive-owner": session.ownerToken }, logs, children, spawnUpgrade };
+    return {
+      app,
+      owner: { "x-hive-owner": session.ownerToken },
+      logs,
+      children,
+      spawnUpgrade,
+      bump,
+    };
   }
 
   it("lists CLIs and runs a confirmed upgrade for the local owner, with an audit log", async () => {
-    const { app, owner, logs, children } = await setup();
+    const { app, owner, logs, children, bump } = await setup();
     const list = await app.inject({ method: "GET", url: "/api/local/agent-clis", headers: owner });
     expect(list.statusCode).toBe(200);
     const body = list.json() as {
@@ -671,13 +682,19 @@ describe("agent cli routes", () => {
     expect(started.statusCode).toBe(202);
     const job = (started.json() as { job: { id: string } }).job;
     children[0]!.write("added 2 packages\n");
+    bump();
     children[0]!.exit(0);
-    const polled = await app.inject({
-      method: "GET",
-      url: `/api/local/agent-clis/jobs/${job.id}`,
-      headers: owner,
+    // 退出码 0 之后还要核对新版本，核对完才算成功
+    await vi.waitFor(async () => {
+      const polled = await app.inject({
+        method: "GET",
+        url: `/api/local/agent-clis/jobs/${job.id}`,
+        headers: owner,
+      });
+      expect(polled.json()).toMatchObject({
+        job: { id: job.id, state: "succeeded", versionAfter: "0.170.0" },
+      });
     });
-    expect(polled.json()).toMatchObject({ job: { id: job.id, state: "succeeded" } });
     const audit = logs.filter((line) => line.includes('"agentCli"'));
     expect(audit).toHaveLength(1);
     expect(audit[0]).toContain('"action":"upgrade"');
@@ -753,8 +770,36 @@ describe("agent cli routes", () => {
 
 /* ---------- 没装的工具：一键全局安装 ---------- */
 
+const NPM = { platform: "darwin" as const, isExecutable: exists(), npm: "/n/npm" };
+const SCRIPT = (url: string, shell = "bash") =>
+  `bash -c 'tmp=$(mktemp) && curl -fsSL ${url} -o $tmp && head -c 2 $tmp | grep -q "#!" && ${shell} $tmp; status=$?; rm -f $tmp; exit $status'`;
+
+describe("official installers", () => {
+  it("keeps every script URL in a fixed https allowlist and downloads before running", () => {
+    expect(
+      Object.fromEntries(Object.entries(OFFICIAL_INSTALLERS).map(([k, v]) => [k, v.url])),
+    ).toEqual({
+      claude: "https://claude.ai/install.sh",
+      opencode: "https://opencode.ai/install",
+      omp: "https://omp.sh/install",
+      codex: "https://chatgpt.com/codex/install.sh",
+    });
+    for (const tool of Object.keys(OFFICIAL_INSTALLERS) as Array<
+      keyof typeof OFFICIAL_INSTALLERS
+    >) {
+      const command = installerCommand(tool);
+      expect(command).toContain("curl -fsSL https://");
+      expect(command).toContain("-o $tmp &&");
+      // 下载到的不是脚本（例如 HTML 页面）就不执行
+      expect(command).toContain(`head -c 2 $tmp | grep -q "#!" &&`);
+      expect(command).not.toMatch(/\|\s*(ba)?sh/);
+    }
+    expect(installerCommand("omp")).toBe(SCRIPT("https://omp.sh/install", "sh"));
+  });
+});
+
 describe("planInstall", () => {
-  it("uses the login shell's npm by absolute path with cc-switch's npm arguments", () => {
+  it("runs the official script first for claude and opencode, falling back to npm", () => {
     expect(
       planInstall("claude", {
         platform: "darwin",
@@ -764,63 +809,131 @@ describe("planInstall", () => {
     ).toEqual({
       kind: "anchored",
       command:
+        `${SCRIPT("https://claude.ai/install.sh")} || ` +
         "PATH='/usr/local/bin':\"$PATH\" '/usr/local/bin/npm' i -g @anthropic-ai/claude-code@latest " +
         "--ignore-scripts=false --include=optional --allow-scripts=@anthropic-ai/claude-code",
     });
-    expect(
-      planInstall("opencode", { platform: "darwin", isExecutable: exists(), npm: "/n/npm" }),
-    ).toEqual({
+    expect(planInstall("opencode", NPM)).toEqual({
       kind: "anchored",
       command:
+        `${SCRIPT("https://opencode.ai/install")} || ` +
         "'/n/npm' i -g opencode-ai@latest --ignore-scripts=false --include=optional --allow-scripts=opencode-ai",
     });
+    // 没有 npm：只跑官方脚本
+    expect(planInstall("claude", { platform: "darwin", isExecutable: exists() })).toEqual({
+      kind: "anchored",
+      command: SCRIPT("https://claude.ai/install.sh"),
+    });
+  });
+
+  it("installs omp with its official script, without needing bun or npm", () => {
+    for (const context of [NPM, { platform: "darwin" as const, isExecutable: exists() }]) {
+      expect(planInstall("omp", context)).toEqual({
+        kind: "anchored",
+        command: SCRIPT("https://omp.sh/install", "sh"),
+      });
+    }
+  });
+
+  it("keeps npm for codex, copilot and openclaw, and asks for Node.js without npm", () => {
     for (const [tool, pkg] of [
       ["codex", "@openai/codex"],
       ["copilot", "@github/copilot"],
       ["openclaw", "openclaw"],
     ] as const) {
-      expect(
-        planInstall(tool, { platform: "darwin", isExecutable: exists(), npm: "/n/npm" }),
-      ).toEqual({
+      expect(planInstall(tool, NPM)).toEqual({
         kind: "anchored",
         command: `'/n/npm' i -g ${pkg}@latest`,
       });
+      expect(planInstall(tool, { platform: "darwin", isExecutable: exists() })).toMatchObject({
+        kind: "manual",
+        reasonText: { key: "agentCli.manual.noNode" },
+      });
+    }
+    expect(planInstall("codex", { ...NPM, platform: "win32" })).toMatchObject({
+      kind: "manual",
+      reasonText: { key: "agentCli.manual.windows" },
+    });
+    const evil = "/opt/x'; touch /tmp/pwned; '/npm";
+    expect(planInstall("codex", { ...NPM, npm: evil })).toEqual({
+      kind: "anchored",
+      command: `${shellQuote(evil)} i -g @openai/codex@latest`,
+    });
+  });
+});
+
+describe("planUpdate fallbacks", () => {
+  const install = (file: string, real = file) => ({
+    path: file,
+    realPath: real,
+    source: inferSource(file, real),
+  });
+
+  it("chains omp update to the official script and refuses Nix installs", () => {
+    expect(planUpdate("omp", install("/Users/a/.local/bin/omp"), mac())).toEqual({
+      kind: "anchored",
+      command: `'/Users/a/.local/bin/omp' update || ${SCRIPT("https://omp.sh/install", "sh")}`,
+    });
+    expect(
+      planUpdate("omp", install("/Users/a/.bun/bin/omp"), mac(["/Users/a/.bun/bin/bun"])),
+    ).toEqual({
+      kind: "anchored",
+      command: `'/Users/a/.bun/bin/omp' update || ${SCRIPT("https://omp.sh/install", "sh")}`,
+    });
+    expect(
+      planUpdate(
+        "omp",
+        install("/Users/a/.nix-profile/bin/omp", "/nix/store/x-omp/bin/omp"),
+        mac(),
+      ),
+    ).toMatchObject({ kind: "manual", reasonText: { key: "agentCli.manual.nix" } });
+  });
+
+  it("never uses codex update: npm installs use npm, standalone installs rerun the installer", () => {
+    const npm = planUpdate(
+      "codex",
+      install(
+        "/Users/a/.npm-global/bin/codex",
+        "/Users/a/.npm-global/lib/node_modules/@openai/codex/bin/codex.js",
+      ),
+      mac([], "/usr/local/bin/npm"),
+    );
+    expect(npm).toEqual({
+      kind: "anchored",
+      command: "'/usr/local/bin/npm' i -g --prefix '/Users/a/.npm-global' @openai/codex@latest",
+    });
+    const standalone = planUpdate(
+      "codex",
+      install(
+        "/Users/a/.local/bin/codex",
+        "/Users/a/.codex/packages/standalone/releases/0.170.0/codex",
+      ),
+      mac(),
+    );
+    expect(standalone).toEqual({
+      kind: "anchored",
+      command: `CODEX_NON_INTERACTIVE=1 CODEX_INSTALL_DIR='/Users/a/.local/bin' CODEX_HOME='/Users/a/.codex' ${SCRIPT("https://chatgpt.com/codex/install.sh", "sh")}`,
+    });
+    for (const plan of [npm, standalone]) {
+      expect(plan.kind === "anchored" && plan.command).not.toContain("codex' update");
     }
   });
 
-  it("asks for Node.js when there's no npm, and installs omp only with bun", () => {
-    expect(planInstall("codex", { platform: "darwin", isExecutable: exists() })).toMatchObject({
-      kind: "manual",
-      reasonText: { key: "agentCli.manual.noNode" },
-    });
+  it("chains opencode upgrade and openclaw update to the anchored npm", () => {
     expect(
-      planInstall("omp", { platform: "darwin", isExecutable: exists(), npm: "/n/npm" }),
-    ).toMatchObject({
-      kind: "manual",
-      reasonText: { key: "agentCli.manual.needBun" },
-      url: OMP_HOMEPAGE,
-    });
-    expect(
-      planInstall("omp", {
-        platform: "darwin",
-        isExecutable: exists(),
-        bun: "/Users/a/.bun/bin/bun",
-      }),
+      planUpdate(
+        "openclaw",
+        install(
+          "/Users/a/.npm-global/bin/openclaw",
+          "/Users/a/.npm-global/lib/node_modules/openclaw/openclaw.mjs",
+        ),
+        mac([], "/usr/local/bin/npm"),
+      ),
     ).toEqual({
       kind: "anchored",
-      command: "'/Users/a/.bun/bin/bun' add -g @oh-my-pi/pi-coding-agent@latest",
+      command:
+        "'/Users/a/.npm-global/bin/openclaw' update --yes || '/usr/local/bin/npm' i -g --prefix '/Users/a/.npm-global' openclaw@latest",
     });
-    expect(
-      planInstall("codex", { platform: "win32", isExecutable: exists(), npm: "C:/npm.cmd" }),
-    ).toMatchObject({ kind: "manual", reasonText: { key: "agentCli.manual.windows" } });
-    // 路径照样单引号包住
-    const evil = "/opt/x'; touch /tmp/pwned; '/npm";
-    expect(planInstall("codex", { platform: "darwin", isExecutable: exists(), npm: evil })).toEqual(
-      {
-        kind: "anchored",
-        command: `${shellQuote(evil)} i -g @openai/codex@latest`,
-      },
-    );
   });
 });
 
