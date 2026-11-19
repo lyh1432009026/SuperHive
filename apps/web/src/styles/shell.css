@@ -712,6 +712,7 @@
 }
 
 .side-tabs {
+  position: relative;
   display: flex;
   flex: 1;
   min-width: 0;
@@ -719,6 +720,35 @@
   padding: 2px;
   border-radius: var(--radius-pill);
   background: var(--bg-hover);
+}
+
+/* 选中标签底下的滑块（位置由 App.tsx 的 fitSideTabs 量出）：切换标签时平滑滑过去 */
+.side-tabs::before {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  width: var(--tab-indicator-width, 0);
+  border-radius: var(--radius-pill);
+  background: var(--bg-main);
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 0.12),
+    0 0 0 1px var(--border-light);
+  content: "";
+  transform: translateX(var(--tab-indicator-x, 0));
+}
+
+:root[data-theme="dark"] .side-tabs::before {
+  background: var(--bg-active);
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 0.4),
+    0 0 0 1px var(--border);
+}
+
+.side-tabs.tab-indicator-ready::before {
+  transition:
+    transform 260ms var(--ease-out),
+    width 260ms var(--ease-out);
 }
 
 .side-tabs button {
@@ -776,14 +806,23 @@
   color: var(--text);
 }
 
-.side-tabs button.active {
-  background: var(--bg-main);
-  color: var(--text);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.1);
+/* 选中的底由上面的滑块画，标签本身只加深文字、图标和计数用强调色 */
+.side-tabs button {
+  position: relative;
+  z-index: 1;
 }
 
-:root[data-theme="dark"] .side-tabs button.active {
-  background: var(--bg-elevated);
+.side-tabs button.active {
+  color: var(--text);
+}
+
+.side-tabs button.active .icon {
+  color: var(--accent);
+}
+
+.side-tabs button.active .side-tab-count:not(.warning) {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .side-tab-count {
@@ -1370,6 +1409,10 @@ body.room-dragging * {
 @media (prefers-reduced-motion: reduce) {
   .members-panel [role="tabpanel"] {
     animation: none;
+  }
+
+  .side-tabs.tab-indicator-ready::before {
+    transition: none;
   }
 
   .header-button:not(:disabled):active,

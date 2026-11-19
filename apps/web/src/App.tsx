@@ -229,8 +229,15 @@ function fitSideTabs(element: HTMLDivElement | null) {
   const fit = () => {
     element.classList.remove("compact");
     if (element.scrollWidth > element.clientWidth + 1) element.classList.add("compact");
+    // 选中标签底下的滑块：量出选中标签的位置和宽度，切换时由 CSS 过渡滑过去
+    const active = element.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    if (!active) return;
+    element.style.setProperty("--tab-indicator-x", `${active.offsetLeft}px`);
+    element.style.setProperty("--tab-indicator-width", `${active.offsetWidth}px`);
   };
   fit();
+  // 第一次放好位置之后才开过渡，免得打开页面时滑块从左边滑进来
+  requestAnimationFrame(() => element.classList.add("tab-indicator-ready"));
   if (typeof ResizeObserver === "undefined" || typeof MutationObserver === "undefined") return;
   const resize = new ResizeObserver(fit);
   resize.observe(element);
@@ -243,7 +250,7 @@ function fitSideTabs(element: HTMLDivElement | null) {
     childList: true,
     characterData: true,
     attributes: true,
-    attributeFilter: ["class"],
+    attributeFilter: ["class", "aria-selected"],
   });
   return () => {
     resize.disconnect();
