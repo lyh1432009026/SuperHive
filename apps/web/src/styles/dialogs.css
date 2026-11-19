@@ -247,6 +247,22 @@
   gap: 8px;
 }
 
+/* 接入弹窗第一步底部：跳到设置的「Agent 运行时」安装、升级或改配置 */
+.agent-runtime-link {
+  align-self: flex-start;
+  margin-top: 10px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.agent-runtime-link:hover {
+  text-decoration: underline;
+}
+
 .provider-selector button,
 .access-selector button {
   width: 100%;

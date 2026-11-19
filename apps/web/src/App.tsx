@@ -1498,6 +1498,9 @@ export function App({
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("chat");
+  /** 从接入 Agent 弹窗跳到「Agent 运行时」时要看的 CLI；关掉设置后回到接入弹窗 */
+  const [runtimesFocus, setRuntimesFocus] = useState<SelectableAgentProvider>();
+  const returnToAgentDialogRef = useRef(false);
   const [sendShortcut, setSendShortcut] = useState<SendShortcut>(storedSendShortcut);
   const [autoSaveDraft, setAutoSaveDraft] = useState(() =>
     storedBoolean(storedAutoSaveDraftKey, true),
@@ -2307,7 +2310,24 @@ export function App({
 
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
+    setRuntimesFocus(undefined);
+    if (returnToAgentDialogRef.current) {
+      // 从接入弹窗跳过来的：回到接入弹窗原来那一步，刚装好、改好的 Agent 接着接入
+      returnToAgentDialogRef.current = false;
+      setAgentDialogOpen(true);
+      return;
+    }
     window.requestAnimationFrame(() => settingsTriggerRef.current?.focus());
+  }, []);
+
+  /** 接入 Agent 弹窗里的「安装、升级或调整配置」：先收起接入弹窗，打开设置的「Agent 运行时」 */
+  const openRuntimeSettings = useCallback((provider: SelectableAgentProvider | undefined) => {
+    setAgentDialogOpen(false);
+    setFullAccessConfirmationOpen(false);
+    returnToAgentDialogRef.current = true;
+    setRuntimesFocus(provider);
+    setSettingsTab("runtimes");
+    setSettingsOpen(true);
   }, []);
 
   useEffect(() => {
@@ -6436,6 +6456,23 @@ export function App({
                   ))}
                 </div>
               )}
+              {agentStep === 1 && local.mode === "local" && (
+                <button
+                  type="button"
+                  className="agent-runtime-link"
+                  onClick={() =>
+                    openRuntimeSettings(agentProviderChosen ? agentProvider : undefined)
+                  }
+                >
+                  {agentProviderChosen
+                    ? providerInfo(local, agentProvider)?.installed === false
+                      ? t("去安装 {0} →", { 0: agentProviderLabel(agentProvider) })
+                      : t("升级或调整 {0} 的配置（接口地址、密钥、模型等）→", {
+                          0: agentProviderLabel(agentProvider),
+                        })
+                    : t("安装、升级 Agent 或调整它们的配置 →")}
+                </button>
+              )}
 
               {agentStep === 2 && (
                 <>
@@ -7017,7 +7054,7 @@ export function App({
                   </section>
                 )}
                 {settingsTab === "runtimes" && local.mode === "local" && (
-                  <AgentRuntimesPanel local={local} />
+                  <AgentRuntimesPanel local={local} focusTool={runtimesFocus} />
                 )}
                 {settingsTab === "appearance" && (
                   <section id="settings-panel-appearance" role="tabpanel" aria-label={t("外观")}>

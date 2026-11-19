@@ -1347,5 +1347,8 @@
   "先用 {0} 自带的升级命令，失败了再自动改用下一种方式。": "Tries {0}'s own update command first, then falls back to the next step if it fails.",
   "会先把官方安装脚本下载到临时文件，再运行它。": "Downloads the official install script to a temporary file, then runs it.",
   "先试": "First",
-  "失败再用": "If that fails"
+  "失败再用": "If that fails",
+  "去安装 {0} →": "Install {0} →",
+  "升级或调整 {0} 的配置（接口地址、密钥、模型等）→": "Upgrade or configure {0} (endpoint, key, model…) →",
+  "安装、升级 Agent 或调整它们的配置 →": "Install, upgrade or configure agents →"
 }

@@ -217,3 +217,16 @@
   gap: 6px;
   align-items: center;
 }
+
+/* 从接入 Agent 弹窗跳过来时，短暂突出要看的那个 CLI */
+.agent-cli {
+  transition: box-shadow 300ms var(--ease-out);
+}
+
+.agent-cli:focus {
+  outline: none;
+}
+
+.agent-cli.focused {
+  box-shadow: 0 0 0 2px var(--accent);
+}

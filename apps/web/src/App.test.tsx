@@ -2139,7 +2139,21 @@ describe("App mention autocomplete", () => {
     );
     expect(screen.getByRole("radio", { name: /OpenCode.*1\.19\.4/ })).toBeTruthy();
 
+    // 选了没装的 Codex：可以直接跳到设置的「Agent 运行时」去装，关掉设置回到接入弹窗原来那一步
+    await user.click(screen.getByRole("radio", { name: /Codex/ }));
+    await user.click(screen.getByRole("button", { name: "去安装 Codex →" }));
+    expect(screen.queryByRole("heading", { name: "选择要接入的 Agent" })).toBeNull();
+    expect(screen.getByRole("tab", { name: /Agent 运行时/ }).getAttribute("aria-selected")).toBe(
+      "true",
+    );
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("heading", { name: "选择要接入的 Agent" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /Codex/ }).getAttribute("aria-checked")).toBe("true");
+
     await user.click(screen.getByRole("radio", { name: /OpenCode/ }));
+    expect(
+      screen.getByRole("button", { name: "升级或调整 OpenCode 的配置（接口地址、密钥、模型等）→" }),
+    ).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "下一步" }));
     await user.click(screen.getByRole("radio", { name: /^只读/ }));
     await user.click(screen.getByRole("button", { name: "下一步" }));

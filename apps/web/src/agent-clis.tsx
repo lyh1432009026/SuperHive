@@ -61,7 +61,14 @@ const pending = (job: AgentCliJob) =>
 /** 正在进行的是哪个工具的什么操作：已经拿到任务，或者刚点了确认、还在等服务端核对命令 */
 type Activity = { tool: string; name: string; action: AgentCliAction };
 
-export function AgentClisGroup({ api }: { api: AgentClisApi }) {
+export function AgentClisGroup({
+  api,
+  focusTool,
+}: {
+  api: AgentClisApi;
+  /** 从接入 Agent 弹窗跳过来时要看的那个 CLI：检测结果出来后滚过去并短暂突出 */
+  focusTool?: AgentCliTool | undefined;
+}) {
   const [tools, setTools] = useState<AgentCliWithAgents[]>();
   const [job, setJob] = useState<AgentCliJob | null>(null);
   const [starting, setStarting] = useState<Activity>();
@@ -99,6 +106,18 @@ export function AgentClisGroup({ api }: { api: AgentClisApi }) {
       .then(adopt, () => undefined);
     void load(false);
   }, [agentCliCurrent, adopt, load]);
+
+  const hasTools = Boolean(tools);
+  useEffect(() => {
+    if (!focusTool || !hasTools) return;
+    const card = document.getElementById(`agent-cli-${focusTool}`);
+    if (!card) return;
+    card.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    card.classList.add("focused");
+    card.focus({ preventScroll: true });
+    const timer = window.setTimeout(() => card.classList.remove("focused"), 2_000);
+    return () => window.clearTimeout(timer);
+  }, [focusTool, hasTools]);
 
   // 任务进行中：轮询进度；结束后重新检测一次（服务端已作废检测缓存）
   const jobId = job && pending(job) ? job.id : undefined;
@@ -241,7 +260,13 @@ function AgentCliCard({
         : t("尝试升级");
 
   return (
-    <section className="agent-cli" aria-label={info.name} aria-busy={mine}>
+    <section
+      id={`agent-cli-${info.tool}`}
+      className="agent-cli"
+      aria-label={info.name}
+      aria-busy={mine}
+      tabIndex={-1}
+    >
       <div className="agent-cli-head">
         <div className="agent-cli-title">
           <h5>{info.name}</h5>

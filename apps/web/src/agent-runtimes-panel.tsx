@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { AgentCliTool } from "@superhive/protocol";
 import { t } from "./i18n";
 import type { LocalAgentsState } from "./local-agents";
 import { AgentClisGroup } from "./agent-clis";
@@ -10,14 +11,27 @@ import { RuntimeCredentialsGroup } from "./runtime-credentials";
  * 往 blocks 里加一项即可。
  */
 
-type RuntimeBlock = { id: string; render: (local: LocalAgentsState) => ReactNode };
+type RuntimeBlock = {
+  id: string;
+  render: (local: LocalAgentsState, focusTool: AgentCliTool | undefined) => ReactNode;
+};
 
 const blocks: RuntimeBlock[] = [
   { id: "credentials", render: (local) => <RuntimeCredentialsGroup api={local} /> },
-  { id: "clis", render: (local) => <AgentClisGroup api={local} /> },
+  {
+    id: "clis",
+    render: (local, focusTool) => <AgentClisGroup api={local} focusTool={focusTool} />,
+  },
 ];
 
-export function AgentRuntimesPanel({ local }: { local: LocalAgentsState }) {
+/** focusTool：从别处（例如接入 Agent 弹窗）跳过来时，滚到并突出这个 CLI */
+export function AgentRuntimesPanel({
+  local,
+  focusTool,
+}: {
+  local: LocalAgentsState;
+  focusTool?: AgentCliTool | undefined;
+}) {
   return (
     <section id="settings-panel-runtimes" role="tabpanel" aria-label={t("Agent 运行时")}>
       <div className="settings-panel-heading">
@@ -31,7 +45,7 @@ export function AgentRuntimesPanel({ local }: { local: LocalAgentsState }) {
       <div className="agent-runtime-blocks">
         {blocks.map((block) => (
           <div key={block.id} className="agent-runtime-block">
-            {block.render(local)}
+            {block.render(local, focusTool)}
           </div>
         ))}
       </div>
