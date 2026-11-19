@@ -13,6 +13,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 import { WorktreePanel } from "./worktree-panel";
 import { sortParticipantsByLastSeen } from "@superhive/protocol";
 import type {
@@ -439,6 +440,23 @@ function playNotificationTone(): void {
   } catch {
     // Audio playback can be blocked until the page receives a user gesture.
   }
+}
+
+/**
+ * 展开 / 收起侧栏这类布局变化：支持 View Transitions 的浏览器里让侧栏滑入滑出、对话区平滑变宽变窄，
+ * 不支持或开了「减少动态效果」时直接切换
+ */
+function animateLayout(update: () => void) {
+  const start = (
+    document as Document & {
+      startViewTransition?: (callback: () => void) => unknown;
+    }
+  ).startViewTransition;
+  if (!start || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    update();
+    return;
+  }
+  start.call(document, () => flushSync(update));
 }
 
 function platformModifierLabel(): string {
@@ -3171,15 +3189,19 @@ export function App({
       return;
     }
     if (artifactsPanelOpen) {
-      setMembersCollapsed(true);
+      animateLayout(() => setMembersCollapsed(true));
       localStorage.setItem(storedMembersCollapsedKey, "true");
       return;
     }
-    setSidePanelTab("artifacts");
-    if (membersCollapsed) {
-      setMembersCollapsed(false);
-      localStorage.setItem(storedMembersCollapsedKey, "false");
+    if (!membersCollapsed) {
+      setSidePanelTab("artifacts");
+      return;
     }
+    animateLayout(() => {
+      setSidePanelTab("artifacts");
+      setMembersCollapsed(false);
+    });
+    localStorage.setItem(storedMembersCollapsedKey, "false");
   }
 
   const offline = participants.filter((participant) => participant.status === "offline");
@@ -4641,10 +4663,12 @@ export function App({
               aria-pressed={!roomsCollapsed}
               title={roomsCollapsed ? t("显示房间列表") : t("隐藏房间列表")}
               onClick={() =>
-                setRoomsCollapsed((current) => {
-                  localStorage.setItem(storedRoomsCollapsedKey, String(!current));
-                  return !current;
-                })
+                animateLayout(() =>
+                  setRoomsCollapsed((current) => {
+                    localStorage.setItem(storedRoomsCollapsedKey, String(!current));
+                    return !current;
+                  }),
+                )
               }
             >
               <Icon name="panel-left" size={17} />
@@ -4753,10 +4777,12 @@ export function App({
                 aria-pressed={!membersCollapsed}
                 title={membersCollapsed ? t("显示成员与白板") : t("隐藏成员与白板")}
                 onClick={() =>
-                  setMembersCollapsed((current) => {
-                    localStorage.setItem(storedMembersCollapsedKey, String(!current));
-                    return !current;
-                  })
+                  animateLayout(() =>
+                    setMembersCollapsed((current) => {
+                      localStorage.setItem(storedMembersCollapsedKey, String(!current));
+                      return !current;
+                    }),
+                  )
                 }
               >
                 <Icon name="panel-right" size={17} />

@@ -544,7 +544,8 @@
   font-size: var(--text-base);
   transition:
     background var(--duration-fast),
-    color var(--duration-fast);
+    color var(--duration-fast),
+    transform var(--duration-fast) var(--ease-out);
 }
 
 .header-button:hover {
@@ -552,10 +553,35 @@
   color: var(--text);
 }
 
-.header-button.active,
+/* 显示 / 隐藏侧栏这类布局开关：开着时只是略深的底 */
 .header-button[aria-pressed="true"]:not(.desktop-only) {
   background: var(--bg-active);
   color: var(--text);
+}
+
+/* 打开了某个面板或进入了某种模式（产物、分享）：强调色的底和字，一眼看出现在开着的是哪个 */
+.header-button.active,
+.header-button.share-fab[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.header-button.active:hover,
+.header-button.share-fab[aria-pressed="true"]:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  filter: brightness(1.08);
+}
+
+.header-button.active .icon,
+.header-button.share-fab[aria-pressed="true"] .icon {
+  color: inherit;
+}
+
+/* 按下时轻轻一沉，点击有反馈 */
+.header-button:not(:disabled):active,
+.side-tabs button:active {
+  transform: scale(0.96);
 }
 
 .header-button:disabled {
@@ -712,8 +738,10 @@
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
   transition:
-    background var(--duration-fast),
-    color var(--duration-fast);
+    background var(--duration),
+    color var(--duration),
+    box-shadow var(--duration),
+    transform var(--duration-fast) var(--ease-out);
 }
 
 /* 放不下时（见 fitSideTabs）：未选中的标签只显示图标与计数，选中的照常带文字 */
@@ -1240,4 +1268,112 @@ body.room-dragging * {
   height: 1px;
   margin: 4px 6px;
   background: var(--border);
+}
+
+/* ---------- 动效：侧栏展开收起、右侧面板切换 tab ---------- */
+
+/* 切换右侧面板的 tab：新内容轻轻浮入 */
+.members-panel [role="tabpanel"] {
+  animation: side-panel-enter var(--duration) var(--ease-out);
+}
+
+@keyframes side-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/*
+ * 展开 / 收起左右侧栏（见 App.tsx 的 animateLayout，用 View Transitions）：侧栏从边上滑入滑出，
+ * 对话区平滑变宽变窄。对话区只用新画面、按左上角对齐裁切，不做新旧交叉淡化，文字不会被拉伸变形
+ */
+@media (min-width: 1101px) {
+  .rooms-panel {
+    view-transition-name: rooms-panel;
+  }
+
+  .chat-panel {
+    view-transition-name: chat-panel;
+  }
+
+  .members-panel {
+    view-transition-name: members-panel;
+  }
+}
+
+::view-transition-group(*) {
+  animation-duration: 240ms;
+  animation-timing-function: var(--ease-out);
+}
+
+::view-transition-group(chat-panel) {
+  overflow: hidden;
+}
+
+::view-transition-old(chat-panel) {
+  display: none;
+}
+
+::view-transition-new(chat-panel) {
+  width: 100%;
+  height: 100%;
+  animation: none;
+  object-fit: none;
+  object-position: left top;
+}
+
+::view-transition-new(members-panel):only-child {
+  animation: panel-slide-in-right 240ms var(--ease-out);
+}
+
+::view-transition-old(members-panel):only-child {
+  animation: panel-slide-out-right 200ms var(--ease-out) forwards;
+}
+
+::view-transition-new(rooms-panel):only-child {
+  animation: panel-slide-in-left 240ms var(--ease-out);
+}
+
+::view-transition-old(rooms-panel):only-child {
+  animation: panel-slide-out-left 200ms var(--ease-out) forwards;
+}
+
+@keyframes panel-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(32px);
+  }
+}
+
+@keyframes panel-slide-out-right {
+  to {
+    opacity: 0;
+    transform: translateX(32px);
+  }
+}
+
+@keyframes panel-slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-32px);
+  }
+}
+
+@keyframes panel-slide-out-left {
+  to {
+    opacity: 0;
+    transform: translateX(-32px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .members-panel [role="tabpanel"] {
+    animation: none;
+  }
+
+  .header-button:not(:disabled):active,
+  .side-tabs button:active {
+    transform: none;
+  }
 }
