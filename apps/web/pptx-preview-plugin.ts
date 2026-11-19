@@ -3,7 +3,7 @@ import type { Plugin } from "vite";
 /**
  * 构建时给 pptx-preview 1.0.7 打两处补丁（开发时的依赖预构建、正式构建都要过这一道）：
  * - 幻灯片里的文字原来用 innerHTML 写进页面，文字里要是写着 <img onerror=…> 就会被当成标签；
- *   改成 textContent（和 zwork 的 patches/pptx-preview@1.0.7.patch 同一处修法）。
+ *   改成 textContent。
  * - 图表用 ECharts 画，带约 1 秒的入场动画；我们排完版就序列化成静态 HTML，动画会被截在第一帧
  *   （只有坐标轴没有柱子），所以关掉动画。系列没写颜色、跟着主题走时库给的是空色，
  *   柱子画成透明的；补上 Office 默认的六个强调色。

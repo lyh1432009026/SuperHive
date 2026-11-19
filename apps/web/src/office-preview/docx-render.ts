@@ -11,7 +11,7 @@ const OPTIONS: Partial<Options> = {
   className: "docx",
   inWrapper: true,
   breakPages: true,
-  // false 时库会把纸张相同、页边距不同的相邻节合并，封面后的正文丢分页
+  // 分页按文档里的分节符和分页符来，不用 Word 上次排版时留下的分页标记（换了字体后那些位置不准）
   ignoreLastRenderedPageBreak: true,
   ignoreWidth: false,
   ignoreHeight: false,
