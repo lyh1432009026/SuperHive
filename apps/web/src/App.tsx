@@ -172,6 +172,7 @@ import {
 import { agentActivity } from "./agent-activity";
 import { IM_CHANNEL_LABELS, listImConnections } from "./im-api";
 import { ProviderLogo, providerLogoName } from "./provider-logos";
+import { LoginShowcase } from "./login-showcase";
 import { resolveServerBase, resolveShareBase, resolveWebSocketUrl } from "./server-url";
 import {
   LOCALE_OPTIONS,
@@ -289,6 +290,7 @@ type IconName =
   | "share"
   | "shield"
   | "undo"
+  | "user"
   | "user-plus"
   | "users";
 
@@ -581,6 +583,12 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
       </>
     ),
     message: <path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9l-4 3.5V6a1 1 0 0 1 1-1z" />,
+    user: (
+      <>
+        <circle cx="12" cy="8" r="3.5" />
+        <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
+      </>
+    ),
     "user-plus": (
       <>
         <circle cx="10" cy="8" r="3.5" />
@@ -1259,8 +1267,24 @@ function HostApproversGroup({
   );
 }
 
-function LoginDialog({ onJoin }: { onJoin: (username: string) => void }) {
+function LoginDialog({
+  reduceMotion,
+  onJoin,
+}: {
+  reduceMotion: boolean;
+  onJoin: (username: string) => void;
+}) {
   const [username, setUsername] = useState(localStorage.getItem(storedUsernameKey) ?? "");
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus({ preventScroll: true });
+    // 记住的名字整段选中，直接回车进入，想换名字也能直接打
+    input.select();
+  }, []);
   return (
     <div className="login-shell">
       <main className="login-card">
@@ -1276,44 +1300,85 @@ function LoginDialog({ onJoin }: { onJoin: (username: string) => void }) {
             </h1>
             <p>{t("把消息、协作者与本地 Agent 放进一个实时工作区，所有人都看见同一份上下文。")}</p>
           </div>
-          <div className="signal-map" aria-hidden="true">
-            <span className="signal-node human">RD</span>
-            <span className="signal-node agent">AI</span>
-            <span className="signal-node agent secondary">AI</span>
-            <p>{t("3 位协作者 · 同一条实时对话")}</p>
-          </div>
+          <LoginShowcase still={reduceMotion} />
+          <ul className="login-points" aria-label={t("SuperHive 能做什么")}>
+            <li>
+              <Icon name="at" size={15} />
+              <span>{t("@ 一下，Agent 就接活")}</span>
+            </li>
+            <li>
+              <Icon name="activity" size={15} />
+              <span>{t("进度、提问、交付都在对话里")}</span>
+            </li>
+            <li>
+              <Icon name="files" size={15} />
+              <span>{t("交付附带文件和提交")}</span>
+            </li>
+          </ul>
         </section>
 
         <section className="login-form-panel">
-          <div className="login-form-heading">
-            <h2>{t("进入 SuperHive")}</h2>
-            <p className="login-copy">{t("选择一个在当前房间中可识别的名字。")}</p>
+          <div className="login-form-body">
+            <div className="login-form-heading">
+              <h2>{t("进入 SuperHive")}</h2>
+              <p className="login-copy">{t("选择一个在当前房间中可识别的名字。")}</p>
+            </div>
+            <form
+              noValidate
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (busy) return;
+                const input = inputRef.current;
+                const clean = username.trim();
+                if (!clean) {
+                  setError(t("先输入一个名字。"));
+                  input?.focus();
+                  return;
+                }
+                if (input?.validity.patternMismatch) {
+                  setError(t("只能用中英文、数字、点、下划线与连字符。"));
+                  input.focus();
+                  return;
+                }
+                setBusy(true);
+                onJoin(clean);
+              }}
+            >
+              <label htmlFor="username">{t("你的用户名")}</label>
+              <div className={`login-field ${error ? "invalid" : ""}`}>
+                <Icon name="user" size={17} />
+                <input
+                  ref={inputRef}
+                  id="username"
+                  name="username"
+                  value={username}
+                  onChange={(event) => {
+                    setUsername(event.target.value);
+                    setError(undefined);
+                  }}
+                  maxLength={32}
+                  pattern="[A-Za-z0-9_.\-\u4e00-\u9fff]+"
+                  placeholder={t("例如 rongding…")}
+                  autoComplete="username"
+                  spellCheck={false}
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby="username-hint"
+                />
+              </div>
+              <p
+                id="username-hint"
+                className={`fine-print ${error ? "error" : ""}`}
+                role={error ? "alert" : undefined}
+              >
+                {error ?? t("支持中英文、数字、点、下划线与连字符。")}
+              </p>
+              <button type="submit" disabled={busy} aria-busy={busy || undefined}>
+                {busy && <span className="login-spinner" aria-hidden="true" />}
+                <span>{busy ? t("正在进入…") : t("进入聊天室")}</span>
+                {!busy && <Icon name="arrow-right" />}
+              </button>
+            </form>
           </div>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              const clean = username.trim();
-              if (clean) onJoin(clean);
-            }}
-          >
-            <label htmlFor="username">{t("你的用户名")}</label>
-            <input
-              id="username"
-              name="username"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              maxLength={32}
-              pattern="[A-Za-z0-9_.\-\u4e00-\u9fff]+"
-              placeholder={t("例如 rongding…")}
-              autoComplete="username"
-              spellCheck={false}
-            />
-            <button type="submit">
-              <span>{t("进入聊天室")}</span>
-              <Icon name="arrow-right" />
-            </button>
-          </form>
-          <p className="fine-print">{t("支持中英文、数字、点、下划线与连字符。")}</p>
           <div className="login-trust">
             <Icon name="shield" size={16} />
             <span>{t("仅在局域网内共享，Agent 权限留在本机。")}</span>
@@ -3225,6 +3290,7 @@ export function App({
   if (!username) {
     return (
       <LoginDialog
+        reduceMotion={reduceMotion}
         onJoin={(nextUsername) => {
           localStorage.setItem(storedUsernameKey, nextUsername);
           setUsername(nextUsername);

@@ -702,6 +702,7 @@
 
 .access-retry,
 .access-owner-link {
+  align-self: flex-start;
   justify-self: start;
   margin-top: 12px;
   border: 0;

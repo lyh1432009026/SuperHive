@@ -1142,6 +1142,31 @@ describe("App mention autocomplete", () => {
     expect(screen.getByText("进入 SuperHive")).toBeTruthy();
   });
 
+  it("focuses the username field and explains invalid names inline before joining", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const input = screen.getByLabelText<HTMLInputElement>("你的用户名");
+    expect(document.activeElement).toBe(input);
+    // 左栏的演示房间是装饰，读屏跳过
+    expect(document.querySelector(".showcase")?.getAttribute("aria-hidden")).toBe("true");
+
+    await user.click(screen.getByRole("button", { name: /进入聊天室/ }));
+    expect(screen.getByRole("alert").textContent).toBe("先输入一个名字。");
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+
+    await user.type(input, "rong ding!");
+    expect(screen.queryByRole("alert")).toBeNull();
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("alert").textContent).toBe("只能用中英文、数字、点、下划线与连字符。");
+    expect(FakeWebSocket.instances).toHaveLength(0);
+
+    await user.clear(input);
+    await user.type(input, "荣顶{Enter}");
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    expect(localStorage.getItem("superhive.username")).toBe("荣顶");
+  });
+
   it("shows the workspace's git branch under the room name and keeps it updated", async () => {
     localStorage.setItem("superhive.username", "Alice");
     render(<App />);
