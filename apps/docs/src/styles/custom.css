@@ -98,35 +98,61 @@ html {
   font-size: 0.92rem;
 }
 
+.pagination-links {
+  gap: 0.75rem;
+}
+
+.pagination-links > a {
+  padding: 0.75rem 1rem;
+  font-size: var(--sl-text-sm);
+  line-height: 1.5;
+  box-shadow: none;
+}
+
+.pagination-links .link-title {
+  font-size: var(--sl-text-base);
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.pagination-links svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
 .workroom-hero {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  align-items: center;
-  gap: 3rem;
-  padding-block: 2.5rem 3.5rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.5rem;
+  padding-block: 1rem 2rem;
+}
+
+.workroom-copy {
+  text-align: center;
 }
 
 .workroom-eyebrow {
-  color: var(--sl-color-text-accent);
+  color: var(--sl-color-gray-2);
   font-size: 0.82rem;
   font-weight: 600;
   letter-spacing: 0.06em;
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.65rem;
 }
 
 .workroom-copy h1 {
   color: var(--sl-color-white);
-  font-size: clamp(2rem, 3.2vw, 3.2rem);
+  font-size: clamp(1.5rem, 3vw, 2.6rem);
   font-weight: 650;
-  line-height: 1.45;
+  line-height: 1.25;
   letter-spacing: -0.055em;
+  text-wrap: balance;
 }
 
 .workroom-intro {
-  margin-top: 1.4rem;
+  margin-top: 0.65rem;
   color: var(--sl-color-gray-2);
-  font-size: 1.05rem;
-  line-height: 1.9;
+  font-size: 0.95rem;
+  line-height: 1.65;
 }
 
 .workroom-actions {
@@ -134,14 +160,15 @@ html {
   flex-wrap: wrap;
   gap: 0.75rem 1.4rem;
   align-items: center;
-  margin-top: 1.8rem;
+  justify-content: center;
+  margin-top: 1rem;
 }
 
 .workroom-primary {
   display: inline-flex;
   align-items: center;
   gap: 2rem;
-  padding: 0.65rem 1.3rem;
+  padding: 0.5rem 1.1rem;
   color: var(--docs-button-text);
   background: var(--docs-button-bg);
   border-radius: 0.6rem;
@@ -154,21 +181,19 @@ html {
 }
 
 .workroom-secondary {
-  color: var(--sl-color-text-accent);
+  color: var(--sl-color-gray-2);
   text-underline-offset: 0.3em;
   font-size: 0.94rem;
 }
 
-.workroom-footnote {
-  margin-top: 1.1rem;
-  color: var(--sl-color-gray-3);
-  font-size: 0.8rem;
+.workroom-secondary:hover {
+  color: var(--sl-color-white);
 }
 
-.workroom-hero > img {
-  width: 100%;
-  height: auto;
-  border-radius: 1.1rem;
+.workroom-footnote {
+  margin-top: 0.6rem;
+  color: var(--sl-color-gray-3);
+  font-size: 0.8rem;
 }
 
 .workroom-pathways {
@@ -196,13 +221,14 @@ html {
 }
 
 .workroom-pathway:hover {
-  border-color: var(--sl-color-accent);
+  border-color: var(--sl-color-gray-4);
   background: var(--sl-color-bg-sidebar);
 }
 
 .workroom-pathway-label {
-  color: var(--sl-color-text-accent);
+  color: var(--sl-color-gray-2);
   font-size: 0.78rem;
+  font-weight: 600;
 }
 
 .workroom-pathway strong {
@@ -215,7 +241,7 @@ html {
   position: absolute;
   top: 1.3rem;
   right: 1.3rem;
-  color: var(--sl-color-text-accent);
+  color: var(--sl-color-gray-3);
 }
 
 :focus-visible {
@@ -231,25 +257,9 @@ html {
   outline: 1px solid var(--docs-focus-ring);
 }
 
-@media (max-width: 55rem) {
-  .workroom-hero {
-    grid-template-columns: 1fr;
-    gap: 2rem;
-    padding-block: 1rem 2rem;
-  }
-
-  .workroom-hero > img {
-    max-width: 38rem;
-  }
-}
-
 @media (max-width: 35rem) {
   .workroom-pathways {
     grid-template-columns: 1fr;
-  }
-
-  .workroom-copy h1 {
-    font-size: 2rem;
   }
 }
 

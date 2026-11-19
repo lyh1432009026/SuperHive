@@ -27,6 +27,14 @@ description: 了解 SuperHive monorepo 的协议、网页、服务端、Agent Br
 
 文档应用与网页应用不能混为一谈。`pnpm docs:build` 只构建文档；CLI 的分发构建仍使用 `apps/web` 的业务网页，不需要打包文档才能运行 Hive。
 
+## 在页面上交给 Agent 修改
+
+业务网页的 `pnpm dev` 和文档站的 `pnpm docs:dev` 都接入了 `ai-ins`。文档使用原生 `@ai-ins/astro` 集成，支持 `.astro` 模板源码定位，不是生产功能。
+
+按住 macOS `Option` 或 Windows/Linux `Alt` 点选元素，在面板中写下需求，再确认发送给本机的 Agent CLI。前提是本机已经安装并登录对应 CLI；发送会启动实际 Agent，可能修改当前文档工作区文件，不是仅留下留言。
+
+建议从[独立任务工作区](/guides/worktrees/)运行文档 dev。页面组件可定位到 `.astro` 源文件；Markdown 正文元素不一定有逐行定位，修改正文时同时明确文章路径与小节。正式构建和生产预览不加载该面板，也不暴露开发接口。
+
 ## 从源码开发
 
 需要 Node.js 22.12+ 和 pnpm 10。仓库根目录运行：

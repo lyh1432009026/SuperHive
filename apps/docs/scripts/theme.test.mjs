@@ -60,6 +60,19 @@ test("primary actions, navigation and keyboard focus use semantic theme colors",
   );
 });
 
+test("homepage accents use neutral theme colors without changing documentation links", () => {
+  for (const selector of [".workroom-eyebrow", ".workroom-secondary", ".workroom-pathway-label"]) {
+    assert.ok(declarations(selector).includes("color: var(--sl-color-gray-2)"), selector);
+  }
+  assert.ok(declarations(".workroom-pathway-label").includes("font-weight: 600"));
+  assert.ok(declarations(".workroom-pathway-arrow").includes("color: var(--sl-color-gray-3)"));
+  assert.ok(
+    declarations(".workroom-pathway:hover").includes("border-color: var(--sl-color-gray-4)"),
+  );
+  assert.ok(declarations(".workroom-secondary:hover").includes("color: var(--sl-color-white)"));
+  assert.doesNotMatch(styles, /--sl-color-text-accent\s*:/);
+});
+
 test("branding and illustrations no longer contain the retired teal palette", () => {
   function illustrations(directory) {
     return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {

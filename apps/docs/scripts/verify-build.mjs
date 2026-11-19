@@ -24,11 +24,16 @@ function check(condition, message) {
 }
 
 for (const filepath of walk(output).filter((file) => file.endsWith(".html"))) {
+  const html = readFileSync(filepath, "utf8");
+  check(
+    !/data-ai-ins-source|ai-ins\/client|\/__ai-ins-agent|\/__ai-ins-config/.test(html),
+    `${relative(output, filepath)}: AI Ins development tooling leaked into production HTML`,
+  );
   const relativePath = relative(output, filepath).replaceAll("\\", "/");
   const route = relativePath === "index.html" ? "" : relativePath.replace(/index\.html$/, "");
   documents.set(new URL(withBase(route, base), site).href, {
     filepath,
-    dom: load(readFileSync(filepath)),
+    dom: load(html),
   });
 }
 
@@ -165,6 +170,15 @@ for (const [url, { filepath }] of documents) {
   if (!filepath.endsWith("404.html")) check(sitemapUrls.includes(url), `Sitemap missing ${url}`);
 }
 check(!sitemapUrls.some((url) => url.includes("404")), "404 must not appear in sitemap");
+
+for (const filepath of walk(output).filter((file) => /\.(?:js|mjs|css)$/.test(file))) {
+  check(
+    !/data-ai-ins-source|ai-ins\/client|\/__ai-ins-agent|\/__ai-ins-config/.test(
+      readFileSync(filepath, "utf8"),
+    ),
+    `${relative(output, filepath)}: AI Ins development tooling leaked into production assets`,
+  );
+}
 
 if (errors.length) {
   console.error(errors.join("\n"));

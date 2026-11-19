@@ -23,6 +23,10 @@ pnpm docs:dev
 
 默认地址 `http://localhost:4321`，如有冲突以终端为准。Pagefind 搜索索引需要先构建，开发模式只用于编辑；要验证真实搜索，使用下面的生产预览。
 
+文档开发模式接入 `@ai-ins/astro`：按住 macOS `Option` 或 Windows/Linux `Alt` 点选元素，可把页面需求和源码位置交给本机 Agent CLI。启动前准备好相应 CLI 与登录状态；发送需求会实际启动本机 Agent 并可能修改文件，只有确认后才提交。面板只在 `astro dev` 启用，正式构建与生产预览不注入客户端、源码定位标记或开发接口。
+
+`ai-ins` 以正在运行的文档应用目录为工作区。隔离修改时，从自己的 worktree 启动文档 dev，避免让 Agent 直接改承载 Hive 服务的主目录；`.ai-ins` 本地会话目录已在根 `.gitignore` 排除。
+
 根工具依赖尚未构建的业务 CLI 时，安装可能提示缺少 `hive` binary；这不影响文档构建，不必为此启动或构建整个 Hive。锁文件保持 pnpm 原生格式，用冻结安装验证，不交给 Prettier 重排。
 
 ```bash

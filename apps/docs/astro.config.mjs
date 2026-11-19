@@ -1,5 +1,6 @@
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import aiIns from "@ai-ins/astro";
 import { getSiteConfig, prefixContentUrls } from "./scripts/site-config.mjs";
 import { navigation } from "./scripts/navigation.mjs";
 
@@ -12,6 +13,7 @@ export default defineConfig({
   trailingSlash: "always",
   markdown: { rehypePlugins: [prefixContentUrls(base)] },
   integrations: [
+    aiIns(),
     starlight({
       title: "SuperHive 文档",
       description: "自部署多人、多 Agent 协作空间的入门、日常使用与部署指南。",
@@ -23,6 +25,7 @@ export default defineConfig({
         Head: "./src/components/Head.astro",
         Hero: "./src/components/Hero.astro",
         SiteTitle: "./src/components/SiteTitle.astro",
+        ThemeSelect: "./src/components/ThemeSelect.astro",
       },
       sidebar: navigation,
       tableOfContents: { minHeadingLevel: 2, maxHeadingLevel: 3 },

@@ -48,6 +48,9 @@ importers:
         specifier: ^5.18.2
         version: 5.18.2(@types/node@24.13.3)(lightningcss@1.33.0)(rollup@4.62.2)(tsx@4.23.1)(typescript@5.9.3)(yaml@2.9.1)
     devDependencies:
+      '@ai-ins/astro':
+        specifier: ^1.0.8
+        version: 1.0.8(astro@5.18.2(@types/node@24.13.3)(lightningcss@1.33.0)(rollup@4.62.2)(tsx@4.23.1)(typescript@5.9.3)(yaml@2.9.1))(vite@8.3.5(@types/node@24.13.3)(esbuild@0.28.1)(tsx@4.23.1)(yaml@2.9.1))
       '@astrojs/check':
         specifier: ^0.9.5
         version: 0.9.12(prettier-plugin-astro@0.14.1)(prettier@3.9.5)(typescript@5.9.3)
@@ -318,6 +321,11 @@ importers:
         version: 3.2.7(@types/debug@4.1.13)(@types/node@24.13.3)(jsdom@26.1.0)(lightningcss@1.33.0)(tsx@4.23.1)(yaml@2.9.1)
 
 packages:
+
+  '@ai-ins/astro@1.0.8':
+    resolution: {integrity: sha512-qRTLXLHUyu3HWUCdgXA58M2wI/UYo5izjEnl1ps6si8jwhz9SdWbiwUUu1J5Z1SLJFX0iSs0RmzQR+q4L3N5QA==}
+    peerDependencies:
+      astro: ^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0
 
   '@ai-ins/core@1.0.8':
     resolution: {integrity: sha512-OaRrf0VOxVAtZcGdu2oP5esL+L9bBIG0Az9wfmfvEQedbKgmkJ7ML0LuUVQXKHBlhSJhhBg2h2kizDMyifATDw==}
@@ -5245,6 +5253,17 @@ packages:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
+
+  '@ai-ins/astro@1.0.8(astro@5.18.2(@types/node@24.13.3)(lightningcss@1.33.0)(rollup@4.62.2)(tsx@4.23.1)(typescript@5.9.3)(yaml@2.9.1))(vite@8.3.5(@types/node@24.13.3)(esbuild@0.28.1)(tsx@4.23.1)(yaml@2.9.1))':
+    dependencies:
+      '@ai-ins/core': 1.0.8
+      '@ai-ins/vite': 1.0.8(@typescript-eslint/types@8.64.0)(vite@8.3.5(@types/node@24.13.3)(esbuild@0.28.1)(tsx@4.23.1)(yaml@2.9.1))
+      '@astrojs/compiler': 2.13.1
+      astro: 5.18.2(@types/node@24.13.3)(lightningcss@1.33.0)(rollup@4.62.2)(tsx@4.23.1)(typescript@5.9.3)(yaml@2.9.1)
+    transitivePeerDependencies:
+      - '@typescript-eslint/types'
+      - supports-color
+      - vite
 
   '@ai-ins/core@1.0.8': {}
 

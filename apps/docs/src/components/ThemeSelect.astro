@@ -1,0 +1,315 @@
+---
+import DefaultThemeSelect from "@astrojs/starlight/components/ThemeSelect.astro";
+import { Icon } from "@astrojs/starlight/components";
+
+const label = Astro.locals.t("themeSelect.accessibleLabel");
+const menuId = `theme-menu-${crypto.randomUUID()}`;
+const options = [
+  { value: "light", icon: "sun", label: Astro.locals.t("themeSelect.light") },
+  { value: "dark", icon: "moon", label: Astro.locals.t("themeSelect.dark") },
+  { value: "auto", icon: "laptop", label: Astro.locals.t("themeSelect.auto") },
+] as const;
+---
+
+<hive-theme-select data-label={label}>
+  <DefaultThemeSelect />
+  <button
+    class="theme-trigger"
+    type="button"
+    aria-label={label}
+    aria-haspopup="menu"
+    aria-expanded="false"
+    aria-controls={menuId}
+    hidden
+  >
+    <Icon name="laptop" class="theme-trigger-icon" />
+    <span class="theme-trigger-label">{Astro.locals.t("themeSelect.auto")}</span>
+    <Icon name="down-caret" class="theme-caret" />
+  </button>
+  <div class="theme-menu" id={menuId} role="menu" aria-label={label} hidden>
+    <span class="theme-menu-heading" aria-hidden="true">外观</span>
+    {
+      options.map((option) => (
+        <button
+          class="theme-option"
+          type="button"
+          role="menuitemradio"
+          aria-checked={option.value === "auto" ? "true" : "false"}
+          data-theme={option.value}
+          data-label={option.label}
+          tabindex="-1"
+        >
+          <Icon name={option.icon} class="theme-option-icon" />
+          <span>{option.value === "auto" ? "跟随系统" : option.label}</span>
+          <Icon name="approve-check" class="theme-check" />
+        </button>
+      ))
+    }
+  </div>
+</hive-theme-select>
+
+<script>
+  class HiveThemeSelect extends HTMLElement {
+    private controller?: AbortController;
+
+    connectedCallback() {
+      this.controller?.abort();
+      this.controller = new AbortController();
+      const { signal } = this.controller;
+      const select = this.querySelector("select");
+      const trigger = this.querySelector<HTMLButtonElement>(".theme-trigger");
+      const menu = this.querySelector<HTMLElement>(".theme-menu");
+      const options = [...this.querySelectorAll<HTMLButtonElement>(".theme-option")];
+      if (!select || !trigger || !menu) return;
+
+      const sync = () => {
+        const selected = options.find((option) => option.dataset.theme === select.value);
+        if (!selected) return;
+        options.forEach((option) => {
+          option.setAttribute("aria-checked", String(option === selected));
+        });
+        this.querySelector(".theme-trigger-label")!.textContent = selected.dataset.label!;
+        trigger.setAttribute("aria-label", `${this.dataset.label}: ${selected.dataset.label}`);
+        const icon = selected.querySelector("svg")!;
+        this.querySelector(".theme-trigger-icon")!.replaceChildren(
+          ...icon.cloneNode(true).childNodes,
+        );
+      };
+
+      const close = (restoreFocus = false) => {
+        menu.hidden = true;
+        trigger.setAttribute("aria-expanded", "false");
+        if (restoreFocus) trigger.focus();
+      };
+
+      const open = (
+        option = options.find((item) => item.getAttribute("aria-checked") === "true"),
+      ) => {
+        menu.hidden = false;
+        trigger.setAttribute("aria-expanded", "true");
+        option?.focus();
+      };
+
+      trigger.addEventListener("click", () => (menu.hidden ? open() : close()), { signal });
+      trigger.addEventListener(
+        "keydown",
+        (event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            open(event.key === "ArrowDown" ? options[0] : options.at(-1));
+          }
+        },
+        { signal },
+      );
+
+      options.forEach((option) => {
+        option.addEventListener(
+          "click",
+          () => {
+            select.value = option.dataset.theme!;
+            select.dispatchEvent(new Event("change", { bubbles: true }));
+            document.querySelectorAll("hive-theme-select select").forEach((picker) => {
+              picker.dispatchEvent(new Event("hive-theme-sync"));
+            });
+            close(true);
+          },
+          { signal },
+        );
+      });
+
+      menu.addEventListener(
+        "keydown",
+        (event) => {
+          const index = options.indexOf(document.activeElement as HTMLButtonElement);
+          let next: number;
+          switch (event.key) {
+            case "ArrowDown":
+              next = (index + 1) % options.length;
+              break;
+            case "ArrowUp":
+              next = (index - 1 + options.length) % options.length;
+              break;
+            case "Home":
+              next = 0;
+              break;
+            case "End":
+              next = options.length - 1;
+              break;
+            default:
+              return;
+          }
+          event.preventDefault();
+          options[next]?.focus();
+        },
+        { signal },
+      );
+
+      this.addEventListener(
+        "keydown",
+        (event) => {
+          if (event.key === "Escape" && !menu.hidden) {
+            event.preventDefault();
+            event.stopPropagation();
+            close(true);
+          }
+        },
+        { signal },
+      );
+      this.addEventListener(
+        "focusout",
+        (event) => {
+          if (!(event.relatedTarget instanceof Node) || !this.contains(event.relatedTarget))
+            close();
+        },
+        { signal },
+      );
+      document.addEventListener(
+        "pointerdown",
+        (event) => {
+          if (event.target instanceof Node && !this.contains(event.target)) close();
+        },
+        { signal },
+      );
+      select.addEventListener("change", sync, { signal });
+      select.addEventListener("hive-theme-sync", sync, { signal });
+      customElements.whenDefined("starlight-theme-select").then(() => {
+        if (signal.aborted) return;
+        sync();
+        this.dataset.enhanced = "";
+        trigger.hidden = false;
+      });
+    }
+
+    disconnectedCallback() {
+      this.controller?.abort();
+    }
+  }
+
+  if (!customElements.get("hive-theme-select")) {
+    customElements.define("hive-theme-select", HiveThemeSelect);
+  }
+</script>
+
+<style>
+  hive-theme-select {
+    position: relative;
+    display: inline-block;
+  }
+
+  hive-theme-select[data-enhanced] :global(starlight-theme-select),
+  .theme-trigger[hidden],
+  .theme-menu[hidden] {
+    display: none;
+  }
+
+  .theme-trigger,
+  .theme-option {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    border: 0;
+    color: var(--sl-color-gray-1);
+    background: transparent;
+    font: inherit;
+    font-size: var(--sl-text-sm);
+    line-height: 1.5;
+    cursor: pointer;
+  }
+
+  .theme-trigger {
+    min-height: 2.25rem;
+    padding: 0.375rem 0.625rem;
+    border: 1px solid transparent;
+    border-radius: 0.625rem;
+    transition:
+      background 150ms,
+      border-color 150ms;
+  }
+
+  .theme-trigger:hover,
+  .theme-trigger[aria-expanded="true"] {
+    border-color: var(--sl-color-gray-5);
+    background: var(--sl-color-gray-6);
+  }
+
+  .theme-trigger:focus-visible,
+  .theme-option:focus-visible {
+    outline: 2px solid var(--docs-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .theme-trigger-icon,
+  .theme-option-icon {
+    color: var(--sl-color-gray-2);
+    flex-shrink: 0;
+  }
+
+  .theme-caret {
+    margin-inline-start: 0.25rem;
+    color: var(--sl-color-gray-3);
+    transition: transform 150ms;
+  }
+
+  .theme-trigger[aria-expanded="true"] .theme-caret {
+    transform: rotate(180deg);
+  }
+
+  .theme-menu {
+    position: absolute;
+    inset-block-start: calc(100% + 0.5rem);
+    inset-inline-end: 0;
+    z-index: 10;
+    width: 12rem;
+    max-width: calc(100vw - 2rem);
+    padding: 0.375rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.875rem;
+    background: var(--sl-color-bg-nav);
+    box-shadow:
+      0 12px 32px rgb(0 0 0 / 0.14),
+      0 2px 6px rgb(0 0 0 / 0.06);
+  }
+
+  .theme-menu-heading {
+    display: block;
+    padding: 0.375rem 0.625rem;
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+    font-weight: 500;
+  }
+
+  .theme-option {
+    width: 100%;
+    min-height: 2.5rem;
+    padding: 0.5rem 0.625rem;
+    border-radius: 0.5rem;
+    text-align: start;
+  }
+
+  .theme-option:hover,
+  .theme-option:focus-visible,
+  .theme-option[aria-checked="true"] {
+    background: var(--sl-color-gray-6);
+  }
+
+  .theme-check {
+    margin-inline-start: auto;
+    visibility: hidden;
+  }
+
+  .theme-option[aria-checked="true"] .theme-check {
+    visibility: visible;
+  }
+
+  :global(.mobile-preferences) .theme-menu {
+    inset-block-start: auto;
+    inset-block-end: calc(100% + 0.5rem);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .theme-trigger,
+    .theme-caret {
+      transition: none;
+    }
+  }
+</style>

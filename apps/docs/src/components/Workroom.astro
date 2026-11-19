@@ -1,0 +1,894 @@
+---
+import HiveMark from "../assets/hive-mark.svg";
+import { getSiteConfig, withBase } from "../../scripts/site-config.mjs";
+
+const { base } = getSiteConfig();
+const agentIcons: Record<string, string> = {
+  Claude: "M12 2v20M2 12h20M5 5l14 14M5 19 19 5",
+  Codex: "m8 6-6 6 6 6m8-12 6 6-6 6M14 3l-4 18",
+  OpenClaw: "M9 11 5 7V3L2 6l3 5h4m6 0 4-4V3l3 3-3 5h-4M9 11v6l3 4 3-4v-6M8 15H4m12 0h4M8 18l-3 3m11-3 3 3",
+  omp: "M3 4h18v16H3V4Zm4 4 3 4-3 4m6 0h4",
+  OpenCode: "M3 4h8v16H3V4Zm10 0h8v16h-8V4ZM7 8v8m10-8v8",
+};
+const collaborators = [
+  { name: "你", kind: "you" },
+  { name: "Claude", kind: "agent" },
+  { name: "Codex", kind: "agent" },
+  { name: "omp", kind: "agent" },
+  { name: "OpenCode", kind: "agent" },
+  { name: "张三", kind: "human" },
+  { name: "李四", kind: "human" },
+];
+const collaboratorPorts = [100, 262.5, 387.5, 512.5, 637.5, 812.5, 937.5];
+const incomingPaths = collaboratorPorts.map((port, index) => {
+  const roomPort = 320 + index * (360 / (collaboratorPorts.length - 1));
+  return `M${port} 0C${port} 68 ${roomPort} 42 ${roomPort} 112`;
+});
+const outgoingPaths = [
+  "M500 0v14q0 12-12 12H178q-12 0-12 12v26",
+  "M500 0v64",
+  "M500 0v14q0 12 12 12h310q12 0 12 12v26",
+];
+const workspaces = [
+  {
+    owner: "你",
+    initials: "你",
+    role: "把握目标与最终决定",
+    isYou: true,
+    agents: [
+      { name: "Claude", task: "拆解需求 · 统筹分工" },
+      { name: "Codex", task: "编码实现 · 验证结果" },
+    ],
+  },
+  {
+    owner: "张三",
+    initials: "张",
+    role: "一起分析与创作",
+    isYou: false,
+    agents: [
+      { name: "OpenClaw", task: "调研分析 · 内容写作" },
+      { name: "OpenCode", task: "整理资料 · 辅助实现" },
+    ],
+  },
+  {
+    owner: "李四",
+    initials: "李",
+    role: "一起实现与交付",
+    isYou: false,
+    agents: [
+      { name: "Codex", task: "并行开发 · 运行验证" },
+      { name: "omp", task: "复核方案 · 汇总成果" },
+    ],
+  },
+];
+---
+
+<figure class="workroom-model" aria-label="你、Claude、Codex、omp、OpenCode 与团队成员协作示意">
+  <div class="workroom-canvas">
+    <div class="workroom-model-heading">
+      <span>人和 Agent，都是协作者</span>
+      <span class="workroom-model-note">协作模型 · 非实时状态</span>
+    </div>
+
+    <div class="workroom-flow-legend">
+      <span><span class="workroom-legend-forward" aria-hidden="true">↓</span>发出任务</span>
+      <span><span class="workroom-legend-return" aria-hidden="true">↑</span>交回成果</span>
+      <span class="workroom-scroll-hint">左右滑动查看协作者 <span aria-hidden="true">↔</span></span>
+    </div>
+    <div class="workroom-roster-scroll" role="region" aria-label="全部协作者，窄屏可横向滚动查看" tabindex="0">
+      <div class="workroom-roster">
+        <div class="workroom-collaborators">
+          {collaborators.map((collaborator) => (
+            <>
+              <div class:list={["workroom-entry", `workroom-entry-${collaborator.kind}`]}>
+                <span class="workroom-entry-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    {collaborator.kind === "agent" ? (
+                      <path d={agentIcons[collaborator.name]} />
+                    ) : (
+                      <><circle cx="12" cy="8" r="3.5" /><path d="M5 21v-2a7 7 0 0 1 14 0v2" /></>
+                    )}
+                  </svg>
+                </span>
+                <strong>{collaborator.name}</strong>
+                {collaborator.kind === "you" && (
+                  <div class="workroom-channels" aria-label="你的消息入口">
+                    <span>Web</span>
+                    <span>飞书</span>
+                    <span title="个人微信：仅本人私聊文字，接入前需确认账号风险">微信</span>
+                  </div>
+                )}
+              </div>
+              {collaborator.name === "OpenCode" && (
+                <span class="workroom-more" aria-label="还有更多 Agent">···</span>
+              )}
+            </>
+          ))}
+        </div>
+        <div class="workroom-roster-bus" aria-hidden="true"></div>
+        <div class="workroom-route workroom-route-incoming" aria-hidden="true">
+          <svg viewBox="0 0 1000 112" preserveAspectRatio="none">
+            {incomingPaths.map((path, index) => (
+              <g style={`--flow-delay: ${index * -0.65}s`}>
+                <circle class="workroom-port" cx={collaboratorPorts[index]} cy="0" r="3" />
+                <path class="workroom-wire" d={path} />
+                <path class="workroom-flow workroom-flow-glow" d={path} pathLength="100" />
+                <path class="workroom-flow" d={path} pathLength="100" />
+                <path class="workroom-flow workroom-flow-return" d={path} pathLength="100" />
+                <circle class="workroom-port" cx={320 + index * (360 / (collaboratorPorts.length - 1))} cy="112" r="3" />
+              </g>
+            ))}
+          </svg>
+        </div>
+      </div>
+    </div>
+    <div class="workroom-route workroom-route-bridge" aria-hidden="true">
+      <svg viewBox="0 0 1000 64" preserveAspectRatio="none">
+        <path class="workroom-wire" d="M500 0v64" />
+        <path class="workroom-flow" d="M500 0v64" pathLength="100" />
+        <path class="workroom-flow workroom-flow-return" d="M500 0v64" pathLength="100" />
+      </svg>
+    </div>
+
+    <div class="workroom-shared">
+      <div class="workroom-room-heading">
+        <HiveMark width={36} height={36} aria-hidden="true" />
+        <div>
+          <h2>同一间 SuperHive 房间</h2>
+          <p>公共消息 · 协作白板 · 可见的任务状态</p>
+        </div>
+        <span class="workroom-room-label"><span class="workroom-activity" aria-hidden="true"></span>一起协作</span>
+      </div>
+      <div class="workroom-board">
+        <div>
+          <span class="workroom-board-icon" aria-hidden="true">↗</span>
+          <div><strong>讨论与分工</strong><span>对齐目标，认领各自任务</span></div>
+        </div>
+        <div>
+          <span class="workroom-board-icon" aria-hidden="true">⇄</span>
+          <div><strong>任务与审批</strong><span>并行推进，关键决定问你</span></div>
+        </div>
+        <div>
+          <span class="workroom-board-icon" aria-hidden="true">✓</span>
+          <div><strong>成果与回执</strong><span>共享产出，交回验证依据</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="workroom-route workroom-route-output" aria-hidden="true">
+      <svg class="workroom-route-wide" viewBox="0 0 1000 64" preserveAspectRatio="none">
+        {outgoingPaths.map((path, index) => (
+          <g style={`--flow-delay: ${index * -0.7 - 0.4}s`}>
+            <path class="workroom-wire" d={path} />
+            <path class="workroom-flow workroom-flow-glow" d={path} pathLength="100" />
+            <path class="workroom-flow" d={path} pathLength="100" />
+            <path class="workroom-flow workroom-flow-return" d={path} pathLength="100" />
+          </g>
+        ))}
+      </svg>
+      <svg class="workroom-route-narrow" viewBox="0 0 1000 64" preserveAspectRatio="none">
+        <path class="workroom-wire" d="M500 0v14q0 12-12 12H12Q0 26 0 38v26" />
+        <path class="workroom-flow" d="M500 0v14q0 12-12 12H12Q0 26 0 38v26" pathLength="100" />
+        <path class="workroom-flow workroom-flow-return" d="M500 0v14q0 12-12 12H12Q0 26 0 38v26" pathLength="100" />
+      </svg>
+    </div>
+
+    <div class="workroom-team" role="group" aria-label="每个人与自己的 Agent 在独立工作区协作">
+      {workspaces.map((workspace, workspaceIndex) => (
+        <div class:list={["workroom-workspace", { "workroom-workspace-you": workspace.isYou }]}>
+          <div class="workroom-owner">
+            <span class="workroom-avatar" aria-hidden="true">{workspace.initials}</span>
+            <div><h3>{workspace.owner}</h3><p>{workspace.role}</p></div>
+            <span class="workroom-local-label">本机</span>
+          </div>
+          <p class="workroom-agent-label">{workspace.isYou ? "你的 Agent" : "TA 的 Agent"}</p>
+          <ul class="workroom-agents">
+            {workspace.agents.map((agent, agentIndex) => (
+              <li style={`--agent-delay: ${workspaceIndex * -0.6 - agentIndex * 0.3}s`}>
+                <svg class="workroom-agent-symbol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d={agentIcons[agent.name]} />
+                </svg>
+                <div><strong>{agent.name}</strong><span>{agent.task}</span></div>
+                <span class="workroom-typing" aria-hidden="true"><span></span><span></span><span></span></span>
+              </li>
+            ))}
+          </ul>
+          <div class="workroom-local">独立目录 · 独立权限 · 独立会话</div>
+        </div>
+      ))}
+    </div>
+
+    <p class="workroom-boundary">消息与成果一起流转，权限与会话留在各自本机。</p>
+  </div>
+  <figcaption>
+    <span>人员与分工为示意，Agent 仍在接入的设备上执行。</span>
+    <a href={withBase("guides/im/", base)}>了解 IM 接入与风险 <span aria-hidden="true">→</span></a>
+  </figcaption>
+</figure>
+
+<style>
+  .workroom-model {
+    min-width: 0;
+    margin: 0;
+  }
+
+  .workroom-canvas {
+    padding: 1.75rem;
+    border: 1px solid #e8e8e8;
+    border-radius: 1.25rem;
+    background: #f3f3f3;
+    color: #0d0d0d;
+    line-height: 1.5;
+  }
+
+  .workroom-model-heading {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    margin-bottom: 1.5rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .workroom-model-note {
+    color: #5d5d5d;
+    font-size: 0.72rem;
+    font-weight: 400;
+  }
+
+  .workroom-team,
+  .workroom-board {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+  }
+
+  .workroom-flow-legend {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.1rem;
+    margin: -0.75rem 0 1.15rem;
+    color: #5d5d5d;
+    font-size: 0.68rem;
+  }
+
+  .workroom-flow-legend > span {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .workroom-legend-forward {
+    color: #0169cc;
+  }
+
+  .workroom-legend-return {
+    color: #4389ac;
+  }
+
+  .workroom-flow-legend .workroom-scroll-hint {
+    display: none;
+    margin-left: auto;
+    font-size: 0.62rem;
+  }
+
+  .workroom-roster-scroll {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #b4b4b4 transparent;
+  }
+
+  .workroom-roster {
+    min-width: 900px;
+  }
+
+  .workroom-collaborators {
+    display: grid;
+    grid-template-columns: 1.6fr repeat(4, minmax(0, 1fr)) 0.4fr repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+  }
+
+  .workroom-entry {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
+    justify-self: center;
+    width: 6.5rem;
+    max-width: calc(100% - 0.5rem);
+    min-width: 0;
+    aspect-ratio: 1;
+    margin-inline: 0.25rem;
+    padding: 0.5rem 0.35rem;
+    border: 1px solid #e0e0e0;
+    border-radius: 0.8rem;
+    background: #fff;
+    text-align: center;
+  }
+
+  .workroom-entry-you {
+    border-color: #0d0d0d;
+    background: #0d0d0d;
+    color: #fff;
+  }
+
+  .workroom-entry-icon {
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    margin-bottom: 0.4rem;
+    border-radius: 0.65rem;
+    background: #f3f3f3;
+    color: #0d0d0d;
+  }
+
+  .workroom-entry-you .workroom-entry-icon {
+    background: #303030;
+    color: #fff;
+  }
+
+  .workroom-entry-human .workroom-entry-icon {
+    border-radius: 50%;
+  }
+
+  .workroom-entry-icon svg {
+    width: 1.35rem;
+    height: 1.35rem;
+  }
+
+  .workroom-entry strong {
+    font-size: 0.8rem;
+    font-weight: 650;
+  }
+
+  .workroom-channels {
+    display: flex;
+    gap: 0.2rem;
+    margin-top: 0.35rem;
+  }
+
+  .workroom-channels span {
+    padding: 0.12rem 0.2rem;
+    border: 1px solid #5d5d5d;
+    border-radius: 0.25rem;
+    color: #ececec;
+    font-size: 0.6rem;
+    line-height: 1.3;
+  }
+
+  .workroom-more {
+    display: grid;
+    place-items: center;
+    color: #8f8f8f;
+    font-size: 1.1rem;
+    letter-spacing: 0.12em;
+  }
+
+  .workroom-roster-bus {
+    display: none;
+  }
+
+  .workroom-route {
+    height: 4rem;
+  }
+
+  .workroom-route-incoming {
+    height: 7rem;
+  }
+
+  .workroom-route-bridge {
+    display: none;
+  }
+
+  .workroom-route svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    fill: none;
+  }
+
+  .workroom-route .workroom-route-narrow {
+    display: none;
+  }
+
+  .workroom-wire {
+    stroke: #b4b4b4;
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .workroom-port {
+    fill: #8f8f8f;
+    stroke: #f3f3f3;
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .workroom-flow {
+    stroke: #0169cc;
+    stroke-width: 4;
+    stroke-linecap: round;
+    stroke-dasharray: 4 96;
+    stroke-dashoffset: 48;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .workroom-flow-glow {
+    stroke: #48aaff;
+    stroke-width: 9;
+    opacity: 0.18;
+  }
+
+  .workroom-flow-return {
+    stroke: #4389ac;
+    stroke-width: 2.5;
+    stroke-dasharray: 2 98;
+    stroke-dashoffset: 18;
+  }
+
+  .workroom-shared {
+    padding: 1.5rem;
+    border-radius: 0.9rem;
+    background: #0d0d0d;
+    color: #fff;
+  }
+
+  .workroom-room-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+  }
+
+  .workroom-room-heading > svg {
+    flex-shrink: 0;
+  }
+
+  .workroom-room-heading h2 {
+    margin: 0;
+    color: #fff;
+    font-size: clamp(1.05rem, 2vw, 1.4rem);
+    font-weight: 600;
+  }
+
+  .workroom-room-heading p {
+    margin: 0.35rem 0 0;
+    color: #b4b4b4;
+    font-size: 0.78rem;
+  }
+
+  .workroom-room-label {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-left: auto;
+    color: #b4b4b4;
+    font-size: 0.72rem;
+    white-space: nowrap;
+  }
+
+  .workroom-activity {
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 50%;
+    background: #48aaff;
+  }
+
+  .workroom-board {
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+  }
+
+  .workroom-board > div {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.85rem;
+    border: 1px solid #303030;
+    border-radius: 0.55rem;
+    background: #171717;
+  }
+
+  .workroom-board-icon {
+    color: #48aaff;
+    font-size: 1.1rem;
+  }
+
+  .workroom-board strong,
+  .workroom-board div > span {
+    display: block;
+  }
+
+  .workroom-board strong {
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+
+  .workroom-board div > span:not(.workroom-board-icon) {
+    margin-top: 0.2rem;
+    color: #b4b4b4;
+    font-size: 0.68rem;
+  }
+
+  .workroom-workspace {
+    min-width: 0;
+    padding: 1rem;
+    border: 1px solid #e8e8e8;
+    border-radius: 0.8rem;
+    background: #fff;
+  }
+
+  .workroom-workspace-you {
+    border-color: #8f8f8f;
+  }
+
+  .workroom-owner {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+  }
+
+  .workroom-avatar {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 2.1rem;
+    height: 2.1rem;
+    border: 1px solid #e8e8e8;
+    border-radius: 50%;
+    background: #f3f3f3;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .workroom-workspace-you .workroom-avatar {
+    border-color: #0d0d0d;
+    background: #0d0d0d;
+    color: #fff;
+  }
+
+  .workroom-owner h3 {
+    margin: 0;
+    color: #0d0d0d;
+    font-size: 0.88rem;
+    font-weight: 650;
+  }
+
+  .workroom-owner p {
+    margin: 0.2rem 0 0;
+    color: #5d5d5d;
+    font-size: 0.68rem;
+  }
+
+  .workroom-local-label {
+    margin-left: auto;
+    color: #767676;
+    font-size: 0.62rem;
+    white-space: nowrap;
+  }
+
+  .workroom-agent-label {
+    margin: 1.15rem 0 0.5rem;
+    color: #5d5d5d;
+    font-size: 0.65rem;
+  }
+
+  .workroom-agents {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .workroom-agents li {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.7rem;
+    border: 1px solid #e8e8e8;
+    border-radius: 0.5rem;
+    background: #f9f9f9;
+  }
+
+  .workroom-agents li > div {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .workroom-agent-symbol {
+    flex-shrink: 0;
+    width: 1.1rem;
+    height: 1.1rem;
+    color: #0169cc;
+  }
+
+  .workroom-agents strong,
+  .workroom-agents div > span {
+    display: block;
+  }
+
+  .workroom-agents strong {
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+
+  .workroom-agents div > span {
+    margin-top: 0.15rem;
+    color: #5d5d5d;
+    font-size: 0.65rem;
+  }
+
+  .workroom-typing {
+    display: flex;
+    flex-shrink: 0;
+    gap: 0.16rem;
+    margin-left: auto;
+  }
+
+  .workroom-typing span {
+    width: 0.2rem;
+    height: 0.2rem;
+    border-radius: 50%;
+    background: #0169cc;
+    opacity: 0.5;
+  }
+
+  .workroom-local {
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid #e8e8e8;
+    color: #5d5d5d;
+    font-size: 0.65rem;
+    text-align: center;
+  }
+
+  .workroom-boundary {
+    margin: 1.25rem 0 0;
+    color: #5d5d5d;
+    font-size: 0.75rem;
+    text-align: center;
+  }
+
+  figcaption {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    margin-top: 0.75rem;
+    color: var(--sl-color-gray-3);
+    font-size: 0.72rem;
+    line-height: 1.7;
+  }
+
+  figcaption a {
+    color: var(--sl-color-text-accent);
+    text-decoration: none;
+  }
+
+  figcaption a:hover {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+
+  @media (max-width: 62rem) {
+    .workroom-flow-legend .workroom-scroll-hint {
+      display: flex;
+    }
+
+    .workroom-route-incoming {
+      display: none;
+    }
+
+    .workroom-roster-bus {
+      display: block;
+      height: 1.25rem;
+      margin-inline: 0.25rem;
+      border-bottom: 1px solid #b4b4b4;
+    }
+
+    .workroom-entry::after {
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      width: 1px;
+      height: 1.25rem;
+      background: #b4b4b4;
+      content: "";
+    }
+
+    .workroom-route-bridge {
+      display: block;
+      height: 2.5rem;
+    }
+  }
+
+  @media (max-width: 55rem) {
+    .workroom-canvas {
+      padding: 1.25rem;
+    }
+
+    .workroom-route .workroom-route-wide {
+      display: none;
+    }
+
+    .workroom-route .workroom-route-narrow {
+      display: block;
+    }
+
+    .workroom-team {
+      position: relative;
+      grid-template-columns: 1fr;
+      padding-left: 1.25rem;
+    }
+
+    .workroom-workspace {
+      position: relative;
+    }
+
+    .workroom-workspace::before,
+    .workroom-workspace::after {
+      position: absolute;
+      left: -1.25rem;
+      content: "";
+      background: #b4b4b4;
+    }
+
+    .workroom-workspace::before {
+      top: 2rem;
+      width: 1.25rem;
+      height: 1px;
+    }
+
+    .workroom-workspace::after {
+      top: -1rem;
+      bottom: -1rem;
+      width: 1px;
+    }
+
+    .workroom-workspace:first-child::after {
+      top: 0;
+    }
+
+    .workroom-workspace:last-child::after {
+      bottom: calc(100% - 2rem);
+    }
+  }
+
+  @media (max-width: 35rem) {
+    .workroom-canvas {
+      padding: 1rem;
+    }
+
+    .workroom-model-heading {
+      margin-bottom: 1.25rem;
+    }
+
+    .workroom-shared {
+      padding: 1.1rem;
+    }
+
+    .workroom-room-heading {
+      flex-wrap: wrap;
+      gap: 0.65rem;
+    }
+
+    .workroom-room-heading > svg {
+      width: 1.65rem;
+      height: 1.65rem;
+    }
+
+    .workroom-room-heading p {
+      font-size: 0.65rem;
+    }
+
+    .workroom-room-label {
+      margin-left: 2.3rem;
+    }
+
+    .workroom-board {
+      grid-template-columns: 1fr;
+    }
+
+    .workroom-board > div {
+      padding: 0.65rem 0.8rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .workroom-flow {
+      animation: workroom-flow 4.8s linear infinite;
+      animation-delay: var(--flow-delay, 0s);
+      filter: drop-shadow(0 0 3px rgb(72 170 255 / 0.5));
+    }
+
+    .workroom-flow-return {
+      animation-name: workroom-flow-return;
+      animation-delay: calc(var(--flow-delay, 0s) - 2.4s);
+    }
+
+    .workroom-board > div {
+      animation: workroom-board 4.8s ease-in-out infinite;
+    }
+
+    .workroom-board > div:nth-child(2) {
+      animation-delay: -1.6s;
+    }
+
+    .workroom-board > div:nth-child(3) {
+      animation-delay: -3.2s;
+    }
+
+    .workroom-activity {
+      animation: workroom-activity 3.2s ease-in-out infinite;
+    }
+
+    .workroom-typing span {
+      animation: workroom-typing 1.8s ease-in-out infinite;
+      animation-delay: var(--agent-delay, 0s);
+    }
+
+    .workroom-typing span:nth-child(2) {
+      animation-delay: calc(var(--agent-delay, 0s) + 0.15s);
+    }
+
+    .workroom-typing span:nth-child(3) {
+      animation-delay: calc(var(--agent-delay, 0s) + 0.3s);
+    }
+  }
+
+  @keyframes workroom-flow {
+    from {
+      stroke-dashoffset: 100;
+    }
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+
+  @keyframes workroom-flow-return {
+    from {
+      stroke-dashoffset: 0;
+    }
+    to {
+      stroke-dashoffset: 100;
+    }
+  }
+
+  @keyframes workroom-board {
+    0%, 65%, 100% {
+      border-color: #303030;
+      background: #171717;
+    }
+    30% {
+      border-color: #4389ac;
+      background: #19232b;
+    }
+  }
+
+  @keyframes workroom-activity {
+    0%, 100% {
+      opacity: 0.45;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
+  @keyframes workroom-typing {
+    0%, 60%, 100% {
+      opacity: 0.35;
+      transform: translateY(0);
+    }
+    30% {
+      opacity: 1;
+      transform: translateY(-2px);
+    }
+  }
+</style>
