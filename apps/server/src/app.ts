@@ -4788,12 +4788,22 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         ? {
             kind: "admin",
             who: principal.deviceId ? `owner-device:${principal.deviceId}` : "owner",
+            ...(principal.deviceId ? { id: principal.deviceId } : {}),
           }
         : {
             kind: "guest",
             who: `${principal.resolved.session.kind}:${principal.resolved.session.username}`,
+            id: principal.resolved.session.id,
           };
     },
+    // 临时链接被使用时复核：访客会话没过期没被移除、房主设备没被退出
+    viewerActive: (viewer) => {
+      if (!viewer.id) return viewer.kind === "admin";
+      if (viewer.kind === "admin") return Boolean(ownerDevices.get(viewer.id));
+      const session = access.getSession(viewer.id);
+      return session ? access.resolve(session, clock()).state === "active" : false;
+    },
+    now: clock,
     worktrees: (roomId) =>
       worktrees
         .allRecords()

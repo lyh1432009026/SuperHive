@@ -13,6 +13,7 @@ import {
 import type {
   WorkspaceChange,
   WorkspaceChangeGroup,
+  WorkspaceChangeStatus,
   WorkspaceChangeSet,
   WorkspaceCommit,
   WorkspaceDiff,
@@ -27,6 +28,14 @@ import type {
 import { getLocale, t } from "./i18n";
 import { Select } from "./select";
 import { serverError } from "./server-text";
+import {
+  DownloadButton,
+  MediaCompare,
+  MediaView,
+  changeSides,
+  mediaKind,
+  type RawUrlApi,
+} from "./workspace-media";
 import {
   MAX_RENDERED_DIFF_LINES,
   diffBlocks,
@@ -60,10 +69,8 @@ const MIN_WIDTH = 560;
 /** 打开时变更列表的刷新间隔 */
 const STATUS_REFRESH_MS = 4000;
 
-export type WorkspaceApi = (
-  path: string,
-  query?: Record<string, string | undefined>,
-) => Promise<unknown>;
+/** 面板的只读请求；base 是 Server 地址，拼临时链接（图片、音视频）用 */
+export type WorkspaceApi = RawUrlApi;
 
 /** 带上令牌的只读请求；失败时抛出服务端给的说明 */
 export function workspaceApi(
@@ -71,7 +78,7 @@ export function workspaceApi(
   roomId: string,
   token: string | undefined,
 ): WorkspaceApi {
-  return async (path, query = {}) => {
+  const request = async (path: string, query: Record<string, string | undefined> = {}) => {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(query))
       if (value !== undefined) params.set(key, value);
@@ -85,6 +92,7 @@ export function workspaceApi(
       throw new Error(serverError(body) ?? t("加载失败（{0}）", { 0: response.status }));
     return body;
   };
+  return Object.assign(request, { base });
 }
 
 function storedWidth(): number {
@@ -250,6 +258,8 @@ type SelectedChange = {
   oldPath?: string;
   mode: WorkspaceDiffMode;
   commit?: string;
+  /** 新增的图片没有改前、删除的没有改后 */
+  status?: WorkspaceChangeStatus;
   /** 用来在内容变了时重新取 diff */
   revision: string;
 };
@@ -705,6 +715,7 @@ function ChangesView({
       path: first.change.path,
       ...(first.change.oldPath ? { oldPath: first.change.oldPath } : {}),
       mode: first.mode,
+      status: first.change.status,
       revision: `${first.change.additions ?? ""}/${first.change.deletions ?? ""}/${refreshTick}`,
     });
   }, [entries, narrow, selected, refreshTick]);
@@ -792,6 +803,7 @@ function ChangesView({
                   path: entry.change.path,
                   ...(entry.change.oldPath ? { oldPath: entry.change.oldPath } : {}),
                   mode: entry.mode,
+                  status: entry.change.status,
                   revision: `${entry.change.additions ?? ""}/${entry.change.deletions ?? ""}/${refreshTick}`,
                 })
               }
@@ -932,12 +944,18 @@ function DiffViewer({
   const [expandAll, setExpandAll] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [tooManyConfirmed, setTooManyConfirmed] = useState(false);
+  // 图片、音视频默认看改前改后对照；SVG 还能切回文本 diff
+  const media = mediaKind(selection.path);
+  const [showText, setShowText] = useState(false);
   const identity = changeKey(selection);
   useEffect(() => {
     setReveal(false);
     setExpanded(new Set());
     setTooManyConfirmed(false);
+    setShowText(false);
   }, [identity]);
+  const sides = changeSides({ ...selection, base });
+  const showMedia = Boolean(media) && !showText;
   const diff = useAsync(
     async () =>
       (await api("/diff", {
@@ -986,9 +1004,31 @@ function DiffViewer({
     );
   else if (diff.data?.sensitive && diff.data.patch === undefined)
     content = <SensitiveNotice canReveal={canReveal} onReveal={() => setReveal(true)} />;
+  else if (showMedia)
+    content = (
+      <MediaCompare
+        api={api}
+        source={source}
+        path={selection.path}
+        oldPath={selection.oldPath}
+        before={sides.before}
+        after={sides.after}
+        version={selection.revision}
+      />
+    );
   else if (diff.data?.binary)
     content = (
-      <div className="workspace-empty workspace-muted">{t("二进制文件，不显示内容。")}</div>
+      <div className="workspace-empty">
+        <p className="workspace-muted">{t("二进制文件，不显示内容。")}</p>
+        {(sides.after ?? sides.before) && (
+          <DownloadButton
+            api={api}
+            source={source}
+            path={sides.after ? selection.path : (selection.oldPath ?? selection.path)}
+            ref={sides.after ?? sides.before}
+          />
+        )}
+      </div>
     );
   else if (diff.data?.tooLarge)
     content = (
@@ -1102,7 +1142,17 @@ function DiffViewer({
         </span>
         {stats && <Counts additions={stats.additions} deletions={stats.deletions} />}
         <div className="workspace-viewer-actions">
-          {hunks && hunks.length > 0 && diff.data?.full && (
+          {media && diff.data?.patch !== undefined && (
+            <button
+              type="button"
+              aria-pressed={showText}
+              className={showText ? "active" : ""}
+              onClick={() => setShowText((value) => !value)}
+            >
+              {showText ? t("看图片对照") : t("看文本 diff")}
+            </button>
+          )}
+          {!showMedia && hunks && hunks.length > 0 && diff.data?.full && (
             <button
               type="button"
               aria-pressed={expandAll}
@@ -1112,26 +1162,28 @@ function DiffViewer({
               {expandAll ? t("折叠未改动") : t("全部展开")}
             </button>
           )}
-          <div className="workspace-segmented" role="radiogroup" aria-label={t("diff 视图")}>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={view === "unified"}
-              className={view === "unified" ? "active" : ""}
-              onClick={() => setView("unified")}
-            >
-              {t("统一")}
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={view === "split"}
-              className={view === "split" ? "active" : ""}
-              onClick={() => setView("split")}
-            >
-              {t("左右对照")}
-            </button>
-          </div>
+          {!showMedia && (
+            <div className="workspace-segmented" role="radiogroup" aria-label={t("diff 视图")}>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={view === "unified"}
+                className={view === "unified" ? "active" : ""}
+                onClick={() => setView("unified")}
+              >
+                {t("统一")}
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={view === "split"}
+                className={view === "split" ? "active" : ""}
+                onClick={() => setView("split")}
+              >
+                {t("左右对照")}
+              </button>
+            </div>
+          )}
         </div>
       </div>
       <div className="workspace-viewer-scroll">{content}</div>
@@ -1563,10 +1615,20 @@ function FilePreview({
   onBack?: (() => void) | undefined;
 }) {
   const [reveal, setReveal] = useState(false);
+  // 图片、音视频、PDF 直接预览；SVG 还能切到源码
+  const media = mediaKind(path);
+  const [showSource, setShowSource] = useState(false);
+  const showMedia = Boolean(media) && !showSource;
   const file = useAsync(
     async () =>
-      (await api("/file", { source, path, reveal: reveal ? "1" : undefined })) as WorkspaceFile,
-    [api, source, path, reveal, refreshTick],
+      showMedia
+        ? undefined
+        : ((await api("/file", {
+            source,
+            path,
+            reveal: reveal ? "1" : undefined,
+          })) as WorkspaceFile),
+    [api, source, path, reveal, refreshTick, showMedia],
   );
   const lines = useMemo(() => {
     const content = file.data?.content;
@@ -1576,7 +1638,14 @@ function FilePreview({
   }, [file.data, path]);
 
   let content: ReactNode;
-  if (file.loading && !file.data) content = <div className="workspace-loading">{t("加载中…")}</div>;
+  if (showMedia)
+    content = (
+      <div className="workspace-media-single">
+        <MediaView api={api} source={source} path={path} version={refreshTick} />
+      </div>
+    );
+  else if (file.loading && !file.data)
+    content = <div className="workspace-loading">{t("加载中…")}</div>;
   else if (file.error)
     content = (
       <div className="workspace-empty" role="alert">
@@ -1587,7 +1656,10 @@ function FilePreview({
     content = <SensitiveNotice canReveal={canReveal} onReveal={() => setReveal(true)} />;
   else if (file.data?.binary)
     content = (
-      <div className="workspace-empty workspace-muted">{t("二进制文件，不显示内容。")}</div>
+      <div className="workspace-empty">
+        <p className="workspace-muted">{t("二进制文件，不能在这里预览。")}</p>
+        <DownloadButton api={api} source={source} path={path} />
+      </div>
     );
   else if (lines)
     content = (
@@ -1624,6 +1696,18 @@ function FilePreview({
           {path}
         </span>
         {file.data && <span className="workspace-muted">{formatBytes(file.data.size)}</span>}
+        {media && path.toLowerCase().endsWith(".svg") && (
+          <div className="workspace-viewer-actions">
+            <button
+              type="button"
+              aria-pressed={showSource}
+              className={showSource ? "active" : ""}
+              onClick={() => setShowSource((value) => !value)}
+            >
+              {showSource ? t("看图片") : t("看源码")}
+            </button>
+          </div>
+        )}
       </div>
       <div className="workspace-viewer-scroll">{content}</div>
     </div>
@@ -1783,6 +1867,7 @@ function CommitsView({
                           ...(entry.change.oldPath ? { oldPath: entry.change.oldPath } : {}),
                           mode: "commit",
                           commit: selectedCommit,
+                          status: entry.change.status,
                           revision: selectedCommit,
                         })
                       }

@@ -84,6 +84,14 @@ export const serverTexts = {
     zh: "读取工作区失败：{reason}",
     en: "Couldn't read the workspace: {reason}",
   },
+  "error.workspaceFiles.linkExpired": {
+    zh: "预览链接已过期或无效，请重新打开文件。",
+    en: "This preview link expired or is invalid. Open the file again.",
+  },
+  "error.workspaceFiles.revealRequired": {
+    zh: "这个文件可能含有密钥，确认显示后才能查看。",
+    en: "This file may contain secrets. Confirm before viewing it.",
+  },
   "error.workspaceFiles.revealOwnerOnly": {
     zh: "只有房主可以查看疑似密钥文件的内容。",
     en: "Only the owner can view files that may contain secrets.",

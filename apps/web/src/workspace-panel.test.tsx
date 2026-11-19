@@ -74,6 +74,13 @@ function fakeApi(overrides: Record<string, Handler> = {}) {
       }) satisfies WorkspaceTree,
     "/file": (query) => ({ path: query.path, size: 20, content: "const a = 1;\nconst b = 2;\n" }),
     "/log": () => ({ commits: [] }),
+    "/raw-url": (query) => ({
+      url: `/raw?t=${query.ref}:${query.path}`,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      size: 10,
+      contentType: "image/png",
+      inline: true,
+    }),
     ...overrides,
   };
   const api = vi.fn(async (path: string, query: Record<string, string | undefined> = {}) => {
@@ -280,5 +287,60 @@ describe("WorkspacePanel", () => {
     fail = false;
     await userEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(await screen.findByLabelText("改动的文件")).toBeTruthy();
+  });
+
+  it("图片改动显示改前改后对照，新增图片只显示改后", async () => {
+    const api = fakeApi({
+      "/status": () => ({
+        git: true,
+        branch: "main",
+        changes: [
+          { path: "logo.png", group: "unstaged", status: "M", binary: true },
+          { path: "new.png", group: "untracked", status: "?", binary: true },
+        ],
+      }),
+      "/diff": (query) => ({ path: query.path, binary: true }),
+    });
+    open(api);
+    expect(await screen.findByText("改前")).toBeTruthy();
+    const images = await screen.findAllByRole<HTMLImageElement>("img");
+    expect(images.map((image) => image.getAttribute("src"))).toEqual([
+      "/raw?t=index:logo.png",
+      "/raw?t=worktree:logo.png",
+    ]);
+    expect(screen.queryByRole("radio", { name: "左右对照" })).toBeNull();
+    await userEvent.click(
+      within(screen.getByLabelText("改动的文件")).getByRole("button", { name: /new\.png/ }),
+    );
+    expect(await screen.findByText("新增")).toBeTruthy();
+    expect(screen.queryByText("改前")).toBeNull();
+  });
+
+  it("文件树：图片直接预览、SVG 可切到源码，其他二进制给下载", async () => {
+    const api = fakeApi({
+      "/tree": () => ({
+        path: "",
+        entries: [
+          { name: "icon.svg", path: "icon.svg", type: "file", size: 30 },
+          { name: "tool.bin", path: "tool.bin", type: "file", size: 30 },
+        ],
+      }),
+      "/file": (query) =>
+        query.path === "tool.bin"
+          ? { path: "tool.bin", size: 30, binary: true }
+          : { path: query.path, size: 30, content: "<svg></svg>\n" },
+    });
+    open(api);
+    await userEvent.click(await screen.findByRole("tab", { name: "文件树" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^icon\.svg/ }));
+    expect((await screen.findByRole("img", { name: "icon.svg" })).getAttribute("src")).toBe(
+      "/raw?t=worktree:icon.svg",
+    );
+    expect(api).not.toHaveBeenCalledWith("/file", expect.objectContaining({ path: "icon.svg" }));
+    await userEvent.click(screen.getByRole("button", { name: "看源码" }));
+    expect(await screen.findByRole("table", { name: "icon.svg" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: /^tool\.bin/ }));
+    expect(await screen.findByText("二进制文件，不能在这里预览。")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "下载" })).toBeTruthy();
   });
 });

@@ -409,7 +409,11 @@ describe("工作区文件接口", () => {
   const OWNER = { authorization: "Bearer test-token" };
 
   async function start(
-    options: { workspace?: string; worktree?: { path: string; branch: string } } = {},
+    options: {
+      workspace?: string;
+      worktree?: { path: string; branch: string };
+      now?: () => number;
+    } = {},
   ) {
     const dir = temp("ws-db-");
     const filename = path.join(dir, "db.sqlite");
@@ -461,6 +465,7 @@ describe("工作区文件接口", () => {
       token: "test-token",
       staticDir: "/definitely-not-present",
       logger: { level: "info", stream: { write: (line: string) => logs.push(line) } },
+      ...(options.now ? { now: options.now } : {}),
     });
     cleanup.push(() => app.close());
     const guestToken = async () => {
@@ -617,5 +622,191 @@ describe("工作区文件接口", () => {
       headers: OWNER,
     });
     expect(invalid.statusCode).toBe(400);
+  });
+
+  describe("原始字节与临时链接", () => {
+    const bytes = Buffer.from(Array.from({ length: 1000 }, (_, index) => index % 256));
+
+    async function rawUrl(
+      app: Awaited<ReturnType<typeof start>>["app"],
+      query: string,
+      headers: Record<string, string> = OWNER,
+    ) {
+      return app.inject({ url: `/api/rooms/general/workspace/raw-url?${query}`, headers });
+    }
+
+    it("图片按白名单类型返回，带 nosniff 与沙箱，不需要请求头；支持 Range 206 / 416", async () => {
+      const root = repository();
+      write(root, "logo.png", bytes);
+      const { app, logs } = await start({ workspace: root });
+      const issued = await rawUrl(app, "path=logo.png");
+      expect(issued.headers["cache-control"]).toBe("no-store");
+      expect(issued.json()).toMatchObject({
+        size: 1000,
+        contentType: "image/png",
+        inline: true,
+        url: expect.stringMatching(/^\/api\/rooms\/general\/workspace\/raw\?t=/),
+      });
+      expect(issued.json().url).not.toContain("test-token");
+      const url = issued.json().url as string;
+      const full = await app.inject({ url });
+      expect(full.statusCode).toBe(200);
+      expect(full.headers).toMatchObject({
+        "content-type": "image/png",
+        "x-content-type-options": "nosniff",
+        "accept-ranges": "bytes",
+        "content-length": "1000",
+      });
+      expect(full.headers["content-security-policy"]).toContain("sandbox");
+      expect(full.rawPayload.equals(bytes)).toBe(true);
+      const part = await app.inject({ url, headers: { range: "bytes=10-19" } });
+      expect(part.statusCode).toBe(206);
+      expect(part.headers["content-range"]).toBe("bytes 10-19/1000");
+      expect(part.rawPayload.equals(bytes.subarray(10, 20))).toBe(true);
+      const tail = await app.inject({ url, headers: { range: "bytes=-5" } });
+      expect(tail.rawPayload.equals(bytes.subarray(995))).toBe(true);
+      const beyond = await app.inject({ url, headers: { range: "bytes=2000-" } });
+      expect(beyond.statusCode).toBe(416);
+      expect(beyond.headers["content-range"]).toBe("bytes */1000");
+      expect(logs.join("\n")).toContain('"action":"raw"');
+    });
+
+    it("SVG 以 image/svg+xml 返回并加沙箱 CSP；不在白名单的一律下载", async () => {
+      const root = repository();
+      write(
+        root,
+        "icon.svg",
+        '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+      );
+      write(root, "page.html", "<script>alert(1)</script>");
+      const { app } = await start({ workspace: root });
+      const svg = await app.inject({ url: (await rawUrl(app, "path=icon.svg")).json().url });
+      expect(svg.headers["content-type"]).toBe("image/svg+xml");
+      expect(svg.headers["content-security-policy"]).toBe(
+        "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+      );
+      expect(svg.headers["content-disposition"]).toMatch(/^inline;/);
+      const issued = await rawUrl(app, "path=page.html");
+      expect(issued.json()).toMatchObject({
+        contentType: "application/octet-stream",
+        inline: false,
+      });
+      const html = await app.inject({ url: issued.json().url });
+      expect(html.headers["content-type"]).toBe("application/octet-stream");
+      expect(html.headers["content-disposition"]).toMatch(/^attachment; filename="page.html"/);
+      const forced = await app.inject({
+        url: (await rawUrl(app, "path=icon.svg&download=1")).json().url,
+      });
+      expect(forced.headers["content-type"]).toBe("application/octet-stream");
+    });
+
+    it("读 git 里的版本：HEAD、暂存区、某个提交与它的父提交，Range 同样可用", async () => {
+      const root = repository();
+      write(root, "logo.png", bytes.subarray(0, 100));
+      git(root, "add", "logo.png");
+      git(root, "commit", "-qm", "logo v1");
+      const v1 = git(root, "rev-parse", "HEAD").trim();
+      write(root, "logo.png", bytes.subarray(0, 200));
+      git(root, "add", "logo.png");
+      git(root, "commit", "-qm", "logo v2");
+      const v2 = git(root, "rev-parse", "HEAD").trim();
+      write(root, "logo.png", bytes.subarray(0, 300));
+      git(root, "add", "logo.png");
+      write(root, "logo.png", bytes);
+      const { app } = await start({ workspace: root });
+      const sizeOf = async (ref: string) =>
+        (await rawUrl(app, `path=logo.png&ref=${ref}`)).json().size;
+      expect(await sizeOf("worktree")).toBe(1000);
+      expect(await sizeOf("index")).toBe(300);
+      expect(await sizeOf("HEAD")).toBe(200);
+      expect(await sizeOf(v1)).toBe(100);
+      expect(await sizeOf(`parent:${v2}`)).toBe(100);
+      expect(await sizeOf("base:main")).toBe(200);
+      const url = (await rawUrl(app, `path=logo.png&ref=${v1}`)).json().url;
+      const whole = await app.inject({ url });
+      expect(whole.rawPayload.equals(bytes.subarray(0, 100))).toBe(true);
+      const part = await app.inject({ url, headers: { range: "bytes=50-59" } });
+      expect(part.statusCode).toBe(206);
+      expect(part.rawPayload.equals(bytes.subarray(50, 60))).toBe(true);
+      expect((await rawUrl(app, `path=logo.png&ref=parent:${v1}`)).statusCode).toBe(404);
+      expect((await rawUrl(app, "path=logo.png&ref=--output%3D%2Ftmp%2Fx")).statusCode).toBe(400);
+      expect((await rawUrl(app, "path=logo.png&ref=base:..%2Fx")).statusCode).toBe(400);
+      expect((await rawUrl(app, "path=..%2Fx&ref=HEAD")).statusCode).toBe(400);
+    });
+
+    it("签名被改、过期、拿到别的房间用、访客被收回权限时都拒绝", async () => {
+      const root = repository();
+      write(root, "logo.png", bytes);
+      let time = Date.now();
+      const { app, guestToken } = await start({ workspace: root, now: () => time });
+      const url = (await rawUrl(app, "path=logo.png")).json().url as string;
+      const [, token] = url.split("?t=");
+      const [payload, signature] = token!.split(".");
+      const forged = Buffer.from(
+        JSON.stringify({
+          ...JSON.parse(Buffer.from(payload!, "base64url").toString("utf8")),
+          path: "a.txt",
+        }),
+      ).toString("base64url");
+      const tampered = await app.inject({
+        url: `/api/rooms/general/workspace/raw?t=${forged}.${signature}`,
+      });
+      expect(tampered.statusCode).toBe(403);
+      expect(tampered.json().code).toBe("error.workspaceFiles.linkExpired");
+      const other = realpathSync(mkdtempSync(path.join(tmpdir(), "ws-other-")));
+      cleanup.push(() => rmSync(other, { recursive: true, force: true }));
+      await app.inject({
+        method: "POST",
+        url: "/api/rooms",
+        headers: OWNER,
+        payload: { id: "other", workspace: other },
+      });
+      expect(
+        (await app.inject({ url: url.replace("/rooms/general/", "/rooms/other/") })).statusCode,
+      ).toBe(403);
+      expect((await app.inject({ url: `${url}x` })).statusCode).toBe(403);
+      time += 11 * 60 * 1000;
+      expect((await app.inject({ url })).statusCode).toBe(403);
+
+      await app.inject({
+        method: "PATCH",
+        url: "/api/rooms/general",
+        headers: OWNER,
+        payload: { workspaceFilesGuests: true },
+      });
+      const guest = await guestToken();
+      const guestUrl = (await rawUrl(app, "path=logo.png", guest)).json().url as string;
+      expect((await app.inject({ url: guestUrl })).statusCode).toBe(200);
+      await app.inject({
+        method: "PATCH",
+        url: "/api/rooms/general",
+        headers: OWNER,
+        payload: { workspaceFilesGuests: false },
+      });
+      const revoked = await app.inject({ url: guestUrl });
+      expect(revoked.statusCode).toBe(403);
+      expect(revoked.json().code).toBe("error.workspaceFiles.guestsDisabled");
+    });
+
+    it("密钥文件不给原始字节：房主要 reveal，访客一律不行", async () => {
+      const root = repository();
+      write(root, "certs/server.pem", "-----BEGIN PRIVATE KEY-----\n");
+      const { app, guestToken } = await start({ workspace: root });
+      const hidden = await rawUrl(app, "path=certs%2Fserver.pem");
+      expect(hidden.statusCode).toBe(403);
+      expect(hidden.json().code).toBe("error.workspaceFiles.revealRequired");
+      const revealed = await rawUrl(app, "path=certs%2Fserver.pem&reveal=1");
+      expect(revealed.statusCode).toBe(200);
+      expect((await app.inject({ url: revealed.json().url })).body).toContain("PRIVATE KEY");
+      await app.inject({
+        method: "PATCH",
+        url: "/api/rooms/general",
+        headers: OWNER,
+        payload: { workspaceFilesGuests: true },
+      });
+      const guest = await guestToken();
+      expect((await rawUrl(app, "path=certs%2Fserver.pem", guest)).statusCode).toBe(403);
+      expect((await rawUrl(app, "path=certs%2Fserver.pem&reveal=1", guest)).statusCode).toBe(403);
+    });
   });
 });

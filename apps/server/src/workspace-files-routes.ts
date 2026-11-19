@@ -1,3 +1,4 @@
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -14,7 +15,13 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { HiveError } from "./database.js";
-import { WorkspaceView } from "./workspace-files.js";
+import {
+  WorkspaceView,
+  inlineMediaType,
+  isBlobRef,
+  isSensitivePath,
+  normalizeRelative,
+} from "./workspace-files.js";
 import { errorText } from "./texts.js";
 
 /**
@@ -24,7 +31,25 @@ import { errorText } from "./texts.js";
  * 疑似密钥文件的内容只给房主，且要带 reveal=1。响应一律 no-store；审计只记谁看了哪个路径，不记内容。
  */
 
-export type WorkspaceViewer = { kind: "admin" | "guest"; who: string };
+/** 查看者；id 是能撤销的凭证（访客会话、房主设备），签发的临时链接用它复核还有效 */
+export type WorkspaceViewer = { kind: "admin" | "guest"; who: string; id?: string };
+
+/** 临时链接的有效期：够打开和拖动一段视频，过期后网页重新签一个 */
+export const RAW_URL_TTL_MS = 10 * 60 * 1000;
+/** 超过这么大的文件不在页面里显示，只给下载 */
+export const RAW_INLINE_LIMIT = 200 * 1024 * 1024;
+
+/** 临时链接里签进去的内容：哪个房间、哪份代码、哪个文件的哪个版本、谁、能不能看密钥文件、何时过期 */
+type RawGrant = {
+  room: string;
+  source: string;
+  path: string;
+  ref: string;
+  viewer: WorkspaceViewer;
+  reveal: boolean;
+  download: boolean;
+  expires: number;
+};
 
 const ERRORS: Record<string, { status: number; key: ServerTextKey }> = {
   WORKSPACE_PATH_INVALID: { status: 400, key: "error.workspaceFiles.pathInvalid" },
@@ -38,6 +63,7 @@ const ERRORS: Record<string, { status: number; key: ServerTextKey }> = {
   WORKSPACE_TOO_LARGE: { status: 413, key: "error.workspaceFiles.tooLarge" },
   WORKSPACE_GIT_TIMEOUT: { status: 504, key: "error.workspaceFiles.timeout" },
   WORKSPACE_REVEAL_FORBIDDEN: { status: 403, key: "error.workspaceFiles.revealOwnerOnly" },
+  WORKSPACE_SENSITIVE: { status: 403, key: "error.workspaceFiles.revealRequired" },
 };
 
 const sourceQuery = z.object({ source: workspaceSourceSchema.default("workspace") });
@@ -66,6 +92,12 @@ const querySchemas = {
     reveal: flag,
   }),
   search: sourceQuery.extend({ q: z.string().max(200).default("") }),
+  "raw-url": sourceQuery.extend({
+    path: workspaceRelativePathSchema.pipe(z.string().min(1)),
+    ref: z.string().max(210).default("worktree").refine(isBlobRef),
+    reveal: flag,
+    download: flag,
+  }),
 };
 
 export function registerWorkspaceFileRoutes(
@@ -82,24 +114,50 @@ export function registerWorkspaceFileRoutes(
     worktrees: (roomId: string) => ManagedWorktree[];
     /** 工作区仓库的默认分支（worktree 默认的 base）；不是仓库或找不到时 undefined */
     defaultBranch: (workspace: string) => Promise<string | undefined>;
+    /** 签发过的临时链接被使用时复核：访客会话、房主设备是否仍有效 */
+    viewerActive: (viewer: WorkspaceViewer) => boolean;
+    now?: () => number;
   },
 ): void {
+  const now = options.now ?? Date.now;
+  // 每次启动换一把钥匙：重启后旧链接全部失效
+  const secret = randomBytes(32);
+  const sign = (payload: string) =>
+    createHmac("sha256", secret).update(payload).digest("base64url");
+  const issue = (grant: RawGrant) => {
+    const payload = Buffer.from(JSON.stringify(grant)).toString("base64url");
+    return `${payload}.${sign(payload)}`;
+  };
+  const verify = (token: string): RawGrant | undefined => {
+    const [payload, signature, extra] = token.split(".");
+    if (!payload || !signature || extra !== undefined) return undefined;
+    const expected = Buffer.from(sign(payload));
+    const actual = Buffer.from(signature);
+    if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return undefined;
+    try {
+      const grant = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as RawGrant;
+      return grant.expires > now() ? grant : undefined;
+    } catch {
+      return undefined;
+    }
+  };
   const send = (reply: FastifyReply, status: number, key: ServerTextKey, params = {}) =>
     reply
       .code(status)
       .header("Cache-Control", "no-store")
       .send({ ...errorText(serverText(key, params)), code: key });
 
-  /** 解析成一个只读视图；不能看时已经回复 */
+  /** 解析成一个只读视图；不能看时已经回复。given 是临时链接里签好的查看者（不再看请求头） */
   async function viewFor(
     request: FastifyRequest<{ Params: { roomId: string } }>,
     reply: FastifyReply,
     source: string,
+    given?: WorkspaceViewer,
   ): Promise<
     { view: WorkspaceView; viewer: WorkspaceViewer; record?: ManagedWorktree } | undefined
   > {
     const roomId = request.params.roomId;
-    const viewer = options.authorize(request, reply, roomId);
+    const viewer = given ?? options.authorize(request, reply, roomId);
     if (!viewer) return undefined;
     const room = options.room(roomId);
     if (!room) return void send(reply, 404, "error.room.notFound");
@@ -144,8 +202,8 @@ export function registerWorkspaceFileRoutes(
   function audit(
     request: FastifyRequest<{ Params: { roomId: string } }>,
     viewer: WorkspaceViewer,
-    action: "file" | "diff",
-    detail: { source: string; path: string; revealed?: boolean },
+    action: "file" | "diff" | "raw",
+    detail: { source: string; path: string; ref?: string; revealed?: boolean },
   ) {
     request.log.info(
       { workspaceFiles: { room: request.params.roomId, by: viewer.who, action, ...detail } },
@@ -296,4 +354,117 @@ export function registerWorkspaceFileRoutes(
   });
 
   route("search", ({ view, query }) => view.search(query.q));
+
+  /**
+   * 原始字节的临时链接：<img>/<video>/<audio> 带不了请求头，又不能把房主令牌放进 URL，
+   * 所以先用正常凭证换一个只对这一个文件的这一个版本有效、10 分钟过期、绑定查看者的签名链接。
+   * 审计在签发时记一次（视频拖动会发很多个 Range 请求，不逐个记）。
+   */
+  route("raw-url", async ({ request, view, viewer, query }) => {
+    if (query.reveal && viewer.kind !== "admin")
+      throw new HiveError("WORKSPACE_REVEAL_FORBIDDEN", "Owner only");
+    const relative = normalizeRelative(query.path);
+    const sensitive = isSensitivePath(relative);
+    if (sensitive && !query.reveal)
+      throw new HiveError(
+        viewer.kind === "admin" ? "WORKSPACE_SENSITIVE" : "WORKSPACE_REVEAL_FORBIDDEN",
+        "Sensitive",
+      );
+    const blob = await view.blob(relative, query.ref);
+    const type = inlineMediaType(relative);
+    const inline = Boolean(type) && blob.size <= RAW_INLINE_LIMIT && !query.download;
+    const expires = now() + RAW_URL_TTL_MS;
+    const token = issue({
+      room: request.params.roomId,
+      source: query.source,
+      path: relative,
+      ref: query.ref,
+      viewer,
+      reveal: query.reveal,
+      download: !inline,
+      expires,
+    });
+    audit(request, viewer, "raw", {
+      source: query.source,
+      path: relative,
+      ref: query.ref,
+      ...(sensitive ? { revealed: true } : {}),
+    });
+    return {
+      url: `/api/rooms/${encodeURIComponent(request.params.roomId)}/workspace/raw?t=${token}`,
+      expiresAt: new Date(expires).toISOString(),
+      size: blob.size,
+      contentType: inline ? type : "application/octet-stream",
+      inline,
+    };
+  });
+
+  /** 用临时链接取原始字节：支持单段 Range；SVG 等一律在沙箱里、禁止嗅探 */
+  app.get<{ Params: { roomId: string }; Querystring: { t?: string } }>(
+    "/api/rooms/:roomId/workspace/raw",
+    async (request, reply) => {
+      const grant = typeof request.query.t === "string" ? verify(request.query.t) : undefined;
+      if (!grant || grant.room !== request.params.roomId || !options.viewerActive(grant.viewer))
+        return send(reply, 403, "error.workspaceFiles.linkExpired");
+      const resolved = await viewFor(request, reply, grant.source, grant.viewer);
+      if (!resolved) return reply;
+      if (isSensitivePath(grant.path) && !(grant.reveal && grant.viewer.kind === "admin"))
+        return send(reply, 403, "error.workspaceFiles.revealOwnerOnly");
+      let blob: Awaited<ReturnType<WorkspaceView["blob"]>>;
+      try {
+        blob = await resolved.view.blob(grant.path, grant.ref);
+      } catch (error) {
+        return failed(reply, error);
+      }
+      const name = grant.path.slice(grant.path.lastIndexOf("/") + 1);
+      const type = grant.download ? undefined : inlineMediaType(grant.path);
+      void reply
+        .header("Cache-Control", "private, no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .header("Accept-Ranges", "bytes")
+        .header("Content-Type", type ?? "application/octet-stream")
+        .header(
+          "Content-Disposition",
+          `${type ? "inline" : "attachment"}; filename="${name.replace(/[^\x20-\x7e]|["\\]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(name)}`,
+        );
+      // PDF 要用浏览器自带的查看器，沙箱会挡住它；其余（尤其 SVG）一律沙箱、不加载任何外部资源
+      if (type !== "application/pdf")
+        void reply.header(
+          "Content-Security-Policy",
+          "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+        );
+      const range = parseRange(request.headers.range, blob.size);
+      if (range === "invalid") {
+        return reply.code(416).header("Content-Range", `bytes */${blob.size}`).send();
+      }
+      if (blob.size === 0) return reply.header("Content-Length", "0").send(Buffer.alloc(0));
+      const [start, end] = range ?? [0, blob.size - 1];
+      void reply.header("Content-Length", String(end - start + 1));
+      if (range) void reply.code(206).header("Content-Range", `bytes ${start}-${end}/${blob.size}`);
+      return reply.send(blob.open(start, end));
+    },
+  );
+}
+
+/** 解析单段 Range（bytes=a-b、a-、-n）；多段或认不出的当没有；越界返回 invalid（416） */
+export function parseRange(
+  header: string | undefined,
+  size: number,
+): [number, number] | "invalid" | undefined {
+  if (!header) return undefined;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match || (!match[1] && !match[2])) return undefined;
+  let start: number;
+  let end: number;
+  if (!match[1]) {
+    const suffix = Number(match[2]);
+    if (suffix === 0) return "invalid";
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
+  }
+  if (start >= size || start > end) return "invalid";
+  return [start, end];
 }

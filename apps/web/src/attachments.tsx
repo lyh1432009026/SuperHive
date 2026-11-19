@@ -882,6 +882,7 @@ export function Lightbox({
   onIndex,
   onClose,
   actions,
+  src,
 }: {
   images: Attachment[];
   index: number;
@@ -891,9 +892,13 @@ export function Lightbox({
   onClose: () => void;
   /** 工具栏右侧的额外按钮（产物面板放「下载」「定位到消息」） */
   actions?: (current: Attachment) => ReactNode;
+  /** 直接给出图片地址（工作区面板的临时链接），不按附件 id 去取 */
+  src?: string;
 }) {
   const current = images[index]!;
-  const { url, error } = useAttachmentUrl(base, token, current.id, true);
+  const fetched = useAttachmentUrl(base, token, current.id, !src);
+  const url = src ?? fetched.url;
+  const error = src ? undefined : fetched.error;
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | undefined>(undefined);
@@ -963,13 +968,13 @@ export function Lightbox({
   useEffect(() => {
     setZoom(1);
     setOffset({ x: 0, y: 0 });
-    if (!token || count < 2) return;
+    if (!token || count < 2 || src) return;
     for (const step of [1, -1]) {
       void fetchAttachmentUrl(base, token, images[(index + step + count) % count]!.id).catch(
         () => undefined,
       );
     }
-  }, [base, count, images, index, token]);
+  }, [base, count, images, index, token, src]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

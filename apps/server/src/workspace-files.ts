@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
+import { createReadStream } from "node:fs";
 import { lstat, open, readdir, realpath, stat } from "node:fs/promises";
+import { PassThrough, type Readable } from "node:stream";
 import path from "node:path";
 import type {
   WorkspaceChange,
@@ -586,6 +588,44 @@ export class WorkspaceView {
     return binary ? null : content;
   }
 
+  /**
+   * 原始字节：工作区里的文件，或 git 里某个版本的 blob。返回大小和按区间打开的流（视频拖进度要 Range）。
+   * ref：worktree 当前文件、index 暂存区、HEAD、提交号、parent:<提交号>（它的第一个父提交）、base:<分支>（与 HEAD 的分叉点）
+   */
+  async blob(
+    relative: string,
+    ref: string,
+  ): Promise<{ size: number; open: (start: number, end: number) => Readable }> {
+    const normalized = normalizeRelative(relative);
+    if (!normalized) fail("WORKSPACE_PATH_INVALID", "Invalid path");
+    if (ref === "worktree") {
+      const real = await resolveInside(this.root, normalized);
+      const info = await stat(real);
+      if (!info.isFile()) fail("WORKSPACE_NOT_FILE", "Not a file");
+      return {
+        size: info.size,
+        open: (start, end) => createReadStream(real, { start, end }),
+      };
+    }
+    if (!(await this.repo())) fail("WORKSPACE_NOT_GIT", "Not a git repository");
+    let rev: string;
+    if (ref === "index") rev = "";
+    else if (ref === "HEAD") rev = "HEAD";
+    else if (ref.startsWith("parent:"))
+      rev = await this.parentOf(await this.resolveCommit(ref.slice(7)));
+    else if (ref.startsWith("base:")) rev = await this.mergeBase(ref.slice(5));
+    else rev = await this.resolveCommit(ref);
+    const spec = `${rev}:./${normalized}`;
+    const sized = await readOnlyGit(this.root, ["cat-file", "-s", spec]);
+    if (sized.code !== 0) fail("WORKSPACE_PATH_NOT_FOUND", "Path not found");
+    const type = await readOnlyGit(this.root, ["cat-file", "-t", spec]);
+    if (type.stdout.toString("utf8").trim() !== "blob") fail("WORKSPACE_NOT_FILE", "Not a file");
+    return {
+      size: Number(sized.stdout.toString("utf8").trim()),
+      open: (start, end) => gitBlobStream(this.root, spec, start, end),
+    };
+  }
+
   async file(relative: string, reveal: boolean): Promise<WorkspaceFile> {
     const normalized = normalizeRelative(relative);
     const real = await resolveInside(this.root, normalized);
@@ -864,4 +904,92 @@ async function readHead(
   } finally {
     await handle.close();
   }
+}
+
+/**
+ * 按扩展名映射的可在页面里直接显示的类型；不在表里的一律当下载（application/octet-stream）。
+ * 只认扩展名、不看内容，配合 nosniff，浏览器不会把别的东西当成 HTML 执行。
+ */
+export const INLINE_MEDIA_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+  bmp: "image/bmp",
+  ico: "image/x-icon",
+  svg: "image/svg+xml",
+  mp4: "video/mp4",
+  m4v: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
+  m4a: "audio/mp4",
+  flac: "audio/flac",
+  pdf: "application/pdf",
+};
+
+export function inlineMediaType(relative: string): string | undefined {
+  const name = relative.slice(relative.lastIndexOf("/") + 1).toLowerCase();
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? INLINE_MEDIA_TYPES[name.slice(dot + 1)] : undefined;
+}
+
+/** ref 的写法：worktree、index、HEAD、提交号、parent:<提交号>、base:<分支> */
+export function isBlobRef(ref: string): boolean {
+  if (ref === "worktree" || ref === "index" || ref === "HEAD") return true;
+  if (/^(parent:)?[0-9a-f]{4,64}$/i.test(ref)) return true;
+  return /^base:[^\0\s~^:?*[\\-][^\0\s~^:?*[\\]{0,199}$/.test(ref) && !ref.includes("..");
+}
+
+/** git 里一个 blob 的 [start, end] 区间：跳过前面的字节，够了就停 */
+function gitBlobStream(cwd: string, spec: string, start: number, end: number): Readable {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
+  );
+  const child = spawn(
+    "git",
+    [
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-c",
+      "core.fsmonitor=false",
+      "--no-pager",
+      "-C",
+      cwd,
+      "cat-file",
+      "blob",
+      spec,
+    ],
+    {
+      env: { ...env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_NOSYSTEM: "1" },
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
+    },
+  );
+  const output = new PassThrough();
+  let position = 0;
+  const stop = () => {
+    child.stdout.removeAllListeners("data");
+    child.kill("SIGKILL");
+    output.end();
+  };
+  child.stdout.on("data", (chunk: Buffer) => {
+    const from = Math.max(0, start - position);
+    const to = Math.min(chunk.length, end + 1 - position);
+    position += chunk.length;
+    if (to > from && !output.write(chunk.subarray(from, to))) {
+      child.stdout.pause();
+      output.once("drain", () => child.stdout.resume());
+    }
+    if (position > end) stop();
+  });
+  child.stdout.on("end", () => output.end());
+  child.on("error", (error) => output.destroy(error));
+  output.on("close", () => child.kill("SIGKILL"));
+  return output;
 }

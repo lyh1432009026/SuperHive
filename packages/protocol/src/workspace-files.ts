@@ -181,3 +181,16 @@ export type WorkspaceTreeEntry = z.infer<typeof workspaceTreeEntrySchema>;
 export type WorkspaceTree = z.infer<typeof workspaceTreeSchema>;
 export type WorkspaceFile = z.infer<typeof workspaceFileSchema>;
 export type WorkspaceSearch = z.infer<typeof workspaceSearchSchema>;
+
+/** 原始字节的临时链接：只对一个文件的一个版本有效，几分钟后过期 */
+export const workspaceRawUrlSchema = z.object({
+  /** 相对 Server 根的路径（带签名参数），直接用作 <img>/<video>/<audio> 的 src */
+  url: z.string(),
+  expiresAt: z.string(),
+  size: z.number().int().nonnegative(),
+  contentType: z.string(),
+  /** 能在页面里显示；false 时只给下载（类型不在白名单或超过 200MB） */
+  inline: z.boolean(),
+});
+
+export type WorkspaceRawUrl = z.infer<typeof workspaceRawUrlSchema>;
