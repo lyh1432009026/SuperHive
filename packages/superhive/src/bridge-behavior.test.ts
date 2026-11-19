@@ -457,6 +457,28 @@ describe("AgentBridge", () => {
     expect(responder.calls).toHaveLength(0);
   });
 
+  it("reports a busy workspace lookup as retryable without running or counting as unsafe", async () => {
+    const { TaskWorkspaceBusyError } = await import("./task-workspace.js");
+    taskWorkspace = {
+      resolve: async () => {
+        throw new TaskWorkspaceBusyError("Hive Server is busy (503) (after 3 attempts)");
+      },
+      responder: () => responder,
+    };
+    await startBridge(baseState());
+    const message = chat();
+    room.messages.push(message);
+    room.handlers.onMention(message, message.seq, false);
+    await waitUntil(() => room.statuses(message.id).includes("failed"));
+    const failed = room.reports.find(
+      (report) => report.messageId === message.id && report.status === "failed",
+    );
+    expect(failed?.detailText?.key).toBe("bridge.worktreeBusy");
+    expect(failed?.detail).toContain("稍后点「重试」");
+    expect(failed?.detail).not.toContain("confirm before retrying");
+    expect(responder.calls).toHaveLength(0);
+  });
+
   it("drops an old directory's thread when a saved task starts in another checkout", async () => {
     const isolated = new ControlledResponder();
     const checkout = path.join(directory, "checkout");

@@ -1,5 +1,9 @@
 import { bridgeText, bridgeTextZh, said, type BridgeText } from "./bridge-text.js";
-import { TaskWorkspaceRemovedError, type TaskWorkspaceSelection } from "./task-workspace.js";
+import {
+  TaskWorkspaceBusyError,
+  TaskWorkspaceRemovedError,
+  type TaskWorkspaceSelection,
+} from "./task-workspace.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   isMentioned,
@@ -1439,7 +1443,15 @@ export class AgentBridge {
         if (reply.threadId) this.state.threadId = reply.threadId;
         this.reportSession();
         this.notePromptSent(prompt);
-        const selections = await this.taskWorkspaces(active.messages);
+        const selections = await this.taskWorkspaces(active.messages).catch((error: unknown) => {
+          // 这一轮已经执行过了，暂时忙也不能当成「还没开始」去重跑
+          if (error instanceof TaskWorkspaceBusyError)
+            throw new AgentNonRetryableError(
+              `Task workspace could not be re-checked after the turn (${error.reason}); confirm before continuing.`,
+              { cause: error },
+            );
+          throw error;
+        });
         const selected = selections.get(messages[0]!.id);
         if (
           this.options.taskWorkspace &&
@@ -1841,6 +1853,17 @@ export class AgentBridge {
         status: "cancelled",
         ...(this.stopped ? said(bridgeText("bridge.offline")) : {}),
       });
+      return;
+    }
+    if (error instanceof TaskWorkspaceBusyError) {
+      // 开工前没能确认任务目录：已经按退避自动重试过，这一轮还没执行任何东西，人点「重试」就能接着做
+      for (const message of active.messages) this.rememberProcessed(message.id);
+      await this.store.save(this.state);
+      withUsage(active.messages, {
+        status: "failed",
+        ...said(bridgeText("bridge.worktreeBusy", { reason: error.reason.slice(0, 300) })),
+      });
+      this.log(`[hive] 暂时没能确认任务目录：${error.reason}`);
       return;
     }
     const reason = error instanceof Error ? error.message : String(error);

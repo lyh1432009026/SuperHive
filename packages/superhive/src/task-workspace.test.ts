@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   resolveTaskWorkspace,
   resolveTaskWorkspaces,
+  TaskWorkspaceBusyError,
   TaskWorkspaceRemovedError,
 } from "./task-workspace.js";
 import { AgentNonRetryableError } from "./responder.js";
@@ -19,7 +20,68 @@ afterEach(async () => {
   await rm(directory, { recursive: true, force: true });
 });
 
+const quickRetry = { attempts: 3, timeoutMs: 50, delaysMs: [1, 2], sleep: vi.fn(async () => {}) };
+
 describe("task workspace resolution", () => {
+  it("retries a busy or timed-out lookup with backoff and then selects the workspace", async () => {
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new DOMException("The operation was aborted due to timeout", "TimeoutError"),
+      )
+      .mockResolvedValueOnce(new Response("busy", { status: 503 }))
+      .mockResolvedValueOnce(
+        Response.json({
+          worktree: { path: directory, agentName: hive.username, roomId: hive.roomId },
+        }),
+      );
+    vi.stubGlobal("fetch", fetch);
+    quickRetry.sleep.mockClear();
+    expect(await resolveTaskWorkspace(hive, "message", quickRetry)).toBe(directory);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(quickRetry.sleep.mock.calls).toEqual([[1], [2]]);
+  });
+
+  it.each([
+    () =>
+      Promise.reject(new DOMException("The operation was aborted due to timeout", "TimeoutError")),
+    () => Promise.reject(new TypeError("fetch failed")),
+    () => Promise.resolve(new Response("busy", { status: 503 })),
+  ])("gives a retryable busy result once retries run out", async (attempt) => {
+    const fetch = vi.fn(attempt);
+    vi.stubGlobal("fetch", fetch);
+    const failure = resolveTaskWorkspaces(hive, ["first"], quickRetry);
+    await expect(failure).rejects.toBeInstanceOf(TaskWorkspaceBusyError);
+    await expect(failure).rejects.not.toBeInstanceOf(AgentNonRetryableError);
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("fails at once, without retrying, when the server refuses the identity", async () => {
+    const fetch = vi.fn(async () => Response.json({ error: "unsafe" }, { status: 403 }));
+    vi.stubGlobal("fetch", fetch);
+    await expect(resolveTaskWorkspace(hive, "message", quickRetry)).rejects.toBeInstanceOf(
+      AgentNonRetryableError,
+    );
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("fails at once when the returned checkout is foreign or has been replaced", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({
+        worktree: {
+          path: path.join(directory, "gone"),
+          agentName: hive.username,
+          roomId: hive.roomId,
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    await expect(resolveTaskWorkspace(hive, "message", quickRetry)).rejects.toBeInstanceOf(
+      AgentNonRetryableError,
+    );
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it("looks up a batch in one request and retains unbound entries", async () => {
     const fetch = vi.fn(async () =>
       Response.json({

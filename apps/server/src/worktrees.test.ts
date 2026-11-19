@@ -348,6 +348,115 @@ describe("managed worktrees", () => {
     expect(manager.roomBatches("general")[0]?.id).not.toBe(batch.id);
   });
 
+  describe("read/write separation (#3944)", () => {
+    type Internals = {
+      status: (record: ManagedWorktree, target?: string) => Promise<unknown>;
+      identity: (record: ManagedWorktree) => Promise<void>;
+    };
+    const internals = () => manager as unknown as Internals;
+    function gate() {
+      let open!: () => void;
+      const opened = new Promise<void>((resolve) => (open = resolve));
+      return { opened, open };
+    }
+
+    it("lets a task select its workspace while a slow status listing is still running", async () => {
+      const invocationId = randomUUID();
+      await manager.create(repo, agent, "Alice", [invocationId], { slug: "feature" });
+      const slow = gate();
+      const original = internals().status.bind(manager);
+      const spy = vi.spyOn(internals(), "status").mockImplementation(async (...args) => {
+        await slow.opened;
+        return original(...args);
+      });
+      let listed = false;
+      const listing = manager.list(repo).then((value) => {
+        listed = true;
+        return value;
+      });
+      const selected = await manager.runtimeWorkspace(repo, agent, "Alice", invocationId);
+      expect(selected?.path).toBe(path.join(root, "example repo-wt", "agent-a-feature"));
+      expect(listed).toBe(false);
+      slow.open();
+      expect((await listing)[0]?.worktree.id).toBe(selected?.id);
+      spy.mockRestore();
+    });
+
+    it("still runs writes one at a time and never reports a checkout being removed as removable", async () => {
+      const invocationId = randomUUID();
+      const { worktree } = await manager.create(repo, agent, "Alice", [invocationId], {
+        slug: "feature",
+      });
+      const slow = gate();
+      const entered = gate();
+      const original = internals().identity.bind(manager);
+      let blocked = false;
+      const spy = vi.spyOn(internals(), "identity").mockImplementation(async (record) => {
+        if (!blocked) {
+          blocked = true;
+          entered.open();
+          await slow.opened;
+        }
+        return original(record);
+      });
+      const removal = manager.remove(repo, { path: worktree.path });
+      await entered.opened;
+      let selected = false;
+      const selection = manager
+        .runtimeWorkspace(repo, agent, "Alice", invocationId)
+        .then(() => (selected = true))
+        .catch(() => (selected = true));
+      const during = await manager.list(repo);
+      expect(during[0]).toMatchObject({ removable: false });
+      expect(selected).toBe(false);
+      slow.open();
+      await removal;
+      await selection;
+      expect(await manager.list(repo)).toEqual([]);
+      spy.mockRestore();
+    });
+
+    it("serves repeated listings from a short cache that commits, merges and writes invalidate", async () => {
+      const { worktree } = await create();
+      const spy = vi.spyOn(internals(), "status");
+      expect((await manager.list(repo))[0]).toMatchObject({ untracked: false, removable: true });
+      writeFileSync(path.join(worktree.path, "untracked"), "private\n");
+      // 工作区里的新文件在缓存期内看不到，但仍不会因此被删：remove() 在写锁里重新检查
+      expect((await manager.list(repo))[0]).toMatchObject({ untracked: false });
+      expect(spy).toHaveBeenCalledTimes(1);
+      await expect(manager.remove(repo, { path: worktree.path })).rejects.toMatchObject({
+        code: "WORKTREE_UNSAFE",
+      });
+      expect((await manager.list(repo))[0]).toMatchObject({ untracked: true, removable: false });
+      rmSync(path.join(worktree.path, "untracked"));
+      await change(worktree);
+      expect((await manager.list(repo))[0]).toMatchObject({ merged: false, removable: false });
+      await git(repo, "merge", "--ff-only", worktree.branch);
+      expect((await manager.list(repo))[0]).toMatchObject({ merged: true, removable: true });
+      spy.mockRestore();
+    });
+
+    it("expires the cache after its lifetime", async () => {
+      manager = new WorktreeManager({
+        database,
+        activeInvocations: () => active,
+        statusCacheMs: 30,
+      });
+      const { worktree } = await create();
+      expect((await manager.list(repo))[0]).toMatchObject({ dirty: false });
+      writeFileSync(path.join(worktree.path, "first.txt"), "dirty\n");
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect((await manager.list(repo))[0]).toMatchObject({ dirty: true, removable: false });
+    });
+
+    it("reflects task occupancy immediately even from the cache", async () => {
+      const { worktree } = await create();
+      expect((await manager.list(repo))[0]?.removable).toBe(true);
+      active = [worktree.invocationIds[0] ?? randomUUID()];
+      expect((await manager.list(repo))[0]).toMatchObject({ removable: false });
+    });
+  });
+
   it("resolves the same repository from a linked checkout or symlink", async () => {
     const { worktree } = await create();
     const link = path.join(root, "repo-link");

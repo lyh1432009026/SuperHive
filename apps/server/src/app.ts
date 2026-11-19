@@ -4441,7 +4441,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         }),
       );
     } catch (error) {
-      reply.code(403).send({ error: error instanceof Error ? error.message : String(error) });
+      // git 超时只是机器忙，Bridge 收到 503 会等一会儿再问；身份不符、目录被换等仍是 403，直接失败
+      const busy = error instanceof HiveError && error.code === "WORKTREE_GIT_LIMIT";
+      reply
+        .code(busy ? 503 : 403)
+        .send({ error: error instanceof Error ? error.message : String(error) });
       return undefined;
     }
   }

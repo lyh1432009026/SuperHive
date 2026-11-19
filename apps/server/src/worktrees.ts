@@ -182,6 +182,8 @@ export async function worktreeRepository(workspace: string): Promise<Repository>
     if (!target) throw new Error("No local default branch (origin/HEAD, main or master)");
     return { repo, commonDir, target };
   } catch (error) {
+    // git 超时只说明机器忙，不说明仓库有问题：原样抛出，调用方据此判断可以稍后重试
+    if (error instanceof HiveError && error.code === "WORKTREE_GIT_LIMIT") throw error;
     throw new HiveError(
       "WORKTREE_REPOSITORY_INVALID",
       serverText("error.worktree.repository", {
@@ -191,8 +193,27 @@ export async function worktreeRepository(workspace: string): Promise<Repository>
   }
 }
 
+/** fingerprint：目标分支名和两边分支的提交；有人提交或合入就对不上，立刻重新检查 */
+type CachedStatus = { status: WorktreeStatus; at: number; fingerprint: string };
+
+/** 同时检查几条任务线：一条要跑十几个 git 进程，全部并发会把机器拖慢，逐条串行又太久 */
+const STATUS_CONCURRENCY = 4;
+/** 合入判断按（分支提交, 目标提交）缓存：两边都没动结论就不会变，上限防止无限增长 */
+const MERGE_CACHE_LIMIT = 1_000;
+
 export class WorktreeManager {
+  /** 写操作（建、删、选目录绑定任务）按仓库串行；只读的状态查询不进这个队列 */
   private readonly queues = new Map<string, Promise<unknown>>();
+  private readonly statusCache = new Map<string, CachedStatus>();
+  /** 每条任务线的写版本：写操作前后各加一，算到一半版本变了的状态不进缓存 */
+  private readonly statusEpochs = new Map<string, number>();
+  private readonly statusInflight = new Map<string, Promise<WorktreeStatus>>();
+  /** 正在被写操作改动的任务线（id → 进行中的写操作数）：这期间读到的状态不算可清理、也不进缓存 */
+  private readonly writes = new Map<string, number>();
+  private readonly mergeCache = new Map<
+    string,
+    { merged: boolean; mergeMethod?: WorktreeStatus["mergeMethod"] }
+  >();
   private scanning: Promise<void> | undefined;
   private closed = false;
 
@@ -202,6 +223,8 @@ export class WorktreeManager {
       activeInvocations: (worktree: ManagedWorktree) => string[];
       onBoardChanged?: (roomId: string) => void;
       onCleanup?: (batch: WorktreeCleanupBatch) => void;
+      /** 只读状态（未提交/未跟踪/忽略文件）的缓存时长；写操作会立即作废对应任务线的缓存 */
+      statusCacheMs?: number;
     },
   ) {
     options.database.connection().exec(`CREATE TABLE IF NOT EXISTS managed_worktrees (
@@ -358,6 +381,7 @@ export class WorktreeManager {
     const statuses: WorktreeStatus[] = [];
     for (const record of this.allRecords()) {
       if (this.closed) return;
+      // 后台定时扫描，不在写锁里，也不急：每次都重新检查，不用缓存
       const status = await this.status(record);
       statuses.push(status);
       if (!status.removable || !status.headCommit) continue;
@@ -505,6 +529,7 @@ export class WorktreeManager {
   }
 
   private finishRemoval(record: ManagedWorktree, missing = false): RemovedWorktree {
+    this.invalidate(record.id);
     this.options.database.connection().transaction(() => {
       this.options.database
         .connection()
@@ -739,24 +764,26 @@ export class WorktreeManager {
             serverText("error.worktree.conflict", { path: existing.path }),
           );
         }
-        await this.identity(existing);
-        existing.phase = "ready";
-        existing.invocationIds = [...new Set([...existing.invocationIds, ...invocationIds])];
-        const board = this.options.database.upsertWhiteboardEntry(actor, {
-          key: `worktree:${existing.id}`,
-          slot: "in_progress",
-          summary: zhText(
-            serverText("worktree.created", { branch: existing.branch, path: existing.path }),
-          ).slice(0, 500),
-          repo: path.basename(existing.repo),
-          branch: existing.branch,
-          claim: { repo: existing.repo, branch: existing.branch },
+        return this.writing(existing.id, async () => {
+          await this.identity(existing);
+          existing.phase = "ready";
+          existing.invocationIds = [...new Set([...existing.invocationIds, ...invocationIds])];
+          const board = this.options.database.upsertWhiteboardEntry(actor, {
+            key: `worktree:${existing.id}`,
+            slot: "in_progress",
+            summary: zhText(
+              serverText("worktree.created", { branch: existing.branch, path: existing.path }),
+            ).slice(0, 500),
+            repo: path.basename(existing.repo),
+            branch: existing.branch,
+            claim: { repo: existing.repo, branch: existing.branch },
+          });
+          this.save(existing);
+          this.focus(existing);
+          this.bind(existing, invocationIds);
+          if (board.changed) this.options.onBoardChanged?.(actor.roomId);
+          return { worktree: existing, reused: true };
         });
-        this.save(existing);
-        this.focus(existing);
-        this.bind(existing, invocationIds);
-        if (board.changed) this.options.onBoardChanged?.(actor.roomId);
-        return { worktree: existing, reused: true };
       }
       const agentSlug = actor.username
         .toLowerCase()
@@ -810,56 +837,58 @@ export class WorktreeManager {
         createdAt: new Date().toISOString(),
         phase: "creating",
       };
-      this.options.database.connection().transaction(() => {
-        this.options.database.assertBranchClaimAvailable(repository.repo, branch);
-        this.options.database
-          .connection()
-          .prepare(
-            `INSERT INTO managed_worktrees
+      return this.writing(record.id, async () => {
+        this.options.database.connection().transaction(() => {
+          this.options.database.assertBranchClaimAvailable(repository.repo, branch);
+          this.options.database
+            .connection()
+            .prepare(
+              `INSERT INTO managed_worktrees
           (id, repo, agent_name, slug, path, branch, record) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .run(
-            record.id,
-            record.repo,
-            record.agentName,
-            record.slug,
-            record.path,
-            record.branch,
-            JSON.stringify(record),
-          );
-        this.options.database.upsertWhiteboardEntry(actor, {
-          key: `worktree:${record.id}`,
-          slot: "in_progress",
-          summary: zhText(
-            serverText("worktree.created", { branch: record.branch, path: record.path }),
-          ).slice(0, 500),
-          repo: path.basename(record.repo),
-          branch,
-          claim: { repo: record.repo, branch },
-        });
-      })();
-      this.options.onBoardChanged?.(actor.roomId);
-      try {
-        await git(repository.repo, [
-          "worktree",
-          "add",
-          "-b",
-          branch,
-          "--",
-          worktreePath,
-          baseCommit,
-        ]);
-        await this.identity(record);
-        record.phase = "ready";
-        this.focus(record);
-        this.bind(record, invocationIds);
-        this.save(record);
-        return { worktree: record, reused: false };
-      } catch (error) {
-        record.phase = "error";
-        this.save(record);
-        throw error;
-      }
+            )
+            .run(
+              record.id,
+              record.repo,
+              record.agentName,
+              record.slug,
+              record.path,
+              record.branch,
+              JSON.stringify(record),
+            );
+          this.options.database.upsertWhiteboardEntry(actor, {
+            key: `worktree:${record.id}`,
+            slot: "in_progress",
+            summary: zhText(
+              serverText("worktree.created", { branch: record.branch, path: record.path }),
+            ).slice(0, 500),
+            repo: path.basename(record.repo),
+            branch,
+            claim: { repo: record.repo, branch },
+          });
+        })();
+        this.options.onBoardChanged?.(actor.roomId);
+        try {
+          await git(repository.repo, [
+            "worktree",
+            "add",
+            "-b",
+            branch,
+            "--",
+            worktreePath,
+            baseCommit,
+          ]);
+          await this.identity(record);
+          record.phase = "ready";
+          this.focus(record);
+          this.bind(record, invocationIds);
+          this.save(record);
+          return { worktree: record, reused: false };
+        } catch (error) {
+          record.phase = "error";
+          this.save(record);
+          throw error;
+        }
+      });
     });
   }
 
@@ -918,6 +947,21 @@ export class WorktreeManager {
   ): Promise<{ merged: boolean; mergeMethod?: WorktreeStatus["mergeMethod"] }> {
     const tip = await commit(record.repo, `refs/heads/${record.branch}`);
     const target = await commit(record.repo, `refs/heads/${record.target}`);
+    const key = `${record.repo}\0${tip}\0${target}`;
+    const known = this.mergeCache.get(key);
+    if (known) return known;
+    const result = await this.mergedBetween(record, tip, target);
+    if (this.mergeCache.size >= MERGE_CACHE_LIMIT)
+      this.mergeCache.delete(this.mergeCache.keys().next().value!);
+    this.mergeCache.set(key, result);
+    return result;
+  }
+
+  private async mergedBetween(
+    record: ManagedWorktree,
+    tip: string,
+    target: string,
+  ): Promise<{ merged: boolean; mergeMethod?: WorktreeStatus["mergeMethod"] }> {
     const ancestor = await worktreeGit(record.repo, ["merge-base", "--is-ancestor", tip, target]);
     if (ancestor.code === 0) return { merged: true, mergeMethod: "ancestor" };
     if (ancestor.code !== 1) await git(record.repo, ["merge-base", "--is-ancestor", tip, target]);
@@ -1030,15 +1074,118 @@ export class WorktreeManager {
     }
   }
 
+  /**
+   * 列出任务线状态。只读，不进写锁：建、删、选目录不会排在这一长串 git 检查后面（#3944：
+   * 一次扫 17 条约 110 秒，期间 Agent 开工前选目录全部超时）。读到的可能是写操作进行中的
+   * 中间状态，所以正在建/删的一律不算可清理；真正删除时 remove() 会在写锁里重新确认。
+   */
   async list(workspace: string): Promise<WorktreeStatus[]> {
     const repository = await worktreeRepository(workspace);
-    return this.serial(repository.repo, async () => {
-      const statuses: WorktreeStatus[] = [];
-      for (const record of this.records(repository.repo))
-        statuses.push(await this.status(record, repository.target));
-      this.pruneCleanupBatches(statuses);
-      return statuses;
-    });
+    const records = this.records(repository.repo);
+    // 一次读出所有分支的提交，用来判断缓存是否还对得上（比逐条 rev-parse 省得多）
+    const tips = new Map(
+      (
+        await git(repository.repo, [
+          "for-each-ref",
+          "--format=%(refname)%00%(objectname)",
+          "refs/heads/",
+        ])
+      )
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => line.split("\0") as [string, string]),
+    );
+    const statuses: Array<WorktreeStatus | undefined> = Array.from({ length: records.length });
+    let next = 0;
+    const worker = async () => {
+      while (next < records.length) {
+        const index = next++;
+        const record = records[index]!;
+        const fingerprint = [
+          repository.target,
+          tips.get(`refs/heads/${record.branch}`) ?? "",
+          tips.get(`refs/heads/${repository.target}`) ?? "",
+        ].join("\0");
+        statuses[index] = await this.cachedStatus(record, repository.target, fingerprint);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(STATUS_CONCURRENCY, records.length) }, worker));
+    const current = new Map(this.records(repository.repo).map((record) => [record.id, record]));
+    const result = statuses
+      .filter((status): status is WorktreeStatus => Boolean(status))
+      .flatMap((status) => {
+        // 检查期间被删掉的不再列出；记录本身（阶段、绑定的任务）以最新的为准
+        const record = current.get(status.worktree.id);
+        return record ? [this.live(status, record)] : [];
+      });
+    this.pruneCleanupBatches(result);
+    return result;
+  }
+
+  /** 缓存里的 git 检查结果配上最新的记录和正在执行的任务，重新判断能不能清理 */
+  private live(status: WorktreeStatus, record: ManagedWorktree): WorktreeStatus {
+    const activeInvocationIds = this.options.activeInvocations(record);
+    const idle = activeInvocationIds.length === 0;
+    const clean = status.missing
+      ? true
+      : !status.error && !status.dirty && !status.untracked && !status.ignored && status.merged;
+    return {
+      ...status,
+      worktree: record,
+      activeInvocationIds,
+      removable: clean && idle && !this.writes.has(record.id),
+    };
+  }
+
+  private invalidate(id: string): void {
+    this.statusEpochs.set(id, (this.statusEpochs.get(id) ?? 0) + 1);
+    this.statusCache.delete(id);
+  }
+
+  /** 在写锁里改动一条任务线：前后都作废它的状态缓存，进行中的只读检查结果也不会被留下 */
+  private async writing<Result>(id: string, operation: () => Promise<Result>): Promise<Result> {
+    this.writes.set(id, (this.writes.get(id) ?? 0) + 1);
+    this.invalidate(id);
+    try {
+      return await operation();
+    } finally {
+      const left = (this.writes.get(id) ?? 1) - 1;
+      if (left > 0) this.writes.set(id, left);
+      else this.writes.delete(id);
+      this.invalidate(id);
+    }
+  }
+
+  private async cachedStatus(
+    record: ManagedWorktree,
+    expectedTarget: string,
+    fingerprint: string,
+  ): Promise<WorktreeStatus> {
+    const ttl = this.options.statusCacheMs ?? 15_000;
+    const cached = this.statusCache.get(record.id);
+    if (cached && cached.fingerprint === fingerprint && Date.now() - cached.at < ttl)
+      return this.live(cached.status, record);
+    // 同一时刻几个人同时打开列表：同一条任务线只检查一次，大家共用结果
+    const key = `${record.id}\0${fingerprint}`;
+    const pending = this.statusInflight.get(key);
+    if (pending) return this.live(await pending, record);
+    const epoch = this.statusEpochs.get(record.id) ?? 0;
+    const started = Date.now();
+    const running = this.status(record, expectedTarget);
+    this.statusInflight.set(key, running);
+    try {
+      const status = await running;
+      // 检查期间有写操作（建、删）碰过这条任务线，结果可能是中间状态，不留给后面的人用
+      if (
+        ttl > 0 &&
+        (this.statusEpochs.get(record.id) ?? 0) === epoch &&
+        !this.writes.has(record.id)
+      )
+        this.statusCache.set(record.id, { status, at: started, fingerprint });
+      return this.live(status, record);
+    } finally {
+      if (this.statusInflight.get(key) === running) this.statusInflight.delete(key);
+    }
   }
 
   async remove(
@@ -1053,70 +1200,77 @@ export class WorktreeManager {
           "WORKTREE_UNREGISTERED",
           serverText("error.worktree.unregistered", { path: input.path }),
         );
-      const status = await this.status(record, repository.target);
-      if (!status.removable)
-        throw new HiveError(
-          "WORKTREE_UNSAFE",
-          serverText("error.worktree.unsafe", { path: input.path }),
-        );
-      if (status.missing) {
-        if (
-          input.expectedCommit ||
-          !(await this.missingCheckout(record, repository.target)) ||
-          this.options.activeInvocations(record).length
-        )
+      return this.writing(record.id, async () => {
+        const status = await this.status(record, repository.target);
+        if (!status.removable)
           throw new HiveError(
             "WORKTREE_UNSAFE",
-            serverText("error.worktree.unsafe", { path: record.path }),
+            serverText("error.worktree.unsafe", { path: input.path }),
           );
-        this.finishRemoval(record, true);
-        return { removed: true, branchDeleted: true };
-      }
-      const tip = await commit(record.repo, `refs/heads/${record.branch}`);
-      if (input.expectedCommit && tip !== input.expectedCommit)
-        throw new HiveError(
-          "WORKTREE_UNSAFE",
-          serverText("error.worktree.unsafe", { path: record.path }),
-        );
-      record.phase = "removing";
-      this.save(record);
-      try {
-        await this.identity(record);
-        if (
-          this.options.activeInvocations(record).length !== 0 ||
-          (await commit(record.repo, `refs/heads/${record.branch}`)) !== tip
-        ) {
-          throw new HiveError(
-            "WORKTREE_UNSAFE",
-            serverText("error.worktree.unsafe", { path: record.path }),
-          );
+        if (status.missing) {
+          if (
+            input.expectedCommit ||
+            !(await this.missingCheckout(record, repository.target)) ||
+            this.options.activeInvocations(record).length
+          )
+            throw new HiveError(
+              "WORKTREE_UNSAFE",
+              serverText("error.worktree.unsafe", { path: record.path }),
+            );
+          this.finishRemoval(record, true);
+          return { removed: true, branchDeleted: true };
         }
-        await git(record.repo, ["worktree", "remove", "--", record.path]);
-      } catch (error) {
-        record.phase = "error";
+        const tip = await commit(record.repo, `refs/heads/${record.branch}`);
+        if (input.expectedCommit && tip !== input.expectedCommit)
+          throw new HiveError(
+            "WORKTREE_UNSAFE",
+            serverText("error.worktree.unsafe", { path: record.path }),
+          );
+        record.phase = "removing";
         this.save(record);
-        throw error;
-      }
-      let branchDeleted = false;
-      let branchError: string | undefined;
-      if (input.deleteBranch !== false) {
         try {
-          if ((await commit(record.repo, `refs/heads/${record.branch}`)) !== tip) {
-            branchError = zhText(serverText("error.worktree.identity", { path: record.path }));
-          } else {
-            const deletion = await worktreeGit(record.repo, ["branch", "-d", "--", record.branch]);
-            branchDeleted = deletion.code === 0;
-            if (!branchDeleted)
-              branchError = zhText(
-                serverText("error.worktree.branchRetained", { branch: record.branch }),
-              );
+          await this.identity(record);
+          if (
+            this.options.activeInvocations(record).length !== 0 ||
+            (await commit(record.repo, `refs/heads/${record.branch}`)) !== tip
+          ) {
+            throw new HiveError(
+              "WORKTREE_UNSAFE",
+              serverText("error.worktree.unsafe", { path: record.path }),
+            );
           }
+          await git(record.repo, ["worktree", "remove", "--", record.path]);
         } catch (error) {
-          branchError = error instanceof Error ? error.message : String(error);
+          record.phase = "error";
+          this.save(record);
+          throw error;
         }
-      }
-      this.finishRemoval(record);
-      return { removed: true, branchDeleted, ...(branchError ? { branchError } : {}) };
+        let branchDeleted = false;
+        let branchError: string | undefined;
+        if (input.deleteBranch !== false) {
+          try {
+            if ((await commit(record.repo, `refs/heads/${record.branch}`)) !== tip) {
+              branchError = zhText(serverText("error.worktree.identity", { path: record.path }));
+            } else {
+              const deletion = await worktreeGit(record.repo, [
+                "branch",
+                "-d",
+                "--",
+                record.branch,
+              ]);
+              branchDeleted = deletion.code === 0;
+              if (!branchDeleted)
+                branchError = zhText(
+                  serverText("error.worktree.branchRetained", { branch: record.branch }),
+                );
+            }
+          } catch (error) {
+            branchError = error instanceof Error ? error.message : String(error);
+          }
+        }
+        this.finishRemoval(record);
+        return { removed: true, branchDeleted, ...(branchError ? { branchError } : {}) };
+      });
     });
   }
 }
