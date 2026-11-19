@@ -35,6 +35,10 @@ Agent 是在一台电脑上运行的协作者。Hive 把房间消息交给它，
 
 图中是原创操作示意图，不是产品截图；按钮和可用入口以当前页面及登录身份为准。
 
+![接入弹窗第一步的真实界面：六种运行时各一张卡片，显示提供方和本机检测到的版本，选好后点「下一步」。](/media/screens/onboard.png)
+
+演示环境界面截图：人名、房间和仓库都是示例数据，会跟随文档的明暗主题切换。
+
 ### 在本机启动：可一次启动 1–5 个
 
 ![本机启动表单的数量控件：名称为 Alice-codex，数量为 3，将依次启动 Alice-codex、Alice-codex2、Alice-codex3。隔离演示界面截图，已裁切去除本机工作目录。](/media/interface/agent-count.png)
@@ -105,5 +109,16 @@ npx --yes superhive@latest join \
 在本机 Agent 设置中可查看日志，停止、启动或重启进程，并调整可用模型、支持的 MCP 和「人发的消息自动引导」开关。自动引导默认关闭；开启前先读[引导与停止的区别](/guides/tasks/)。
 
 Codex、Claude Code 的额外 MCP 可选择加载；`hive` 始终加载。MCP 大小和新会话开局 token 是估算，不是精确账单。设置变化按后续回合应用，运行中的工具调用不因取消勾选而撤销；页面提供的重启选项可用于重新启动 Agent。
+
+### Agent 运行时：安装、升级与 CLI 配置
+
+在运行 Hive Server 的这台电脑上打开网页时，「设置」里多一个「Agent 运行时」分类，其他设备看不到：
+
+- **已安装的 Agent CLI**：列出每个 CLI 的版本、最新版、安装位置和安装方式。点「升级」或「安装」会先显示要执行的完整命令，确认后才运行，一次只跑一个。
+- **运行时接口地址与密钥**：查看、修改各 CLI 全局配置里的接口地址和密钥，默认打码；改的是 CLI 自己的配置文件，终端里的同一个 CLI 也会受影响。
+
+![「Agent 运行时」里的已安装 Agent CLI：Claude Code、Codex、GitHub Copilot CLI、OpenCode、Oh My Pi、OpenClaw 各一行，显示当前版本、是否有新版、安装路径和来源（npm 或 bun），有新版的带「升级到 x」按钮。](/media/screens/clis.png)
+
+演示环境界面截图：人名、房间和仓库都是示例数据，会跟随文档的明暗主题切换。路径里的用户目录显示为 `~`。
 
 如果想让独立终端中的 Agent 学会 Hive 协作，可查看 `hive --skill` 或 `hive skill install`，具体用法见 [CLI 参考](/reference/cli/)。安装协作说明不会自动接入房间，也不会替你授予文件或工具权限。

@@ -68,3 +68,38 @@ test("navigation requires nineteen unique documentation routes", () => {
   assert.equal(new Set(expectedRoutes).size, 19);
   assert.ok(expectedRoutes.includes("reference/documentation/"));
 });
+
+test("interface screenshots expand into themed 2x image pairs", () => {
+  const tree = {
+    type: "root",
+    children: [
+      {
+        type: "element",
+        tagName: "p",
+        properties: {},
+        children: [
+          {
+            type: "element",
+            tagName: "img",
+            properties: { src: "/media/screens/ask.png", alt: "提问卡片" },
+          },
+        ],
+      },
+    ],
+  };
+  prefixContentUrls("/handbook/")()(tree);
+  const images = tree.children[0].children;
+  assert.deepEqual(
+    images.map((image) => [image.properties.src, image.properties.className.join(" ")]),
+    [
+      ["/handbook/media/screens/ask.light.png", "docs-shot dark:sl-hidden"],
+      ["/handbook/media/screens/ask.dark.png", "docs-shot light:sl-hidden"],
+    ],
+  );
+  assert.ok(images.every((image) => image.properties.alt === "提问卡片"));
+  assert.ok(
+    images.every(
+      (image) => Number.isInteger(image.properties.width) && image.properties.width < 900,
+    ),
+  );
+});

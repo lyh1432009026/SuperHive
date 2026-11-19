@@ -12,6 +12,14 @@
 
 原图已经逐一可视检查；裁切结果不含 Token、账号、真实聊天、工作目录或私有房间。数量截图中的 `Alice-codex` 是示例名。截图只证明这些界面的样子，不证明真实模型、远程连接或完整接入流程已经再次实测。文档正文必须注明“隔离演示界面截图（裁切）”。
 
+## 演示环境界面截图
+
+`public/media/screens/` 是用本地临时 Hive Server（独立数据库、独立 `HOME`、只监听 127.0.0.1、假 Agent 只保持在线不调用模型）加演示数据，以无头 Chrome 按 2 倍像素截取的真实界面，每张都有 `.dark.png` 与 `.light.png` 两份。正文写 `![说明](/media/screens/名字.png)`，构建时由 `scripts/site-config.mjs` 展开成跟随主题切换的两张图，并按一半尺寸显示。
+
+- 人名（林夏、周屿、陈默）、房间、仓库、提交号和任务内容都是演示数据。
+- 截图前把演示目录和本机用户目录替换成 `~`；`clis` 中的 CLI 版本与安装来源来自截图电脑的真实检测，不含 Token、密钥或账号。
+- 只做裁切与 PNG 调色板压缩，不改画界面。截图只证明界面样子，不证明真实模型任务或远程连接已经实测。
+
 ## 原创示意图
 
 `public/media/workroom.svg` 与 `public/media/codex2/`、`codex4/`、`architecture/` 的 SVG 为原理或操作示意，必须明确标注非真实界面截图，并带有意义的替代文本。分享图 `social-card.png` 根据 `src/assets/social-card.svg` 用 Sharp 生成，不是产品界面。

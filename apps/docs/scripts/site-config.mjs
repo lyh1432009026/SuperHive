@@ -31,9 +31,28 @@ export function withBase(pathname, base) {
   return `${base}${pathname.replace(/^\//, "")}`;
 }
 
+const screensRoot = fileURLToPath(new URL("../public/media/screens/", import.meta.url));
+
+// `![说明](/media/screens/名字.png)` 展开成明暗两张真实界面截图，跟随文档主题切换。
+export function themedScreenshot(node) {
+  const source =
+    node.type === "element" && node.tagName === "img" ? node.properties?.src : undefined;
+  const match = typeof source === "string" && source.match(/^\/media\/screens\/([\w-]+)\.png$/);
+  if (!match || !existsSync(resolve(screensRoot, `${match[1]}.dark.png`))) return [node];
+  return ["light", "dark"].map((theme) => ({
+    ...node,
+    properties: {
+      ...node.properties,
+      src: `/media/screens/${match[1]}.${theme}.png`,
+      className: ["docs-shot", theme === "light" ? "dark:sl-hidden" : "light:sl-hidden"],
+    },
+  }));
+}
+
 export function prefixContentUrls(base) {
   return () => (tree) => {
     function visit(node) {
+      if (node.children) node.children = node.children.flatMap(themedScreenshot);
       if (node.type === "element" && node.properties) {
         if (node.tagName === "img") {
           const source = node.properties.src;
@@ -53,8 +72,10 @@ export function prefixContentUrls(base) {
                   node.properties.height = Number(viewBox[2]);
                 }
               } else if (source.endsWith(".png") && image.length >= 24) {
-                node.properties.width = image.readUInt32BE(16);
-                node.properties.height = image.readUInt32BE(20);
+                // 界面截图按 2 倍像素截取，按一半尺寸显示才清晰
+                const scale = source.startsWith("/media/screens/") ? 2 : 1;
+                node.properties.width = image.readUInt32BE(16) / scale;
+                node.properties.height = image.readUInt32BE(20) / scale;
               }
             }
           }
