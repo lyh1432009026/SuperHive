@@ -556,6 +556,7 @@ export const whiteboardEntrySchema = z.object({
   id: z.string().uuid(),
   roomId: z.string().min(1).max(64),
   key: z.string().min(1).max(100),
+  kind: z.literal("task_directory").optional(),
   slot: whiteboardSlotSchema,
   summary: z.string().min(1).max(500),
   repo: z.string().max(200).optional(),
@@ -572,6 +573,10 @@ export const whiteboardEntrySchema = z.object({
   archivedAt: z.string().datetime().optional(),
   archiveProtected: z.boolean().optional(),
 });
+
+export function isTaskDirectoryEntry(entry: { key: string; kind?: "task_directory" }): boolean {
+  return entry.kind === "task_directory" || entry.key.startsWith("worktree:");
+}
 
 export const whiteboardArchiveRequestSchema = z.object({
   entries: z

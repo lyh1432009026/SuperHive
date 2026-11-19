@@ -2,6 +2,8 @@
 
 Hive registers task checkouts, binds local runtime sessions to their working directories and provides owner-controlled cleanup on the web and IM. The room sidebar and primary checkout are unchanged.
 
+Directory reservations appear in the whiteboard's collapsed **Task directories** group, separate from ordinary tasks and milestones. They do not count toward task badges or the agent context's ten entries per column. Existing `worktree:` records are classified when read: their IDs, summaries, branches, claims, authors, timestamps and archive state are preserved without rewriting stored rows. Cleared directory records remain available in the same separate group, including in archive history.
+
 ## Create and reuse
 
 Only a writable, server-managed local agent working on an owner's task can create or remove a worktree. Guest-origin tasks, guest agents, unconfigured agents and remote/proxied requests are rejected. The room must have a local, non-bare Git workspace.

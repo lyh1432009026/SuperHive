@@ -38,6 +38,49 @@ const trigger: ChatMessage = {
 };
 
 describe("semantic prompt context", () => {
+  it("keeps ten real tasks per slot even when legacy and tagged directories come first", () => {
+    const entries = (["blocked", "in_progress", "ready", "milestone"] as const).flatMap((slot) => [
+      ...Array.from({ length: 12 }, (_, index) => board(`worktree:${slot}-${index}`, { slot })),
+      board(`tagged-${slot}`, { slot, kind: "task_directory" }),
+      ...Array.from({ length: 11 }, (_, index) => board(`${slot}-${index}`, { slot })),
+    ]);
+    const snapshot = snapshotWhiteboard(entries);
+    expect(snapshot.entries).toHaveLength(40);
+    for (const slot of ["blocked", "in_progress", "ready", "milestone"] as const) {
+      for (let index = 0; index < 10; index += 1)
+        expect(snapshot.entries.map((entry) => entry.id)).toContain(`board-${slot}-${index}`);
+      expect(snapshot.entries.map((entry) => entry.id)).not.toContain(`board-${slot}-10`);
+    }
+    const prompt = buildMentionPrompt({ messages: [], triggers: [trigger], whiteboard: entries });
+    expect(prompt).not.toContain("worktree:");
+    expect(prompt).not.toContain("tagged-");
+  });
+
+  it("ignores directory-only changes and removes directory entries from saved old summaries", () => {
+    const before = snapshotWhiteboard([board("task")]);
+    const after = snapshotWhiteboard([
+      board("worktree:active", { slot: "in_progress" }),
+      board("worktree:cleaned", { slot: "milestone" }),
+      board("task"),
+    ]);
+    expect(diffPromptContext(after, before, false)).toBeUndefined();
+    const old = {
+      ...before,
+      entries: [
+        ...before.entries,
+        { id: "directory", label: "[worktree:old]", group: "里程碑", text: "old reservation" },
+      ],
+    };
+    const update = diffPromptContext(after, old, false)!;
+    expect(update.removed).toEqual(["[worktree:old]"]);
+    const prompt = buildMentionPrompt({
+      messages: [],
+      triggers: [trigger],
+      whiteboardUpdate: update,
+    });
+    expect(prompt).toContain("从摘要移除（不代表白板原条目已删除）");
+  });
+
   it("excludes archived entries from the current whiteboard summary window", () => {
     const entries = Array.from({ length: 12 }, (_, index) =>
       board(`archived-${index}`, { archivedAt: "2026-10-31T00:01:00Z" }),

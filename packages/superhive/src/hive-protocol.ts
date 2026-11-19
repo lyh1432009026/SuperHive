@@ -98,6 +98,7 @@ export type Invocation = {
 export type WhiteboardEntry = {
   id: string;
   key: string;
+  kind?: "task_directory";
   slot: "ready" | "in_progress" | "blocked" | "milestone";
   summary: string;
   repo?: string;

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WhiteboardEntry } from "@superhive/protocol";
@@ -33,6 +33,88 @@ afterEach(() => {
 });
 
 describe("WhiteboardPanel lifecycle", () => {
+  it("puts legacy and tagged directory records in a closed group, separate from tasks", async () => {
+    const user = userEvent.setup();
+    const active = entry("worktree:active", { slot: "in_progress", archiveProtected: true });
+    const cleaned = entry("worktree:cleaned", { slot: "milestone", branch: "feat/old" });
+    const tagged = entry("tagged", { kind: "task_directory" });
+    render(
+      <WhiteboardPanel {...props()} entries={asMap([active, cleaned, tagged, entry("task")])} />,
+    );
+    const group = screen.getByText("任务目录").closest("details")!;
+    expect(group.open).toBe(false);
+    expect(screen.getAllByRole("heading").map((heading) => heading.textContent)).toEqual([
+      "已就绪1",
+    ]);
+    await user.click(screen.getByText("任务目录"));
+    expect(group.open).toBe(true);
+    expect(within(group).getByText(active.summary)).toBeTruthy();
+    expect(within(group).getByText(cleaned.summary)).toBeTruthy();
+    expect(within(group).getByText("feat/old")).toBeTruthy();
+    expect(
+      (
+        within(group).getByRole("checkbox", {
+          name: "选择事项：worktree:active",
+        }) as HTMLInputElement
+      ).disabled,
+    ).toBe(true);
+    await user.click(screen.getByText("任务目录"));
+    expect(group.open).toBe(false);
+  });
+
+  it("does not bulk-select directory records even when cleaned or archived", async () => {
+    const user = userEvent.setup();
+    const callbacks = props();
+    const task = entry("task");
+    const directory = entry("worktree:cleaned", { slot: "milestone" });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { rerender } = render(
+      <WhiteboardPanel {...callbacks} entries={asMap([task, directory])} />,
+    );
+    await user.click(screen.getByRole("button", { name: "选择可归档事项" }));
+    await user.click(screen.getByRole("button", { name: "归档所选 (1)" }));
+    expect(callbacks.onArchive).toHaveBeenCalledWith([task], true);
+    const archivedTask = { ...task, archivedAt: "2026-11-16T00:01:00Z" };
+    const archivedDirectory = { ...directory, archivedAt: "2026-11-16T00:01:00Z" };
+    rerender(<WhiteboardPanel {...callbacks} entries={asMap([archivedTask, archivedDirectory])} />);
+    await user.click(screen.getByRole("button", { name: "历史归档" }));
+    await user.click(screen.getByRole("button", { name: "选择历史事项" }));
+    await user.click(screen.getByRole("button", { name: "恢复所选 (1)" }));
+    expect(callbacks.onArchive).toHaveBeenLastCalledWith([archivedTask], false);
+  });
+
+  it("keeps directory history in its separate group and permits restoring eligible entries", async () => {
+    const user = userEvent.setup();
+    const callbacks = props();
+    const directory = entry("worktree:history", {
+      slot: "milestone",
+      archivedAt: "2026-11-16T00:01:00Z",
+    });
+    render(<WhiteboardPanel {...callbacks} entries={asMap([directory])} />);
+    expect(screen.queryByText("任务目录")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "历史归档" }));
+    await waitFor(() => expect(callbacks.loadHistory).toHaveBeenCalled());
+    const group = screen.getByText("任务目录").closest("details")!;
+    expect(group.open).toBe(false);
+    expect(screen.queryByRole("heading", { name: /里程碑/ })).toBeNull();
+    await user.click(screen.getByText("任务目录"));
+    await user.click(within(group).getByRole("button", { name: "恢复事项：worktree:history" }));
+    expect(callbacks.onArchive).toHaveBeenCalledWith([directory], false);
+  });
+
+  it("keeps an opened directory group open across updates and applies the slot filter", async () => {
+    const user = userEvent.setup();
+    const callbacks = props();
+    const active = entry("worktree:active", { slot: "in_progress" });
+    const { rerender } = render(<WhiteboardPanel {...callbacks} entries={asMap([active])} />);
+    await user.click(screen.getByText("任务目录"));
+    rerender(<WhiteboardPanel {...callbacks} entries={asMap([active, entry("worktree:new")])} />);
+    expect(screen.getByText("任务目录").closest("details")!.open).toBe(true);
+    await user.selectOptions(screen.getByRole("combobox", { name: "状态筛选" }), "in_progress");
+    expect(screen.getByText(active.summary)).toBeTruthy();
+    expect(screen.queryByText("Summary worktree:new")).toBeNull();
+  });
+
   it("defaults to current items, filters slots and disables protected selections", async () => {
     const user = userEvent.setup();
     render(

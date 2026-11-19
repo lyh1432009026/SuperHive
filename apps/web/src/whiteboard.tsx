@@ -1,5 +1,9 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
-import type { WhiteboardEntry, WhiteboardSlot } from "@superhive/protocol";
+import {
+  isTaskDirectoryEntry,
+  type WhiteboardEntry,
+  type WhiteboardSlot,
+} from "@superhive/protocol";
 import { getLocale, localized, t } from "./i18n";
 
 /** 阻塞最需要人关注，排在最前；里程碑是历史记录，放最后 */
@@ -176,8 +180,22 @@ export function WhiteboardPanel({
   const canSelect = (entry: WhiteboardEntry) => selectable.some((item) => item.id === entry.id);
   // 一键全选只挑已经收尾的成果；进行中、阻塞的要房主逐条勾，免得把还在推进的活一起归档
   const bulkSelectable = selectable.filter(
-    (entry) => view === "archived" || (entry.slot !== "in_progress" && entry.slot !== "blocked"),
+    (entry) =>
+      !isTaskDirectoryEntry(entry) &&
+      (view === "archived" || (entry.slot !== "in_progress" && entry.slot !== "blocked")),
   );
+  const groups = [
+    ...whiteboardSlots.map(({ slot, label }) => ({
+      slot,
+      label,
+      slotEntries: sorted.filter((entry) => !isTaskDirectoryEntry(entry) && entry.slot === slot),
+    })),
+    {
+      slot: "task_directory",
+      label: t("任务目录"),
+      slotEntries: sorted.filter(isTaskDirectoryEntry),
+    },
+  ];
 
   async function changeArchive(items: WhiteboardEntry[]) {
     const archive = view === "current";
@@ -360,20 +378,37 @@ export function WhiteboardPanel({
           )}
         </div>
       )}
-      {whiteboardSlots.map(({ slot, label }) => {
-        const slotEntries = sorted.filter((entry) => entry.slot === slot);
+      {groups.map(({ slot, label, slotEntries }) => {
         if (slotEntries.length === 0) return null;
         const headingId = `whiteboard-slot-${slot}`;
+        const directoryGroup = slot === "task_directory";
+        const Container = directoryGroup ? "details" : "section";
+        const Heading = directoryGroup ? "summary" : "h3";
         return (
-          <section key={slot} className={`whiteboard-slot ${slot}`} aria-labelledby={headingId}>
-            <h3 id={headingId}>
+          <Container key={slot} className={`whiteboard-slot ${slot}`} aria-labelledby={headingId}>
+            <Heading id={headingId}>
               <span className="whiteboard-slot-dot" aria-hidden="true" />
               {label}
               <span className="whiteboard-slot-count">{slotEntries.length}</span>
-            </h3>
+              {directoryGroup && <ChevronIcon />}
+            </Heading>
+            {directoryGroup && (
+              <p className="whiteboard-directory-hint">
+                {t("目录登记单独展示，不计入任务数量与 Agent 白板摘要。")}
+              </p>
+            )}
             <ul>
               {slotEntries.map((entry) => (
                 <li key={entry.id} className="whiteboard-entry">
+                  {directoryGroup && (
+                    <p className="whiteboard-directory-state">
+                      <span className={`whiteboard-slot-dot ${entry.slot}`} aria-hidden="true" />
+                      {
+                        whiteboardSlots.find(({ slot: entrySlot }) => entrySlot === entry.slot)
+                          ?.label
+                      }
+                    </p>
+                  )}
                   {canManage && (
                     <label className="whiteboard-select">
                       <input
@@ -463,7 +498,7 @@ export function WhiteboardPanel({
                 </li>
               ))}
             </ul>
-          </section>
+          </Container>
         );
       })}
     </div>

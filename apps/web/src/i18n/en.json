@@ -1619,5 +1619,7 @@
   "来自 {0}": "from {0}",
   "出错": "Failed",
   "等锁 {0}": "waited {0} for lock",
-  "最近没有慢操作。": "No slow operations recently."
+  "最近没有慢操作。": "No slow operations recently.",
+  "任务目录": "Task directories",
+  "目录登记单独展示，不计入任务数量与 Agent 白板摘要。": "Directory records are shown separately and excluded from task counts and agent whiteboard summaries."
 }

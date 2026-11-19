@@ -2602,7 +2602,14 @@ describe("App mention autocomplete", () => {
       slot: "blocked" as const,
       summary: "等待数据库迁移权限",
     };
-    whiteboardApi.entries = [ready, blockedEntry];
+    const directory = {
+      ...entryBase,
+      id: "00000000-0000-4000-8000-0000000000b4",
+      key: "worktree:legacy",
+      slot: "blocked" as const,
+      summary: "Directory reservation",
+    };
+    whiteboardApi.entries = [ready, blockedEntry, directory];
     vi.spyOn(window, "confirm").mockReturnValue(true);
     act(() =>
       socket.serverEvent({
@@ -2612,7 +2619,7 @@ describe("App mention autocomplete", () => {
         messages: [],
         latestSeq: 0,
         invocations: [],
-        whiteboard: [ready, blockedEntry],
+        whiteboard: [ready, blockedEntry, directory],
       }),
     );
 
@@ -2621,6 +2628,7 @@ describe("App mention autocomplete", () => {
     expect(tab.getAttribute("aria-selected")).toBe("false");
     await user.click(tab);
     expect(tab.getAttribute("aria-selected")).toBe("true");
+    expect(tab.textContent).toBe("白板2");
     const board = within(panel).getByRole("tabpanel");
     const headings = within(board)
       .getAllByRole("heading")
@@ -2693,6 +2701,7 @@ describe("App mention autocomplete", () => {
         roomId: "general",
         entryId: "00000000-0000-4000-8000-0000000000b3",
       });
+      socket.serverEvent({ type: "whiteboard.removed", roomId: "general", entryId: directory.id });
     });
     expect(within(panel).getByText("白板还是空的")).toBeTruthy();
     expect(within(panel).getByText("hive_board_update")).toBeTruthy();

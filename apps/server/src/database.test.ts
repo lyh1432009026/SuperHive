@@ -818,6 +818,53 @@ describe("HiveDatabase", () => {
     expect(db.removeWhiteboardEntry("other", entries[1]!.id)).toBe(false);
   });
 
+  it("classifies old directory records on read without rewriting or dropping any stored metadata", () => {
+    const active = db.upsertWhiteboardEntry(agentA, {
+      key: "worktree:active",
+      slot: "in_progress",
+      summary: "Original reservation",
+      repo: "repo",
+      branch: "feat/task",
+      claim: { repo: "/repo", branch: "feat/task" },
+      unblocks: ["review"],
+    }).entry;
+    const cleaned = db.upsertWhiteboardEntry(agentB, {
+      key: "worktree:cleaned",
+      slot: "milestone",
+      summary: "Original cleanup record",
+      commit: "abcdef0123456",
+    }).entry;
+    const task = db.upsertWhiteboardEntry(agentA, {
+      key: "worktree-deps",
+      slot: "in_progress",
+      summary: "Real dependency task",
+    }).entry;
+    const stored = db.connection().prepare("SELECT * FROM whiteboard_entries ORDER BY key").all();
+    expect(active.kind).toBe("task_directory");
+    expect(cleaned.kind).toBe("task_directory");
+    expect(task.kind).toBeUndefined();
+    expect(db.listWhiteboard("general")).toEqual(expect.arrayContaining([active, cleaned, task]));
+    expect(db.connection().prepare("SELECT * FROM whiteboard_entries ORDER BY key").all()).toEqual(
+      stored,
+    );
+    const archived = db.changeWhiteboardArchive("general", [cleaned], true);
+    expect(db.listWhiteboard("general", "archived")).toEqual(archived);
+    expect(archived[0]).toMatchObject({
+      id: cleaned.id,
+      summary: cleaned.summary,
+      commit: cleaned.commit,
+      authorName: cleaned.authorName,
+      kind: "task_directory",
+    });
+    expect(db.changeWhiteboardArchive("general", archived, false)[0]).toMatchObject({
+      id: cleaned.id,
+      summary: cleaned.summary,
+      slot: cleaned.slot,
+      authorName: cleaned.authorName,
+      kind: "task_directory",
+    });
+  });
+
   it("archives and restores batches without losing their identities or authors", () => {
     const first = db.upsertWhiteboardEntry(agentA, {
       key: "first",

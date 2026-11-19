@@ -136,10 +136,18 @@ const slotLabels: Record<WhiteboardEntry["slot"], string> = {
 };
 
 /** Each slot keeps the same recent-ten window; diffing ignores ordering within that window. */
+/** 服务端登记的任务目录占用（worktree:…）：单独归组，不挤占每栏 10 条的白板摘要。
+ * superhive 是独立发布的包，不依赖 @superhive/protocol，这里与 protocol 的 isTaskDirectoryEntry 保持一致 */
+function isTaskDirectoryEntry(entry: Pick<WhiteboardEntry, "key" | "kind">): boolean {
+  return entry.kind === "task_directory" || entry.key.startsWith("worktree:");
+}
+
 export function snapshotWhiteboard(entries: WhiteboardEntry[]): PromptContextSnapshot {
   const visible: PromptContextEntry[] = [];
   for (const slot of ["blocked", "in_progress", "ready", "milestone"] as const) {
-    const inSlot = entries.filter((entry) => !entry.archivedAt && entry.slot === slot).slice(0, 10);
+    const inSlot = entries
+      .filter((entry) => !entry.archivedAt && !isTaskDirectoryEntry(entry) && entry.slot === slot)
+      .slice(0, 10);
     for (const entry of inSlot) {
       const refs = [entry.repo, entry.branch, entry.commit?.slice(0, 12)].filter(Boolean);
       const unblocks = entry.unblocks.length ? ` → 解除：${entry.unblocks.join("、")}` : "";

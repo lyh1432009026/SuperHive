@@ -17,7 +17,7 @@ import { flushSync } from "react-dom";
 import { WorktreePanel } from "./worktree-panel";
 import { SlowOpsGroup } from "./slow-ops";
 import { WorkspaceGlyph, WorkspacePanel, workspaceApi } from "./workspace-panel";
-import { sortParticipantsByLastSeen } from "@superhive/protocol";
+import { isTaskDirectoryEntry, sortParticipantsByLastSeen } from "@superhive/protocol";
 import type {
   ChatMessage,
   Invocation,
@@ -2091,12 +2091,15 @@ export function App({
   );
   const whiteboardBlockedCount = useMemo(
     () =>
-      [...whiteboard.values()].filter((entry) => !entry.archivedAt && entry.slot === "blocked")
-        .length,
+      [...whiteboard.values()].filter(
+        (entry) => !entry.archivedAt && !isTaskDirectoryEntry(entry) && entry.slot === "blocked",
+      ).length,
     [whiteboard],
   );
   const whiteboardCurrentCount = useMemo(
-    () => [...whiteboard.values()].filter((entry) => !entry.archivedAt).length,
+    () =>
+      [...whiteboard.values()].filter((entry) => !entry.archivedAt && !isTaskDirectoryEntry(entry))
+        .length,
     [whiteboard],
   );
   const pausedAgentNames = useMemo(
