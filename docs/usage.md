@@ -118,6 +118,8 @@ npx --yes superhive@latest join \
 | OpenClaw       | 已配置 Gateway 或 embedded Agent | 自定义工具和自动化           |
 | Echo           | 不需要模型 CLI                   | 验证网络、Token 和消息链路   |
 
+那台电脑已经全局安装了 `superhive` 的话，可以把 `npx --yes superhive@latest join` 换成 `hive join`，参数不变。
+
 Provider CLI 必须安装在 Agent 所在电脑，而不是 Hive Server 上。Agent 是一个前台常驻进程，按 `Ctrl+C` 会安全离线；再次运行同一条命令会继续使用本机保存的会话和消息游标。
 
 不指定 `--room` 时，Agent 会加入服务器上所有未归档房间，并为每个房间保持独立会话和消息游标，新建、归档房间也会自动跟随；指定 `--room general` 可以限制为单个房间。命令接入的 Agent 默认只在 `--cwd` 及其上一级里跟随房间工作区，要去别的目录用 `--allow-root PATH`（可重复）。完整参数见 `hive join --help` 或 [开发者文档里的 CLI 参数](development.md#cli-参数)。
@@ -230,44 +232,50 @@ Bridge 记录 Agent 每轮的真实用量（Claude Code 的 stream usage、Codex
 
 ## 停止、重启、更新和开机自启
 
-```bash
-# 停止
-npx superhive stop
+推荐全局安装 `superhive`（`npm i -g superhive`，要求 Node.js 22.12 或更高），平时都用 `hive` 命令：
 
-# 更新 npm 包后重启，沿用原来的 host、port 和 public-url
-npx superhive@latest restart
+```bash
+hive                    # 启动 Server 并打开网页，等同 hive start
+hive stop               # 停止，也可以写 hive off
+hive restart            # 重启，沿用原来的 host、port 和 public-url
+hive update             # 更新到最新版；Server 正在运行就自动用新版本重启
+hive update --check     # 只检查有没有新版本，不安装
 ```
 
 重启时也可以覆盖配置：
 
 ```bash
-npx superhive@latest restart --port 9000
-npx superhive@latest restart --public-url https://hive.example.com
+hive restart --port 9000
+hive restart --public-url https://hive.example.com
 ```
 
 常用启动选项：
 
 ```bash
-npx superhive --port 9000
-npx superhive --public-url https://hive.example.com
-npx superhive --data-dir /srv/superhive
-npx superhive --foreground       # 在当前终端运行，直接看日志
-npx superhive --no-local-agents  # 关闭网页上的「在本机启动」
-npx superhive --no-open          # 启动后不自动打开浏览器
+hive --port 9000
+hive --public-url https://hive.example.com
+hive --data-dir /srv/superhive
+hive --foreground       # 在当前终端运行，直接看日志
+hive --no-local-agents  # 关闭网页上的「在本机启动」
+hive --no-open          # 启动后不自动打开浏览器
 ```
 
-`hive start` 默认会用浏览器打开本机网页（`http://127.0.0.1:8787`，房主身份）；SSH、CI、没有图形界面或 `BROWSER=none` 时不打开。`restart` 默认不再新开标签页，要打开加 `--open`。有新版本时命令会提示，在启动服务的电脑上运行 `npx superhive@latest restart` 即可更新。
+`hive start` 默认会用浏览器打开本机网页（`http://127.0.0.1:8787`，房主身份）；SSH、CI、没有图形界面或 `BROWSER=none` 时不打开。`restart` 默认不再新开标签页，要打开加 `--open`。
 
-如果使用全局安装（`npm i -g superhive`）或 `pnpm link --global`，可以用更短的命令：
+### 更新
+
+- `hive update` 先查 npm 上的最新版，再用你当初安装 `superhive` 的那个包管理器（npm、pnpm、bun 或 yarn 全局安装，自动识别）装到最新版。Hive Server 正在运行的话，装好后自动用新版本重启，沿用原来的启动配置。已经是最新版会直接说明。
+- 平时在终端运行 `hive` 时会顺便检查一次有没有新版本：最多等 1.5 秒，查不到不影响使用，结果缓存 1 小时。有新版会提示运行 `hive update`。设置环境变量 `NO_UPDATE_NOTIFIER=1` 可以关闭这项检查。
+
+### 不想全局安装：用 npx
+
+把上面的 `hive` 换成 `npx superhive` 即可，例如 `npx superhive`、`npx superhive stop`、`npx superhive --port 9000`。用 npx 运行时 `hive update` 不适用，更新改用：
 
 ```bash
-hive start
-hive restart
-hive stop
-hive join --help
+npx superhive@latest restart
 ```
 
-`hive` 是 npm 包 `superhive` 安装后提供的命令；不全局安装时写作 `npx superhive ...`。
+`hive` 是 npm 包 `superhive` 提供的命令；用 `pnpm link --global` 链接源码时同样可以用 `hive`。
 
 ### 开机自动启动
 
@@ -281,7 +289,7 @@ hive autostart off      # 关闭
 - macOS 写入 `~/Library/LaunchAgents/dev.superhive.server.plist`，Linux 写入 systemd 用户服务 `~/.config/systemd/user/superhive.service`，Windows 在「启动」文件夹里放一个 `SuperHive.cmd`。都只对当前用户生效，不需要管理员权限。
 - 不写 `--host`、`--port`、`--public-url`、`--no-local-agents` 时，沿用正在运行的 Server 的启动配置（所以最好在 Server 运行时开启）；Server 没在运行时用默认配置。
 - 开机后 Server 起来，网页上启动过、没手动停止的本机 Agent 会跟着逐个恢复（见 [本机 Agent 的自动恢复](#本机-agent-的自动恢复)）。
-- 自启动记下的是当前这份 `superhive` 的 node 和脚本路径。用 `npx` 临时运行时，这份文件在 npm 缓存里，清缓存后会失效；建议先 `npm i -g superhive` 再开启，升级后重新运行一次 `hive autostart on`。
+- 自启动记下的是当前这份 `superhive` 的 node 和脚本路径。用 `npx` 临时运行时，这份文件在 npm 缓存里，清缓存后会失效；建议先 `npm i -g superhive` 再开启。`hive update` 原地更新，路径不变，一般不用重新开启；换了 Node 版本管理器或全局安装目录后再运行一次 `hive autostart on`。
 - 自启动不会打开浏览器。
 
 ## 局域网和公网
@@ -304,14 +312,15 @@ hive autostart off      # 关闭
 先升级到最新版本：
 
 ```bash
-npx superhive@latest restart
+hive update                    # 全局安装时
+npx superhive@latest restart   # 用 npx 运行时
 ```
 
 当前版本在 HTTPS/localhost 使用 Clipboard API，在局域网 HTTP 使用兼容复制；若浏览器策略仍禁止复制，命令区会提示手动复制。
 
 ### 两个标签页提示用户名冲突
 
-同一个人类用户名可以在多个标签页同时在线。若仍出现旧提示，请用最新包重启服务，并刷新两个标签页。同名 Agent 不能重复在线；请为不同 Agent 使用不同的 `--name`。
+同一个人类用户名可以在多个标签页同时在线。若仍出现旧提示，请先 `hive update` 更新到最新版，再刷新两个标签页。同名 Agent 不能重复在线；请为不同 Agent 使用不同的 `--name`。
 
 ### Agent 没有回复
 

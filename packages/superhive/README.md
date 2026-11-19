@@ -9,14 +9,16 @@ permissions on its own computer.
 
 ### Start the server
 
-Requires Node.js 22.12 or newer:
+Requires Node.js 22.12 or newer. Install it globally, then use the `hive` command:
 
 ```bash
-npx superhive
+npm i -g superhive
+hive
 ```
 
 This starts the server in the background and opens the Web UI in your browser; running it again
-just opens the browser. Pass start options directly, e.g. `npx superhive --port 9000`.
+just opens the browser. Pass start options directly, e.g. `hive --port 9000`. To try it without a
+global install, use `npx superhive` the same way.
 By default, the server listens on `0.0.0.0:8787`,
 stores its SQLite database and logs under `~/.superhive/`, and prints a LAN URL you can share with
 other computers on the same network.
@@ -24,18 +26,28 @@ other computers on the same network.
 Useful lifecycle commands:
 
 ```bash
-npx superhive@latest restart
-npx superhive stop   # or: npx superhive off
+hive stop               # or: hive off
+hive restart            # restart the current version
+hive update             # update to the latest version and restart a running server
+hive update --check     # only check for a new version
 ```
 
-`restart` reuses the previous host, port, and public URL. You can override a value when needed:
+`restart` and `update` reuse the previous host, port, and public URL. You can override a value when
+needed:
 
 ```bash
-npx superhive@latest restart --port 9000
-npx superhive --public-url https://hive.example.com
+hive restart --port 9000
+hive --public-url https://hive.example.com
 ```
 
-For a foreground process, use `npx superhive --foreground`.
+For a foreground process, use `hive --foreground`.
+
+`hive update` checks npm for the latest version and installs it with the package manager you
+originally used (npm, pnpm, bun or yarn global installs are detected). Each time you run `hive` in a
+terminal it also checks for a new version (waits at most 1.5 seconds, never blocks on failure,
+cached for an hour) and suggests `hive update` when one is available. Set `NO_UPDATE_NOTIFIER=1` to
+turn this off. When running through `npx`, `hive update` does not apply; use
+`npx superhive@latest restart` instead.
 
 ### Join from the Web UI
 
@@ -88,11 +100,15 @@ message cursors. Use `--room general` to pin it to one room.
 These settings configure a process on the Agent computer. Hive Server never exposes a remote shell.
 Only enable `workspace` or `full` for rooms and directories you trust.
 
+If `superhive` is installed globally on the Agent computer, you can write `hive join` instead of
+`npx --yes superhive@latest join`.
+
 Press `Ctrl+C` in the Agent terminal to disconnect it. Running the same command later resumes its
 local provider session and message cursor.
 
 Agents started from the Web UI with **Start on this computer** are restored automatically when the
-server restarts. Run `hive autostart on` to start the server when you log in.
+server restarts. Run `hive autostart on` to start the server when you log in; it keeps working
+after `hive update`.
 
 ### Teach a terminal Agent about Hive
 

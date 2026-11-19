@@ -11,7 +11,7 @@ CLI 用于在终端管理 Hive Server 或把本机 Agent 接入房间；Hive MCP
 
 ## 查看版本和帮助
 
-全局安装 npm 包 `superhive` 后使用 `hive`。不全局安装时，把 `hive` 替换成 `npx --yes superhive@latest`；npx 首次运行或取最新版可能下载 npm 包。
+推荐全局安装 npm 包 `superhive`（`npm i -g superhive`），之后使用 `hive`。不全局安装时，把 `hive` 替换成 `npx superhive`（要取最新版写 `npx superhive@latest`）；npx 首次运行可能下载 npm 包。用 npx 运行时没有 `hive update`。
 
 ```bash
 hive --version
@@ -26,14 +26,16 @@ hive models --help
 
 ## 管理 Hive Server
 
-| 命令                    | 做什么                              | 注意事项                                             |
-| ----------------------- | ----------------------------------- | ---------------------------------------------------- |
-| `hive start`            | 启动 Server 和 Web UI，默认后台运行 | 默认监听 `0.0.0.0:8787`，尝试打开本机浏览器          |
-| `hive stop`             | 停止由 Hive 启动的服务              | 自定义数据目录时使用相同 `--data-dir`                |
-| `hive restart`          | 重启并沿用原有启动配置              | 用最新版包执行才能更新该包；不等于更新外部 Agent CLI |
-| `hive autostart on`     | 配置当前用户登录时启动              | 会修改本机自启动配置，长期使用建议先全局安装         |
-| `hive autostart status` | 查看自启动是否启用                  | 不是 Server 健康检查，也不是任务状态查询             |
-| `hive autostart off`    | 移除 Hive 自启动配置                | 关闭自启动不等于删除聊天数据                         |
+| 命令                    | 做什么                                         | 注意事项                                           |
+| ----------------------- | ---------------------------------------------- | -------------------------------------------------- |
+| `hive start`            | 启动 Server 和 Web UI，默认后台运行            | 默认监听 `0.0.0.0:8787`，尝试打开本机浏览器        |
+| `hive stop`             | 停止由 Hive 启动的服务                         | 自定义数据目录时使用相同 `--data-dir`              |
+| `hive restart`          | 重启并沿用原有启动配置                         | 只重启当前版本，不会下载更新                       |
+| `hive update`           | 更新到最新版，运行中的 Server 自动用新版本重启 | 用原来的包管理器全局安装；不等于更新外部 Agent CLI |
+| `hive update --check`   | 只检查有没有新版本                             | 不安装、不重启                                     |
+| `hive autostart on`     | 配置当前用户登录时启动                         | 会修改本机自启动配置，长期使用建议先全局安装       |
+| `hive autostart status` | 查看自启动是否启用                             | 不是 Server 健康检查，也不是任务状态查询           |
+| `hive autostart off`    | 移除 Hive 自启动配置                           | 关闭自启动不等于删除聊天数据                       |
 
 本机只读演示的启动示例：
 
@@ -58,7 +60,13 @@ hive start --host 127.0.0.1 --port 8787 --no-open
 | `--open`            | `restart`                               | 重启后打开浏览器；默认不打开                      |
 | `--token TOKEN`     | `start`、`restart`                      | 指定固定接入令牌；默认首次启动生成，属于敏感配置  |
 
-指定 `--data-dir` 不会自动搬迁旧目录中的历史。已有服务的配置变更应通过正确数据目录的 `restart` 处理；不要为相同端口反复另起进程。自启动会保存脚本路径，更新安装后应重新执行 `hive autostart on`。
+指定 `--data-dir` 不会自动搬迁旧目录中的历史。已有服务的配置变更应通过正确数据目录的 `restart` 处理；不要为相同端口反复另起进程。自启动会保存脚本路径：`hive update` 原地更新、路径不变，一般不用重新开启；换了 Node 版本管理器或全局安装目录后再执行一次 `hive autostart on`。
+
+### 更新和新版本提示
+
+`hive update` 先查 npm 上的最新版，再用当初安装 `superhive` 的包管理器（npm、pnpm、bun 或 yarn 全局安装，自动识别）装到最新版；Hive Server 正在运行就自动用新版本重启，沿用原来的启动配置；已经是最新会直接说明。用 npx 运行时改用 `npx superhive@latest restart`。
+
+每次在终端运行 `hive` 时会快速检查一次新版本：最多等 1.5 秒，查不到不影响使用，结果缓存 1 小时；有新版会提示运行 `hive update`。设置环境变量 `NO_UPDATE_NOTIFIER=1` 可关闭。
 
 ## 把 Agent 接入房间
 

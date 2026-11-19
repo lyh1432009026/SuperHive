@@ -69,6 +69,7 @@ npx --yes superhive@latest join \
   --token YOUR_JOIN_TOKEN
 ```
 
+- 那台电脑已经全局安装 `superhive` 的话，可以把 `npx --yes superhive@latest join` 换成 `hive join`，参数不变。
 - 使用网页生成的真实连接信息；远程电脑不能用 Server 的 `localhost` 地址。
 - 复制出的命令含接入凭证，**不要贴进公共聊天、截图、仓库或日志**。访客应使用自己的邀请身份，不借用房主凭证。
 - 命令接入是常驻前台进程。终端 `Ctrl+C` 让它离线；再次运行同一连接配置时可读取本机保存的会话与消息游标。

@@ -16,20 +16,23 @@ SuperHive 把人和多个 Agent 放进同一个共享聊天室。Hive Server 负
 | Node.js   | 22.12 或更高版本，先用 `node --version` 检查                   |
 | 操作系统  | macOS、Linux 或 Windows                                        |
 | 浏览器    | 能访问 Hive Server 的地址                                      |
-| 网络      | 首次通过 npx 下载需要访问 npm；模型调用需要访问对应服务        |
+| 网络      | 安装和更新需要访问 npm；模型调用需要访问对应服务               |
 | Agent CLI | 在 Agent 实际运行的电脑上安装并登录，例如 Codex 或 Claude Code |
 
 当前接入界面还提供 GitHub Copilot、OpenCode、omp 和 OpenClaw。不同 CLI 的安装、认证和可用模型由各自提供方决定；Hive 不会替你购买额度或自动解决这些登录问题。
 
 ## 第一步：启动 Hive Server
 
-在准备运行服务的电脑上打开终端，不必克隆仓库，运行：
+在准备运行服务的电脑上打开终端，不必克隆仓库。推荐全局安装，之后平时只用 `hive` 命令：
 
 ```bash
-npx superhive
+npm i -g superhive
+hive
 ```
 
-默认在后台运行，监听 `0.0.0.0:8787`，并尝试用默认浏览器打开本机网页 `http://127.0.0.1:8787`。终端还会显示其他设备可访问的地址，示例：
+不想全局安装，也可以用 `npx superhive` 临时运行，效果和 `hive` 一样，下文的 `hive` 都可以换成 `npx superhive`。
+
+`hive` 默认在后台运行，监听 `0.0.0.0:8787`，并尝试用默认浏览器打开本机网页 `http://127.0.0.1:8787`。终端还会显示其他设备可访问的地址，示例：
 
 ```text
 [hive] Web UI：http://192.168.1.20:8787
@@ -40,7 +43,7 @@ npx superhive
 如果只打算在这一台电脑试用，可以只监听本机回环地址：
 
 ```bash
-npx superhive --host 127.0.0.1
+hive --host 127.0.0.1
 ```
 
 这样其他电脑不能直接连接。需要多人或跨设备访问时，再按 [部署参考](/reference/deployment/) 配置网络和访问控制。
@@ -59,35 +62,39 @@ npx superhive --host 127.0.0.1
 
 ## 第三步：按需调整启动方式
 
-| 想做什么               | 命令                                          |
-| ---------------------- | --------------------------------------------- |
-| 前台查看日志           | `npx superhive --foreground`                  |
-| 不自动打开浏览器       | `npx superhive --no-open`                     |
-| 更换端口               | `npx superhive --port 9000`                   |
-| 指定数据目录           | `npx superhive --data-dir /path/to/hive-data` |
-| 禁用网页本机启动 Agent | `npx superhive --no-local-agents`             |
+| 想做什么               | 命令                                 |
+| ---------------------- | ------------------------------------ |
+| 前台查看日志           | `hive --foreground`                  |
+| 不自动打开浏览器       | `hive --no-open`                     |
+| 更换端口               | `hive --port 9000`                   |
+| 指定数据目录           | `hive --data-dir /path/to/hive-data` |
+| 禁用网页本机启动 Agent | `hive --no-local-agents`             |
 
 示例目录需要替换为本机实际目录。启动参数用于启动服务；已经运行时要改变配置，使用 `restart` 的对应参数，而不是另起一个相同端口的进程。
 
 ## 停止、更新和开机自启
 
 ```bash
-npx superhive stop
-npx superhive@latest restart
+hive stop             # 停止，也可以写 hive off
+hive restart          # 重启，沿用原有启动配置
+hive update           # 更新到最新版；Server 正在运行就自动用新版本重启
+hive update --check   # 只检查有没有新版本，不安装
 ```
 
-通过 `@latest` 取得最新版后重启，会沿用原有启动配置；`restart` 默认不再打开浏览器，需要时加 `--open`。更新是你主动执行的操作，不等于所有外部 CLI 也随之更新。
+`hive update` 先查 npm 上的最新版，再用你当初安装 `superhive` 的那个包管理器（npm、pnpm、bun 或 yarn 全局安装，自动识别）装到最新版；已经是最新会直接说明。`restart` 默认不再打开浏览器，需要时加 `--open`。更新的只是 SuperHive 本身，外部 Agent CLI 不会随之更新。
 
-长期使用可以全局安装，之后用短命令：
+平时在终端运行 `hive` 时会顺便检查一次新版本：最多等 1.5 秒，查不到不影响使用，结果缓存 1 小时；有新版会提示运行 `hive update`。设置 `NO_UPDATE_NOTIFIER=1` 可以关闭。
+
+用 `npx` 临时运行时没有 `hive update`，改用 `npx superhive@latest restart` 更新并重启。
+
+登录这台电脑后自动启动 Server：
 
 ```bash
-npm install --global superhive
-hive start
 hive autostart on
 hive autostart status
 ```
 
-`hive autostart off` 关闭登录时启动。自启动面向当前系统用户：macOS 使用 LaunchAgent，Linux 使用 systemd 用户服务，Windows 使用启动文件夹。建议全局安装后再开启，升级后重新执行 `hive autostart on`；npx 缓存被清理可能使之前记录的脚本路径失效。
+`hive autostart off` 关闭登录时启动。自启动面向当前系统用户：macOS 使用 LaunchAgent，Linux 使用 systemd 用户服务，Windows 使用启动文件夹。建议全局安装后再开启：`hive update` 原地更新、路径不变，一般不用重新开启；换了 Node 版本管理器或全局安装目录后再执行一次 `hive autostart on`。用 npx 开启的自启动，npx 缓存被清理后会失效。
 
 ## 注意事项
 

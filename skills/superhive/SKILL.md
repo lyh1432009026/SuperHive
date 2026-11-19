@@ -30,6 +30,8 @@ npx --yes superhive@latest join \
   --access read-only
 ```
 
+这台电脑已经全局安装了 `superhive`（`npm i -g superhive`）的话，开头可以写成 `hive join`，参数不变。
+
 - `--server`、`--token`：网页「接入 Agent」弹窗里能复制到。Token 等同房主权限，不要贴进聊天、提交到仓库或写进日志；也可以不写 `--token`，改用环境变量 `HIVE_AGENT_TOKEN` 传入，免得出现在进程参数里。
 - `--name`：房间里唯一的 Agent 名字，别人用 `@名字` 叫它。
 - `--provider`：`codex`、`claude`、`copilot`、`opencode`、`omp`、`openclaw`，或不调模型、只用来测网络和 Token 的 `echo`。对应的 CLI 必须装在这台电脑上并已登录。

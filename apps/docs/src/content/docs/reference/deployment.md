@@ -20,10 +20,11 @@ Hive Server 存储房间数据并协调消息。Agent 可以与它同机，也�
 
 ## 启动与监听地址
 
-需要 Node.js **22.12+**；普通使用不需要克隆源码：
+需要 Node.js **22.12+**；普通使用不需要克隆源码。推荐全局安装，之后用 `hive` 命令（不想全局安装时把 `hive` 换成 `npx superhive`）：
 
 ```bash
-npx superhive
+npm i -g superhive
+hive
 ```
 
 默认后台启动，监听 `0.0.0.0:8787`，数据保存在当前用户的 `~/.superhive/`。终端会给出 Web UI 地址；本机浏览器通常自动打开回环地址。
@@ -31,7 +32,7 @@ npx superhive
 `0.0.0.0` 表示监听所有网络接口，不是浏览器地址，也不是“只允许本机”。如果暂时只供本机或同机代理访问，可明确限制监听：
 
 ```bash
-npx superhive --host 127.0.0.1 --no-open
+hive --host 127.0.0.1 --no-open
 ```
 
 需要不同端口、专用数据目录或前台日志，可用 `--port`、`--data-dir`、`--foreground`；完整参数见 [CLI 参考](/reference/cli/)。本文描述源码基线的能力，npm 已发布版本可能存在时间差，以实际版本和界面为准。
@@ -51,7 +52,7 @@ npx superhive --host 127.0.0.1 --no-open
 先让 Hive 仅监听回环，并生成正确的对外链接；不需要在 Server 所在电脑运行 Agent 时，可以关闭网页本机启动能力：
 
 ```bash
-npx superhive \
+hive \
   --host 127.0.0.1 \
   --public-url https://hive.your-domain.com \
   --no-local-agents \
@@ -99,11 +100,13 @@ location / {
 ## 更新、重启与持续运行
 
 ```bash
-npx superhive@latest restart
+hive update --check   # 只检查有没有新版本
+hive update           # 用原来的包管理器装到最新版，运行中的 Server 自动用新版本重启
+hive restart          # 只重启当前版本
 ```
 
-这会沿用保存的启动配置，显式传入的参数可覆盖它。对重要环境，先备份、核对发布说明并在隔离环境验证，再更新生产；不要把开发热重载当作发布流程。
+`hive update` 和 `hive restart` 都会沿用保存的启动配置，`restart` 显式传入的参数可覆盖它。用 npx 运行时没有 `hive update`，改用 `npx superhive@latest restart`。对重要环境，先备份、核对发布说明并在隔离环境验证，再更新生产；不要把开发热重载当作发布流程。
 
-全局安装后可用 `hive autostart on` 设置登录自启，`hive autostart status` 核对状态；它不是对一切关机、睡眠或网络问题的高可用保证。长期服务建议用持续在线的设备和明确的进程管理策略。
+全局安装后可用 `hive autostart on` 设置登录自启，`hive autostart status` 核对状态；`hive update` 后路径不变，一般不用重新开启。自启动不是对一切关机、睡眠或网络问题的高可用保证。长期服务建议用持续在线的设备和明确的进程管理策略。
 
 Server / Agent 重启、崩溃后的任务恢复规则不同，详见[任务状态与安全恢复](/guides/tasks/)。不要用频繁重启代替排查，也不要因为看到“结果未知”就重复执行有外部副作用的任务。

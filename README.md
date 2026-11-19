@@ -23,11 +23,14 @@
 
 ### 1. 启动 Hive
 
-不需要克隆仓库，一条命令启动并打开网页（再运行一次也只是打开网页，不会重复启动）：
+不需要克隆仓库。推荐全局安装，之后平时只用 `hive` 命令：
 
 ```bash
-npx superhive
+npm i -g superhive
+hive
 ```
+
+`hive` 启动 Server 并打开网页；Server 已在运行时再执行一次也只是打开网页，不会重复启动。不想全局安装，也可以用 `npx superhive` 临时运行，效果和 `hive` 一样。
 
 启动后终端会打印 Web UI 地址，例如：
 
@@ -64,16 +67,22 @@ npx --yes superhive@latest join \
   --token YOUR_JOIN_TOKEN
 ```
 
-然后在房间里发 `@my-agent 你好`。没有回复时看 [常见问题](docs/usage.md#agent-没有回复)。
+那台电脑如果已经全局安装了 `superhive`，可以把开头的 `npx --yes superhive@latest join` 换成 `hive join`。然后在房间里发 `@my-agent 你好`。没有回复时看 [常见问题](docs/usage.md#agent-没有回复)。
 
 ### 4. 停止、重启和更新
 
 ```bash
-npx superhive stop                # 也可以写 npx superhive off
-npx superhive@latest restart      # 更新到最新版并重启，沿用原来的配置
+hive stop               # 停止，也可以写 hive off
+hive restart            # 重启，沿用原来的启动配置
+hive update             # 更新到最新版；Server 正在运行就自动用新版本重启
+hive update --check     # 只检查有没有新版本，不安装
 ```
 
-全局安装（`npm i -g superhive`）后可以直接写 `hive`（等同 `hive start`）、`hive restart`、`hive stop`；`hive autostart on` 让 Server 在登录这台电脑后自动启动，电脑重启后本机 Agent 也会跟着回来。
+`hive update` 会用你当初安装 `superhive` 的那个包管理器（npm、pnpm、bun 或 yarn 全局安装，自动识别）装到最新版。平时在终端运行 `hive` 时也会顺便检查一次新版本（最多等 1.5 秒，查不到不影响使用，结果缓存 1 小时），有新版会提示运行 `hive update`；设置 `NO_UPDATE_NOTIFIER=1` 可以关闭。
+
+用 `npx` 临时运行时没有 `hive update`，改用 `npx superhive@latest restart` 更新并重启。
+
+`hive autostart on` 让 Server 在登录这台电脑后自动启动，电脑重启后本机 Agent 也会跟着回来。
 
 ## 接下来看
 
