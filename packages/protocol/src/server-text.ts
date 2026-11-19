@@ -1043,8 +1043,24 @@ export const serverTexts = {
     en: "{tool} is already up to date ({version}).",
   },
   "error.agentCli.nodeTooOld": {
-    zh: "{tool} {latest} 需要 Node {required}，这一处用的是 Node {current}。先升级 Node，再升级 {tool}。",
-    en: "{tool} {latest} requires Node {required}, but this installation runs on Node {current}. Update Node first, then {tool}.",
+    zh: "{tool} {latest} 需要 Node {required}，这台电脑用的是 Node {current}。先升级 Node 再来。",
+    en: "{tool} {latest} requires Node {required}, but this computer uses Node {current}. Update Node first.",
+  },
+  "error.agentCli.alreadyInstalled": {
+    zh: "{tool} 已经装好了，重新检测看看。",
+    en: "{tool} is already installed. Check again.",
+  },
+  "error.agentCli.notInstallable": {
+    zh: "{tool} 现在不能一键安装：{reason}",
+    en: "{tool} can't be installed here: {reason}",
+  },
+  "agentCli.manual.noNode": {
+    zh: "这台电脑上找不到 Node.js 和 npm，先装好 Node.js",
+    en: "Node.js and npm weren't found on this computer; install Node.js first",
+  },
+  "agentCli.manual.needBun": {
+    zh: "Oh My Pi 要用 bun 安装，这台电脑上没有 bun；按官方说明安装",
+    en: "Oh My Pi is installed with bun, which isn't on this computer; follow the official instructions",
   },
   "error.agentCli.timeout": {
     zh: "升级超过 {minutes} 分钟还没结束，已停止。",

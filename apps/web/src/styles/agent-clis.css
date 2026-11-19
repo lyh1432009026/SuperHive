@@ -190,3 +190,9 @@
     transform: rotate(360deg);
   }
 }
+
+.agent-cli-button {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}

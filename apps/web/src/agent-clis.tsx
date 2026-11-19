@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentCliInstallation, AgentCliJob, AgentCliSource } from "@superhive/protocol";
+import type {
+  AgentCliAction,
+  AgentCliInstallation,
+  AgentCliJob,
+  AgentCliSource,
+  AgentCliTool,
+} from "@superhive/protocol";
 import { ConfirmPopover } from "./confirm-popover";
 import { t } from "./i18n";
 import type { AgentCliWithAgents, LocalAgentsState } from "./local-agents";
@@ -7,13 +13,14 @@ import "./styles/agent-clis.css";
 
 /**
  * 这台电脑装了哪些 Agent CLI（只在 Server 所在电脑上的本机房主页面显示）：版本、安装位置与来源、
- * 有没有新版；一键升级前把要在这台电脑上跑的命令原样给人确认，全局一次只升级一个，
- * 进度只显示最近一行，失败显示输出末几行。升级完提示重启用这个运行时的本机 Agent。
+ * 有没有新版；没装的可以一键全局安装，装了的可以一键升级。执行前把要在这台电脑上跑的命令原样给人确认，
+ * 全局一次只跑一个：点了确认这一行立刻进入进行中，其它按钮停用并说明原因；进度只显示最近一行，
+ * 失败显示输出末几行，结束后自动重新检测。刷新页面时先取当前任务，接着显示进度。
  */
 
 export type AgentClisApi = Pick<
   LocalAgentsState,
-  "agentClis" | "upgradeAgentCli" | "agentCliJob" | "act"
+  "agentClis" | "agentCliCurrent" | "upgradeAgentCli" | "installAgentCli" | "agentCliJob" | "act"
 >;
 
 export const JOB_POLL_MS = 1_000;
@@ -31,22 +38,41 @@ const SOURCE_LABELS: Record<AgentCliSource, string> = {
   unknown: "来源不明",
 };
 
+/** 检测结果还没回来时（例如刷新后先恢复了进行中的任务）显示用的名字 */
+const TOOL_NAMES: Record<AgentCliTool, string> = {
+  claude: "Claude Code",
+  codex: "Codex",
+  copilot: "GitHub Copilot CLI",
+  opencode: "OpenCode",
+  omp: "Oh My Pi",
+  openclaw: "OpenClaw",
+};
+
 const sourceLabel = (source: AgentCliSource) =>
   source === "native" || source === "unknown" ? t(SOURCE_LABELS[source]) : SOURCE_LABELS[source];
 
 const errorMessage = (reason: unknown) =>
   reason instanceof Error ? reason.message : String(reason);
 
-/** 升级还没结束：在跑，或者成功了但还没重新探测到版本 */
+/** 任务还没结束：在跑，或者成功了但还没重新探测到版本 */
 const pending = (job: AgentCliJob) =>
   job.state === "running" || (job.state === "succeeded" && job.versionAfter === undefined);
+
+/** 正在进行的是哪个工具的什么操作：已经拿到任务，或者刚点了确认、还在等服务端核对命令 */
+type Activity = { tool: string; name: string; action: AgentCliAction };
 
 export function AgentClisGroup({ api }: { api: AgentClisApi }) {
   const [tools, setTools] = useState<AgentCliWithAgents[]>();
   const [job, setJob] = useState<AgentCliJob | null>(null);
+  const [starting, setStarting] = useState<Activity>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
-  const { agentClis, agentCliJob } = api;
+  const { agentClis, agentCliCurrent, agentCliJob } = api;
+
+  const adopt = useCallback((next: AgentCliJob | null) => {
+    // 打开页面时有任务在跑：接着显示进度；已经结束的旧结果不再翻出来
+    if (next && pending(next)) setJob((current) => current ?? next);
+  }, []);
 
   const load = useCallback(
     async (refresh: boolean) => {
@@ -55,22 +81,26 @@ export function AgentClisGroup({ api }: { api: AgentClisApi }) {
       try {
         const result = await agentClis(refresh);
         setTools(result.tools);
-        // 打开页面时有升级在跑：接着显示进度；已经结束的旧结果不再翻出来
-        setJob((current) => current ?? (result.job && pending(result.job) ? result.job : null));
+        adopt(result.job);
       } catch (reason) {
         setError(errorMessage(reason));
       } finally {
         setLoading(false);
       }
     },
-    [agentClis],
+    [agentClis, adopt],
   );
 
   useEffect(() => {
+    // 当前任务先取：整份检测要几秒，进度不用等它
+    // 取不到不影响检测：老服务端没有这个接口时等整份检测带回任务
+    void Promise.resolve()
+      .then(agentCliCurrent)
+      .then(adopt, () => undefined);
     void load(false);
-  }, [load]);
+  }, [agentCliCurrent, adopt, load]);
 
-  // 升级进行中：轮询进度；结束后重新取一次列表（服务端已作废检测缓存）
+  // 任务进行中：轮询进度；结束后重新检测一次（服务端已作废检测缓存）
   const jobId = job && pending(job) ? job.id : undefined;
   useEffect(() => {
     if (!jobId) return;
@@ -91,7 +121,29 @@ export function AgentClisGroup({ api }: { api: AgentClisApi }) {
     };
   }, [jobId, agentCliJob, load]);
 
-  const busy = Boolean(job && job.state === "running");
+  const running = job && job.state === "running" ? job : undefined;
+  const activity: Activity | undefined =
+    starting ??
+    (running
+      ? {
+          tool: running.tool,
+          name: tools?.find((tool) => tool.tool === running.tool)?.name ?? TOOL_NAMES[running.tool],
+          action: running.action,
+        }
+      : undefined);
+
+  const start = async (info: AgentCliWithAgents, action: AgentCliAction, command: string) => {
+    setStarting({ tool: info.tool, name: info.name, action });
+    try {
+      const next =
+        action === "install"
+          ? await api.installAgentCli(info.tool, command)
+          : await api.upgradeAgentCli(info.tool, command);
+      setJob(next);
+    } finally {
+      setStarting(undefined);
+    }
+  };
 
   return (
     <div className="settings-group">
@@ -100,19 +152,26 @@ export function AgentClisGroup({ api }: { api: AgentClisApi }) {
           <h4>{t("已安装的 Agent CLI")}</h4>
           <p>
             {t(
-              "检测这台电脑上装了哪些 Agent CLI、版本和安装位置（按登录终端的 PATH 查找）。一键升级会在这台电脑上执行对应的包管理器命令，执行前先给你确认，一次只升级一个。",
+              "检测这台电脑上装了哪些 Agent CLI、版本和安装位置（按登录终端的 PATH 查找）。安装和升级会在这台电脑上执行包管理器命令，执行前先给你确认，一次只跑一个。",
             )}
           </p>
         </div>
         <button
           type="button"
           className="settings-action"
-          disabled={loading || busy}
+          disabled={loading || Boolean(activity)}
           onClick={() => void load(true)}
         >
           {loading ? t("正在检测…") : t("重新检测")}
         </button>
       </div>
+      {activity && (
+        <p className="settings-note" role="status">
+          {activity.action === "install"
+            ? t("正在安装 {0}，完成后才能操作其它 CLI。", { 0: activity.name })
+            : t("正在升级 {0}，完成后才能操作其它 CLI。", { 0: activity.name })}
+        </p>
+      )}
       {!tools && loading && <p className="settings-note">{t("正在检测…")}</p>}
       {tools?.map((tool) => (
         <AgentCliCard
@@ -120,8 +179,8 @@ export function AgentClisGroup({ api }: { api: AgentClisApi }) {
           api={api}
           info={tool}
           job={job?.tool === tool.tool ? job : undefined}
-          blocked={busy}
-          onStarted={setJob}
+          activity={activity}
+          onStart={(action, command) => start(tool, action, command)}
         />
       ))}
       {error && <p className="settings-note error">{error}</p>}
@@ -133,61 +192,79 @@ function AgentCliCard({
   api,
   info,
   job,
-  blocked,
-  onStarted,
+  activity,
+  onStart,
 }: {
   api: AgentClisApi;
   info: AgentCliWithAgents;
   job: AgentCliJob | undefined;
-  blocked: boolean;
-  onStarted: (job: AgentCliJob) => void;
+  activity: Activity | undefined;
+  onStart: (action: AgentCliAction, command: string) => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const [starting, setStarting] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
-  const upgradeRef = useRef<HTMLButtonElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const primary = info.installations.find((install) => install.pathDefault);
+  const action: AgentCliAction = info.status === "notInstalled" ? "install" : "upgrade";
   const command = info.plan?.kind === "anchored" ? info.plan.command : undefined;
-  const canUpgrade =
+  const offered =
     Boolean(command) &&
     !info.nodeGap &&
-    info.status !== "notInstalled" &&
-    (info.updateAvailable || info.latest === null);
+    (action === "install" || info.updateAvailable || info.latest === null);
+  const mine = activity?.tool === info.tool;
+  const other = activity && !mine ? activity : undefined;
 
-  const start = async () => {
+  const confirm = async () => {
     if (!command) return;
-    setStarting(true);
+    setSubmitting(true);
     setError(undefined);
     try {
-      onStarted(await api.upgradeAgentCli(info.tool, command));
+      await onStart(action, command);
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
-      setStarting(false);
+      setSubmitting(false);
       setConfirming(false);
-      upgradeRef.current?.focus();
+      buttonRef.current?.focus();
     }
   };
 
+  const label = mine
+    ? action === "install"
+      ? t("正在安装…")
+      : t("正在升级…")
+    : action === "install"
+      ? t("安装")
+      : info.updateAvailable && info.latest
+        ? t("升级到 {0}", { 0: info.latest })
+        : t("尝试升级");
+
   return (
-    <section className="agent-cli" aria-label={info.name}>
+    <section className="agent-cli" aria-label={info.name} aria-busy={mine}>
       <div className="agent-cli-head">
         <div className="agent-cli-title">
           <h5>{info.name}</h5>
           <StatusLine info={info} />
         </div>
-        {canUpgrade && (!job || job.state !== "running") && (
+        {(offered || mine) && (
           <button
             type="button"
-            ref={upgradeRef}
-            className="settings-action"
+            ref={buttonRef}
+            className="settings-action agent-cli-button"
             aria-expanded={confirming}
-            disabled={blocked || starting}
+            disabled={Boolean(activity) || submitting}
+            title={
+              other
+                ? other.action === "install"
+                  ? t("正在安装 {0}，完成后再试", { 0: other.name })
+                  : t("正在升级 {0}，完成后再试", { 0: other.name })
+                : undefined
+            }
             onClick={() => setConfirming(true)}
           >
-            {info.updateAvailable && info.latest
-              ? t("升级到 {0}", { 0: info.latest })
-              : t("尝试升级")}
+            {mine && <span className="agent-cli-spinner" aria-hidden />}
+            {label}
           </button>
         )}
       </div>
@@ -203,38 +280,70 @@ function AgentCliCard({
       {info.conflict && <Installations installations={info.installations} />}
       {info.nodeGap && (
         <p className="settings-note warning">
-          {t("新版需要 Node {0}，这一处用的是 Node {1}。先升级 Node，再升级 {2}。", {
+          {t("新版需要 Node {0}，这台电脑用的是 Node {1}。先升级 Node 再来。", {
             0: info.nodeGap.required,
             1: info.nodeGap.current,
-            2: info.name,
           })}
         </p>
       )}
-      {info.plan?.kind === "manual" && info.status !== "notInstalled" && (
-        <p className="settings-note">{info.plan.reason}</p>
+      {info.plan?.kind === "manual" && (
+        <p className="settings-note">
+          {info.plan.reason}
+          {info.plan.url && (
+            <>
+              {" "}
+              <a href={info.plan.url} target="_blank" rel="noreferrer">
+                {t("安装说明")}
+              </a>
+            </>
+          )}
+        </p>
+      )}
+      {action === "install" && info.binNotOnPath && (
+        <p className="settings-note warning">
+          {t("装好的命令会放在 {0}，这个目录不在登录终端的 PATH 里，装完要把它加进 PATH。", {
+            0: info.binNotOnPath,
+          })}
+        </p>
+      )}
+      {mine && !job && (
+        <div className="agent-cli-job" role="status">
+          <span className="agent-cli-spinner" aria-hidden />
+          <span>{t("正在核对命令…")}</span>
+        </div>
       )}
       {job && <JobStatus api={api} info={info} job={job} />}
       {confirming && command && (
         <ConfirmPopover
-          ariaLabel={t("确认升级 {0}", { 0: info.name })}
-          title={t("在这台电脑上执行升级命令")}
+          ariaLabel={
+            action === "install"
+              ? t("确认安装 {0}", { 0: info.name })
+              : t("确认升级 {0}", { 0: info.name })
+          }
+          title={
+            action === "install"
+              ? t("在这台电脑上安装 {0}", { 0: info.name })
+              : t("在这台电脑上执行升级命令")
+          }
           message={
             <>
               <span>{t("将在这台电脑上运行：")}</span>
               <code className="agent-cli-command">{command}</code>
-              <span>
-                {t("正在用 {0} 的 Agent 不会自动重启，升级完再手动重启。", { 0: info.name })}
-              </span>
+              {action === "upgrade" && (
+                <span>
+                  {t("正在用 {0} 的 Agent 不会自动重启，升级完再手动重启。", { 0: info.name })}
+                </span>
+              )}
             </>
           }
-          confirmLabel={t("升级")}
+          confirmLabel={action === "install" ? t("安装") : t("升级")}
           cancelLabel={t("取消")}
-          anchorRef={upgradeRef}
-          busy={starting}
-          onConfirm={() => void start()}
+          anchorRef={buttonRef}
+          busy={submitting}
+          onConfirm={() => void confirm()}
           onCancel={() => {
             setConfirming(false);
-            upgradeRef.current?.focus();
+            buttonRef.current?.focus();
           }}
         />
       )}
@@ -305,7 +414,7 @@ function JobStatus({
     return (
       <div className="agent-cli-job" role="status">
         <span className="agent-cli-spinner" aria-hidden />
-        <span>{t("正在升级…")}</span>
+        <span>{job.action === "install" ? t("正在安装…") : t("正在升级…")}</span>
         {job.progress && <code className="agent-cli-progress">{job.progress}</code>}
       </div>
     );
@@ -314,7 +423,11 @@ function JobStatus({
   if (job.state === "failed") {
     return (
       <div className="agent-cli-job failed" role="alert">
-        <p>{t("升级失败：{0}", { 0: job.reason ?? "" })}</p>
+        <p>
+          {job.action === "install"
+            ? t("安装失败：{0}", { 0: job.reason ?? "" })
+            : t("升级失败：{0}", { 0: job.reason ?? "" })}
+        </p>
         {job.error && <pre className="agent-cli-output">{job.error}</pre>}
       </div>
     );
@@ -338,6 +451,23 @@ function JobStatus({
         : t("已重启 {0} 个 Agent", { 0: live.length }),
     );
   };
+
+  if (job.action === "install") {
+    return (
+      <div className="agent-cli-job done" role="status">
+        <p>
+          {job.versionAfter
+            ? t("已安装 {0} {1}。", { 0: info.name, 1: job.versionAfter })
+            : t(
+                "安装命令执行成功，但登录终端的 PATH 里还找不到 {0}。把它的目录加进 PATH 后重新检测。",
+                {
+                  0: info.name,
+                },
+              )}
+        </p>
+      </div>
+    );
+  }
 
   const unchanged = job.versionAfter && job.versionAfter === job.versionBefore;
   return (

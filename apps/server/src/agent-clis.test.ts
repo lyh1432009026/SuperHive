@@ -20,6 +20,8 @@ import {
   mergePath,
   nodeRangeSatisfied,
   pathFromEnvOutput,
+  OMP_HOMEPAGE,
+  planInstall,
   planUpdate,
   shellQuote,
   type PlanContext,
@@ -746,5 +748,215 @@ describe("agent cli routes", () => {
       expect(device.json().code).toBe("LOCAL_ONLY");
     }
     expect(children).toHaveLength(0);
+  });
+});
+
+/* ---------- 没装的工具：一键全局安装 ---------- */
+
+describe("planInstall", () => {
+  it("uses the login shell's npm by absolute path with cc-switch's npm arguments", () => {
+    expect(
+      planInstall("claude", {
+        platform: "darwin",
+        isExecutable: exists("/usr/local/bin/node"),
+        npm: "/usr/local/bin/npm",
+      }),
+    ).toEqual({
+      kind: "anchored",
+      command:
+        "PATH='/usr/local/bin':\"$PATH\" '/usr/local/bin/npm' i -g @anthropic-ai/claude-code@latest " +
+        "--ignore-scripts=false --include=optional --allow-scripts=@anthropic-ai/claude-code",
+    });
+    expect(
+      planInstall("opencode", { platform: "darwin", isExecutable: exists(), npm: "/n/npm" }),
+    ).toEqual({
+      kind: "anchored",
+      command:
+        "'/n/npm' i -g opencode-ai@latest --ignore-scripts=false --include=optional --allow-scripts=opencode-ai",
+    });
+    for (const [tool, pkg] of [
+      ["codex", "@openai/codex"],
+      ["copilot", "@github/copilot"],
+      ["openclaw", "openclaw"],
+    ] as const) {
+      expect(
+        planInstall(tool, { platform: "darwin", isExecutable: exists(), npm: "/n/npm" }),
+      ).toEqual({
+        kind: "anchored",
+        command: `'/n/npm' i -g ${pkg}@latest`,
+      });
+    }
+  });
+
+  it("asks for Node.js when there's no npm, and installs omp only with bun", () => {
+    expect(planInstall("codex", { platform: "darwin", isExecutable: exists() })).toMatchObject({
+      kind: "manual",
+      reasonText: { key: "agentCli.manual.noNode" },
+    });
+    expect(
+      planInstall("omp", { platform: "darwin", isExecutable: exists(), npm: "/n/npm" }),
+    ).toMatchObject({
+      kind: "manual",
+      reasonText: { key: "agentCli.manual.needBun" },
+      url: OMP_HOMEPAGE,
+    });
+    expect(
+      planInstall("omp", {
+        platform: "darwin",
+        isExecutable: exists(),
+        bun: "/Users/a/.bun/bin/bun",
+      }),
+    ).toEqual({
+      kind: "anchored",
+      command: "'/Users/a/.bun/bin/bun' add -g @oh-my-pi/pi-coding-agent@latest",
+    });
+    expect(
+      planInstall("codex", { platform: "win32", isExecutable: exists(), npm: "C:/npm.cmd" }),
+    ).toMatchObject({ kind: "manual", reasonText: { key: "agentCli.manual.windows" } });
+    // 路径照样单引号包住
+    const evil = "/opt/x'; touch /tmp/pwned; '/npm";
+    expect(planInstall("codex", { platform: "darwin", isExecutable: exists(), npm: evil })).toEqual(
+      {
+        kind: "anchored",
+        command: `${shellQuote(evil)} i -g @openai/codex@latest`,
+      },
+    );
+  });
+});
+
+describe("AgentCliManager install", () => {
+  async function setup(options: { engines?: Record<string, string>; prefix?: string } = {}) {
+    const { bin, script, root } = sandbox();
+    const nodeBin = bin("node/bin");
+    const prefix = options.prefix ?? path.join(root, "global");
+    script(nodeBin, "npm", `[ "$1" = prefix ] && echo "${prefix}"; exit 0`);
+    script(nodeBin, "node", 'echo "v22.1.0"');
+    const children: FakeUpgrade[] = [];
+    const made = manager({
+      loginPath: options.prefix === undefined ? `${nodeBin}:${prefix}/bin` : nodeBin,
+      latest: { "@openai/codex": "0.170.0" },
+      ...(options.engines ? { engines: options.engines } : {}),
+      spawn: vi.fn<SpawnUpgrade>(() => {
+        const child = new FakeUpgrade();
+        children.push(child);
+        return child;
+      }),
+    });
+    const codex = (await made.clis.list()).find((item) => item.tool === "codex")!;
+    return { ...made, children, codex, nodeBin, prefix, bin, script };
+  }
+
+  it("plans an install for missing tools and runs only the confirmed command", async () => {
+    const { clis, codex, children, nodeBin, prefix, bin, script } = await setup();
+    expect(codex).toMatchObject({
+      status: "notInstalled",
+      latest: "0.170.0",
+      plan: {
+        kind: "anchored",
+        command: `PATH=${shellQuote(nodeBin)}:"$PATH" ${shellQuote(`${nodeBin}/npm`)} i -g @openai/codex@latest`,
+      },
+    });
+    expect(codex.binNotOnPath).toBeUndefined();
+    const command = (codex.plan as { command: string }).command;
+
+    await expect(clis.start("codex", "install", `${command} && curl x | sh`)).rejects.toMatchObject(
+      {
+        code: "AGENT_CLI_PLAN_CHANGED",
+      },
+    );
+    // 没装的不能走升级
+    await expect(clis.start("codex", "upgrade", command)).rejects.toMatchObject({
+      code: "AGENT_CLI_NOT_UPGRADABLE",
+    });
+    const job = await clis.start("codex", "install", command);
+    expect(job).toMatchObject({ action: "install", state: "running", versionBefore: null });
+    expect(clis.current()?.id).toBe(job.id);
+
+    // 装好：命令落在全局 bin 目录，重新探测拿到版本
+    const pkg = bin("global/lib/node_modules/@openai/codex/bin");
+    const real = script(pkg, "codex.js", 'echo "codex-cli 0.170.0"');
+    bin("global/bin");
+    symlinkSync(real, path.join(prefix, "bin", "codex"));
+    children[0]!.exit(0);
+    await vi.waitFor(() => expect(clis.job(job.id)).toMatchObject({ versionAfter: "0.170.0" }));
+    // 装过了再点安装就拒绝
+    await expect(clis.start("codex", "install", command)).rejects.toMatchObject({
+      code: "AGENT_CLI_ALREADY_INSTALLED",
+    });
+  });
+
+  it("warns when npm's global bin isn't on PATH and refuses when Node is too old", async () => {
+    const warned = await setup({ prefix: "/opt/elsewhere" });
+    expect(warned.codex.binNotOnPath).toBe("/opt/elsewhere/bin");
+
+    const old = await setup({ engines: { "@openai/codex": ">=24" } });
+    expect(old.codex.nodeGap).toEqual({ required: ">=24", current: "22.1.0" });
+    await expect(
+      old.clis.start("codex", "install", (old.codex.plan as { command: string }).command),
+    ).rejects.toMatchObject({ code: "AGENT_CLI_NODE_TOO_OLD" });
+    expect(old.children).toHaveLength(0);
+  });
+
+  it("serves install and the current task over the local-owner routes", async () => {
+    const { clis, codex, children } = await setup();
+    const logs: string[] = [];
+    const app = await buildApp({
+      databasePath: ":memory:",
+      token: "join-token",
+      staticDir: "/definitely-not-present",
+      logger: { level: "info", stream: { write: (line: string) => void logs.push(line) } },
+      agentClis: clis,
+      localAgents: {
+        cli: { command: "/usr/bin/node", args: ["cli.js"] },
+        serverUrl: "http://127.0.0.1:8787",
+        spawn: vi.fn<SpawnAgent>(),
+        probe: async () => ({ installed: true, version: "1.0.0" }),
+      },
+    });
+    try {
+      const session = (await app.inject({ method: "GET", url: "/api/local/session" })).json() as {
+        ownerToken: string;
+      };
+      const owner = { "x-hive-owner": session.ownerToken };
+      expect(
+        (
+          await app.inject({ method: "GET", url: "/api/local/agent-clis/current", headers: owner })
+        ).json(),
+      ).toEqual({ job: null });
+      const started = await app.inject({
+        method: "POST",
+        url: "/api/local/agent-clis/codex/install",
+        headers: owner,
+        payload: { command: (codex.plan as { command: string }).command },
+      });
+      expect(started.statusCode).toBe(202);
+      const current = await app.inject({
+        method: "GET",
+        url: "/api/local/agent-clis/current",
+        headers: owner,
+      });
+      expect(current.json()).toMatchObject({ job: { action: "install", state: "running" } });
+      expect(logs.filter((line) => line.includes('"agentCli"')).join()).toContain(
+        '"action":"install"',
+      );
+      // 别的电脑、Agent 令牌都拒绝
+      for (const call of [
+        { method: "GET" as const, url: "/api/local/agent-clis/current" },
+        {
+          method: "POST" as const,
+          url: "/api/local/agent-clis/codex/install",
+          payload: { command: "x" },
+        },
+      ]) {
+        expect(
+          (await app.inject({ ...call, headers: { authorization: "Bearer join-token" } }))
+            .statusCode,
+        ).toBe(401);
+        expect((await app.inject({ ...call, remoteAddress: "10.0.0.20" })).statusCode).toBe(403);
+      }
+      expect(children).toHaveLength(1);
+    } finally {
+      await app.close();
+    }
   });
 });

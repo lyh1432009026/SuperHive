@@ -17,6 +17,8 @@ const ERROR_STATUS: Record<string, number> = {
   AGENT_CLI_NOT_UPGRADABLE: 409,
   AGENT_CLI_UP_TO_DATE: 409,
   AGENT_CLI_NODE_TOO_OLD: 409,
+  AGENT_CLI_ALREADY_INSTALLED: 409,
+  AGENT_CLI_NOT_INSTALLABLE: 409,
 };
 
 export function registerAgentCliRoutes(
@@ -60,36 +62,45 @@ export function registerAgentCliRoutes(
     },
   );
 
-  app.post<{ Params: { tool: string } }>(
-    "/api/local/agent-clis/:tool/upgrade",
-    async (request, reply) => {
-      if (!authorizeLocal(request, reply)) return reply;
-      if (!manager) return disabled(reply);
-      const tool = agentCliToolSchema.safeParse(request.params.tool);
-      const body = upgradeAgentCliRequestSchema.safeParse(request.body);
-      if (!tool.success || !body.success) {
-        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
-      }
-      try {
-        const job = await manager.upgrade(tool.data, body.data.command);
-        request.log.info(
-          {
-            agentCli: {
-              by: "local-owner",
-              ip: request.ip,
-              action: "upgrade",
-              tool: tool.data,
-              command: job.command,
+  for (const action of ["upgrade", "install"] as const) {
+    app.post<{ Params: { tool: string } }>(
+      `/api/local/agent-clis/:tool/${action}`,
+      async (request, reply) => {
+        if (!authorizeLocal(request, reply)) return reply;
+        if (!manager) return disabled(reply);
+        const tool = agentCliToolSchema.safeParse(request.params.tool);
+        const body = upgradeAgentCliRequestSchema.safeParse(request.body);
+        if (!tool.success || !body.success) {
+          return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+        }
+        try {
+          const job = await manager.start(tool.data, action, body.data.command);
+          request.log.info(
+            {
+              agentCli: {
+                by: "local-owner",
+                ip: request.ip,
+                action,
+                tool: tool.data,
+                command: job.command,
+              },
             },
-          },
-          "agent cli upgrade started",
-        );
-        return reply.code(202).send({ job, agents: agentsOf(tool.data) });
-      } catch (error) {
-        return fail(reply, error);
-      }
-    },
-  );
+            `agent cli ${action} started`,
+          );
+          return reply.code(202).send({ job, agents: agentsOf(tool.data) });
+        } catch (error) {
+          return fail(reply, error);
+        }
+      },
+    );
+  }
+
+  /** 正在跑（或最近一次）的任务：页面刷新后先用它恢复进度，不用等整份检测 */
+  app.get("/api/local/agent-clis/current", async (request, reply) => {
+    if (!authorizeLocal(request, reply)) return reply;
+    if (!manager) return disabled(reply);
+    return { job: manager.current() ?? null };
+  });
 
   app.get<{ Params: { id: string } }>("/api/local/agent-clis/jobs/:id", async (request, reply) => {
     if (!authorizeLocal(request, reply)) return reply;

@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   serverText,
   zhText,
+  type AgentCliAction,
   type AgentCliInfo,
   type AgentCliInstallation,
   type AgentCliJob,
@@ -77,6 +78,9 @@ export const AGENT_CLI_TOOLS = Object.keys(TOOLS) as AgentCliTool[];
 /** Codex 官方独立安装器；锚定升级时带上原来的安装目录重跑（`codex update` 断网时也报成功） */
 const CODEX_INSTALLER =
   "bash -c 'tmp=$(mktemp) && curl -fsSL https://chatgpt.com/codex/install.sh -o $tmp && sh $tmp; status=$?; rm -f $tmp; exit $status'";
+
+/** omp 的官方安装说明（npm 包的 homepage）；它的 npm 包只有 bun 装得出能跑的版本 */
+export const OMP_HOMEPAGE = "https://omp.sh";
 
 const VERSION_RE = /\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/;
 const DETECT_CACHE_MS = 60_000;
@@ -311,8 +315,8 @@ export type PlanContext = {
 
 type PackageCommand = { command: string } | { missing: string } | undefined;
 
-function manual(text: ServerText): AgentCliUpdatePlan {
-  return { kind: "manual", reason: zhText(text), reasonText: text };
+function manual(text: ServerText, url?: string): AgentCliUpdatePlan {
+  return { kind: "manual", reason: zhText(text), reasonText: text, ...(url ? { url } : {}) };
 }
 
 function packageCommand(
@@ -445,6 +449,43 @@ export function planUpdate(
     );
   }
   return unknown();
+}
+
+export type InstallContext = {
+  platform: NodeJS.Platform;
+  isExecutable: (file: string) => boolean;
+  /** 登录 shell PATH 里的 npm / bun（绝对路径） */
+  npm?: string | undefined;
+  bun?: string | undefined;
+};
+
+/**
+ * 没装的工具怎么装（cc-switch 的 npm_install_command）：用登录 shell PATH 里实际的 npm（绝对路径）
+ * `npm i -g <包>@latest`，npm 同目录有 node 时把这个目录放到 PATH 最前，用的就是这一处的 node。
+ * omp 的 npm 包入口是 bun 脚本，只用 bun 装；没有 bun 不给命令，指向官方说明（官方安装脚本是远程
+ * 下载执行的，不替人跑）。找不到 npm 时提示先装 Node.js。
+ */
+export function planInstall(tool: AgentCliTool, context: InstallContext): AgentCliUpdatePlan {
+  if (context.platform === "win32") return manual(serverText("agentCli.manual.windows"));
+  const spec = TOOLS[tool];
+  if (tool === "omp") {
+    if (!context.bun || !safePath(context.bun)) {
+      return manual(serverText("agentCli.manual.needBun"), OMP_HOMEPAGE);
+    }
+    return {
+      kind: "anchored",
+      command: `${shellQuote(context.bun)} add -g ${spec.package}@latest`,
+    };
+  }
+  if (!context.npm || !safePath(context.npm)) return manual(serverText("agentCli.manual.noNode"));
+  const dir = path.posix.dirname(context.npm);
+  const pathPrefix = context.isExecutable(path.posix.join(dir, "node"))
+    ? `PATH=${shellQuote(dir)}:"$PATH" `
+    : "";
+  return {
+    kind: "anchored",
+    command: `${pathPrefix}${shellQuote(context.npm)} i -g ${spec.package}@latest${spec.npmArgs ?? ""}`,
+  };
 }
 
 /** 多处安装是否算冲突：版本不同，或者有的能跑有的跑不起来；同版本装两份都能跑不打扰 */
@@ -866,14 +907,17 @@ export class AgentCliManager {
   }
 
   /** 升级会用到的 node：只看由 node 运行的 npm 包（原生安装、Homebrew 管的、bun 装的都不看） */
-  private async nodeVersionFor(install: AgentCliInstallation, loginPath: string) {
+  private nodeFor(install: AgentCliInstallation, loginPath: string): string | undefined {
     const real = lower(install.realPath);
     if (!real.includes("/node_modules/") || install.source === "bun") return undefined;
     if (brewToken(install.realPath, "Cellar") || brewToken(install.realPath, "Caskroom")) {
       return undefined;
     }
     const sibling = path.join(path.dirname(install.path), "node");
-    const node = this.isExecutable(sibling) ? sibling : this.findOnPath("node", loginPath);
+    return this.isExecutable(sibling) ? sibling : this.findOnPath("node", loginPath);
+  }
+
+  private async nodeVersion(node: string | undefined, loginPath: string) {
     if (!node) return undefined;
     const result = await this.runProbe(node, ["--version"], {
       env: { ...this.env, PATH: loginPath },
@@ -886,11 +930,11 @@ export class AgentCliManager {
   /** 新版的 engines.node 本机不满足时返回差距；认不出、查不到一律放行 */
   private async nodeGap(
     tool: AgentCliTool,
-    install: AgentCliInstallation,
+    node: string | undefined,
     latest: string,
     loginPath: string,
   ): Promise<{ required: string; current: string } | undefined> {
-    const current = await this.nodeVersionFor(install, loginPath);
+    const current = await this.nodeVersion(node, loginPath);
     if (!current) return undefined;
     const pkg = TOOLS[tool].package;
     const json = await this.fetchJson(
@@ -910,6 +954,67 @@ export class AgentCliManager {
       if (this.isExecutable(file)) return file;
     }
     return undefined;
+  }
+
+  /** 全局安装会把命令放进哪个目录：npm 用 `npm prefix -g`/bin，bun 用 $BUN_INSTALL/bin（默认 ~/.bun/bin） */
+  private async globalBin(tool: AgentCliTool, context: InstallContext, loginPath: string) {
+    if (tool === "omp") {
+      return context.bun
+        ? path.join(this.env.BUN_INSTALL ?? path.join(this.home, ".bun"), "bin")
+        : undefined;
+    }
+    if (!context.npm) return undefined;
+    const result = await this.runProbe(context.npm, ["prefix", "-g"], {
+      env: { ...this.env, PATH: `${path.dirname(context.npm)}:${loginPath}` },
+      timeoutMs: PROBE_TIMEOUT_MS,
+    });
+    if (result.code !== 0) return undefined;
+    const prefix = result.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("/"))
+      .at(-1);
+    return prefix ? path.join(prefix, "bin") : undefined;
+  }
+
+  private installContext(loginPath: string): InstallContext {
+    return {
+      platform: this.platform,
+      isExecutable: this.isExecutable,
+      npm: this.findOnPath("npm", loginPath),
+      bun: this.findOnPath("bun", loginPath),
+    };
+  }
+
+  private async installInfo(
+    tool: AgentCliTool,
+    base: AgentCliInfo,
+    loginPath: string,
+    refresh: boolean,
+  ): Promise<AgentCliInfo> {
+    const context = this.installContext(loginPath);
+    const plan = planInstall(tool, context);
+    if (plan.kind !== "anchored") return { ...base, plan };
+    const latest = await this.latest(tool, refresh);
+    // bun 装的 omp 不由 node 运行；npm 装的用 npm 同目录的 node，没有就用 PATH 里的
+    const node =
+      tool === "omp" || !context.npm
+        ? undefined
+        : this.isExecutable(path.join(path.dirname(context.npm), "node"))
+          ? path.join(path.dirname(context.npm), "node")
+          : this.findOnPath("node", loginPath);
+    const [nodeGap, bin] = await Promise.all([
+      latest ? this.nodeGap(tool, node, latest, loginPath) : undefined,
+      this.globalBin(tool, context, loginPath),
+    ]);
+    const onPath = new Set(loginPath.split(":"));
+    return {
+      ...base,
+      latest,
+      plan,
+      ...(nodeGap ? { nodeGap } : {}),
+      ...(bin && !onPath.has(bin) ? { binNotOnPath: bin } : {}),
+    };
   }
 
   private planFor(tool: AgentCliTool, detected: Detected, loginPath: string): AgentCliUpdatePlan {
@@ -949,14 +1054,14 @@ export class AgentCliManager {
       latest: null,
       updateAvailable: false,
     };
-    if (status === "notInstalled") return base;
+    if (status === "notInstalled") return this.installInfo(tool, base, loginPath, refresh);
     const latest = await this.latest(tool, refresh);
     const newer = latest && version ? (compareVersions(latest, version) ?? 0) > 0 : false;
     const updateAvailable = Boolean(latest) && (newer || status === "broken");
     const plan = this.planFor(tool, detected, loginPath);
     const nodeGap =
       updateAvailable && latest && primary && plan.kind === "anchored"
-        ? await this.nodeGap(tool, primary, latest, loginPath)
+        ? await this.nodeGap(tool, this.nodeFor(primary, loginPath), latest, loginPath)
         : undefined;
     return {
       ...base,
@@ -979,17 +1084,16 @@ export class AgentCliManager {
     return this.jobs.get(id);
   }
 
-  /** 正在跑或最近一次的升级 */
+  /** 正在跑（含还在核对命令）或最近一次的安装、升级 */
   current(): AgentCliJob | undefined {
-    const running = this.running && this.jobs.get(this.running.id);
-    return running ?? [...this.jobs.values()].at(-1);
+    return this.running ?? [...this.jobs.values()].at(-1);
   }
 
   /**
-   * 执行页面确认过的升级：重新探测这一个工具、重新算命令，和确认的那条一字不差才执行。
+   * 执行页面确认过的安装或升级：重新探测这一个工具、重新算命令，和确认的那条一字不差才执行。
    * 一次只跑一个；返回刚开始的任务，进度经 job(id) 取。
    */
-  async upgrade(tool: AgentCliTool, confirmed: string): Promise<AgentCliJob> {
+  async start(tool: AgentCliTool, action: AgentCliAction, confirmed: string): Promise<AgentCliJob> {
     const spec = TOOLS[tool];
     if (this.running) {
       throw new HiveError(
@@ -997,27 +1101,44 @@ export class AgentCliManager {
         serverText("error.agentCli.busy", { tool: TOOLS[this.running.tool].name }),
       );
     }
-    // 先占住，免得两个请求同时探测完都去执行
+    // 先占住并登记，免得两个请求同时探测完都去执行；核对期间刷新页面也能看到它在进行
     const job: AgentCliJob = {
       id: randomUUID(),
       tool,
+      action,
       command: confirmed,
       state: "running",
       progress: "",
       startedAt: new Date(this.now()).toISOString(),
     };
     this.running = job;
+    this.jobs.set(job.id, job);
     try {
       const loginPath = await this.loginPath();
       const detected = await this.detectTool(tool, loginPath);
       const info = await this.info(tool, detected, loginPath, true);
-      const plan = info.plan;
-      if (!plan || plan.kind !== "anchored") {
-        const reason =
-          plan?.reason ?? zhText(serverText("agentCli.manual.notOnPath", { tool: spec.name }));
+      if (action === "install" && info.status !== "notInstalled") {
         throw new HiveError(
-          "AGENT_CLI_NOT_UPGRADABLE",
-          serverText("error.agentCli.notUpgradable", { tool: spec.name, reason }),
+          "AGENT_CLI_ALREADY_INSTALLED",
+          serverText("error.agentCli.alreadyInstalled", { tool: spec.name }),
+        );
+      }
+      const plan = info.plan;
+      if (
+        !plan ||
+        plan.kind !== "anchored" ||
+        (action === "upgrade" && info.status === "notInstalled")
+      ) {
+        const reason =
+          plan?.kind === "manual"
+            ? plan.reason
+            : zhText(serverText("agentCli.manual.notOnPath", { tool: spec.name }));
+        throw new HiveError(
+          action === "install" ? "AGENT_CLI_NOT_INSTALLABLE" : "AGENT_CLI_NOT_UPGRADABLE",
+          serverText(
+            action === "install" ? "error.agentCli.notInstallable" : "error.agentCli.notUpgradable",
+            { tool: spec.name, reason },
+          ),
         );
       }
       if (plan.command !== confirmed) {
@@ -1026,7 +1147,7 @@ export class AgentCliManager {
           serverText("error.agentCli.planChanged", { tool: spec.name }),
         );
       }
-      if (info.latest && !info.updateAvailable && info.version) {
+      if (action === "upgrade" && info.latest && !info.updateAvailable && info.version) {
         throw new HiveError(
           "AGENT_CLI_UP_TO_DATE",
           serverText("error.agentCli.upToDate", { tool: spec.name, version: info.version }),
@@ -1044,13 +1165,18 @@ export class AgentCliManager {
         );
       }
       job.versionBefore = info.version;
-      this.jobs.set(job.id, job);
       this.run(job, loginPath);
       return { ...job };
     } catch (error) {
       if (this.running === job) this.running = undefined;
+      this.jobs.delete(job.id);
       throw error;
     }
+  }
+
+  /** 升级（start 的简写，保留给已有调用） */
+  upgrade(tool: AgentCliTool, confirmed: string): Promise<AgentCliJob> {
+    return this.start(tool, "upgrade", confirmed);
   }
 
   private run(job: AgentCliJob, loginPath: string) {

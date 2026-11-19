@@ -46,13 +46,15 @@ export const agentCliInstallationSchema = z.object({
   pathDefault: z.boolean(),
 });
 
-/** 升级计划：anchored 可以执行（command 原样展示给人确认）；manual 只能用原来的方式升级 */
+/** 安装或升级计划：anchored 可以执行（command 原样展示给人确认）；manual 不能一键做，reason 说明原因 */
 export const agentCliUpdatePlanSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("anchored"), command: z.string() }),
   z.object({
     kind: z.literal("manual"),
     reason: z.string(),
     reasonText: serverTextSchema.optional(),
+    /** 官方安装说明 */
+    url: z.string().optional(),
   }),
 ]);
 
@@ -73,12 +75,16 @@ export const agentCliInfoSchema = z.object({
   updateAvailable: z.boolean(),
   /** 新版要求的 Node 本机不满足：不给升级 */
   nodeGap: z.object({ required: z.string(), current: z.string() }).optional(),
+  /** 按钮做什么：没装时是安装计划，装了是升级计划 */
   plan: agentCliUpdatePlanSchema.optional(),
+  /** 安装用的全局 bin 目录不在登录 shell 的 PATH 里：装完命令行找不到 */
+  binNotOnPath: z.string().optional(),
 });
 
 export const agentCliJobSchema = z.object({
   id: z.string(),
   tool: agentCliToolSchema,
+  action: z.enum(["install", "upgrade"]),
   command: z.string(),
   state: z.enum(["running", "succeeded", "failed"]),
   /** 最近一行输出（节流、截断） */
@@ -96,7 +102,7 @@ export const agentCliJobSchema = z.object({
   versionAfter: z.string().nullable().optional(),
 });
 
-/** 确认升级：带上页面展示过的命令，服务端重新算一遍，对不上就不执行 */
+/** 确认安装或升级：带上页面展示过的命令，服务端重新算一遍，对不上就不执行 */
 export const upgradeAgentCliRequestSchema = z.object({ command: z.string().min(1).max(4096) });
 
 export type AgentCliTool = z.infer<typeof agentCliToolSchema>;
@@ -105,4 +111,5 @@ export type AgentCliInstallation = z.infer<typeof agentCliInstallationSchema>;
 export type AgentCliUpdatePlan = z.infer<typeof agentCliUpdatePlanSchema>;
 export type AgentCliInfo = z.infer<typeof agentCliInfoSchema>;
 export type AgentCliJob = z.infer<typeof agentCliJobSchema>;
+export type AgentCliAction = AgentCliJob["action"];
 export type UpgradeAgentCliRequest = z.infer<typeof upgradeAgentCliRequestSchema>;

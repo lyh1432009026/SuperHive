@@ -85,6 +85,10 @@ export type LocalAgentsState = {
   agentClis(refresh?: boolean): Promise<{ tools: AgentCliWithAgents[]; job: AgentCliJob | null }>;
   /** 本机：执行页面确认过的升级命令（服务端重新算一遍，对不上不执行） */
   upgradeAgentCli(tool: AgentCliTool, command: string): Promise<AgentCliJob>;
+  /** 本机：执行页面确认过的全局安装命令 */
+  installAgentCli(tool: AgentCliTool, command: string): Promise<AgentCliJob>;
+  /** 本机：正在跑（或最近一次）的安装、升级任务 */
+  agentCliCurrent(): Promise<AgentCliJob | null>;
   agentCliJob(id: string): Promise<AgentCliJob>;
   providers: LocalProviderInfo[] | undefined;
   agents: LocalAgent[];
@@ -590,9 +594,9 @@ export function useLocalAgents(
     },
     [request],
   );
-  const upgradeAgentCli = useCallback(
-    async (tool: AgentCliTool, command: string) => {
-      const response = await request(`/api/local/agent-clis/${tool}/upgrade`, {
+  const startAgentCli = useCallback(
+    async (tool: AgentCliTool, action: "install" | "upgrade", command: string) => {
+      const response = await request(`/api/local/agent-clis/${tool}/${action}`, {
         method: "POST",
         body: JSON.stringify({ command }),
       });
@@ -600,6 +604,18 @@ export function useLocalAgents(
     },
     [request],
   );
+  const upgradeAgentCli = useCallback(
+    (tool: AgentCliTool, command: string) => startAgentCli(tool, "upgrade", command),
+    [startAgentCli],
+  );
+  const installAgentCli = useCallback(
+    (tool: AgentCliTool, command: string) => startAgentCli(tool, "install", command),
+    [startAgentCli],
+  );
+  const agentCliCurrent = useCallback(async () => {
+    const response = await request("/api/local/agent-clis/current");
+    return localizeServerPayload(((await response.json()) as { job: AgentCliJob | null }).job);
+  }, [request]);
   const agentCliJob = useCallback(
     async (id: string) => {
       const response = await request(`/api/local/agent-clis/jobs/${encodeURIComponent(id)}`);
@@ -701,6 +717,8 @@ export function useLocalAgents(
     revokeAllOwnerDevices,
     agentClis,
     upgradeAgentCli,
+    installAgentCli,
+    agentCliCurrent,
     agentCliJob,
     keepAwake,
     updateKeepAwake,

@@ -14,6 +14,9 @@ afterEach(() => {
 const COMMAND =
   "'/Users/a/.npm-global/bin/codex-npm' i -g --prefix '/Users/a/.npm-global' @openai/codex@latest";
 
+const INSTALL =
+  "PATH='/usr/local/bin':\"$PATH\" '/usr/local/bin/npm' i -g @anthropic-ai/claude-code@latest";
+
 const codex = (overrides: Partial<AgentCliWithAgents> = {}): AgentCliWithAgents => ({
   tool: "codex",
   name: "Codex",
@@ -58,6 +61,7 @@ const claude = (overrides: Partial<AgentCliWithAgents> = {}): AgentCliWithAgents
 const job = (overrides: Partial<AgentCliJob> = {}): AgentCliJob => ({
   id: "job-1",
   tool: "codex",
+  action: "upgrade",
   command: COMMAND,
   state: "running",
   progress: "",
@@ -71,7 +75,13 @@ function api(tools: AgentCliWithAgents[] = [codex(), claude()]) {
     agentClis: vi.fn<
       (refresh?: boolean) => Promise<{ tools: AgentCliWithAgents[]; job: AgentCliJob | null }>
     >(async () => ({ tools, job: null })),
-    upgradeAgentCli: vi.fn(async () => job()),
+    agentCliCurrent: vi.fn<() => Promise<AgentCliJob | null>>(async () => null),
+    upgradeAgentCli: vi.fn<(tool: string, command: string) => Promise<AgentCliJob>>(async () =>
+      job(),
+    ),
+    installAgentCli: vi.fn<(tool: string, command: string) => Promise<AgentCliJob>>(async () =>
+      job({ tool: "claude", action: "install", command: INSTALL, versionBefore: null }),
+    ),
     agentCliJob: vi.fn(async () => job()),
     act: vi.fn(async () => undefined),
   };
@@ -164,7 +174,7 @@ describe("AgentClisGroup", () => {
       fireEvent.click(screen.getByRole("button", { name: "升级" }));
     });
     expect(client.upgradeAgentCli).toHaveBeenCalledWith("codex", COMMAND);
-    expect(await screen.findByText("正在升级…")).toBeTruthy();
+    expect(await screen.findByText("正在升级…", { selector: "span" })).toBeTruthy();
     // 一次只升级一个：重新检测也先停用
     expect(screen.getByRole("button", { name: "重新检测" }).hasAttribute("disabled")).toBe(true);
 
@@ -208,7 +218,7 @@ describe("AgentClisGroup", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     render(<AgentClisGroup api={client} />);
     // 打开页面时已有升级在跑：接着轮询
-    expect(await screen.findByText("正在升级…")).toBeTruthy();
+    expect(await screen.findByText("正在升级…", { selector: "span" })).toBeTruthy();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(JOB_POLL_MS);
     });
@@ -228,5 +238,133 @@ describe("AgentClisGroup", () => {
       fireEvent.click(screen.getByRole("button", { name: "升级" }));
     });
     expect(await screen.findByText(/升级命令和你确认的不一样/)).toBeTruthy();
+  });
+
+  it("shows progress right after confirming, and disables the other buttons with a reason", async () => {
+    let resolve!: (value: AgentCliJob) => void;
+    const client = api([codex(), claude({ plan: { kind: "anchored", command: INSTALL } })]);
+    client.upgradeAgentCli.mockImplementation(
+      () => new Promise<AgentCliJob>((done) => (resolve = done)),
+    );
+    render(<AgentClisGroup api={client} />);
+    fireEvent.click(await screen.findByRole("button", { name: "升级到 0.170.0" }));
+    fireEvent.click(screen.getByRole("button", { name: "升级" }));
+    // 服务端还在核对命令：这一行已经在进行中，确认按钮 busy，其它按钮停用并说明原因
+    const codexCard = screen.getByRole("region", { name: "Codex" });
+    expect(codexCard.getAttribute("aria-busy")).toBe("true");
+    expect(codexCard.textContent).toContain("正在核对命令…");
+    const busyButton = Array.from(codexCard.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("正在升级…"),
+    );
+    expect(busyButton?.hasAttribute("disabled")).toBe(true);
+    const confirmButton = screen.getByRole("dialog").querySelector("button:last-child");
+    expect(
+      confirmButton?.hasAttribute("disabled") || confirmButton?.getAttribute("aria-busy"),
+    ).toBeTruthy();
+    const install = screen.getByRole("button", { name: "安装" });
+    expect(install.hasAttribute("disabled")).toBe(true);
+    expect(install.getAttribute("title")).toBe("正在升级 Codex，完成后再试");
+    expect(screen.getByText("正在升级 Codex，完成后才能操作其它 CLI。")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "重新检测" }).hasAttribute("disabled")).toBe(true);
+
+    await act(async () => resolve(job({ progress: "npm http fetch GET 200" })));
+    expect(codexCard.textContent).toContain("npm http fetch GET 200");
+    expect(screen.queryByText("正在核对命令…")).toBeNull();
+    expect(screen.getByRole("button", { name: "安装" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("restores a running job from the current-task endpoint before detection finishes", async () => {
+    const client = api();
+    let finishList!: () => void;
+    client.agentClis.mockImplementation(
+      () =>
+        new Promise((done) => {
+          finishList = () => done({ tools: [codex()], job: null });
+        }),
+    );
+    client.agentCliCurrent.mockResolvedValue(job({ progress: "reify: timing" }));
+    render(<AgentClisGroup api={client} />);
+    expect(await screen.findByText("正在升级 Codex，完成后才能操作其它 CLI。")).toBeTruthy();
+    await act(async () => finishList());
+    expect(screen.getByRole("region", { name: "Codex" }).textContent).toContain("reify: timing");
+    // 已经结束的旧结果不翻出来
+    cleanup();
+    const later = api();
+    later.agentCliCurrent.mockResolvedValue(job({ state: "succeeded", versionAfter: "0.170.0" }));
+    render(<AgentClisGroup api={later} />);
+    await screen.findByRole("region", { name: "Codex" });
+    expect(screen.queryByText(/已升级到/)).toBeNull();
+  });
+
+  it("installs a missing CLI after confirming the exact command, then re-detects", async () => {
+    const client = api([
+      claude({ plan: { kind: "anchored", command: INSTALL }, latest: "2.1.328" }),
+    ]);
+    let current = job({ tool: "claude", action: "install", command: INSTALL, versionBefore: null });
+    client.agentCliJob.mockImplementation(async () => current);
+    render(<AgentClisGroup api={client} />);
+    fireEvent.click(await screen.findByRole("button", { name: "安装" }));
+    const dialog = screen.getByRole("dialog", { name: "确认安装 Claude Code" });
+    expect(dialog.textContent).toContain(INSTALL);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await act(async () => {
+      fireEvent.click(dialog.querySelector("button:last-child")!);
+    });
+    expect(client.installAgentCli).toHaveBeenCalledWith("claude", INSTALL);
+    expect(client.upgradeAgentCli).not.toHaveBeenCalled();
+    expect(await screen.findByText("正在安装…", { selector: "span" })).toBeTruthy();
+
+    current = { ...current, state: "succeeded", versionAfter: "2.1.328" };
+    client.agentClis.mockImplementation(async () => ({
+      tools: [claude({ status: "ok", version: "2.1.328", latest: "2.1.328" })],
+      job: current,
+    }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(JOB_POLL_MS);
+    });
+    expect(await screen.findByText("已安装 Claude Code 2.1.328。")).toBeTruthy();
+    expect(client.agentClis).toHaveBeenCalledTimes(2);
+  });
+
+  it("offers no install button without Node, and links omp's official instructions", async () => {
+    const client = api([
+      claude({
+        plan: { kind: "manual", reason: "这台电脑上找不到 Node.js 和 npm，先装好 Node.js" },
+      }),
+      claude({
+        tool: "omp",
+        name: "Oh My Pi",
+        plan: {
+          kind: "manual",
+          reason: "Oh My Pi 要用 bun 安装，这台电脑上没有 bun；按官方说明安装",
+          url: "https://omp.sh",
+        },
+      }),
+      claude({
+        tool: "openclaw",
+        name: "OpenClaw",
+        plan: { kind: "anchored", command: "npm i -g openclaw@latest" },
+        nodeGap: { required: ">=24.16.0", current: "20.1.0" },
+      }),
+      claude({
+        tool: "codex",
+        name: "Codex",
+        plan: { kind: "anchored", command: "npm i -g @openai/codex@latest" },
+        binNotOnPath: "/opt/npm/bin",
+      }),
+    ]);
+    render(<AgentClisGroup api={client} />);
+    const claudeCard = await screen.findByRole("region", { name: "Claude Code" });
+    expect(claudeCard.querySelector("button")).toBeNull();
+    expect(claudeCard.textContent).toContain("先装好 Node.js");
+    const omp = screen.getByRole("region", { name: "Oh My Pi" });
+    expect(omp.querySelector("button")).toBeNull();
+    expect(screen.getByRole("link", { name: "安装说明" }).getAttribute("href")).toBe(
+      "https://omp.sh",
+    );
+    expect(screen.getByRole("region", { name: "OpenClaw" }).querySelector("button")).toBeNull();
+    const codexCard = screen.getByRole("region", { name: "Codex" });
+    expect(codexCard.querySelector("button")?.textContent).toBe("安装");
+    expect(codexCard.textContent).toContain("/opt/npm/bin，这个目录不在登录终端的 PATH 里");
   });
 });
