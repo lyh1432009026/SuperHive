@@ -16,7 +16,9 @@ import {
   AgentExecutionUncertainError,
   AgentNonRetryableError,
   AgentSessionInvalidError,
+  AgentTransientError,
   AgentUpstreamError,
+  failureClassOf,
 } from "./responder.js";
 
 const options = {
@@ -542,7 +544,9 @@ describe("CodexAppServerResponder", () => {
       }),
     );
     const failure = responder.reply({ instructions: "r", prompt: "p" });
-    await expect(failure).rejects.toBeInstanceOf(AgentNonRetryableError);
+    // 回合已经开始执行：可能做过一部分，交人核对；Codex 给了可信终态，会话没坏
+    await expect(failure).rejects.toBeInstanceOf(AgentExecutionUncertainError);
+    await expect(failure).rejects.toMatchObject({ settled: true });
     // 失败原因要带出来（限流、额度……），不能只说「失败」
     await expect(failure).rejects.toThrow("Codex 回合已报告失败：sandbox denied the patch");
     // 失败后可以继续下一回合
@@ -589,9 +593,11 @@ describe("CodexAppServerResponder", () => {
         },
       }),
     );
-    await expect(responder.reply({ instructions: "r", prompt: "p" })).rejects.toThrow(
-      "Codex 回合被中断",
-    );
+    const failure = responder.reply({ instructions: "r", prompt: "p" });
+    await expect(failure).rejects.toThrow("Codex 回合被中断");
+    await expect(failure).rejects.toBeInstanceOf(AgentExecutionUncertainError);
+    // 有终态，不锁会话：人点「继续」能接着用
+    expect((responder as any).executionUncertain).toBe(false);
   });
 
   it("interrupts the active turn on abort and rejects with AgentCancelledError", async () => {
@@ -1174,6 +1180,18 @@ describe("CodexAppServerResponder", () => {
     expect(JSON.stringify(steps)).not.toContain("PRIVATE");
   });
 
+  it("refuses a second concurrent turn as transient without sending it", async () => {
+    const { responder, servers } = setup(
+      defaultHandlers({ "turn/start": ok({ turn: { id: "t" } }) }),
+    );
+    void responder.reply({ instructions: "r", prompt: "p" }).catch(() => undefined);
+    await flush();
+    const error = await responder.reply({ instructions: "r", prompt: "p2" }).catch((e) => e);
+    expect(failureClassOf(error)).toBe("transient");
+    expect(servers[0]!.methods().filter((m) => m === "turn/start")).toHaveLength(1);
+    await responder.close();
+  });
+
   it("latches unknown execution after process death instead of respawning for another turn", async () => {
     const { responder, servers, createTransport } = setup(
       defaultHandlers({ "turn/start": ok({ turn: { id: "t" } }) }),
@@ -1230,12 +1248,15 @@ describe("CodexAppServerResponder", () => {
     expect(error.message).toContain("-32600");
   });
 
-  it("preserves initialize timeout as a non-retryable startup failure", async () => {
+  it("treats an initialize timeout as transient: no execution was sent, never as unsupported", async () => {
     const { responder, servers } = setup({}, {}, { requestTimeoutMs: 10 });
     const error = await responder.reply({ instructions: "r", prompt: "p" }).catch((e) => e);
     expect(isAppServerUnsupported(error)).toBe(false);
     expect(servers[0]!.killed).toBe(true);
-    expect(error).toBeInstanceOf(AgentNonRetryableError);
+    expect(error).toBeInstanceOf(AgentTransientError);
+    expect(failureClassOf(error)).toBe("transient");
+    expect(error.message).toContain("握手或会话准备超时");
+    expect(servers[0]!.methods()).not.toContain("turn/start");
   });
 
   it("close kills the process and rejects the active reply", async () => {

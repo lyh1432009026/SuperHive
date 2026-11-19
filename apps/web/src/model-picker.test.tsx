@@ -60,6 +60,27 @@ describe("换个模型重试", () => {
     expect(screen.queryByRole("button", { name: /换个模型重试/ })).toBeNull();
   });
 
+  it("says under the buttons what retrying will do", () => {
+    render(
+      <InvocationChips
+        {...chipProps}
+        invocations={[{ ...failed, detail: "x", detailText: { key: "bridge.transientFailed" } }]}
+        onRetryWithModel={vi.fn()}
+      />,
+    );
+    const note = screen.getByText("还没开始执行，重试安全");
+    expect(note.className).toBe("invocation-consequence");
+    // 读屏读按钮时一并读出后果
+    expect(
+      screen.getByRole("button", { name: /^重试 @rd-codex/ }).getAttribute("aria-describedby"),
+    ).toBe(note.id);
+    expect(
+      screen
+        .getByRole("button", { name: "换个模型重试 @rd-codex" })
+        .getAttribute("aria-describedby"),
+    ).toBe(note.id);
+  });
+
   it("retries once with a model picked from the runtime's list", async () => {
     const onRetry = vi.fn();
     const load = vi.fn(async () => ({

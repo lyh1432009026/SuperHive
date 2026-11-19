@@ -10,6 +10,9 @@ export const BRIDGE_TEXTS = {
   "bridge.worktreeHandoff": "已切到独立目录 {path}，开新会话继续；旧会话不迁移",
   "bridge.worktreeBusy":
     "暂时没能确认这次该在哪个任务目录里干活（{reason}），已自动重试仍未成功；这一轮还没开始执行，稍后点「重试」即可",
+  "bridge.transientFailed":
+    "暂时没成功：{reason}。已自动重试 {count} 次；这一轮还没开始执行，稍后点「重试」即可。",
+  "bridge.unsafe": "已停下，不会自动重试：{reason}。先按原因处理，再决定是否重试。",
   "bridge.worktreeSteerQueued": "这条消息绑定了另一个工作目录 {path}，不能引导当前任务，已排队",
   "bridge.crashedMidTurn":
     "Agent 在处理途中意外退出，结果未知；未自动重跑，需先核对原执行与工具进程。",

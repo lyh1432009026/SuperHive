@@ -14,8 +14,10 @@ import {
   type RoomSummary,
 } from "./hive-protocol.js";
 import {
+  AgentCancelledError,
   AgentExecutionUncertainError,
   AgentNonRetryableError,
+  AgentTransientError,
   AgentSessionInvalidError,
   AgentUpstreamError,
   UPSTREAM_FAILURE_PREFIX,
@@ -130,6 +132,8 @@ export type BridgeTuning = {
   upstreamRetryDelaysMs?: number[];
   /** 连不上模型服务（断网、合盖睡眠）时等多久接着原会话继续；比限流等得更久、次数更多 */
   networkRetryDelaysMs?: number[];
+  /** 暂时性失败（还没开始执行：Server 忙、握手超时）自动重试前的等待时间（次数即长度） */
+  transientRetryDelaysMs?: number[];
   /** 执行中的权限申请等人批多久，过时按拒绝（略长于服务端的时限，以服务端为准） */
   approvalTimeoutMs?: number;
   /** 多久未收到 Runtime 新进度时提示待核实；只告警，不自动取消或重试 */
@@ -211,6 +215,8 @@ export class AgentBridge {
   private readonly leadMessages = new Set<string>();
   /** 上游出错后已自动继续的次数 */
   private readonly upstreamRetries = new Map<string, number>();
+  /** 暂时性失败后已自动重试的次数 */
+  private readonly transientRetries = new Map<string, number>();
   /** 这条消息下一轮用的模型：人点了「换个模型重试」，只对这一次生效 */
   private readonly modelOverrides = new Map<string, string>();
   /** 已经因为会话失效自动开新会话重跑过一次的消息：再失败就交给人 */
@@ -285,6 +291,7 @@ export class AgentBridge {
       traceFlushMs: 300,
       upstreamRetryDelaysMs: [60_000, 180_000],
       networkRetryDelaysMs: [30_000, 120_000, 300_000, 600_000, 900_000],
+      transientRetryDelaysMs: [10_000, 30_000, 60_000],
       approvalTimeoutMs: 10 * 60_000 + 30_000,
       progressStaleMs: 120_000,
       fullPromptEveryTurns: 8,
@@ -866,9 +873,11 @@ export class AgentBridge {
         this.room.report({
           messageId: message.id,
           status: error instanceof AgentNonRetryableError ? "failed" : "uncertain",
-          ...(error instanceof AgentNonRetryableError
-            ? { detail: error.message }
-            : said(bridgeText("bridge.steerUnconfirmed"))),
+          ...said(
+            error instanceof AgentNonRetryableError
+              ? bridgeText("bridge.unsafe", { reason: error.message.slice(0, 380) })
+              : bridgeText("bridge.steerUnconfirmed"),
+          ),
         });
         return;
       }
@@ -1093,6 +1102,7 @@ export class AgentBridge {
     ].slice(-1000);
     this.attempts.delete(messageId);
     this.upstreamRetries.delete(messageId);
+    this.transientRetries.delete(messageId);
     this.executionIds.delete(messageId);
     this.crashResumable.delete(messageId);
     this.crashNotes.delete(messageId);
@@ -1444,13 +1454,12 @@ export class AgentBridge {
         this.reportSession();
         this.notePromptSent(prompt);
         const selections = await this.taskWorkspaces(active.messages).catch((error: unknown) => {
-          // 这一轮已经执行过了，暂时忙也不能当成「还没开始」去重跑
-          if (error instanceof TaskWorkspaceBusyError)
-            throw new AgentNonRetryableError(
-              `Task workspace could not be re-checked after the turn (${error.reason}); confirm before continuing.`,
-              { cause: error },
-            );
-          throw error;
+          // 这一轮已经执行过了：暂时忙也好、核对不上也好，都不能当成「还没开始」去重跑，交人核对
+          if (isCancelled(error, active.controller.signal)) throw error;
+          throw new AgentExecutionUncertainError(
+            `这一轮已执行完，但没能复核任务目录（${error instanceof TaskWorkspaceBusyError ? error.reason : error instanceof Error ? error.message : String(error)}）。`,
+            { cause: error, settled: true },
+          );
         });
         const selected = selections.get(messages[0]!.id);
         if (
@@ -1461,9 +1470,9 @@ export class AgentBridge {
               selections.get(message.id) !== (selected ?? this.defaultCwd),
           )
         )
-          throw new AgentNonRetryableError(
-            "Task workspace bindings changed during the turn; confirm before continuing.",
-          );
+          throw new AgentExecutionUncertainError("这一轮执行期间，几条消息绑定的任务目录变了。", {
+            settled: true,
+          });
         const previousCwd = this.options.cwd;
         const changed = await this.selectTaskWorkspace(messages[0]!.id, { path: selected });
         if (!changed) {
@@ -1485,14 +1494,11 @@ export class AgentBridge {
             ...said(detail),
             ...this.usageReport(active),
           });
+        // 人在切目录时点了停止：准备回合已做完，新会话还没开，按停止处理
         if (active.controller.signal.aborted)
-          throw new AgentNonRetryableError(
-            "Worktree handoff was stopped; no continuation was started.",
-          );
+          throw new AgentCancelledError("已切到任务目录，新会话开始前被停止；没有接着执行。");
         if (++handoffs > 1)
-          throw new AgentNonRetryableError(
-            "Multiple worktree changes in one task; confirm the selected worktree before continuing.",
-          );
+          throw new AgentNonRetryableError("一个任务里切了不止一次任务目录，请先核对该用哪个目录");
         handoff = reply.text;
       }
 
@@ -1809,6 +1815,10 @@ export class AgentBridge {
       await this.handleSessionInvalid(active, error);
       return;
     }
+    if (error instanceof AgentTransientError && !isCancelled(error, active.controller.signal)) {
+      await this.handleTransient(active, error);
+      return;
+    }
     const outcome: NonNullable<AgentUsage["outcome"]> =
       error instanceof AgentExecutionUncertainError
         ? "uncertain"
@@ -1841,8 +1851,11 @@ export class AgentBridge {
     if (error instanceof AgentNonRetryableError) {
       for (const message of active.messages) this.rememberProcessed(message.id);
       await this.store.save(this.state);
-      withUsage(active.messages, { status: "failed", detail: error.message.slice(0, 500) });
-      this.log(`[hive] Codex 调用不可自动重试：${error.message}`);
+      withUsage(active.messages, {
+        status: "failed",
+        ...said(bridgeText("bridge.unsafe", { reason: error.message.slice(0, 380) })),
+      });
+      this.log(`[hive] 不安全，已拒绝：${error.message}`);
       return;
     }
     if (isCancelled(error, active.controller.signal)) {
@@ -1853,17 +1866,6 @@ export class AgentBridge {
         status: "cancelled",
         ...(this.stopped ? said(bridgeText("bridge.offline")) : {}),
       });
-      return;
-    }
-    if (error instanceof TaskWorkspaceBusyError) {
-      // 开工前没能确认任务目录：已经按退避自动重试过，这一轮还没执行任何东西，人点「重试」就能接着做
-      for (const message of active.messages) this.rememberProcessed(message.id);
-      await this.store.save(this.state);
-      withUsage(active.messages, {
-        status: "failed",
-        ...said(bridgeText("bridge.worktreeBusy", { reason: error.reason.slice(0, 300) })),
-      });
-      this.log(`[hive] 暂时没能确认任务目录：${error.reason}`);
       return;
     }
     const reason = error instanceof Error ? error.message : String(error);
@@ -2006,24 +2008,7 @@ export class AgentBridge {
           ...this.usageReport(active),
         });
       }
-      // 等待中的消息算作本地在办：重连补拉、重复的 @ 都不会再另起一份
-      const timer = setTimeout(() => {
-        const resume: ChatMessage[] = [];
-        for (const message of live) {
-          if (this.waitingResume.get(message.id) !== timer) continue;
-          this.waitingResume.delete(message.id);
-          if (this.stopped || this.state.processedMessageIds.includes(message.id)) continue;
-          resume.push(message);
-        }
-        if (resume.length === 0) {
-          this.syncTyping();
-          return;
-        }
-        this.pending.unshift(...resume);
-        void this.drain();
-      }, delay);
-      timer.unref?.();
-      for (const message of live) this.waitingResume.set(message.id, timer);
+      this.resumeLater(live, delay);
       return;
     }
     for (const message of active.messages) {
@@ -2039,6 +2024,73 @@ export class AgentBridge {
         : bridgeText("bridge.upstreamFailed", { reason: error.reason.slice(0, 360), why }),
     );
     this.log(`[hive] ${detail.detail}，等人点「继续」`);
+    for (const message of live) {
+      this.room.report({
+        messageId: message.id,
+        status: "failed",
+        ...detail,
+        ...this.usageReport(active),
+      });
+    }
+  }
+
+  /** 等 delay 后把这些消息放回队首重新执行；等待中的消息算作本地在办：重连补拉、重复的 @ 都不会再另起一份 */
+  private resumeLater(live: ChatMessage[], delay: number): void {
+    const timer = setTimeout(() => {
+      const resume: ChatMessage[] = [];
+      for (const message of live) {
+        if (this.waitingResume.get(message.id) !== timer) continue;
+        this.waitingResume.delete(message.id);
+        if (this.stopped || this.state.processedMessageIds.includes(message.id)) continue;
+        resume.push(message);
+      }
+      if (resume.length === 0) {
+        this.syncTyping();
+        return;
+      }
+      this.pending.unshift(...resume);
+      void this.drain();
+    }, delay);
+    timer.unref?.();
+    for (const message of live) this.waitingResume.set(message.id, timer);
+  }
+
+  /**
+   * 暂时性失败（Server 忙、握手超时……）：这一轮还没开始执行，按 tuning.transientRetryDelaysMs 退避自动重试，
+   * 人看到的只是「稍后自动重试」的进度；次数用完才报失败，写明还没执行、重试安全。
+   */
+  private async handleTransient(active: ActiveBatch, error: AgentTransientError): Promise<void> {
+    this.settleUsage(active, "failed");
+    const live = active.messages.filter((message) => !active.cancelled.has(message.id));
+    const reason = error instanceof TaskWorkspaceBusyError ? error.reason : error.message;
+    const used = Math.max(0, ...live.map((message) => this.transientRetries.get(message.id) ?? 0));
+    const delays = this.tuning.transientRetryDelaysMs;
+    const delay = delays[used];
+    if (delay !== undefined && live.length > 0) {
+      for (const message of live) this.transientRetries.set(message.id, used + 1);
+      await this.store.save(this.state);
+      const wait = `${Math.max(1, Math.round(delay / 1000))} 秒`;
+      this.log(`[hive] 暂时没成功（${reason}），还没开始执行，${wait}后自动重试`);
+      for (const message of live) {
+        this.room.report({
+          messageId: message.id,
+          status: "running",
+          progress: `暂时没成功，${wait}后自动重试（第 ${used + 1}/${delays.length} 次）`,
+          detail: reason.slice(0, 500),
+          ...this.usageReport(active),
+        });
+      }
+      this.resumeLater(live, delay);
+      return;
+    }
+    for (const message of active.messages) this.rememberProcessed(message.id);
+    await this.store.save(this.state);
+    const detail = said(
+      error instanceof TaskWorkspaceBusyError
+        ? bridgeText("bridge.worktreeBusy", { reason: reason.slice(0, 300) })
+        : bridgeText("bridge.transientFailed", { reason: reason.slice(0, 300), count: used }),
+    );
+    this.log(`[hive] ${detail.detail}`);
     for (const message of live) {
       this.room.report({
         messageId: message.id,

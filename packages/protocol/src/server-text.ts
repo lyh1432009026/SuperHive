@@ -575,6 +575,18 @@ export const serverTexts = {
     zh: "暂时没能确认这次该在哪个任务目录里干活（{reason}），已自动重试仍未成功；这一轮还没开始执行，稍后点「重试」即可",
     en: "Couldn't confirm which task workspace to use ({reason}) even after retrying automatically. Nothing has run yet, so just retry in a moment.",
   },
+  "bridge.transientFailed": {
+    zh: "暂时没成功：{reason}。已自动重试 {count} 次；这一轮还没开始执行，稍后点「重试」即可。",
+    en: {
+      one: "Temporarily failed: {reason}. Retried automatically {count} time. Nothing has run yet, so just retry in a moment.",
+      other:
+        "Temporarily failed: {reason}. Retried automatically {count} times. Nothing has run yet, so just retry in a moment.",
+    },
+  },
+  "bridge.unsafe": {
+    zh: "已停下，不会自动重试：{reason}。先按原因处理，再决定是否重试。",
+    en: "Stopped and won't retry automatically: {reason}. Deal with the cause first, then decide whether to retry.",
+  },
   "bridge.worktreeSteerQueued": {
     zh: "这条消息绑定了另一个工作目录 {path}，不能引导当前任务，已排队",
     en: "This message belongs to a different workspace, {path}. It cannot steer the current task and has been queued.",

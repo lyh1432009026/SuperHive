@@ -1,4 +1,4 @@
-import { isResumableUnknown, type Invocation } from "@superhive/protocol";
+import { failureClass, isResumableUnknown, type Invocation } from "@superhive/protocol";
 import { localized, t } from "./i18n";
 
 /**
@@ -34,6 +34,31 @@ export function isUpstreamInterrupted(invocation: Invocation): boolean {
 export function needsDecision(invocation: Invocation): boolean {
   if (invocation.resolution) return false;
   return isResumableUnknown(invocation) || isUpstreamInterrupted(invocation);
+}
+
+/**
+ * 失败卡片「重试 / 继续 / 换个模型重试」按钮下的一句后果说明：点了会不会把做过的事再做一遍。
+ * 按 Bridge 上报的失败类别（见 protocol 的 failureClass）给固定说法；只在有这些按钮的状态下返回。
+ */
+export function retryConsequence(invocation: Invocation): string | undefined {
+  if (invocation.resolution) return undefined;
+  const decide = needsDecision(invocation);
+  if (invocation.status !== "failed" && !decide) return undefined;
+  if (invocation.detailText?.key === "bridge.modelFailed")
+    return t("还没执行完；用原模型重试还会失败，换个模型重试只对这一次生效");
+  switch (failureClass(invocation)) {
+    case "transient":
+      return decide ? t("还没开始执行，继续安全") : t("还没开始执行，重试安全");
+    case "uncertain":
+      if (decide) return t("可能已执行过一部分，继续会先核对已做的，不从头重做");
+      return invocation.detailText?.key === "bridge.sessionInvalid"
+        ? t("已执行过工具，重试会开新会话从头做；先核对已做的再点")
+        : t("可能已执行过一部分，重试会重新执行；先核对已做的再点");
+    case "unsafe":
+      return t("已拒绝，没有往下执行；原因不解决，重试还会被拒");
+    default:
+      return decide ? undefined : t("原因不明，重试会从头执行这一轮");
+  }
 }
 
 export type AttentionItem = {

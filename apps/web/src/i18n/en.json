@@ -1597,5 +1597,13 @@
   "在「代码」面板里打开它的任务线，看它改了什么": "Open its worktree in the Code panel to see what it changed",
   "看它的改动": "View its changes",
   "{0} 个文件未提交": "{0} uncommitted {0|file|files}",
-  "领先 {0} 个提交": "{0} {0|commit|commits} ahead"
+  "领先 {0} 个提交": "{0} {0|commit|commits} ahead",
+  "还没执行完；用原模型重试还会失败，换个模型重试只对这一次生效": "Didn't finish. Retrying with the same model will fail again; retry with another model applies to this run only",
+  "还没开始执行，继续安全": "Nothing has run yet, so continuing is safe",
+  "还没开始执行，重试安全": "Nothing has run yet, so retrying is safe",
+  "可能已执行过一部分，继续会先核对已做的，不从头重做": "Some of it may have run. Continue checks what was done first instead of starting over",
+  "已执行过工具，重试会开新会话从头做；先核对已做的再点": "Tools already ran. Retry starts over in a new session, so check what was done first",
+  "可能已执行过一部分，重试会重新执行；先核对已做的再点": "Some of it may have run. Retry runs it again, so check what was done first",
+  "已拒绝，没有往下执行；原因不解决，重试还会被拒": "Refused and didn't go further. Retrying will be refused again until the cause is fixed",
+  "原因不明，重试会从头执行这一轮": "Cause unknown. Retry runs this turn again from the start"
 }

@@ -199,6 +199,23 @@ button.invocation-summary:focus-visible {
   color: var(--danger);
 }
 
+/* 有「重试 / 继续」按钮时在下面补一句后果说明：胶囊放宽成圆角小卡，说明独占一行 */
+.invocation-chip.has-consequence {
+  flex-wrap: wrap;
+  row-gap: 0;
+  border-radius: var(--radius-md);
+  padding-block: 2px 4px;
+}
+
+.invocation-consequence {
+  flex-basis: 100%;
+  min-width: 0;
+  padding-right: 6px;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
 /* 暂停 / 结果未知：淡黄底，结果未知用虚线边框表达"悬而未决" */
 .invocation-chip.blocked,
 .invocation-chip.timed_out {

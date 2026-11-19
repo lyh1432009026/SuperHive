@@ -8,6 +8,7 @@ import {
   concernsMe,
   nextAttention,
   pinAttentionRooms,
+  retryConsequence,
 } from "./attention";
 
 const call = (id: string, status: Invocation["status"], extra: Partial<Invocation> = {}) =>
@@ -126,4 +127,55 @@ describe("collectAttention / nextAttention / attentionByRoom", () => {
       "b",
     ]);
   });
+});
+
+describe("retryConsequence", () => {
+  const text = (key: string, params?: Record<string, unknown>) => ({
+    detailText: { key, ...(params ? { params } : {}) },
+  });
+  it.each([
+    ["failed", text("bridge.transientFailed"), "还没开始执行，重试安全"],
+    ["failed", text("bridge.worktreeBusy"), "还没开始执行，重试安全"],
+    ["timed_out", text("invocation.unacknowledged"), "还没开始执行，继续安全"],
+    ["timed_out", text("bridge.uncertain"), "可能已执行过一部分，继续会先核对已做的，不从头重做"],
+    [
+      "timed_out",
+      text("bridge.crashedIrreversible"),
+      "可能已执行过一部分，继续会先核对已做的，不从头重做",
+    ],
+    ["failed", text("bridge.upstreamFailed"), "可能已执行过一部分，继续会先核对已做的，不从头重做"],
+    [
+      "failed",
+      text("bridge.worktreeCheckBeforeContinue"),
+      "可能已执行过一部分，重试会重新执行；先核对已做的再点",
+    ],
+    [
+      "failed",
+      text("bridge.sessionInvalid", { why: { key: "bridge.sessionExecuted" } }),
+      "已执行过工具，重试会开新会话从头做；先核对已做的再点",
+    ],
+    [
+      "failed",
+      text("bridge.sessionInvalid", { why: { key: "bridge.sessionRetried" } }),
+      "还没开始执行，重试安全",
+    ],
+    ["failed", text("bridge.unsafe"), "已拒绝，没有往下执行；原因不解决，重试还会被拒"],
+    [
+      "failed",
+      text("bridge.modelFailed"),
+      "还没执行完；用原模型重试还会失败，换个模型重试只对这一次生效",
+    ],
+    ["failed", text("bridge.failedRepeatedly"), "原因不明，重试会从头执行这一轮"],
+    // 旧版 Bridge 只有中文说明
+    ["failed", {}, "原因不明，重试会从头执行这一轮"],
+    // 没有「重试 / 继续」可点的不说
+    ["timed_out", text("bridge.alreadyEnded"), undefined],
+    ["completed", text("bridge.unsafe"), undefined],
+    ["failed", { ...text("bridge.unsafe"), resolution: { kind: "dismissed" } }, undefined],
+  ] as Array<[Invocation["status"], Partial<Invocation>, string | undefined]>)(
+    "%s %j → %s",
+    (status, extra, expected) => {
+      expect(retryConsequence(call("x", status, extra))).toBe(expected);
+    },
+  );
 });

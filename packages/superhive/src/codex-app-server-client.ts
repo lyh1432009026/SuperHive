@@ -19,6 +19,7 @@ import {
   isSessionInvalid,
   isUpstreamFailure,
   AgentNonRetryableError,
+  AgentTransientError,
   type AgentAccessMode,
   type AgentReply,
   type AgentReplyInput,
@@ -208,7 +209,6 @@ class RequestTimeoutError extends Error {
   constructor(method: string, timeoutMs: number) {
     super(`Codex app-server ${method} 超时（${timeoutMs}ms）。`);
     this.name = "CodexRequestTimeoutError";
-    this.name = "RequestTimeoutError";
   }
 }
 
@@ -434,7 +434,7 @@ export class CodexAppServerResponder implements AgentResponder {
         "上次 Codex 执行结果尚未确认，当前会话已锁定；请核对执行与工具进程，不能直接重放任务。",
       );
     if (this.active)
-      throw new AgentNonRetryableError("Codex 已有进行中的回合，请等待其结束后再发起新回合。");
+      throw new AgentTransientError("Codex 已有进行中的回合，未发送新的执行请求；稍后自动重试。");
 
     // 先占位，防止并发调用在握手期间重复进入
     const placeholder = { settled: false } as ActiveTurn;
@@ -604,7 +604,9 @@ export class CodexAppServerResponder implements AgentResponder {
       this.active = undefined;
       this.scheduleIdleRetire();
     }
-    if (outcome instanceof AgentExecutionUncertainError) this.executionUncertain = true;
+    // 有可信终态的（回合报告失败、被中断）会话没坏，不锁；没有终态的要等人核对
+    if (outcome instanceof AgentExecutionUncertainError && !outcome.settled)
+      this.executionUncertain = true;
     // 成功、失败、停止都交出已观测到的用量
     try {
       turn.onUsage?.(turn.usage.finish());
@@ -1080,14 +1082,20 @@ export class CodexAppServerResponder implements AgentResponder {
           : "";
       this.finishTurn(
         turn,
-        new AgentNonRetryableError(
+        new AgentExecutionUncertainError(
           `Codex 回合已报告失败${reason}；可能已执行部分操作，不会自动重放。`,
+          { settled: true },
         ),
       );
       return;
     }
     if (status === "interrupted") {
-      this.finishTurn(turn, new AgentNonRetryableError("Codex 回合被中断；不会自动重放。"));
+      this.finishTurn(
+        turn,
+        new AgentExecutionUncertainError("Codex 回合被中断，可能已执行部分操作；不会自动重放。", {
+          settled: true,
+        }),
+      );
       return;
     }
     let messages = turn.messages.filter(

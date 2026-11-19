@@ -8,7 +8,12 @@ import {
   type TraceStep,
 } from "@superhive/protocol";
 import { localized, t } from "./i18n";
-import { isUpstreamInterrupted, needsDecision, UPSTREAM_FAILURE_PREFIX } from "./attention";
+import {
+  isUpstreamInterrupted,
+  needsDecision,
+  retryConsequence,
+  UPSTREAM_FAILURE_PREFIX,
+} from "./attention";
 
 /** 人点一次「继续」为当前 Agent 对话追加的轮数，同时放宽连续轮数、转交深度和单链条数 */
 export const BUDGET_EXTEND_TURNS = 10;
@@ -472,6 +477,17 @@ export function InvocationChips({
             .filter(Boolean)
             .join(" · ");
           const hint = !rawHint || rawHint === label ? undefined : rawHint;
+          // 「重试 / 继续 / 换个模型重试」下的一句后果说明：只在真有这些按钮时显示
+          const canRetry =
+            !isExtendableBlock(invocation) &&
+            canRetryInvocation(invocation, agentOnline) &&
+            (invocation.blockReason !== "guest_approval" || isOwner);
+          const canRetryWithModel = Boolean(
+            onRetryWithModel && isOwner && invocation.status === "failed",
+          );
+          const consequence =
+            canRetry || canRetryWithModel ? retryConsequence(invocation) : undefined;
+          const consequenceId = consequence ? `invocation-consequence-${invocation.id}` : undefined;
           // 有执行过程时，当前这一步显示在对话流的「思考中」卡片里，状态行不再重复
           const traced = Boolean(traces?.get(invocation.id)?.length);
           const jumpTarget =
@@ -548,7 +564,7 @@ export function InvocationChips({
               key={invocation.id}
               role="listitem"
               data-invocation-id={invocation.id}
-              className={`invocation-chip ${invocation.status}${invocation.resolution ? " resolved" : ""}`}
+              className={`invocation-chip ${invocation.status}${invocation.resolution ? " resolved" : ""}${consequence ? " has-consequence" : ""}`}
               title={hint}
               onClick={(event) => event.stopPropagation()}
             >
@@ -597,12 +613,12 @@ export function InvocationChips({
                   {t("继续 {0} 轮", { 0: BUDGET_EXTEND_TURNS })}
                 </button>
               ) : (
-                canRetryInvocation(invocation, agentOnline) &&
-                (invocation.blockReason !== "guest_approval" || isOwner) && (
+                canRetry && (
                   <button
                     type="button"
                     className={`invocation-action ${invocation.blockReason === "guest_approval" || needsDecision(invocation) ? "primary" : ""}`}
                     aria-label={`${retryLabel(invocation)} @${invocation.agentName}`}
+                    aria-describedby={consequenceId}
                     title={
                       needsDecision(invocation)
                         ? t("接着原会话从中断处继续，不会从头重做")
@@ -614,13 +630,14 @@ export function InvocationChips({
                   </button>
                 )
               )}
-              {onRetryWithModel && isOwner && invocation.status === "failed" && (
+              {canRetryWithModel && (
                 <button
                   type="button"
                   className="invocation-action subtle"
                   aria-label={t("换个模型重试 @{0}", { 0: invocation.agentName })}
+                  aria-describedby={consequenceId}
                   title={t("选一个模型，只对这一次重试生效")}
-                  onClick={() => onRetryWithModel(invocation)}
+                  onClick={() => onRetryWithModel!(invocation)}
                 >
                   {t("换个模型重试")}
                 </button>
@@ -680,6 +697,11 @@ export function InvocationChips({
                 >
                   {t("停止")}
                 </button>
+              )}
+              {consequence && (
+                <span id={consequenceId} className="invocation-consequence">
+                  {consequence}
+                </span>
               )}
             </div>
           );

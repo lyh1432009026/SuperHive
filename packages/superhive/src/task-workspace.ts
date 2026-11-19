@@ -1,7 +1,7 @@
 import { realpath, stat } from "node:fs/promises";
 import type { HiveMcpConnection } from "./hive-mcp-config.js";
 import { hiveMcpHeaders } from "./hive-mcp-config.js";
-import { AgentNonRetryableError } from "./responder.js";
+import { AgentNonRetryableError, AgentTransientError } from "./responder.js";
 
 export class TaskWorkspaceRemovedError extends Error {
   constructor(readonly path: string) {
@@ -15,7 +15,7 @@ export type TaskWorkspaceSelection = string | TaskWorkspaceRemovedError | undefi
  * 暂时没能确认任务目录：Server 忙（排在写操作后面等锁超时、git 超时）或连不上。
  * 不说明哪里不安全，这一轮也还没开始执行；已经自动重试过，稍后再试即可。
  */
-export class TaskWorkspaceBusyError extends Error {
+export class TaskWorkspaceBusyError extends AgentTransientError {
   constructor(
     readonly reason: string,
     options?: ErrorOptions,

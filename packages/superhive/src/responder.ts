@@ -78,11 +78,27 @@ export class AgentCancelledError extends Error {
   }
 }
 
-/** Known failure that must be surfaced once, not automatically re-executed. */
+/**
+ * 失败分三类（网页按 Bridge 上报的文案键归类，见 @superhive/protocol 的 failureClass）：
+ * - transient（AgentTransientError）：还没把执行请求发出去，暂时忙或连不上；Bridge 自动退避重试，用完次数才交给人
+ * - uncertain（AgentExecutionUncertainError）：执行请求已发出、可能做过一部分；不自动重放，交人核对后「继续」
+ * - unsafe（AgentNonRetryableError）：判定不能做或不能接着做；直接拒绝，写明原因
+ */
+export type FailureClass = "transient" | "uncertain" | "unsafe";
+
+/** unsafe：已知不能做（身份不符、会话锁定、运行时不支持……），只报一次，不自动重跑 */
 export class AgentNonRetryableError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
     this.name = "AgentNonRetryableError";
+  }
+}
+
+/** transient：这一轮还没开始执行，等一会儿可能就好；抛出前必须确认没有发出过执行请求 */
+export class AgentTransientError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "AgentTransientError";
   }
 }
 
@@ -177,11 +193,25 @@ export function isModelUnavailable(text: string): boolean {
   );
 }
 
+/**
+ * uncertain：执行请求已发出，结果不确定。settled 表示运行时已给出可信终态（回合报告失败、被中断），
+ * 会话本身没坏，人点「继续」可以接着用；没有终态（连接断了、停止未确认）的要锁住会话等人核对。
+ */
 export class AgentExecutionUncertainError extends Error {
-  constructor(message: string) {
-    super(message);
+  readonly settled: boolean;
+  constructor(message: string, options?: ErrorOptions & { settled?: boolean }) {
+    super(message, options);
     this.name = "AgentExecutionUncertainError";
+    this.settled = options?.settled ?? false;
   }
+}
+
+/** 这个错误属于哪一类；取消、上游出错、会话失效等另有专门处理的返回 undefined */
+export function failureClassOf(error: unknown): FailureClass | undefined {
+  if (error instanceof AgentTransientError) return "transient";
+  if (error instanceof AgentExecutionUncertainError) return "uncertain";
+  if (error instanceof AgentNonRetryableError) return "unsafe";
+  return undefined;
 }
 
 export function isCancelled(error: unknown, signal?: AbortSignal): boolean {

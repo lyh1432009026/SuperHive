@@ -15,6 +15,7 @@ import {
   AgentExecutionUncertainError,
   AgentNonRetryableError,
   AgentSessionInvalidError,
+  AgentTransientError,
   AgentUpstreamError,
   type AgentReply,
   type AgentReplyInput,
@@ -227,6 +228,7 @@ describe("AgentBridge", () => {
           traceFlushMs: 5,
           upstreamRetryDelaysMs: [30, 60],
           networkRetryDelaysMs: [30, 60, 90],
+          transientRetryDelaysMs: [10, 20],
           ...extraTuning,
         },
       },
@@ -457,11 +459,250 @@ describe("AgentBridge", () => {
     expect(responder.calls).toHaveLength(0);
   });
 
-  it("reports a busy workspace lookup as retryable without running or counting as unsafe", async () => {
+  /**
+   * 失败分三类，逐个抛点核对：最终上报的状态与文案键（网页按键归类、给按钮写后果说明），
+   * 以及暂时性失败有没有自动重试、不安全的有没有拦在执行之前。
+   */
+  describe("failure classes by throw site", () => {
+    type Scenario = {
+      site: string;
+      /** 触发这个抛点，返回触发消息 */
+      run: () => Promise<ChatMessage>;
+      status: InvocationReport["status"];
+      key: string;
+      /** 交给运行时执行的次数（暂时性失败会自动重试） */
+      calls?: number;
+    };
+
+    async function mention(): Promise<ChatMessage> {
+      await startBridge(baseState());
+      const message = chat();
+      room.messages.push(message);
+      room.handlers.onMention(message, message.seq, false);
+      return message;
+    }
+
+    const settled = (message: ChatMessage) =>
+      room.statuses(message.id).some((status) => ["failed", "uncertain"].includes(status));
+
+    /** 运行时直接抛出 error（Codex 客户端里的各个抛点）；暂时性失败自动重试时每次都抛 */
+    function runtimeThrows(error: () => Error) {
+      return async () => {
+        const message = await mention();
+        for (let call = 1; !settled(message); call += 1) {
+          await waitUntil(() => responder.calls.length === call || settled(message));
+          if (!settled(message)) responder.fail(error());
+          await waitUntil(() => settled(message) || responder.calls.length > call);
+        }
+        return message;
+      };
+    }
+
+    /** 回合跑完后复核任务目录这一步出错 */
+    function afterTurn(resolve: (id: string) => Promise<string | undefined>) {
+      return async () => {
+        let turnDone = false;
+        taskWorkspace = {
+          resolve: async (id) => (turnDone ? resolve(id) : undefined),
+          responder: () => responder,
+        };
+        const message = await mention();
+        await waitUntil(() => responder.calls.length === 1);
+        turnDone = true;
+        responder.finish("done");
+        return message;
+      };
+    }
+
+    const scenarios: Scenario[] = [
+      {
+        site: "task-workspace unsafe(): checkout identity changed before the turn",
+        run: async () => {
+          taskWorkspace = {
+            resolve: async () => {
+              throw new AgentNonRetryableError("checkout identity changed");
+            },
+            responder: () => responder,
+          };
+          return mention();
+        },
+        status: "failed",
+        key: "bridge.unsafe",
+        calls: 0,
+      },
+      {
+        site: "task-workspace lookup(): Server busy before the turn",
+        run: async () => {
+          const { TaskWorkspaceBusyError } = await import("./task-workspace.js");
+          taskWorkspace = {
+            resolve: async () => {
+              throw new TaskWorkspaceBusyError("Hive Server is busy (503) (after 3 attempts)");
+            },
+            responder: () => responder,
+          };
+          return mention();
+        },
+        status: "failed",
+        key: "bridge.worktreeBusy",
+        calls: 0,
+      },
+      {
+        site: "codexStartupFailure(): handshake timeout (AgentTransientError)",
+        run: runtimeThrows(
+          () => new AgentTransientError("Codex app-server initialize：握手或会话准备超时"),
+        ),
+        status: "failed",
+        key: "bridge.transientFailed",
+        calls: 3,
+      },
+      {
+        site: "codexStartupFailure(): CLI missing / config (AgentNonRetryableError)",
+        run: runtimeThrows(() => new AgentNonRetryableError("找不到 Codex 命令")),
+        status: "failed",
+        key: "bridge.unsafe",
+        calls: 1,
+      },
+      {
+        site: "Codex turn reported failed / interrupted (settled uncertain)",
+        run: runtimeThrows(
+          () =>
+            new AgentExecutionUncertainError("Codex 回合已报告失败；可能已执行部分操作", {
+              settled: true,
+            }),
+        ),
+        status: "uncertain",
+        key: "bridge.uncertain",
+        calls: 1,
+      },
+      {
+        site: "bridge: task workspace busy when re-checked after the turn",
+        run: afterTurn(async () => {
+          const { TaskWorkspaceBusyError } = await import("./task-workspace.js");
+          throw new TaskWorkspaceBusyError("Hive Server is busy (503)");
+        }),
+        status: "uncertain",
+        key: "bridge.uncertain",
+        calls: 1,
+      },
+      {
+        site: "bridge: task workspace unsafe when re-checked after the turn",
+        run: afterTurn(async () => {
+          throw new AgentNonRetryableError("checkout identity changed");
+        }),
+        status: "uncertain",
+        key: "bridge.uncertain",
+        calls: 1,
+      },
+      {
+        site: "bridge: incomplete task workspace selection after the turn",
+        run: async () => {
+          let turnDone = false;
+          taskWorkspace = {
+            resolve: async () => undefined,
+            resolveMany: async (ids) =>
+              new Map(turnDone ? [] : ids.map((id) => [id, undefined] as const)),
+            responder: () => responder,
+          };
+          const message = await mention();
+          await waitUntil(() => responder.calls.length === 1);
+          turnDone = true;
+          responder.finish("done");
+          return message;
+        },
+        status: "uncertain",
+        key: "bridge.uncertain",
+        calls: 1,
+      },
+      {
+        site: "bridge: task workspace bindings changed during the turn",
+        run: async () => {
+          let turnDone = false;
+          let second = "";
+          taskWorkspace = {
+            resolve: async (id) =>
+              turnDone && id === second ? path.join(directory, "other") : undefined,
+            responder: () => responder,
+          };
+          await startBridge(baseState());
+          const first = chat();
+          const next = chat();
+          second = next.id;
+          room.messages.push(first, next);
+          room.handlers.onMention(first, first.seq, false);
+          room.handlers.onMention(next, next.seq, false);
+          await waitUntil(() => responder.calls.length === 1);
+          turnDone = true;
+          responder.finish("done");
+          return first;
+        },
+        status: "uncertain",
+        key: "bridge.uncertain",
+        calls: 1,
+      },
+      {
+        site: "bridge: more than one worktree handoff in a task",
+        run: async () => {
+          let selected: string | undefined;
+          taskWorkspace = { resolve: async () => selected, responder: () => responder };
+          const message = await mention();
+          await waitUntil(() => responder.calls.length === 1);
+          selected = path.join(directory, "one");
+          responder.finish("prepared one");
+          await waitUntil(() => responder.calls.length === 2);
+          selected = path.join(directory, "two");
+          responder.finish("prepared two");
+          return message;
+        },
+        status: "failed",
+        key: "bridge.unsafe",
+        calls: 2,
+      },
+      {
+        site: "bridge: steer into the active turn hits an unsafe workspace",
+        run: async () => {
+          let unsafe = false;
+          taskWorkspace = {
+            resolve: async () => {
+              if (unsafe) throw new AgentNonRetryableError("checkout identity changed");
+              return undefined;
+            },
+            responder: () => responder,
+          };
+          await mention();
+          await waitUntil(() => responder.calls.length === 1);
+          unsafe = true;
+          const extra = chat();
+          room.messages.push(extra);
+          room.handlers.onMention(extra, extra.seq, false, true);
+          return extra;
+        },
+        status: "failed",
+        key: "bridge.unsafe",
+        calls: 1,
+      },
+    ];
+
+    it.each(scenarios)("$site → $status ($key)", async ({ run, status, key, calls }) => {
+      const message = await run();
+      await waitUntil(() => room.statuses(message.id).includes(status));
+      const report = room.reports.find(
+        (candidate) => candidate.messageId === message.id && candidate.status === status,
+      );
+      expect(report?.detailText?.key).toBe(key);
+      // 原来的英文「confirm before …」不再直接给人看
+      expect(report?.detail).not.toContain("confirm before");
+      if (calls !== undefined) expect(responder.calls).toHaveLength(calls);
+    });
+  });
+
+  it("retries a transient failure automatically and runs once it clears", async () => {
     const { TaskWorkspaceBusyError } = await import("./task-workspace.js");
+    const retries = () => room.reports.filter((report) => report.progress).length;
     taskWorkspace = {
+      // 自动重试两次之后 Server 不忙了
       resolve: async () => {
-        throw new TaskWorkspaceBusyError("Hive Server is busy (503) (after 3 attempts)");
+        if (retries() < 2) throw new TaskWorkspaceBusyError("Hive Server is busy (503)");
+        return undefined;
       },
       responder: () => responder,
     };
@@ -469,14 +710,41 @@ describe("AgentBridge", () => {
     const message = chat();
     room.messages.push(message);
     room.handlers.onMention(message, message.seq, false);
-    await waitUntil(() => room.statuses(message.id).includes("failed"));
-    const failed = room.reports.find(
-      (report) => report.messageId === message.id && report.status === "failed",
-    );
-    expect(failed?.detailText?.key).toBe("bridge.worktreeBusy");
-    expect(failed?.detail).toContain("稍后点「重试」");
-    expect(failed?.detail).not.toContain("confirm before retrying");
-    expect(responder.calls).toHaveLength(0);
+    await waitUntil(() => responder.calls.length === 1);
+    expect(
+      room.reports
+        .filter((report) => report.messageId === message.id && report.progress)
+        .map((report) => report.progress),
+    ).toEqual([
+      "暂时没成功，1 秒后自动重试（第 1/2 次）",
+      "暂时没成功，1 秒后自动重试（第 2/2 次）",
+    ]);
+    expect(room.statuses(message.id)).not.toContain("failed");
+    responder.finish();
+    await waitUntil(() => room.statuses(message.id).includes("completed"));
+  });
+
+  it("treats a stop during the worktree handoff as stopped, not failed", async () => {
+    const handoff: { selected?: string; messageId?: string } = {};
+    taskWorkspace = {
+      resolve: async () => {
+        // 人在 Bridge 切目录这一刻点了停止
+        if (handoff.selected && handoff.messageId) room.handlers.onCancel!(handoff.messageId);
+        return handoff.selected;
+      },
+      responder: () => responder,
+    };
+    await startBridge(baseState());
+    const message = chat();
+    handoff.messageId = message.id;
+    room.messages.push(message);
+    room.handlers.onMention(message, message.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    handoff.selected = path.join(directory, "checkout");
+    responder.finish("prepared");
+    await waitUntil(() => room.statuses(message.id).includes("cancelled"));
+    expect(room.statuses(message.id)).not.toContain("failed");
+    expect(responder.calls).toHaveLength(1);
   });
 
   it("drops an old directory's thread when a saved task starts in another checkout", async () => {
