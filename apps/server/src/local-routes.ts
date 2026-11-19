@@ -29,7 +29,7 @@ import type { OwnerDevice } from "./owner-devices.js";
 import { checkLocalRequest, type LocalCheck } from "./local-access.js";
 import { listDirectories } from "./local-directories.js";
 import { renderImMessage, type ImMessage } from "./im/im-texts.js";
-import { openTerminal } from "./open-terminal.js";
+import { openTerminal, revealInFolder } from "./open-terminal.js";
 import type { LocalAgentSupervisor } from "./local-agents.js";
 import type { RuntimeCredentialStore } from "./runtime-credentials.js";
 import { registerRuntimeConfigRoutes } from "./runtime-config-routes.js";
@@ -145,6 +145,10 @@ export type LocalRoomActions = {
   ) => { sessionId: string; cwd: string; busy: boolean } | undefined;
   /** 在这台电脑上开终端执行命令；测试里替换掉 */
   openTerminal?: (command: string) => Promise<void>;
+  /** 房间工作区（或它的 worktree）里一个文件的真实路径；路径校验与只读浏览接口相同 */
+  workspaceFile?: (roomId: string, source: string, path: string) => Promise<string>;
+  /** 在文件管理器里选中文件；测试里替换掉 */
+  revealInFolder?: (file: string) => Promise<void>;
   /** 运行时（Claude Code、Codex）全局配置里的接口地址和密钥 */
   runtimeCredentials?: RuntimeCredentialStore;
   /** 本机装的 Agent CLI：检测版本与一键升级 */
@@ -946,6 +950,53 @@ export function registerLocalAgentRoutes(
           return reply.code(500).send({ error: error.message, code: "TERMINAL_FAILED" });
         }
         return fail(reply, error);
+      }
+    },
+  );
+
+  /**
+   * 在这台电脑的访达 / 资源管理器里显示工作区里的文件（只限本机房主）：
+   * 文件本来就在本机，没法在网页里预览的直接去文件夹里打开，不用再下载一份。只选中，不打开、不执行。
+   */
+  app.post<{ Params: { roomId: string }; Body: { source?: unknown; path?: unknown } }>(
+    "/api/local/rooms/:roomId/workspace/reveal",
+    async (request, reply) => {
+      const caller = authorize(request, reply, "local");
+      if (!caller) return reply;
+      const source = typeof request.body?.source === "string" ? request.body.source : "workspace";
+      const file = typeof request.body?.path === "string" ? request.body.path : "";
+      if (!rooms.workspaceFile || !file)
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      try {
+        const real = await rooms.workspaceFile(request.params.roomId, source, file);
+        await (rooms.revealInFolder ?? revealInFolder)(real);
+        request.log.info(
+          {
+            workspaceFiles: {
+              room: request.params.roomId,
+              by: "local-owner",
+              action: "reveal",
+              source,
+              path: file,
+            },
+          },
+          "workspace file revealed",
+        );
+        return { revealed: true };
+      } catch (error) {
+        if (error instanceof HiveError) {
+          const status =
+            error.code === "WORKSPACE_PATH_NOT_FOUND"
+              ? 404
+              : error.code.startsWith("WORKSPACE_")
+                ? 400
+                : 404;
+          return reply.code(status).send(hiveErrorBody(error));
+        }
+        return reply.code(500).send({
+          error: error instanceof Error ? error.message : String(error),
+          code: "REVEAL_FAILED",
+        });
       }
     },
   );

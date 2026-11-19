@@ -32,6 +32,7 @@ import {
   DownloadButton,
   MediaCompare,
   MediaView,
+  WorkspaceRevealContext,
   changeSides,
   mediaKind,
   type RawUrlApi,
@@ -287,6 +288,7 @@ export function WorkspacePanel({
   onClose,
   onOpenSettings,
   onOverview,
+  revealFile,
 }: {
   api: WorkspaceApi;
   roomId: string;
@@ -298,6 +300,8 @@ export function WorkspacePanel({
   onOpenSettings?: () => void;
   /** 总览刷新后通知外面（头部入口上的改动数） */
   onOverview?: (overview: WorkspaceOverview) => void;
+  /** 本机房主：在访达里显示文件（代替下载）；远程设备、访客不传 */
+  revealFile?: ((source: string, path: string) => Promise<void>) | undefined;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const [width, setWidth] = useState(storedWidth);
@@ -463,178 +467,183 @@ export function WorkspacePanel({
   }
 
   return (
-    <aside
-      ref={panelRef}
-      className={`workspace-panel${maximized ? " maximized" : ""}`}
-      style={maximized ? undefined : { width }}
-      role="dialog"
-      aria-modal="false"
-      aria-labelledby="workspace-panel-title"
-      tabIndex={-1}
-      onKeyDown={onKeyDown}
-    >
-      <div
-        className="workspace-resizer"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={t("拖动调整面板宽度")}
-        aria-valuemin={MIN_WIDTH}
-        aria-valuenow={width}
-        tabIndex={0}
-        onPointerDown={startResize}
-        onDoubleClick={() => setMaximized((current) => !current)}
-        onKeyDown={(event) => {
-          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-          event.preventDefault();
-          setMaximized(false);
-          setWidth((current) => clampWidth(current + (event.key === "ArrowLeft" ? 32 : -32)));
-        }}
-      />
-      <header className="workspace-header">
-        <div className="workspace-title">
-          <WorkspaceGlyph size={17} />
-          <h2 id="workspace-panel-title">{t("工作区")}</h2>
-          {overview.data?.name && <span className="workspace-muted">{overview.data.name}</span>}
-        </div>
-        {sources.length > 1 && (
-          <Select
-            className="workspace-source"
-            aria-label={t("查看哪份代码")}
-            value={source?.id ?? "workspace"}
-            onChange={(value) => setSourceId(value)}
-            options={sources.map((item) => ({
-              value: item.id,
-              label:
-                item.kind === "workspace"
-                  ? t("工作区 · {0}", { 0: item.branch ?? item.label })
-                  : item.label,
-              description:
-                item.kind === "workspace"
-                  ? t("房间工作区当前的检出")
-                  : item.missing
-                    ? t("{0} 的任务线（目录已不存在）", { 0: item.agentName ?? "" })
-                    : t("{0} 的任务线，基于 {1}", { 0: item.agentName ?? "", 1: item.base ?? "" }),
-              disabled: Boolean(item.missing),
-              group: item.kind === "workspace" ? t("工作区") : t("任务线（worktree）"),
-            }))}
-          />
-        )}
-        <div className="workspace-header-actions">
-          <button
-            type="button"
-            className="workspace-icon-button"
-            aria-label={t("刷新")}
-            title={t("刷新")}
-            onClick={() => setRefreshTick((value) => value + 1)}
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.9"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="workspace-icon-button"
-            aria-label={maximized ? t("还原为侧边面板") : t("占满整个窗口")}
-            aria-pressed={maximized}
-            title={maximized ? t("还原为侧边面板") : t("占满整个窗口")}
-            onClick={() => setMaximized((current) => !current)}
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.9"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              {maximized ? (
-                <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
-              ) : (
-                <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
-              )}
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="workspace-icon-button"
-            aria-label={t("关闭工作区面板")}
-            title={t("关闭")}
-            onClick={onClose}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.9"
-              strokeLinecap="round"
-              aria-hidden="true"
-            >
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-      </header>
-      {overview.data?.configured && (
+    <WorkspaceRevealContext.Provider value={revealFile}>
+      <aside
+        ref={panelRef}
+        className={`workspace-panel${maximized ? " maximized" : ""}`}
+        style={maximized ? undefined : { width }}
+        role="dialog"
+        aria-modal="false"
+        aria-labelledby="workspace-panel-title"
+        tabIndex={-1}
+        onKeyDown={onKeyDown}
+      >
         <div
-          className="workspace-tabs"
-          role="tablist"
-          aria-label={t("工作区视图")}
+          className="workspace-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t("拖动调整面板宽度")}
+          aria-valuemin={MIN_WIDTH}
+          aria-valuenow={width}
+          tabIndex={0}
+          onPointerDown={startResize}
+          onDoubleClick={() => setMaximized((current) => !current)}
           onKeyDown={(event) => {
             if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
             event.preventDefault();
-            const index = tabs.findIndex((item) => item.id === tab);
-            const next =
-              tabs[(index + (event.key === "ArrowLeft" ? -1 : 1) + tabs.length) % tabs.length]!;
-            setTab(next.id);
-            window.requestAnimationFrame(() =>
-              panelRef.current?.querySelector<HTMLElement>(`#workspace-tab-${next.id}`)?.focus(),
-            );
+            setMaximized(false);
+            setWidth((current) => clampWidth(current + (event.key === "ArrowLeft" ? 32 : -32)));
           }}
-        >
-          {tabs.map((item) => (
+        />
+        <header className="workspace-header">
+          <div className="workspace-title">
+            <WorkspaceGlyph size={17} />
+            <h2 id="workspace-panel-title">{t("工作区")}</h2>
+            {overview.data?.name && <span className="workspace-muted">{overview.data.name}</span>}
+          </div>
+          {sources.length > 1 && (
+            <Select
+              className="workspace-source"
+              aria-label={t("查看哪份代码")}
+              value={source?.id ?? "workspace"}
+              onChange={(value) => setSourceId(value)}
+              options={sources.map((item) => ({
+                value: item.id,
+                label:
+                  item.kind === "workspace"
+                    ? t("工作区 · {0}", { 0: item.branch ?? item.label })
+                    : item.label,
+                description:
+                  item.kind === "workspace"
+                    ? t("房间工作区当前的检出")
+                    : item.missing
+                      ? t("{0} 的任务线（目录已不存在）", { 0: item.agentName ?? "" })
+                      : t("{0} 的任务线，基于 {1}", {
+                          0: item.agentName ?? "",
+                          1: item.base ?? "",
+                        }),
+                disabled: Boolean(item.missing),
+                group: item.kind === "workspace" ? t("工作区") : t("任务线（worktree）"),
+              }))}
+            />
+          )}
+          <div className="workspace-header-actions">
             <button
-              key={item.id}
-              id={`workspace-tab-${item.id}`}
               type="button"
-              role="tab"
-              aria-selected={tab === item.id}
-              aria-controls="workspace-tabpanel"
-              tabIndex={tab === item.id ? 0 : -1}
-              className={tab === item.id ? "active" : ""}
-              onClick={() => setTab(item.id)}
+              className="workspace-icon-button"
+              aria-label={t("刷新")}
+              title={t("刷新")}
+              onClick={() => setRefreshTick((value) => value + 1)}
             >
-              {item.label}
-              {item.id === "changes" && changeCount ? (
-                <span className="workspace-tab-count">{changeCount}</span>
-              ) : null}
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.9"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" />
+              </svg>
             </button>
-          ))}
+            <button
+              type="button"
+              className="workspace-icon-button"
+              aria-label={maximized ? t("还原为侧边面板") : t("占满整个窗口")}
+              aria-pressed={maximized}
+              title={maximized ? t("还原为侧边面板") : t("占满整个窗口")}
+              onClick={() => setMaximized((current) => !current)}
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.9"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                {maximized ? (
+                  <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+                ) : (
+                  <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+                )}
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="workspace-icon-button"
+              aria-label={t("关闭工作区面板")}
+              title={t("关闭")}
+              onClick={onClose}
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.9"
+                strokeLinecap="round"
+                aria-hidden="true"
+              >
+                <path d="M6 6l12 12M18 6 6 18" />
+              </svg>
+            </button>
+          </div>
+        </header>
+        {overview.data?.configured && (
+          <div
+            className="workspace-tabs"
+            role="tablist"
+            aria-label={t("工作区视图")}
+            onKeyDown={(event) => {
+              if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+              event.preventDefault();
+              const index = tabs.findIndex((item) => item.id === tab);
+              const next =
+                tabs[(index + (event.key === "ArrowLeft" ? -1 : 1) + tabs.length) % tabs.length]!;
+              setTab(next.id);
+              window.requestAnimationFrame(() =>
+                panelRef.current?.querySelector<HTMLElement>(`#workspace-tab-${next.id}`)?.focus(),
+              );
+            }}
+          >
+            {tabs.map((item) => (
+              <button
+                key={item.id}
+                id={`workspace-tab-${item.id}`}
+                type="button"
+                role="tab"
+                aria-selected={tab === item.id}
+                aria-controls="workspace-tabpanel"
+                tabIndex={tab === item.id ? 0 : -1}
+                className={tab === item.id ? "active" : ""}
+                onClick={() => setTab(item.id)}
+              >
+                {item.label}
+                {item.id === "changes" && changeCount ? (
+                  <span className="workspace-tab-count">{changeCount}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        )}
+        <div
+          className="workspace-body"
+          id="workspace-tabpanel"
+          role={overview.data?.configured ? "tabpanel" : undefined}
+          aria-labelledby={overview.data?.configured ? `workspace-tab-${tab}` : undefined}
+        >
+          {body}
         </div>
-      )}
-      <div
-        className="workspace-body"
-        id="workspace-tabpanel"
-        role={overview.data?.configured ? "tabpanel" : undefined}
-        aria-labelledby={overview.data?.configured ? `workspace-tab-${tab}` : undefined}
-      >
-        {body}
-      </div>
-    </aside>
+      </aside>
+    </WorkspaceRevealContext.Provider>
   );
 }
 

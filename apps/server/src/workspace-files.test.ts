@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { HiveDatabase } from "./database.js";
 import {
@@ -808,5 +808,53 @@ describe("工作区文件接口", () => {
       expect((await rawUrl(app, "path=certs%2Fserver.pem", guest)).statusCode).toBe(403);
       expect((await rawUrl(app, "path=certs%2Fserver.pem&reveal=1", guest)).statusCode).toBe(403);
     });
+  });
+
+  it("本机房主可以在访达里显示工作区文件，路径校验相同；远程设备和访客不行", async () => {
+    const root = repository();
+    write(root, "tool.bin", Buffer.from([0, 1, 2]));
+    const revealed: string[] = [];
+    const app = await buildApp({
+      databasePath: ":memory:",
+      token: "test-token",
+      staticDir: "/definitely-not-present",
+      revealInFolder: vi.fn(async (file: string) => {
+        revealed.push(file);
+      }),
+      localAgents: {
+        cli: { command: "/usr/bin/node", args: ["cli.js"] },
+        serverUrl: "http://127.0.0.1:8787",
+        spawn: () => {
+          throw new Error("no agents");
+        },
+        probe: async () => ({ installed: true, version: "1.0.0" }),
+      },
+    });
+    cleanup.push(() => app.close());
+    await app.inject({
+      method: "PATCH",
+      url: "/api/rooms/general",
+      headers: OWNER,
+      payload: { workspace: root },
+    });
+    const { ownerToken } = (await app.inject({ url: "/api/local/session" })).json();
+    const reveal = (
+      path: string,
+      headers: Record<string, string> = { "x-hive-owner": ownerToken },
+    ) =>
+      app.inject({
+        method: "POST",
+        url: "/api/local/rooms/general/workspace/reveal",
+        headers,
+        payload: { source: "workspace", path },
+      });
+    expect((await reveal("tool.bin")).json()).toEqual({ revealed: true });
+    expect(revealed).toEqual([path.join(root, "tool.bin")]);
+    expect((await reveal("../etc/passwd")).statusCode).toBe(400);
+    expect((await reveal(".git/config")).statusCode).toBe(400);
+    expect((await reveal("missing.bin")).statusCode).toBe(404);
+    // 只有总令牌（不是本机凭证）不行
+    expect((await reveal("tool.bin", OWNER)).statusCode).toBe(401);
+    expect(revealed).toHaveLength(1);
   });
 });

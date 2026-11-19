@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Attachment, WorkspaceChangeStatus, WorkspaceRawUrl } from "@superhive/protocol";
 import { Lightbox } from "./attachments";
 import { t } from "./i18n";
@@ -126,7 +126,20 @@ export function useRawUrl(
   return state;
 }
 
-/** 下载按钮：点的时候才签一个下载链接，按附件方式下载 */
+/**
+ * 在 Server 所在电脑上打开浏览器时（本机房主），文件本来就在这台电脑上：
+ * 没法在网页里预览的，直接在访达 / 资源管理器里显示，不用再下载一份。远程设备和访客没有这个，照旧下载。
+ */
+export const WorkspaceRevealContext = createContext<
+  ((source: string, path: string) => Promise<void>) | undefined
+>(undefined);
+
+const isMac = () => typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+
+/**
+ * 拿到文件的按钮：本机房主看工作区当前文件时是「在访达中显示」，其他情况（远程、访客、git 里的旧版本）是下载。
+ * 下载时才签一个下载链接，按附件方式下载。
+ */
 export function DownloadButton({
   api,
   source,
@@ -142,6 +155,35 @@ export function DownloadButton({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const reveal = useContext(WorkspaceRevealContext);
+  if (reveal && ref === "worktree")
+    return (
+      <>
+        <button
+          type="button"
+          className="workspace-primary"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError(undefined);
+            try {
+              await reveal(source, path);
+            } catch (reason) {
+              setError(reason instanceof Error ? reason.message : String(reason));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {isMac() ? t("在访达中显示") : t("在文件夹中显示")}
+        </button>
+        {error && (
+          <p className="workspace-error" role="alert">
+            {error}
+          </p>
+        )}
+      </>
+    );
   return (
     <>
       <button

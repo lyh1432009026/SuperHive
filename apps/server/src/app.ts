@@ -8,7 +8,7 @@ import { errorText, hiveErrorBody, wsText } from "./texts.js";
 import { observeRuntime } from "./runtime-observation.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import { createReadStream, existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
-import { open, readFile } from "node:fs/promises";
+import { open, readFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -77,6 +77,7 @@ import { readMessageContent } from "./message-content.js";
 import { gitBranch } from "./git-branch.js";
 import { WorktreeManager, worktreeRepository } from "./worktrees.js";
 import { registerWorkspaceFileRoutes } from "./workspace-files-routes.js";
+import { resolveInside } from "./workspace-files.js";
 import {
   LocalAgentSupervisor,
   autoSteerKey,
@@ -143,6 +144,8 @@ export type BuildAppOptions = {
   branchCheckMs?: number;
   /** 在本机终端里打开 Agent 会话；测试里替换掉，不真的开窗口 */
   openTerminal?: (command: string) => Promise<void>;
+  /** 在访达 / 资源管理器里选中文件；测试里替换掉，不真的打开 */
+  revealInFolder?: (file: string) => Promise<void>;
   /** 超时扫描使用的时钟；测试用来模拟时间流逝 */
   now?: () => number;
   /** 检查访客会话到期的间隔；测试可调小 */
@@ -583,6 +586,23 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     },
     clearRoom,
     ...(options.openTerminal ? { openTerminal: options.openTerminal } : {}),
+    ...(options.revealInFolder ? { revealInFolder: options.revealInFolder } : {}),
+    // 工作区面板「在访达中显示」：和只读浏览接口同样的来源解析与路径校验
+    workspaceFile: async (roomId, source, file) => {
+      const room = database.getRoom(roomId);
+      const root =
+        source === "workspace"
+          ? room?.workspace
+          : worktrees
+              .allRecords()
+              .find((record) => record.id === source && record.roomId === roomId)?.path;
+      if (!root)
+        throw new HiveError(
+          "WORKSPACE_PATH_NOT_FOUND",
+          serverText("error.workspaceFiles.sourceNotFound"),
+        );
+      return resolveInside(await realpath(root), file);
+    },
     agentSession: (roomId, agentName) => {
       const agent = database.findParticipant(roomId, agentName);
       const session = agent ? agentSessions.get(agent.id) : undefined;

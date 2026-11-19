@@ -7,6 +7,7 @@ import {
   DownloadButton,
   MediaCompare,
   MediaView,
+  WorkspaceRevealContext,
   changeSides,
   mediaKind,
   type RawUrlApi,
@@ -136,6 +137,40 @@ describe("DownloadButton", () => {
     const anchor = click.mock.contexts[0] as HTMLAnchorElement;
     expect(anchor.href).toContain("HEAD-dist/app.bin-dl");
     expect(anchor.download).toBe("app.bin");
+  });
+});
+
+describe("本机房主在访达里显示", () => {
+  it("工作区当前文件直接在文件夹里显示，不签下载链接；git 里的旧版本仍然下载", async () => {
+    const api = fakeApi();
+    const reveal = vi.fn(async () => undefined);
+    const { rerender } = render(
+      <WorkspaceRevealContext.Provider value={reveal}>
+        <DownloadButton api={api} source="wt-1" path="dist/app.bin" />
+      </WorkspaceRevealContext.Provider>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /在(访达|文件夹)中显示/ }));
+    expect(reveal).toHaveBeenCalledWith("wt-1", "dist/app.bin");
+    expect(api).not.toHaveBeenCalled();
+    rerender(
+      <WorkspaceRevealContext.Provider value={reveal}>
+        <DownloadButton api={api} source="wt-1" path="dist/app.bin" ref="HEAD" />
+      </WorkspaceRevealContext.Provider>,
+    );
+    expect(screen.getByRole("button", { name: "下载" })).toBeTruthy();
+  });
+
+  it("显示失败时给出原因", async () => {
+    const reveal = vi.fn(async () => {
+      throw new Error("文件不存在");
+    });
+    render(
+      <WorkspaceRevealContext.Provider value={reveal}>
+        <DownloadButton api={fakeApi()} source="workspace" path="a.bin" />
+      </WorkspaceRevealContext.Provider>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /在(访达|文件夹)中显示/ }));
+    expect((await screen.findByRole("alert")).textContent).toBe("文件不存在");
   });
 });
 

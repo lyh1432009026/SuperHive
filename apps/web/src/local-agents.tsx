@@ -103,6 +103,8 @@ export type LocalAgentsState = {
   openTerminal(id: string, roomId: string, force?: boolean): Promise<string>;
   /** 接着这个会话要运行的命令（在别的设备上复制到 Server 所在电脑运行）；没有会话时为 undefined */
   sessionCommand(id: string, roomId: string): Promise<string | undefined>;
+  /** 在这台电脑的访达 / 资源管理器里选中工作区里的文件（只限本机） */
+  revealWorkspaceFile(roomId: string, source: string, path: string): Promise<void>;
   remove(id: string): Promise<void>;
   logs(id: string): Promise<string[]>;
   directories(path?: string): Promise<LocalDirectoryListing>;
@@ -444,6 +446,16 @@ export function useLocalAgents(
         body: JSON.stringify({ roomId, ...(force ? { force } : {}) }),
       });
       return ((await response.json()) as { command: string }).command;
+    },
+    [request],
+  );
+
+  const revealWorkspaceFile = useCallback(
+    async (roomId: string, source: string, path: string) => {
+      await request(`/api/local/rooms/${encodeURIComponent(roomId)}/workspace/reveal`, {
+        method: "POST",
+        body: JSON.stringify({ source, path }),
+      });
     },
     [request],
   );
@@ -847,6 +859,7 @@ export function useLocalAgents(
     act,
     openTerminal,
     sessionCommand,
+    revealWorkspaceFile,
     remove,
     logs,
     directories,

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
 
 /** AppleScript 字符串字面量 */
 function appleString(value: string): string {
@@ -47,4 +48,23 @@ export async function openTerminal(command: string, platform = process.platform)
       throw new Error("没找到可用的终端程序，请复制命令到终端里运行。");
     },
   );
+}
+
+/**
+ * 在 Server 所在电脑的文件管理器里选中这个文件（只给本机房主用）：
+ * macOS 用访达（open -R），Windows 用资源管理器 /select，Linux 打开所在目录。
+ * 只是显示，不打开、不执行文件本身。
+ */
+export async function revealInFolder(file: string, platform = process.platform): Promise<void> {
+  if (platform === "darwin") {
+    // 绝对路径以 / 开头，不会被当成选项
+    await run("open", ["-R", file]);
+    return;
+  }
+  if (platform === "win32") {
+    // explorer 正常也会返回 1，不按退出码判断
+    await run("explorer.exe", [`/select,${file}`]).catch(() => undefined);
+    return;
+  }
+  await run("xdg-open", [path.dirname(file)]);
 }

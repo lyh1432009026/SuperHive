@@ -6017,6 +6017,11 @@ export function App({
             workspaceConfigured={Boolean(currentRoomWorkspace)}
             isOwner={isOwner}
             onOverview={recordWorkspaceOverview}
+            revealFile={
+              local.enabled && local.mode === "local"
+                ? (source, path) => local.revealWorkspaceFile(currentRoomId, source, path)
+                : undefined
+            }
             onClose={() => {
               setWorkspaceOpen(false);
               window.requestAnimationFrame(() => workspaceButtonRef.current?.focus());

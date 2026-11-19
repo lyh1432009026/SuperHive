@@ -1540,5 +1540,7 @@
   "看文本 diff": "Text diff",
   "二进制文件，不能在这里预览。": "Binary file; it can't be previewed here.",
   "看图片": "View image",
-  "看源码": "View source"
+  "看源码": "View source",
+  "在访达中显示": "Show in Finder",
+  "在文件夹中显示": "Show in folder"
 }
