@@ -35,6 +35,40 @@ describe("RoomClient", () => {
     vi.unstubAllGlobals();
   });
 
+  it("reads a receipt result at its exact sequence without truncating the content", async () => {
+    const message = {
+      id: "00000000-0000-4000-8000-000000000001",
+      seq: 43,
+      content: "完整证据".repeat(2000) + "结果末尾",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ messages: [message], latestSeq: 50 })))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ messages: [{ ...message, seq: 44 }], latestSeq: 50 })),
+      )
+      .mockResolvedValueOnce(new Response("denied", { status: 403 }));
+    vi.stubGlobal("fetch", fetchMock);
+    client = new RoomClient(
+      {
+        serverUrl: "http://hive.test:8787",
+        roomId: "general",
+        username: "test-agent",
+        token: "test-token",
+      },
+      { onSnapshot: () => undefined, onMention: () => undefined, onError: () => undefined },
+    );
+    expect(await client.fetchMessageAt(message.seq, message.id)).toEqual(message);
+    const [requestUrl, requestOptions] = fetchMock.mock.calls[0]!;
+    expect(String(requestUrl)).toBe(
+      "http://hive.test:8787/api/rooms/general/messages?afterSeq=42&limit=1",
+    );
+    expect(requestOptions.headers).toEqual({ Authorization: "Bearer test-token" });
+    expect(requestOptions.signal).toBeInstanceOf(AbortSignal);
+    expect(await client.fetchMessageAt(message.seq, message.id)).toBeUndefined();
+    await expect(client.fetchMessageAt(message.seq, message.id)).rejects.toThrow("403");
+  });
+
   it("reports a failed snapshot catch-up instead of crashing, then reconnects for a fresh snapshot", async () => {
     server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
     await waitFor<void>((resolve) => server!.on("listening", () => resolve()));

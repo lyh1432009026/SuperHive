@@ -317,6 +317,10 @@ export const serverTexts = {
   },
 
   /* ---------- 子任务回执 ---------- */
+  "receipt.compact": {
+    zh: "@{requester} 📬 子任务回执 · {status}\n委派：{task}\n[结果见 #{seq}](#message/{resultMessageId}/{seq})",
+    en: "@{requester} 📬 Subtask receipt · {status}\nTask: {task}\n[Result: #{seq}](#message/{resultMessageId}/{seq})",
+  },
   "receipt.delegation": {
     zh: "@{requester} 📬 子任务回执（Hive 代 {delegate} 发出）\n状态：{status}\n委派内容：{task}{outcome}\n子任务 ID：{id}",
     en: "@{requester} 📬 Subtask receipt (sent by Hive for {delegate})\nStatus: {status}\nTask: {task}{outcome}\nSubtask ID: {id}",

@@ -202,6 +202,22 @@ export class RoomClient {
     return response.text();
   }
 
+  async fetchMessageAt(seq: number, id: string): Promise<ChatMessage | undefined> {
+    const url = new URL(
+      `/api/rooms/${encodeURIComponent(this.options.roomId)}/messages`,
+      this.options.serverUrl,
+    );
+    url.searchParams.set("afterSeq", String(seq - 1));
+    url.searchParams.set("limit", "1");
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${this.options.token}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error(`无法读取子任务结果 (${response.status})`);
+    const payload = (await response.json()) as MessagesResponse;
+    return payload.messages.find((message) => message.id === id && message.seq === seq);
+  }
+
   async fetchMessages(afterSeq: number): Promise<{ messages: ChatMessage[]; latestSeq: number }> {
     const all: ChatMessage[] = [];
     let cursor = afterSeq;

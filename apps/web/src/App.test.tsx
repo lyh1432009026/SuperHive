@@ -1839,6 +1839,69 @@ describe("App mention autocomplete", () => {
     expect(scrollTop).toBe(4000);
   });
 
+  it("compact receipt links expand their result while long human messages stay open", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    const agent = participant("00000000-0000-4000-8000-000000000002", "worker", "agent");
+    const makeMessage = (
+      messageSeq: number,
+      sender: Participant,
+      content: string,
+    ): ChatMessage => ({
+      id: `00000000-0000-4000-8000-${String(5000 + messageSeq).padStart(12, "0")}`,
+      roomId: "general",
+      seq: messageSeq,
+      senderId: sender.id,
+      senderName: sender.username,
+      senderType: sender.type,
+      content,
+      mentions: [],
+      traceId: "00000000-0000-4000-8000-000000000011",
+      hopCount: 0,
+      createdAt: new Date().toISOString(),
+    });
+    const result = makeMessage(1, agent, "结论\n" + "完整证据\n".repeat(20));
+    const human = makeMessage(2, self, "人的详细要求\n" + "完整要求\n".repeat(20));
+    const receipt: ChatMessage = {
+      ...makeMessage(3, agent, `@worker 子任务回执 · 已完成\n[结果见 #1](#message/${result.id}/1)`),
+      kind: "receipt",
+      mentions: ["worker"],
+      text: {
+        key: "receipt.compact",
+        params: {
+          requester: "worker",
+          status: "已完成",
+          task: "验证",
+          seq: 1,
+          resultMessageId: result.id,
+        },
+      },
+    };
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self, agent],
+        messages: [result, human, receipt],
+        latestSeq: 3,
+      }),
+    );
+    const root = document.querySelector(".message-list")!.shadowRoot!;
+    const list = within(root as unknown as HTMLElement);
+    const resultNode = () => root.querySelector(`[data-message-id="${result.id}"]`)!;
+    await waitFor(() => expect(resultNode().querySelector(".collapsed")).not.toBeNull());
+    expect(root.querySelector(`[data-message-id="${human.id}"] .message-collapsible`)).toBeNull();
+    await user.click(await list.findByRole("button", { name: "结果见 #1" }));
+    await waitFor(() => expect(resultNode().classList.contains("highlighted")).toBe(true));
+    expect(resultNode().querySelector(".collapsed")).toBeNull();
+  });
+
   it("opens room artifacts from the chat header and jumps back to an older message", async () => {
     const user = userEvent.setup();
     localStorage.setItem("superhive.username", "Alice");
@@ -1882,6 +1945,7 @@ describe("App mention autocomplete", () => {
     artifactsApi.history = Array.from({ length: 200 }, (_, index) =>
       message(index + 1, `第 ${index + 1} 条`),
     );
+    artifactsApi.history[1]!.content = `第 2 条\n\n${"完整的验证结果\n".repeat(30)}`;
     artifactsApi.artifacts = [artifact(2, "report.md")];
     act(() =>
       socket.serverEvent({
@@ -1931,7 +1995,12 @@ describe("App mention autocomplete", () => {
     expect(screen.queryByRole("dialog", { name: "产物" })).toBeNull();
     const container = document.querySelector(".message-list")! as HTMLElement;
     const list = within(container.shadowRoot as unknown as HTMLElement);
-    await waitFor(() => expect(list.getByText("第 2 条")).toBeTruthy());
+    await waitFor(() => expect(list.getByText("第 2 条", { exact: false })).toBeTruthy());
+    expect(
+      container.shadowRoot!.querySelector(
+        `[data-message-id="${message(2, "").id}"] .message-collapsible.collapsed`,
+      ),
+    ).toBeNull();
     await waitFor(() =>
       expect(
         container

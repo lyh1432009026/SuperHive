@@ -142,12 +142,12 @@ void messageMarkdownModule.then((module) => {
 const LazyMessageMarkdown = lazy(() =>
   messageMarkdownModule.then((module) => ({ default: module.MessageMarkdown })),
 );
-function MessageMarkdown({ content }: { content: string }) {
+function MessageMarkdown(props: Parameters<MessageMarkdownComponent>[0]) {
   // 每个实例挂载时选定一次，避免模块就绪后组件类型改变导致整条消息重新挂载
   const [Component] = useState<MessageMarkdownComponent | typeof LazyMessageMarkdown>(
     () => loadedMessageMarkdown ?? LazyMessageMarkdown,
   );
-  return <Component content={content} />;
+  return <Component {...props} />;
 }
 
 /** 自绘滚动动画单帧最多推进的时间：约两帧，主线程卡顿时动画放慢而不是跳跃 */
@@ -1699,6 +1699,14 @@ export function App({
   const bottomAnimationRef = useRef(0);
   const detachAnimationCancelRef = useRef<(() => void) | undefined>(undefined);
   const messageListRef = useRef<HTMLDivElement>(null);
+  const locateMessageRef = useRef(locateMessage);
+  locateMessageRef.current = locateMessage;
+  const locateMessageFromMarkdown = useCallback(
+    (target: { messageId: string; messageSeq: number }) => {
+      void locateMessageRef.current(target);
+    },
+    [],
+  );
   const nearBottomRef = useRef(true);
   const messageCountRef = useRef(0);
   /** 纯文本模式下就是 textarea 本身；所见即所得模式下是编辑器给的同名方法 */
@@ -3788,6 +3796,7 @@ export function App({
   function jumpToMessage(messageId: string) {
     const index = messages.findIndex((message) => message.id === messageId);
     if (index < 0) return;
+    setOpenMachineIds((current) => new Set(current).add(messageId));
     if (currentTopic && index < currentTopic.index) setExpandedTopicId(currentTopic.id);
     const needed = messages.length - index;
     if (needed > visibleLimit) setVisibleLimit(needed + 10);
@@ -5334,6 +5343,12 @@ export function App({
                                   )}
                                   <CollapsibleMessage
                                     content={message.content}
+                                    enabled={message.senderType === "agent"}
+                                    storageKey={`superhive.message-expanded:${message.roomId}:${message.id}`}
+                                    expandOnLocate={
+                                      pendingJumpId === message.id ||
+                                      highlightedMessageId === message.id
+                                    }
                                     forceExpanded={shareMode}
                                     onToggle={releaseBottomPin}
                                   >
@@ -5342,7 +5357,10 @@ export function App({
                                         <p className="message-body-fallback">{message.content}</p>
                                       }
                                     >
-                                      <MessageMarkdown content={message.content} />
+                                      <MessageMarkdown
+                                        content={message.content}
+                                        onLocateMessage={locateMessageFromMarkdown}
+                                      />
                                     </Suspense>
                                   </CollapsibleMessage>
                                 </div>

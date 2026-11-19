@@ -92,6 +92,9 @@ class FakeRoom {
     const messages = this.messages.filter((message) => message.seq > afterSeq);
     return { messages, latestSeq: this.messages.at(-1)?.seq ?? afterSeq };
   }
+  async fetchMessageAt(messageSeq: number, id: string) {
+    return this.messages.find((message) => message.seq === messageSeq && message.id === id);
+  }
   async fetchWhiteboard() {
     this.whiteboardCalls += 1;
     return this.whiteboard;
@@ -296,6 +299,28 @@ describe("AgentBridge", () => {
     await bridge?.stop();
     vi.useRealTimers();
     await rm(directory, { recursive: true, force: true });
+  });
+
+  it("compact receipts still deliver the full result to the responder", async () => {
+    const result = chat({
+      senderType: "agent",
+      senderName: "worker",
+      content: "结果".repeat(3000) + "末尾验证",
+    });
+    const receipt = chat({
+      senderType: "agent",
+      senderName: "worker",
+      kind: "receipt",
+      content: "@agent-a 子任务回执 · 结果见 #1",
+      text: { key: "receipt.compact", params: { seq: result.seq, resultMessageId: result.id } },
+    });
+    room.messages.push(result, receipt);
+    await startBridge();
+    room.handlers.onMention(receipt, receipt.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    expect(responder.calls[0]?.prompt).toContain(result.content);
+    responder.finish();
+    await waitUntil(() => room.statuses(receipt.id).includes("completed"));
   });
 
   it("hands off only after the setup turn ends, with a new cwd, session and full context", async () => {

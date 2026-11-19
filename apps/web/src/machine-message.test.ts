@@ -17,6 +17,16 @@ const agents = new Set(["rd-claude", "rd-claude3"]);
 const isAgent = (name: string) => agents.has(name);
 
 describe("machine messages", () => {
+  it("compact receipts remain visible so their result link is directly reachable", () => {
+    const receipt: ChatMessage = {
+      ...base,
+      kind: "receipt",
+      mentions: ["rd-claude"],
+      content: "结果见 #2",
+      text: { key: "receipt.compact" },
+    };
+    expect(isMachineMessage(receipt, isAgent)).toBe(false);
+  });
   it("weakens receipts and delegations between agents, not ones addressed to people", () => {
     const receipt: ChatMessage = {
       ...base,

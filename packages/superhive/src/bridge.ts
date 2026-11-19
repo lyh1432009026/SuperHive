@@ -1,4 +1,5 @@
 import { bridgeText, bridgeTextZh, said, type BridgeText } from "./bridge-text.js";
+import { loadReceiptResults } from "./receipt-context.js";
 import {
   TaskWorkspaceBusyError,
   TaskWorkspaceRemovedError,
@@ -2161,7 +2162,14 @@ export class AgentBridge {
     const membersUpdate = membersSnapshot
       ? diffPromptContext(membersSnapshot, previous?.members, full)
       : undefined;
-    const attachmentPaths = await this.attachmentPaths([...context, ...triggers]);
+    const receiptResults = await loadReceiptResults(triggers, context, (seq, id) =>
+      this.room.fetchMessageAt(seq, id),
+    );
+    const attachmentPaths = await this.attachmentPaths([
+      ...context,
+      ...triggers,
+      ...receiptResults.flatMap((entry) => (entry.result ? [entry.result] : [])),
+    ]);
     // Claude --resume 与 Codex 线程都沿用会话创建时的系统规则：规则更新后在这一轮把完整新规则补发一次
     const rulesUpdated =
       Boolean(this.state.threadId && this.state.instructionsDigest) &&
@@ -2170,6 +2178,7 @@ export class AgentBridge {
     const prompt = buildMentionPrompt({
       messages: context,
       triggers,
+      receiptResults,
       mode: full ? "full" : "brief",
       agentName: this.options.username,
       leadMessageIds: triggers

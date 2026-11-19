@@ -1852,14 +1852,17 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
     it("delegates without completing the caller and returns the receipt to it", async () => {
       const { alice, planner, worker, trigger, plannerMcp, workerMcp, invoke } =
         await delegationRoom();
-      const { data } = await invoke({ agent: "worker", task: "统计一下测试数量" });
+      const { data } = await invoke({
+        agent: "worker",
+        task: "统计一下测试数量\n细节不应该在公开回执重复出现",
+      });
       expect(data).toMatchObject({ status: "queued", targetOnline: true });
 
       const delegated = await worker.next((event) => event.type === "agent.mentioned");
       const delegation = delegated.type === "agent.mentioned" ? delegated.message : undefined;
       expect(delegation).toMatchObject({
         kind: "delegation",
-        content: "@worker 统计一下测试数量",
+        content: "@worker 统计一下测试数量\n细节不应该在公开回执重复出现",
         parentMessageId: trigger.id,
       });
       const child = invocationOf(
@@ -1875,7 +1878,10 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
       // worker 回复并结束：planner 收到一条代发的回执，正文里的 @ 不会再唤醒别人
       const reply = await workerMcp.client.callTool({
         name: "hive_message_send",
-        arguments: { content: "共 66 项，@Alice 请过目", parentMessageId: delegation!.id },
+        arguments: {
+          content: `共 66 项，@Alice 请过目\n${"完整证据".repeat(1500)}\n末尾检查`,
+          parentMessageId: delegation!.id,
+        },
       });
       expect(reply.isError).not.toBe(true);
       const receiptEvent = await planner.next(
@@ -1883,7 +1889,14 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
       );
       const receipt = receiptEvent.type === "agent.mentioned" ? receiptEvent.message : undefined;
       expect(receipt?.content).toContain("子任务回执");
-      expect(receipt?.content).toContain("共 66 项，＠Alice 请过目");
+      expect(receipt?.text?.key).toBe("receipt.compact");
+      expect(receipt?.content).toContain("委派：统计一下测试数量");
+      expect(receipt?.content).toContain("[结果见 #");
+      expect(receipt?.content).not.toContain("共 66 项");
+      expect(receipt?.content).not.toContain("细节不应该");
+      expect(receipt?.content).not.toContain("末尾检查");
+      expect(receipt?.content.length).toBeLessThan(300);
+      expect(receipt?.text?.params?.resultMessageId).toEqual(expect.any(String));
       expect(receipt?.mentions).toEqual(["planner"]);
       expect(receipt?.parentMessageId).toBe(delegation!.id);
       const delivered = invocationOf(
@@ -2042,8 +2055,8 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
       const receiptEvent = await planner.next(
         (event) => event.type === "agent.mentioned" && event.message.kind === "receipt",
       );
-      expect(receiptEvent.type === "agent.mentioned" && receiptEvent.message.content).toContain(
-        "已上线",
+      expect(receiptEvent.type === "agent.mentioned" && receiptEvent.message.text?.key).toBe(
+        "receipt.compact",
       );
     });
 

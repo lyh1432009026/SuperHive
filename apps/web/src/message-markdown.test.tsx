@@ -2,7 +2,7 @@
 
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MessageMarkdown } from "./message-markdown";
 
 afterEach(() => {
@@ -10,6 +10,18 @@ afterEach(() => {
 });
 
 describe("MessageMarkdown", () => {
+  it("回执结果链接定位房间消息，不新开页面", async () => {
+    const onLocateMessage = vi.fn();
+    const messageId = "00000000-0000-4000-8000-000000000011";
+    render(
+      <MessageMarkdown
+        content={`[结果见 #11](#message/${messageId}/11)`}
+        onLocateMessage={onLocateMessage}
+      />,
+    );
+    await userEvent.setup().click(screen.getByRole("button", { name: "结果见 #11" }));
+    expect(onLocateMessage).toHaveBeenCalledWith({ messageId, messageSeq: 11 });
+  });
   it("渲染 GFM Markdown：标题、列表、表格、删除线", () => {
     const { container } = render(
       <MessageMarkdown

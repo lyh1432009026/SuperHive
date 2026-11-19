@@ -10,6 +10,7 @@ export function isMachineMessage(
   message: ChatMessage,
   isAgent: (name: string) => boolean,
 ): boolean {
+  if (message.text?.key === "receipt.compact") return false;
   if (message.kind !== "receipt" && message.kind !== "delegation") return false;
   return message.mentions.length > 0 && message.mentions.every(isAgent);
 }

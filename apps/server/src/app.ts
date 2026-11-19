@@ -1104,22 +1104,34 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     }
     if (!database.claimContinuation(child.id, "delivered")) return;
     const reply = child.replyMessageId ? database.getMessage(child.replyMessageId) : undefined;
-    const text = serverText("receipt.delegation", {
-      requester: requester.username,
-      delegate: delegate.username,
-      status: continuationOutcome[child.status] ?? child.status,
-      task: quoteWithoutMentions(delegation.content, 300),
-      outcome:
-        reply && !reply.deletedAt
-          ? serverText("receipt.result", {
-              seq: reply.seq,
-              result: quoteWithoutMentions(reply.content, 4000),
-            })
-          : child.detail
-            ? serverText("receipt.note", { note: quotedDetail(child, 500) })
-            : "",
-      id: child.id,
-    });
+    const summary = (
+      delegation.content
+        .replace(/^\s*@[^\s]+\s*/, "")
+        .trim()
+        .split(/\r?\n/)[0] ?? ""
+    ).replace(/^#+\s*/, "");
+    const task = quoteWithoutMentions(summary, 140);
+    const text =
+      reply && !reply.deletedAt
+        ? serverText("receipt.compact", {
+            requester: requester.username,
+            delegate: delegate.username,
+            status: continuationOutcome[child.status] ?? child.status,
+            task,
+            seq: reply.seq,
+            resultMessageId: reply.id,
+            id: child.id,
+          })
+        : serverText("receipt.delegation", {
+            requester: requester.username,
+            delegate: delegate.username,
+            status: continuationOutcome[child.status] ?? child.status,
+            task,
+            outcome: child.detail
+              ? serverText("receipt.note", { note: quotedDetail(child, 500) })
+              : "",
+            id: child.id,
+          });
     try {
       createAndDispatchMessage(
         delegate,

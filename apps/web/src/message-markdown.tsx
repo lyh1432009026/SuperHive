@@ -224,10 +224,12 @@ const inertComponents: Components = {
 export const MessageMarkdown = memo(function MessageMarkdown({
   content,
   inert = false,
+  onLocateMessage,
 }: {
   content: string;
   /** 链接不可点、图片不加载：用于展示 Agent 的思考和执行中说的话 */
   inert?: boolean;
+  onLocateMessage?: (target: { messageId: string; messageSeq: number }) => void;
 }) {
   return (
     <ReactMarkdown
@@ -241,7 +243,36 @@ export const MessageMarkdown = memo(function MessageMarkdown({
       // 不开语言自动检测：未标记语言的代码块要用全部语法逐一试探打分，遇到长文本是
       // 主线程热点（实测单块可达数百毫秒）；标记了语言的代码块仍正常高亮
       rehypePlugins={[rehypeHighlight]}
-      components={inert ? inertComponents : markdownComponents}
+      components={
+        inert
+          ? inertComponents
+          : {
+              ...markdownComponents,
+              a(props) {
+                const target =
+                  /^#message\/([\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})\/([1-9]\d*)$/i.exec(
+                    props.href ?? "",
+                  );
+                if (target && onLocateMessage && Number.isSafeInteger(Number(target[2]))) {
+                  return (
+                    <button
+                      type="button"
+                      className="message-receipt-link"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onLocateMessage({ messageId: target[1], messageSeq: Number(target[2]) });
+                      }}
+                    >
+                      {props.children}
+                    </button>
+                  );
+                }
+                const { node, ...rest } = props;
+                void node;
+                return <a {...rest} target="_blank" rel="noreferrer noopener" />;
+              },
+            }
+      }
     >
       {content}
     </ReactMarkdown>
