@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import type {
   Artifact,
   ArtifactCategory,
@@ -404,6 +413,14 @@ type TimeRange = "any" | "today" | "week" | "month";
 
 /** 网格还是列表记在本机；只影响图片怎么摆，文件总是表格 */
 const VIEW_KEY = "superhive.artifacts-view";
+/** 详情栏宽度（拖动左边缘调整，记在本机）；没调过时按面板宽度的约三分之一 */
+const DETAIL_WIDTH_KEY = "superhive.artifacts-detail-width";
+const DETAIL_MIN_WIDTH = 320;
+
+function storedDetailWidth(): number | undefined {
+  const value = Number(localStorage.getItem(DETAIL_WIDTH_KEY));
+  return Number.isFinite(value) && value >= DETAIL_MIN_WIDTH ? value : undefined;
+}
 
 const RANGE_LABELS: Record<TimeRange, string> = localized(() => ({
   any: t("不限时间"),
@@ -474,6 +491,40 @@ export function ArtifactsPanel({
   const [actionError, setActionError] = useState<string>();
   const [now, setNow] = useState(() => Date.now());
   const mainRef = useRef<HTMLDivElement>(null);
+  const layoutRef = useRef<HTMLDivElement>(null);
+  const [detailWidth, setDetailWidth] = useState(storedDetailWidth);
+
+  /** 拖动详情栏左边缘调宽度：至少 320，至多给列表留 360 */
+  const resizeDetail = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const handle = event.currentTarget;
+    const aside = handle.parentElement;
+    const layout = layoutRef.current;
+    if (!aside || !layout) return;
+    handle.setPointerCapture(event.pointerId);
+    const startX = event.clientX;
+    const startWidth = aside.getBoundingClientRect().width;
+    const max = Math.max(DETAIL_MIN_WIDTH, layout.getBoundingClientRect().width - 232 - 360);
+    let latest = startWidth;
+    document.body.classList.add("resizing-panel");
+    const move = (moveEvent: PointerEvent) => {
+      latest = Math.round(
+        Math.min(max, Math.max(DETAIL_MIN_WIDTH, startWidth - (moveEvent.clientX - startX))),
+      );
+      setDetailWidth(latest);
+    };
+    const end = () => {
+      document.body.classList.remove("resizing-panel");
+      localStorage.setItem(DETAIL_WIDTH_KEY, String(latest));
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", end);
+      handle.removeEventListener("pointercancel", end);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", end);
+    handle.addEventListener("pointercancel", end);
+  };
 
   const setView = (next: ArtifactView) => {
     setViewState(next);
@@ -853,6 +904,18 @@ export function ArtifactsPanel({
 
   const detail = selectedItem && selectedArtifact && (
     <aside className="artifact-detail" aria-label={t("{0} 的详情", { 0: selectedItem.name })}>
+      <div
+        className="artifact-detail-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t("拖动调整详情栏宽度")}
+        title={t("拖动调整宽度，双击恢复默认")}
+        onPointerDown={resizeDetail}
+        onDoubleClick={() => {
+          setDetailWidth(undefined);
+          localStorage.removeItem(DETAIL_WIDTH_KEY);
+        }}
+      />
       <header className="artifact-detail-header">
         <h3 title={selectedItem.name}>{selectedItem.name}</h3>
         <button
@@ -990,7 +1053,13 @@ export function ArtifactsPanel({
       onClose={onClose}
     >
       <div
+        ref={layoutRef}
         className={`artifacts-layout${detail ? " with-detail" : ""}`}
+        style={
+          detailWidth
+            ? ({ "--artifact-detail-width": `${detailWidth}px` } as CSSProperties)
+            : undefined
+        }
         onKeyDown={(event) => {
           // Esc 先关详情栏，再按一次才关面板
           if (event.key === "Escape" && selected && !event.defaultPrevented) {

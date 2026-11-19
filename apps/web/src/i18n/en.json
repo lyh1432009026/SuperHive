@@ -1268,7 +1268,7 @@
   "将依次启动：{0}": "Will start: {0}",
   "调整房间栏宽度": "Resize room list",
   "调整成员栏宽度": "Resize member panel",
-  "拖动调整宽度，双击恢复默认": "Drag to resize, double-click to reset",
+  "拖动调整宽度，双击恢复默认": "Drag to resize; double-click to reset",
   "等你决定": "Your call",
   "点「继续」会接着原会话核对现状再往下做，不从头重做；不要了就点「忽略」": "Continue resumes the same session, checks what was already done and carries on without starting over; Dismiss if you no longer need it",
   "{0} 的任务中途中断，等你决定是否继续": "{0}'s task was interrupted; decide whether to continue",
@@ -1587,5 +1587,6 @@
   "清除发送者和时间筛选": "Clear sender and time filters",
   "图片显示方式": "Image layout",
   "网格": "Grid",
-  "列表": "List"
+  "列表": "List",
+  "拖动调整详情栏宽度": "Drag to resize the details pane"
 }
