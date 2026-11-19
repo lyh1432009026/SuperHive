@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import type { WhiteboardEntry, WhiteboardSlot } from "@superhive/protocol";
 import { getLocale, localized, t } from "./i18n";
 
@@ -38,6 +38,65 @@ function shortCommit(commit: string): string {
   return /^[0-9a-f]{12,}$/i.test(commit) ? commit.slice(0, 7) : commit;
 }
 
+function ToolbarIcon({ children }: { children: ReactNode }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
+
+function FilterIcon() {
+  return (
+    <ToolbarIcon>
+      <path d="M4 6h16M7 12h10M10 18h4" />
+    </ToolbarIcon>
+  );
+}
+
+function ChevronIcon() {
+  return (
+    <ToolbarIcon>
+      <path d="m7 10 5 5 5-5" />
+    </ToolbarIcon>
+  );
+}
+
+function RefreshIcon() {
+  return (
+    <ToolbarIcon>
+      <path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" />
+    </ToolbarIcon>
+  );
+}
+
+function SelectAllIcon() {
+  return (
+    <ToolbarIcon>
+      <rect x="4" y="4" width="16" height="16" rx="4" />
+      <path d="m8.5 12 2.5 2.5 4.5-5" />
+    </ToolbarIcon>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <ToolbarIcon>
+      <path d="m6 6 12 12M18 6 6 18" />
+    </ToolbarIcon>
+  );
+}
+
 export function WhiteboardPanel({
   entries,
   onRemove,
@@ -61,6 +120,8 @@ export function WhiteboardPanel({
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState<string>();
+  const hintId = useId();
+  const hint = t("仍占用工作区的事项不可归档；每次最多选择 200 条。");
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
@@ -144,99 +205,138 @@ export function WhiteboardPanel({
   return (
     <div className="whiteboard">
       <div className="whiteboard-toolbar">
-        <div className="whiteboard-views" role="group" aria-label={t("白板视图")}>
-          <button
-            type="button"
-            disabled={busy}
-            aria-pressed={view === "current"}
-            onClick={() => {
-              setView("current");
-              setSelected(new Map());
-            }}
+        <div className="whiteboard-toolbar-row">
+          <div
+            className="whiteboard-views"
+            role="group"
+            aria-label={t("白板视图")}
+            data-view={view}
           >
-            {t("当前事项")}
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            aria-pressed={view === "archived"}
-            onClick={() => {
-              setView("archived");
-              setSelected(new Map());
-            }}
-          >
-            {t("历史归档")}
-          </button>
-        </div>
-        <label className="whiteboard-filter">
-          {t("状态筛选")}
-          <select
-            value={slotFilter}
-            onChange={(event) => {
-              setSlotFilter(event.target.value as WhiteboardSlot | "all");
-              setSelected(new Map());
-            }}
-          >
-            <option value="all">{t("全部状态")}</option>
-            {whiteboardSlots.map(({ slot, label }) => (
-              <option key={slot} value={slot}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        {canManage && sorted.length > 0 && (
-          <div className="whiteboard-bulk">
             <button
               type="button"
+              disabled={busy}
+              aria-pressed={view === "current"}
+              onClick={() => {
+                setView("current");
+                setSelected(new Map());
+              }}
+            >
+              {t("当前事项")}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              aria-pressed={view === "archived"}
+              onClick={() => {
+                setView("archived");
+                setSelected(new Map());
+              }}
+            >
+              {t("历史归档")}
+            </button>
+          </div>
+          {view === "archived" && (
+            <button
+              type="button"
+              className="whiteboard-icon-button"
+              aria-label={t("刷新历史")}
+              title={t("刷新历史")}
+              aria-busy={historyLoading}
+              disabled={historyLoading}
+              onClick={() => {
+                setHistoryLoading(true);
+                setError(undefined);
+                loadHistory()
+                  .then(
+                    () => setHistoryLoaded(true),
+                    (reason: unknown) =>
+                      setError(reason instanceof Error ? reason.message : String(reason)),
+                  )
+                  .finally(() => setHistoryLoading(false));
+              }}
+            >
+              <RefreshIcon />
+            </button>
+          )}
+        </div>
+        <div className="whiteboard-toolbar-row">
+          <label className="whiteboard-filter" data-active={slotFilter !== "all" || undefined}>
+            <span className="sr-only">{t("状态筛选")}</span>
+            {slotFilter === "all" ? (
+              <FilterIcon />
+            ) : (
+              <span className={`whiteboard-slot-dot ${slotFilter}`} aria-hidden="true" />
+            )}
+            <select
+              value={slotFilter}
+              title={t("状态筛选")}
+              onChange={(event) => {
+                setSlotFilter(event.target.value as WhiteboardSlot | "all");
+                setSelected(new Map());
+              }}
+            >
+              <option value="all">{t("全部状态")}</option>
+              {whiteboardSlots.map(({ slot, label }) => (
+                <option key={slot} value={slot}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <ChevronIcon />
+          </label>
+          {canManage && sorted.length > 0 && (
+            <button
+              type="button"
+              className="whiteboard-bulk-pick"
+              title={view === "current" ? hint : undefined}
+              aria-describedby={view === "current" ? hintId : undefined}
               disabled={busy || !bulkSelectable.length}
               onClick={() =>
                 setSelected(new Map(bulkSelectable.slice(0, 200).map((entry) => [entry.id, entry])))
               }
             >
-              {view === "current" ? t("选择可归档事项") : t("选择历史事项")}
+              <SelectAllIcon />
+              <span>{view === "current" ? t("选择可归档事项") : t("选择历史事项")}</span>
             </button>
+          )}
+        </div>
+        {canManage && view === "current" && (
+          <p id={hintId} className="sr-only">
+            {hint}
+          </p>
+        )}
+        {canManage && selected.size > 0 && (
+          <div className="whiteboard-bulk" role="group" aria-label={t("批量操作")}>
             <button
               type="button"
-              disabled={busy || !selected.size}
+              className="whiteboard-icon-button"
+              aria-label={t("取消选择")}
+              title={t("取消选择")}
+              disabled={busy}
+              onClick={() => setSelected(new Map())}
+            >
+              <CloseIcon />
+            </button>
+            <span className="whiteboard-bulk-count">
+              {t("已选择 {0} 条", { 0: selected.size })}
+            </span>
+            <button
+              type="button"
+              className="whiteboard-bulk-apply"
+              disabled={busy}
               onClick={() => void changeArchive([...selected.values()])}
             >
               {view === "current"
                 ? t("归档所选 ({0})", { 0: selected.size })
                 : t("恢复所选 ({0})", { 0: selected.size })}
             </button>
-            {selected.size > 0 && (
-              <button type="button" disabled={busy} onClick={() => setSelected(new Map())}>
-                {t("取消选择")}
-              </button>
-            )}
           </div>
         )}
-        {canManage && view === "current" && (
-          <p className="whiteboard-hint">
-            {t("仍占用工作区的事项不可归档；每次最多选择 200 条。")}
+        {historyLoading && (
+          <p className="whiteboard-status" role="status">
+            {t("正在加载白板历史…")}
           </p>
         )}
-        {view === "archived" && (
-          <button
-            type="button"
-            disabled={historyLoading}
-            onClick={() => {
-              setHistoryLoading(true);
-              setError(undefined);
-              loadHistory()
-                .then(
-                  () => setHistoryLoaded(true),
-                  (reason: unknown) =>
-                    setError(reason instanceof Error ? reason.message : String(reason)),
-                )
-                .finally(() => setHistoryLoading(false));
-            }}
-          >
-            {t("刷新历史")}
-          </button>
-        )}
-        {historyLoading && <p role="status">{t("正在加载白板历史…")}</p>}
         {error && (
           <p className="whiteboard-error" role="alert">
             {error}

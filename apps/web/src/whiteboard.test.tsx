@@ -78,15 +78,18 @@ describe("WhiteboardPanel lifecycle", () => {
         ])}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "选择可归档事项" }));
+    const pick = screen.getByRole("button", { name: "选择可归档事项" });
+    // 「哪些不能归档」的说明不单独占行，挂在按钮上：悬停提示 + 读屏描述
+    expect(pick.getAttribute("title")).toBe("仍占用工作区的事项不可归档；每次最多选择 200 条。");
+    expect(pick.getAttribute("aria-describedby")).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "批量操作" })).toBeNull();
+    await user.click(pick);
+    expect(screen.getByText("已选择 2 条")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "归档所选 (2)" }));
     expect(callbacks.onArchive).toHaveBeenCalledWith([ready, milestone], true);
     expect(window.confirm).toHaveBeenCalledOnce();
-    await waitFor(() =>
-      expect(
-        (screen.getByRole("button", { name: "归档所选 (0)" }) as HTMLButtonElement).disabled,
-      ).toBe(true),
-    );
+    // 没有选中时批量条整条收起
+    await waitFor(() => expect(screen.queryByRole("group", { name: "批量操作" })).toBeNull());
   });
 
   it("loads history and restores a selected batch without deleting it", async () => {
@@ -130,11 +133,8 @@ describe("WhiteboardPanel lifecycle", () => {
     const changed = { ...previous, updatedAt: "2026-11-16T00:02:00Z", slot: "blocked" as const };
     const current = upsertWhiteboardEntry(entries, changed);
     rerender(<WhiteboardPanel {...callbacks} entries={current} />);
-    await waitFor(() =>
-      expect(
-        (screen.getByRole("button", { name: "归档所选 (0)" }) as HTMLButtonElement).disabled,
-      ).toBe(true),
-    );
+    // 没有选中时批量条整条收起
+    await waitFor(() => expect(screen.queryByRole("group", { name: "批量操作" })).toBeNull());
     expect(upsertWhiteboardEntry(current, previous)).toBe(current);
   });
 

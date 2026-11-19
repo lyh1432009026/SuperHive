@@ -8,60 +8,289 @@
   padding-top: 6px;
 }
 
+/*
+ * 顶部工具栏，每行都占满宽度、左右对齐：
+ * 1. 视图切换：和右侧面板标签同一套分段控件，滑块平移；历史视图右边多一个刷新图标；
+ * 2. 状态筛选（占满剩余宽度）+ 房主的「选择可归档事项」，说明文字放在按钮的悬停提示里；
+ * 3. 有选中时才出现的批量条：强调色底，左边取消和计数，右边主操作。
+ * 跟着列表滚动时吸顶；侧栏最窄（320px）时文字省略，不换行。
+ */
 .whiteboard-toolbar {
+  position: sticky;
+  z-index: 1;
+  top: -4px;
   display: grid;
-  gap: 10px;
-  border-bottom: 1px solid var(--border);
-  padding: 4px 8px 12px;
+  gap: 8px;
+  margin: -4px -8px 0;
+  padding: 8px 8px 10px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-main);
 }
 
-.whiteboard-views,
-.whiteboard-bulk,
-.whiteboard-filter {
+.whiteboard-toolbar-row {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
+  min-width: 0;
 }
 
-.whiteboard-toolbar button,
-.whiteboard-filter select,
-.whiteboard-entry-action {
-  min-height: 28px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 3px 8px;
+.whiteboard-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  height: 30px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  padding: 0 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.whiteboard-toolbar button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.whiteboard-toolbar button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 视图切换：两段等宽占满一行，选中的底是平移的滑块，样式同 .side-tabs */
+.whiteboard-views {
+  position: relative;
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: 1fr 1fr;
+  min-width: 0;
+  padding: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+}
+
+.whiteboard-views::before {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc(50% - 2px);
+  border-radius: var(--radius-pill);
   background: var(--bg-main);
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 0.12),
+    0 0 0 1px var(--border-light);
+  content: "";
+  transition: transform 260ms var(--ease-out);
 }
 
-.whiteboard-views button[aria-pressed="true"] {
-  border-color: var(--accent);
+.whiteboard-views[data-view="archived"]::before {
+  transform: translateX(100%);
+}
+
+:root[data-theme="dark"] .whiteboard-views::before {
+  background: var(--bg-active);
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 0.4),
+    0 0 0 1px var(--border);
+}
+
+.whiteboard-toolbar .whiteboard-views button {
+  position: relative;
+  display: block;
+  height: 28px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.whiteboard-toolbar .whiteboard-views button:hover:not(:disabled),
+.whiteboard-toolbar .whiteboard-views button[aria-pressed="true"] {
+  color: var(--text);
+}
+
+/* 状态筛选：原生 select 去掉外观，套成胶囊占满剩余宽度；选了具体状态时带该状态的色点和强调底 */
+.whiteboard-filter {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 88px;
+  height: 30px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.whiteboard-filter:hover {
+  background: var(--bg-active);
+  color: var(--text);
+}
+
+.whiteboard-filter[data-active] {
   background: var(--accent-soft);
   color: var(--accent);
 }
 
-.whiteboard-toolbar button:disabled,
-.whiteboard-entry-action:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.whiteboard-filter > svg,
+.whiteboard-filter > .whiteboard-slot-dot {
+  position: absolute;
+  left: 12px;
+  pointer-events: none;
 }
 
-.whiteboard-hint,
-.whiteboard-toolbar [role="status"] {
-  margin: 0;
-  color: var(--text-tertiary);
+.whiteboard-filter > svg:last-child {
+  right: 10px;
+  left: auto;
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+}
+
+.whiteboard-filter > .whiteboard-slot-dot {
+  left: 15px;
+}
+
+.whiteboard-filter select {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  border: 0;
+  border-radius: inherit;
+  padding: 0 28px 0 32px;
+  appearance: none;
+  background: transparent;
+  color: inherit;
   font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.whiteboard-filter select option {
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+
+.whiteboard-toolbar .whiteboard-bulk-pick {
+  flex: 0 1 auto;
+  background: var(--bg-hover);
+}
+
+.whiteboard-toolbar .whiteboard-bulk-pick:hover:not(:disabled) {
+  background: var(--bg-active);
+  color: var(--text);
+}
+
+.whiteboard-bulk-pick svg {
+  flex: 0 0 auto;
+}
+
+.whiteboard-bulk-pick span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 只有图标的按钮：刷新历史、取消选择，title 做悬停提示，aria-label 给读屏 */
+.whiteboard-toolbar .whiteboard-icon-button {
+  flex: 0 0 auto;
+  width: 30px;
+  padding: 0;
+  color: var(--text-tertiary);
+}
+
+.whiteboard-toolbar .whiteboard-icon-button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.whiteboard-icon-button[aria-busy="true"] svg {
+  animation: whiteboard-spin 0.9s linear infinite;
+}
+
+@keyframes whiteboard-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 批量条：有选中时才出现，强调色底，主操作靠右 */
+.whiteboard-bulk {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  border-radius: var(--radius-pill);
+  padding: 3px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  animation: whiteboard-bulk-in var(--duration) var(--ease-out);
+}
+
+@keyframes whiteboard-bulk-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.whiteboard-toolbar .whiteboard-bulk .whiteboard-icon-button {
+  width: 26px;
+  height: 26px;
+  color: var(--accent);
+}
+
+.whiteboard-bulk-count {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whiteboard-toolbar .whiteboard-bulk-apply {
+  flex: 0 0 auto;
+  height: 26px;
+  margin-left: auto;
+  background: var(--accent);
+  color: var(--text-inverse);
+  font-variant-numeric: tabular-nums;
+}
+
+.whiteboard-toolbar .whiteboard-bulk-apply:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.whiteboard-status {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
   line-height: 1.5;
 }
 
 .whiteboard-error {
   margin: 0;
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  background: var(--danger-soft);
   color: var(--danger);
   font-size: var(--text-xs);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .whiteboard-select {
@@ -81,9 +310,21 @@
 }
 
 .whiteboard-entry-action {
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  background: var(--bg-main);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
   max-width: 100%;
   margin-top: 6px;
   overflow-wrap: anywhere;
+}
+
+.whiteboard-entry-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .whiteboard-slot h3 {
@@ -104,19 +345,23 @@
   background: var(--text-tertiary);
 }
 
-.whiteboard-slot.blocked .whiteboard-slot-dot {
+.whiteboard-slot.blocked .whiteboard-slot-dot,
+.whiteboard-slot-dot.blocked {
   background: var(--warning);
 }
 
-.whiteboard-slot.in_progress .whiteboard-slot-dot {
+.whiteboard-slot.in_progress .whiteboard-slot-dot,
+.whiteboard-slot-dot.in_progress {
   background: var(--accent);
 }
 
-.whiteboard-slot.ready .whiteboard-slot-dot {
+.whiteboard-slot.ready .whiteboard-slot-dot,
+.whiteboard-slot-dot.ready {
   background: var(--success);
 }
 
-.whiteboard-slot.milestone .whiteboard-slot-dot {
+.whiteboard-slot.milestone .whiteboard-slot-dot,
+.whiteboard-slot-dot.milestone {
   background: var(--text-secondary);
 }
 
