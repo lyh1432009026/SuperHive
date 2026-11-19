@@ -6,8 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import type {
@@ -27,6 +25,7 @@ import type {
 } from "@superhive/protocol";
 import { getLocale, t } from "./i18n";
 import { Select } from "./select";
+import { SheetPanel } from "./sheet-panel";
 import { serverError } from "./server-text";
 import {
   DownloadButton,
@@ -62,11 +61,7 @@ import {
 type Tab = "changes" | "files" | "commits";
 type DiffView = "unified" | "split";
 
-const WIDTH_KEY = "superhive.workspace-width";
-/** 默认占满整个窗口看代码；点「还原」或拖动边缘改成侧边抽屉，选择记在本机 */
-const MAXIMIZED_KEY = "superhive.workspace-maximized";
 const VIEW_KEY = "superhive.workspace-diff-view";
-const MIN_WIDTH = 560;
 /** 打开时变更列表的刷新间隔 */
 const STATUS_REFRESH_MS = 4000;
 
@@ -94,17 +89,6 @@ export function workspaceApi(
     return body;
   };
   return Object.assign(request, { base });
-}
-
-function storedWidth(): number {
-  const value = Number(localStorage.getItem(WIDTH_KEY));
-  return Number.isFinite(value) && value >= MIN_WIDTH
-    ? value
-    : Math.max(MIN_WIDTH, Math.min(1120, Math.round(window.innerWidth * 0.68)));
-}
-
-function clampWidth(width: number): number {
-  return Math.round(Math.max(MIN_WIDTH, Math.min(width, window.innerWidth - 80)));
 }
 
 function useAsync<T>(load: () => Promise<T>, deps: unknown[]) {
@@ -304,11 +288,6 @@ export function WorkspacePanel({
   revealFile?: ((source: string, path: string) => Promise<void>) | undefined;
 }) {
   const panelRef = useRef<HTMLElement>(null);
-  const [width, setWidth] = useState(storedWidth);
-  const [maximized, setMaximized] = useState(() => localStorage.getItem(MAXIMIZED_KEY) !== "false");
-  useEffect(() => {
-    localStorage.setItem(MAXIMIZED_KEY, String(maximized));
-  }, [maximized]);
   const [narrow, setNarrow] = useState(false);
   const [tab, setTab] = useState<Tab>("changes");
   const [sourceId, setSourceId] = useState("workspace");
@@ -330,9 +309,6 @@ export function WorkspacePanel({
     setTab("changes");
   }, [roomId]);
 
-  useEffect(() => {
-    localStorage.setItem(WIDTH_KEY, String(width));
-  }, [width]);
   useLayoutEffect(() => {
     const panel = panelRef.current;
     if (!panel || typeof ResizeObserver === "undefined") return;
@@ -342,42 +318,6 @@ export function WorkspacePanel({
     observer.observe(panel);
     return () => observer.disconnect();
   }, []);
-  useEffect(() => {
-    panelRef.current?.focus();
-  }, []);
-
-  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    const handle = event.currentTarget;
-    handle.setPointerCapture(event.pointerId);
-    const startX = event.clientX;
-    // 全屏时拖边缘：从当前实际宽度开始变成抽屉
-    const startWidth = maximized
-      ? (panelRef.current?.getBoundingClientRect().width ?? window.innerWidth)
-      : width;
-    if (maximized) setMaximized(false);
-    document.body.classList.add("resizing-panel");
-    const move = (moveEvent: PointerEvent) =>
-      setWidth(clampWidth(startWidth - (moveEvent.clientX - startX)));
-    const end = () => {
-      document.body.classList.remove("resizing-panel");
-      handle.removeEventListener("pointermove", move);
-      handle.removeEventListener("pointerup", end);
-      handle.removeEventListener("pointercancel", end);
-    };
-    handle.addEventListener("pointermove", move);
-    handle.addEventListener("pointerup", end);
-    handle.addEventListener("pointercancel", end);
-  };
-
-  const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
-    if (event.key === "Escape" && !event.defaultPrevented) {
-      event.preventDefault();
-      onClose();
-    }
-  };
-
   const tabs: Array<{ id: Tab; label: string }> = [
     { id: "changes", label: t("改动") },
     { id: "files", label: t("文件树") },
@@ -468,40 +408,17 @@ export function WorkspacePanel({
 
   return (
     <WorkspaceRevealContext.Provider value={revealFile}>
-      <aside
-        ref={panelRef}
-        className={`workspace-panel${maximized ? " maximized" : ""}`}
-        style={maximized ? undefined : { width }}
-        role="dialog"
-        aria-modal="false"
-        aria-labelledby="workspace-panel-title"
-        tabIndex={-1}
-        onKeyDown={onKeyDown}
-      >
-        <div
-          className="workspace-resizer"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={t("拖动调整面板宽度")}
-          aria-valuemin={MIN_WIDTH}
-          aria-valuenow={width}
-          tabIndex={0}
-          onPointerDown={startResize}
-          onDoubleClick={() => setMaximized((current) => !current)}
-          onKeyDown={(event) => {
-            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-            event.preventDefault();
-            setMaximized(false);
-            setWidth((current) => clampWidth(current + (event.key === "ArrowLeft" ? 32 : -32)));
-          }}
-        />
-        <header className="workspace-header">
-          <div className="workspace-title">
-            <WorkspaceGlyph size={17} />
-            <h2 id="workspace-panel-title">{t("工作区")}</h2>
-            {overview.data?.name && <span className="workspace-muted">{overview.data.name}</span>}
-          </div>
-          {sources.length > 1 && (
+      <SheetPanel
+        storageKey="superhive.workspace"
+        className="workspace-panel"
+        panelRef={panelRef}
+        icon={<WorkspaceGlyph size={17} />}
+        title={t("工作区")}
+        subtitle={overview.data?.name}
+        closeLabel={t("关闭工作区面板")}
+        onClose={onClose}
+        headerExtra={
+          sources.length > 1 && (
             <Select
               className="workspace-source"
               aria-label={t("查看哪份代码")}
@@ -526,77 +443,32 @@ export function WorkspacePanel({
                 group: item.kind === "workspace" ? t("工作区") : t("任务线（worktree）"),
               }))}
             />
-          )}
-          <div className="workspace-header-actions">
-            <button
-              type="button"
-              className="workspace-icon-button"
-              aria-label={t("刷新")}
-              title={t("刷新")}
-              onClick={() => setRefreshTick((value) => value + 1)}
+          )
+        }
+        actions={
+          <button
+            type="button"
+            className="sheet-icon-button"
+            aria-label={t("刷新")}
+            title={t("刷新")}
+            onClick={() => setRefreshTick((value) => value + 1)}
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.9"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
             >
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.9"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              className="workspace-icon-button"
-              aria-label={maximized ? t("还原为侧边面板") : t("占满整个窗口")}
-              aria-pressed={maximized}
-              title={maximized ? t("还原为侧边面板") : t("占满整个窗口")}
-              onClick={() => setMaximized((current) => !current)}
-            >
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.9"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                {maximized ? (
-                  <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
-                ) : (
-                  <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
-                )}
-              </svg>
-            </button>
-            <button
-              type="button"
-              className="workspace-icon-button"
-              aria-label={t("关闭工作区面板")}
-              title={t("关闭")}
-              onClick={onClose}
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.9"
-                strokeLinecap="round"
-                aria-hidden="true"
-              >
-                <path d="M6 6l12 12M18 6 6 18" />
-              </svg>
-            </button>
-          </div>
-        </header>
+              <path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" />
+            </svg>
+          </button>
+        }
+      >
         {overview.data?.configured && (
           <div
             className="workspace-tabs"
@@ -642,7 +514,7 @@ export function WorkspacePanel({
         >
           {body}
         </div>
-      </aside>
+      </SheetPanel>
     </WorkspaceRevealContext.Provider>
   );
 }

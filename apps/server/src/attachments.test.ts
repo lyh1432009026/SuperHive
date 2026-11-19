@@ -656,5 +656,45 @@ describe("附件", () => {
       expect(seen).toEqual(ids);
       expect((await list(base, "?cursor=bad")).status).toBe(400);
     });
+
+    it("按发送者、时间筛选：计数跟着范围变，发送者列表不受筛选影响", async () => {
+      const { base, upload, join, sendMessage } = await start();
+      const owner = await join("rd", "human");
+      const agent = await join("rd-codex", "agent");
+      for (const [who, name] of [
+        [agent, "a.md"],
+        [agent, "b.png"],
+        [owner, "c.ts"],
+      ] as const) {
+        const item = (await upload(name, name.endsWith(".png") ? PNG : `content of ${name}`)).body;
+        created(await sendMessage(who, { clientMessageId: name, attachmentIds: [item.id] }));
+      }
+      const all = (await list(base)).body as Listing & {
+        senders: Array<{ id: string; name: string; type: string; count: number }>;
+      };
+      expect(all.senders.map((sender) => [sender.name, sender.type, sender.count])).toEqual([
+        ["rd-codex", "agent", 2],
+        ["rd", "human", 1],
+      ]);
+      const codex = all.senders[0]!.id;
+
+      const byAgent = (await list(base, `?sender=${codex}`)).body as typeof all;
+      expect(byAgent.artifacts.map((item) => item.name)).toEqual(["b.png", "a.md"]);
+      expect(byAgent.counts).toMatchObject({ all: 2, image: 1, file: 1, code: 0 });
+      expect(byAgent.senders).toHaveLength(2);
+      expect(
+        (await list(base, `?sender=${codex}&type=file`)).body.artifacts.map((item) => item.name),
+      ).toEqual(["a.md"]);
+
+      const future = encodeURIComponent(new Date(Date.now() + 60_000).toISOString());
+      const past = encodeURIComponent(new Date(Date.now() - 60_000).toISOString());
+      expect((await list(base, `?since=${future}`)).body).toMatchObject({
+        artifacts: [],
+        counts: { all: 0 },
+      });
+      expect((await list(base, `?since=${past}`)).body.artifacts).toHaveLength(3);
+      expect((await list(base, "?sender=nope")).status).toBe(400);
+      expect((await list(base, "?since=yesterday")).status).toBe(400);
+    });
   });
 });

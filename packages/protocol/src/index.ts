@@ -1698,6 +1698,10 @@ export type ArtifactCounts = Partial<Record<ArtifactFilter, number>>;
 export const artifactsQuerySchema = z.object({
   type: artifactFilterSchema.default("all"),
   q: z.string().trim().max(200).default(""),
+  /** 只看某个发送者（参与者 ID）的产物 */
+  sender: z.string().uuid().optional(),
+  /** 只看这个时间之后发出的产物（按最新版的时间） */
+  since: z.string().datetime({ offset: true }).optional(),
   /** 上一页最后一项的游标（服务端给的 nextCursor，原样带回） */
   cursor: z
     .string()
@@ -1707,12 +1711,24 @@ export const artifactsQuerySchema = z.object({
 });
 export type ArtifactsQuery = z.infer<typeof artifactsQuerySchema>;
 
+/** 房间里发过产物的人，给「发送者」筛选用 */
+export const artifactSenderSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  type: participantTypeSchema,
+  /** 这个人发的产物数（同名文件的多个版本算一个） */
+  count: z.number().int().min(0),
+});
+export type ArtifactSender = z.infer<typeof artifactSenderSchema>;
+
 export const artifactsResponseSchema = z.object({
   artifacts: z.array(artifactSchema),
   /** 还有下一页时给出；不带它就是到底了 */
   nextCursor: z.string().optional(),
-  /** 不计搜索词的各类型产物数（每个产物只算一次），给筛选按钮和入口角标用 */
+  /** 不计搜索词和类型的各类型产物数（每个产物只算一次），按发送者、时间筛过；给筛选按钮和入口角标用 */
   counts: artifactCountsSchema,
+  /** 发过产物的人，按产物数从多到少；不受任何筛选影响 */
+  senders: z.array(artifactSenderSchema).optional(),
 });
 export type ArtifactsResponse = z.infer<typeof artifactsResponseSchema>;
 

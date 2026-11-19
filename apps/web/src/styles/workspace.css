@@ -1,125 +1,13 @@
-/* 工作区面板：从右侧滑出的宽抽屉，盖在对话区和侧栏上；窄屏全屏 */
+/* 工作区面板：外壳（铺满 / 抽屉、拖宽、标题栏）见 sheet-panel.css */
 /* 有未提交改动：数字用提醒色，和「产物」的数量区分开 */
 .header-count.workspace-toggle-count {
   background: var(--warning-soft);
   color: var(--warning);
 }
 
-.workspace-panel {
-  position: fixed;
-  z-index: 60;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  max-width: calc(100vw - 80px);
-  flex-direction: column;
-  border-left: 1px solid var(--border);
-  background: var(--bg-main);
-  box-shadow: var(--shadow-dialog);
-  outline: none;
-  animation: workspace-slide-in var(--duration) var(--ease-out);
-}
-
-/* 默认占满整个窗口：从右侧滑出铺满，宽度随窗口；「还原」后回到可拖宽的侧边抽屉 */
-.workspace-panel.maximized {
-  left: 0;
-  width: auto;
-  max-width: none;
-  border-left: 0;
-  box-shadow: none;
-}
-
-@keyframes workspace-slide-in {
-  from {
-    transform: translateX(24px);
-    opacity: 0;
-  }
-}
-
-.workspace-resizer {
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  bottom: 0;
-  left: -4px;
-  width: 8px;
-  cursor: col-resize;
-  touch-action: none;
-}
-
-.workspace-resizer::after {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 3px;
-  width: 2px;
-  background: transparent;
-  content: "";
-  transition: background var(--duration-fast);
-}
-
-.workspace-resizer:hover::after,
-.workspace-resizer:focus-visible::after {
-  background: var(--border-heavy);
-}
-
-.workspace-header {
-  display: flex;
-  min-height: var(--header-height);
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 10px;
-  padding: 0 10px 0 16px;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.workspace-title {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-  color: var(--text);
-}
-
-.workspace-title h2 {
-  margin: 0;
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
-}
-
-.workspace-title .workspace-muted {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .workspace-source {
   min-width: 180px;
   max-width: 320px;
-}
-
-.workspace-header-actions {
-  display: flex;
-  gap: 2px;
-  margin-left: auto;
-}
-
-.workspace-icon-button {
-  display: inline-flex;
-  width: 32px;
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-secondary);
-}
-
-.workspace-icon-button:hover {
-  background: var(--bg-hover);
-  color: var(--text);
 }
 
 .workspace-muted {
@@ -872,31 +760,9 @@
 }
 
 @media (max-width: 900px) {
-  .workspace-panel {
-    width: 100vw !important;
-    max-width: none;
-    border-left: 0;
-  }
-
-  .workspace-resizer {
-    display: none;
-  }
-
   .workspace-source {
     min-width: 0;
     flex: 1 1 auto;
-  }
-}
-
-@media (max-width: 720px) {
-  .workspace-title .workspace-muted {
-    display: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .workspace-panel {
-    animation: none;
   }
 }
 

@@ -1,0 +1,141 @@
+/*
+ * 大面板外壳（「代码」「产物」共用）：从右侧滑出，默认铺满窗口盖在对话区和侧栏上；
+ * 「还原」后是可拖宽的侧边抽屉；窄屏一律全屏。
+ */
+.sheet-panel {
+  position: fixed;
+  z-index: 60;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  max-width: calc(100vw - 80px);
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--bg-main);
+  box-shadow: var(--shadow-dialog);
+  outline: none;
+  animation: sheet-slide-in var(--duration) var(--ease-out);
+}
+
+.sheet-panel.maximized {
+  left: 0;
+  width: auto;
+  max-width: none;
+  border-left: 0;
+  box-shadow: none;
+}
+
+@keyframes sheet-slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+.sheet-resizer {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.sheet-resizer::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: transparent;
+  content: "";
+  transition: background var(--duration-fast);
+}
+
+.sheet-resizer:hover::after,
+.sheet-resizer:focus-visible::after {
+  background: var(--border-heavy);
+}
+
+.sheet-header {
+  display: flex;
+  min-height: var(--header-height);
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px 0 16px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.sheet-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+
+.sheet-title h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+
+.sheet-subtitle {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-header-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.sheet-icon-button {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.sheet-icon-button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+@media (max-width: 900px) {
+  .sheet-panel {
+    width: 100vw !important;
+    max-width: none;
+    border-left: 0;
+  }
+
+  .sheet-resizer {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .sheet-subtitle {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-panel {
+    animation: none;
+  }
+}

@@ -1895,9 +1895,16 @@ describe("App mention autocomplete", () => {
 
     const entry = await screen.findByRole("button", { name: "产物：1 个图片和文件" });
     expect(entry.textContent).toContain("1");
+    // 右侧栏只剩成员、白板、定时；「产物」是头部打开的大面板
+    expect(
+      within(screen.getByRole("tablist", { name: "侧栏视图" }))
+        .getAllByRole("tab")
+        .map((tab) => tab.id),
+    ).toEqual(["side-tab-members", "side-tab-whiteboard", "side-tab-schedules"]);
     await user.click(entry);
-    expect(screen.getByRole("tab", { name: /产物/ }).getAttribute("aria-selected")).toBe("true");
-    const panel = screen.getByRole("tabpanel", { name: /产物/ });
+    expect(entry.getAttribute("aria-pressed")).toBe("true");
+    const panel = screen.getByRole("dialog", { name: "产物" });
+    expect(panel.classList.contains("maximized")).toBe(true);
     expect(await within(panel).findByText("report.md")).toBeTruthy();
 
     // 新附件到达：列表与角标自动更新
@@ -1920,6 +1927,8 @@ describe("App mention autocomplete", () => {
 
     // 定位到更早的消息：先补拉 2 号起的消息，再滚过去高亮
     await user.click(within(panel).getByRole("button", { name: "定位到 report.md 所在的消息" }));
+    // 先关面板再跳
+    expect(screen.queryByRole("dialog", { name: "产物" })).toBeNull();
     const container = document.querySelector(".message-list")! as HTMLElement;
     const list = within(container.shadowRoot as unknown as HTMLElement);
     await waitFor(() => expect(list.getByText("第 2 条")).toBeTruthy());
@@ -1930,6 +1939,13 @@ describe("App mention autocomplete", () => {
           ?.classList.contains("highlighted"),
       ).toBe(true),
     );
+
+    // Esc 关面板，焦点回到头部入口
+    await user.click(entry);
+    expect(screen.getByRole("dialog", { name: "产物" })).toBeTruthy();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "产物" })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(entry));
   });
 
   it("asks returning users to grant notification permission from an in-app prompt", async () => {

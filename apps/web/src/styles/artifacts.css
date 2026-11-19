@@ -1,6 +1,7 @@
 /*
- * 房间「产物」面板：搜索 + 类型筛选，图片缩略图网格，文件列表（可展开历史版本）。
- * 容器 .whiteboard-scroll 由 shell 负责滚动。
+ * 房间「产物」大面板：外壳见 sheet-panel.css。
+ * 左栏筛选 + 中间网格 / 表格 + 右侧详情栏；面板变窄时（容器查询）筛选收到顶上，详情栏盖在列表上。
+ * 配色黑白灰：选中用加深底 + 细边框，类型图标只给代码、压缩包这类保留语义色。
  */
 .header-count {
   min-width: 18px;
@@ -14,28 +15,38 @@
   font-variant-numeric: tabular-nums;
 }
 
-.artifacts {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding-top: 6px;
+.artifacts-sheet {
+  container: artifacts / inline-size;
 }
 
-.artifacts-toolbar {
-  position: sticky;
-  z-index: 1;
-  top: -4px;
+.artifacts-layout {
+  position: relative;
   display: grid;
-  gap: 8px;
-  margin: -4px -8px 0;
-  padding: 8px 8px 10px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-main);
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-columns: 232px minmax(0, 1fr);
+}
+
+.artifacts-layout.with-detail {
+  grid-template-columns: 232px minmax(0, 1fr) minmax(300px, 360px);
+}
+
+/* ---------- 左栏筛选 ---------- */
+
+.artifacts-sidebar {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+  padding: 14px 12px 20px;
+  border-right: 1px solid var(--border-light);
+  background: var(--bg-sidebar);
 }
 
 .artifact-search {
   width: 100%;
-  min-height: 32px;
+  min-height: 34px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 4px 10px;
@@ -44,131 +55,319 @@
   font-size: var(--text-sm);
 }
 
-.artifact-search:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
+.artifact-search:focus-visible,
+.artifact-search:focus {
+  border-color: var(--border-heavy);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 0;
 }
 
-.artifact-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+.artifact-filter-group {
+  display: grid;
+  gap: 1px;
+}
+
+.artifact-filter-group h3 {
+  margin: 0 0 4px;
+  padding: 0 8px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.02em;
+}
+
+.artifact-subfilters {
+  display: grid;
+  gap: 1px;
+  margin: 1px 0 0 12px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
 }
 
 .artifact-filter {
-  display: inline-flex;
+  display: flex;
+  min-width: 0;
+  min-height: 30px;
   align-items: center;
-  gap: 5px;
-  min-height: 28px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  padding: 2px 10px;
-  background: var(--bg-main);
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 2px 8px;
+  background: transparent;
   color: var(--text-secondary);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
+  text-align: left;
 }
 
 .artifact-filter.sub {
-  min-height: 24px;
-  padding: 1px 8px;
+  min-height: 26px;
+  font-size: var(--text-xs);
+}
+
+.artifact-filter:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 
 .artifact-filter[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
+  border-color: var(--border);
+  background: var(--bg-active);
+  color: var(--text);
+  font-weight: var(--weight-medium);
+}
+
+.artifact-filter-label {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .artifact-filter-count {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: normal;
   font-variant-numeric: tabular-nums;
-  opacity: 0.75;
+}
+
+.artifact-detail-tag {
+  display: inline-block;
+  flex: 0 0 auto;
+  margin-left: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 0 4px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: normal;
+  line-height: 15px;
+}
+
+.artifact-filter .artifact-detail-tag {
+  margin-left: 0;
+}
+
+/* ---------- 中间 ---------- */
+
+.artifacts-main {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+  padding: 0 20px 24px;
+}
+
+.artifacts-main-toolbar {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  gap: 10px;
+  margin: 0 -20px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-main);
+}
+
+.artifacts-main-toolbar h3 {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+
+.artifacts-main-toolbar h3 .artifact-filter-count {
+  margin-left: 0;
+  font-size: var(--text-sm);
+}
+
+.artifact-scope {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 2px 10px;
+  background: var(--bg-active);
+  color: var(--text);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-scope:hover {
+  border-color: var(--border-heavy);
+}
+
+.artifact-view-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 2px;
+}
+
+.artifact-view-toggle button {
+  display: grid;
+  width: 30px;
+  height: 26px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+}
+
+.artifact-view-toggle button:hover {
+  color: var(--text);
+}
+
+.artifact-view-toggle button[aria-pressed="true"] {
+  background: var(--bg-active);
+  color: var(--text);
 }
 
 .artifact-section {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .artifact-section > header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 4px;
 }
 
-.artifact-section h3 {
+.artifact-section h4 {
   margin: 0;
   color: var(--text-tertiary);
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
 }
 
-.artifact-more,
-.artifact-versions-toggle {
+.artifact-more {
   border: 0;
   padding: 2px 4px;
   background: transparent;
-  color: var(--accent);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
 }
 
-.artifact-more:hover,
-.artifact-versions-toggle:hover {
+.artifact-more:hover {
+  color: var(--text);
   text-decoration: underline;
 }
 
 .artifact-grid,
-.artifact-list,
-.artifact-versions {
+.artifact-detail-versions ul {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+/* 大缩略图网格：列数随宽度变 */
 .artifact-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 14px;
 }
 
-.artifact-grid-item {
-  position: relative;
-  display: block;
+.artifact-tile {
+  display: flex;
   width: 100%;
-  aspect-ratio: 1;
+  flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   padding: 0;
-  background: var(--bg-muted);
+  background: var(--bg-main);
+  color: inherit;
+  text-align: left;
+  transition:
+    border-color var(--duration-fast),
+    background var(--duration-fast);
 }
 
-.artifact-grid-item:hover,
-.artifact-grid-item:focus-visible {
-  border-color: var(--accent);
+.artifact-tile:hover {
+  border-color: var(--border-heavy);
 }
 
-.artifact-grid-item .artifact-thumb {
+.artifact-tile.selected {
+  border-color: var(--text-tertiary);
+  background: var(--bg-active);
+}
+
+.artifact-tile-image {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  aspect-ratio: 4 / 3;
+  background: var(--bg-subtle);
+}
+
+.artifact-tile .artifact-thumb {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   border-radius: 0;
+  background: transparent;
+}
+
+.artifact-tile-caption {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+  padding: 8px 10px 9px;
+  border-top: 1px solid var(--border-light);
+}
+
+.artifact-tile-caption strong,
+.artifact-tile-caption small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-tile-caption strong {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.artifact-tile-caption small {
+  color: var(--text-tertiary);
+  font-size: 11px;
 }
 
 .artifact-version-badge {
   position: absolute;
-  right: 4px;
-  bottom: 4px;
+  right: 6px;
+  bottom: 6px;
   border-radius: var(--radius-pill);
-  padding: 0 6px;
+  padding: 0 7px;
   background: rgb(0 0 0 / 0.6);
   color: #fff;
   font-size: 10px;
-  line-height: 16px;
+  line-height: 18px;
 }
 
 .artifact-thumb {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   flex: 0 0 auto;
   display: block;
   overflow: hidden;
@@ -187,44 +386,117 @@
   background: var(--danger-soft);
 }
 
-.artifact-list {
-  display: grid;
-  gap: 2px;
+/* 文件表格 */
+.artifact-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-size: var(--text-sm);
 }
 
-.artifact-list > li {
-  display: grid;
+.artifact-table th {
+  height: 32px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-align: left;
+  white-space: nowrap;
 }
 
-.artifact-row {
-  position: relative;
-  display: flex;
-  align-items: center;
-  border-radius: var(--radius-md);
+.artifact-table td {
+  height: 46px;
+  padding: 0 10px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.artifact-row:hover,
-.artifact-row:focus-within {
+.artifact-table td:first-child {
+  padding-left: 4px;
+}
+
+.artifact-col-type {
+  width: 84px;
+}
+
+.artifact-col-size {
+  width: 88px;
+  font-variant-numeric: tabular-nums;
+}
+
+.artifact-col-sender {
+  width: 140px;
+}
+
+.artifact-col-time {
+  width: 104px;
+}
+
+.artifact-col-actions {
+  width: 76px;
+}
+
+.artifact-table tbody tr {
+  cursor: default;
+}
+
+.artifact-table tbody tr:hover td {
   background: var(--bg-hover);
 }
 
+.artifact-table tbody tr.selected td {
+  border-color: var(--border-heavy);
+  background: var(--bg-active);
+}
+
+.artifact-table tbody tr.selected td:first-child {
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+.artifact-table tbody tr.selected td:last-child {
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
 .artifact-open {
-  min-width: 0;
-  flex: 1;
   display: flex;
+  width: 100%;
+  min-width: 0;
   align-items: center;
   gap: 10px;
   border: 0;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   padding: 6px;
   background: transparent;
-  color: inherit;
+  color: var(--text);
   text-align: left;
 }
 
+.artifact-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-version-chip {
+  flex: 0 0 auto;
+  border-radius: var(--radius-pill);
+  padding: 0 6px;
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 16px;
+}
+
 .artifact-icon {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
@@ -237,9 +509,11 @@
   letter-spacing: 0.02em;
 }
 
-.artifact-icon.document {
-  background: var(--accent-soft);
-  color: var(--accent);
+.artifact-icon.large {
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-lg);
+  font-size: 15px;
 }
 
 .artifact-icon.code,
@@ -254,38 +528,19 @@
   color: var(--warning);
 }
 
-.artifact-copy {
-  min-width: 0;
-  display: grid;
-}
-
-.artifact-copy strong {
-  overflow: hidden;
-  color: var(--text);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.artifact-copy small {
-  overflow: hidden;
-  color: var(--text-tertiary);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .artifact-actions {
   display: flex;
   flex: 0 0 auto;
+  justify-content: flex-end;
   gap: 2px;
-  padding-right: 4px;
   opacity: 0;
 }
 
-.artifact-row:hover .artifact-actions,
-.artifact-row:focus-within .artifact-actions {
+tr:hover .artifact-actions,
+tr:focus-within .artifact-actions,
+tr.selected .artifact-actions,
+.artifact-detail-versions li:hover .artifact-actions,
+.artifact-detail-versions li:focus-within .artifact-actions {
   opacity: 1;
 }
 
@@ -312,24 +567,6 @@
   color: var(--text);
 }
 
-.artifact-versions-toggle {
-  justify-self: start;
-  margin: -2px 0 4px 50px;
-}
-
-.artifact-versions {
-  display: grid;
-  gap: 2px;
-  margin: 0 0 6px 22px;
-  border-left: 2px solid var(--border);
-  padding-left: 6px;
-}
-
-.artifact-row.version .artifact-copy strong {
-  color: var(--text-secondary);
-  font-weight: normal;
-}
-
 .artifact-load-more {
   justify-self: center;
   min-height: 28px;
@@ -344,9 +581,9 @@
 .artifact-status,
 .artifact-footnote {
   margin: 0;
-  padding: 12px 4px;
+  padding: 16px 4px;
   color: var(--text-tertiary);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   line-height: 1.6;
   text-align: center;
 }
@@ -357,10 +594,337 @@
 
 .artifact-footnote {
   padding-top: 0;
+  font-size: var(--text-xs);
+}
+
+/* ---------- 右侧详情栏 ---------- */
+
+.artifact-detail {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  border-left: 1px solid var(--border-light);
+  background: var(--bg-main);
+  animation: artifact-detail-in var(--duration) var(--ease-out);
+}
+
+@keyframes artifact-detail-in {
+  from {
+    transform: translateX(12px);
+    opacity: 0;
+  }
+}
+
+.artifact-detail-header {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.artifact-detail-header h3 {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-detail-scroll {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.artifact-detail-preview {
+  --checker: rgb(0 0 0 / 0.06);
+
+  display: grid;
+  width: 100%;
+  min-height: 160px;
+  max-height: 340px;
+  aspect-ratio: 4 / 3;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0;
+  background: var(--bg-subtle);
+}
+
+.artifact-detail-preview.image {
+  padding: 8px;
+  background-color: var(--bg-main);
+  background-image:
+    linear-gradient(45deg, var(--checker) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--checker) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--checker) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--checker) 75%);
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
+  background-size: 16px 16px;
+  cursor: zoom-in;
+}
+
+:root[data-theme="dark"] .artifact-detail-preview {
+  --checker: rgb(255 255 255 / 0.07);
+}
+
+.artifact-detail-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.artifact-detail-status {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.artifact-detail-status.danger {
+  color: var(--danger);
+}
+
+.artifact-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.artifact-button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0 10px;
+  background: var(--bg-main);
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+
+.artifact-button:hover {
+  border-color: var(--border-heavy);
+  background: var(--bg-hover);
+}
+
+.artifact-button.primary {
+  border-color: var(--button-primary-bg);
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
+}
+
+.artifact-button.primary:hover {
+  background: var(--button-primary-hover);
+}
+
+.artifact-detail-info {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px 10px;
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.artifact-detail-info dt {
+  color: var(--text-tertiary);
+}
+
+.artifact-detail-info dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.artifact-detail-muted {
+  color: var(--text-tertiary);
+}
+
+.artifact-detail-versions {
+  display: grid;
+  gap: 6px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-light);
+}
+
+.artifact-detail-versions h4 {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.artifact-detail-versions ul {
+  display: grid;
+  gap: 2px;
+}
+
+.artifact-detail-versions li {
+  display: flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+}
+
+.artifact-detail-versions li:hover {
+  background: var(--bg-hover);
+}
+
+.artifact-detail-versions li.current {
+  border-color: var(--border);
+  background: var(--bg-active);
+}
+
+.artifact-version {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  padding: 6px 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.artifact-version strong {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.artifact-version small {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 看图器工具栏里的文字按钮（下载、定位到消息、历史版本） */
 .attachment-lightbox-toolbar button.attachment-lightbox-text {
   font-size: var(--text-xs);
   white-space: nowrap;
+}
+
+/* ---------- 面板变窄 ---------- */
+
+/* 详情栏放不下就盖在列表右侧 */
+@container artifacts (max-width: 1100px) {
+  .artifacts-layout.with-detail {
+    grid-template-columns: 232px minmax(0, 1fr);
+  }
+
+  .artifact-detail {
+    position: absolute;
+    z-index: 3;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(360px, 100%);
+    box-shadow: var(--shadow-popover);
+  }
+
+  .artifact-col-sender {
+    width: 110px;
+  }
+}
+
+/* 窄：筛选收到顶上横排，表格只留名称、大小、时间 */
+@container artifacts (max-width: 760px) {
+  .artifacts-layout,
+  .artifacts-layout.with-detail {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .artifacts-sidebar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+    overflow: visible;
+    padding: 10px 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  .artifact-search {
+    flex: 1 0 100%;
+  }
+
+  .artifact-filter-group,
+  .artifact-subfilters {
+    display: flex;
+    max-width: 100%;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .artifact-subfilters {
+    margin: 0;
+    padding-left: 4px;
+  }
+
+  .artifact-filter-group h3 {
+    display: none;
+  }
+
+  .artifact-filter {
+    flex: 0 0 auto;
+    min-height: 28px;
+    border-color: var(--border);
+    border-radius: var(--radius-pill);
+    font-size: var(--text-xs);
+    white-space: nowrap;
+  }
+
+  .artifact-filter .artifact-filter-count {
+    margin-left: 2px;
+  }
+
+  .artifacts-main {
+    padding: 0 12px 20px;
+  }
+
+  .artifacts-main-toolbar {
+    margin: 0 -12px;
+    padding: 8px 12px;
+  }
+
+  .artifact-grid {
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    gap: 10px;
+  }
+
+  .artifact-table .artifact-col-type,
+  .artifact-table .artifact-col-sender {
+    display: none;
+  }
+
+  .artifact-detail {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .artifact-detail {
+    animation: none;
+  }
+
+  .artifact-tile {
+    transition: none;
+  }
 }

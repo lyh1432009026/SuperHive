@@ -220,8 +220,8 @@ type ThreadWidth = "standard" | "wide" | "full";
 type MessageSize = "small" | "standard" | "large";
 type BrowserNotificationPermission = NotificationPermission | "unsupported";
 type MobilePanel = "members" | "rooms";
-type SidePanelTab = "members" | "whiteboard" | "schedules" | "artifacts";
-const sidePanelTabs: SidePanelTab[] = ["members", "whiteboard", "schedules", "artifacts"];
+type SidePanelTab = "members" | "whiteboard" | "schedules";
+const sidePanelTabs: SidePanelTab[] = ["members", "whiteboard", "schedules"];
 
 /**
  * 侧栏标签一行放不下时（窄面板、英文等较长的译文），未选中的标签只留图标和计数，文字仍供读屏与悬停提示；
@@ -1502,6 +1502,9 @@ export function App({
   const [pendingLocate, setPendingLocate] = useState<string>();
   /** 有新附件或撤回时加一，产物面板和入口角标据此刷新 */
   const [artifactsEpoch, setArtifactsEpoch] = useState(0);
+  /* 「产物」大面板：和「代码」一样从头部打开，默认铺满窗口；两个面板同时只开一个 */
+  const [artifactsOpen, setArtifactsOpen] = useState(false);
+  const artifactsButtonRef = useRef<HTMLButtonElement>(null);
   // 跨房间入口：搜索、提及我、Agent 任务
   const [activityView, setActivityView] = useState<ActivityView>();
   const [gotoOpen, setGotoOpen] = useState(false);
@@ -3282,15 +3285,13 @@ export function App({
     });
   }, [base, authToken, currentRoomId]);
 
-  const artifactsPanelOpen =
-    sidePanelTab === "artifacts" && (mobilePanel === "members" || !membersCollapsed);
   const { count: artifactCount, setCounts: setArtifactCounts } = useArtifactCount({
     base,
     token: authToken,
     roomId: currentRoomId,
     epoch: artifactsEpoch,
     // 面板开着时由面板顺带报数，不重复查
-    enabled: Boolean(meta) && !artifactsPanelOpen,
+    enabled: Boolean(meta) && !artifactsOpen,
   });
 
   // 补拉的消息合进来之后再跳
@@ -3321,30 +3322,6 @@ export function App({
       .map((participant) => participant.username.toLocaleLowerCase()),
   );
   const pendingScheduleCount = [...schedules.values()].filter(isPendingSchedule).length;
-
-  /** 打开右侧面板的「产物」：宽屏展开侧栏，窄屏打开抽屉；已经开着就收起 */
-  function toggleArtifactsPanel(trigger: HTMLButtonElement) {
-    const narrow = window.matchMedia?.("(max-width: 1100px)").matches ?? false;
-    if (narrow) {
-      setSidePanelTab("artifacts");
-      openMobilePanel("members", trigger);
-      return;
-    }
-    if (artifactsPanelOpen) {
-      animateLayout(() => setMembersCollapsed(true));
-      localStorage.setItem(storedMembersCollapsedKey, "true");
-      return;
-    }
-    if (!membersCollapsed) {
-      setSidePanelTab("artifacts");
-      return;
-    }
-    animateLayout(() => {
-      setSidePanelTab("artifacts");
-      setMembersCollapsed(false);
-    });
-    localStorage.setItem(storedMembersCollapsedKey, "false");
-  }
 
   const offline = participants.filter((participant) => participant.status === "offline");
 
@@ -4877,16 +4854,20 @@ export function App({
                 <span>{t("新话题")}</span>
               </button>
               <button
+                ref={artifactsButtonRef}
                 type="button"
-                className={`header-button artifacts-toggle ${artifactsPanelOpen ? "active" : ""}`}
+                className={`header-button artifacts-toggle ${artifactsOpen ? "active" : ""}`}
                 aria-label={
                   artifactCount
                     ? t("产物：{0} 个图片和文件", { 0: artifactCount })
                     : t("产物：房间里的图片和文件")
                 }
-                aria-expanded={artifactsPanelOpen}
+                aria-pressed={artifactsOpen}
                 title={t("产物：房间里的图片和文件")}
-                onClick={(event) => toggleArtifactsPanel(event.currentTarget)}
+                onClick={() => {
+                  setWorkspaceOpen(false);
+                  setArtifactsOpen((current) => !current);
+                }}
               >
                 <Icon name="files" size={16} />
                 <span>{t("产物")}</span>
@@ -4908,7 +4889,10 @@ export function App({
                       : t("工作区文件与改动")
                   }
                   title={t("工作区文件与改动（只读）")}
-                  onClick={() => setWorkspaceOpen((current) => !current)}
+                  onClick={() => {
+                    setArtifactsOpen(false);
+                    setWorkspaceOpen((current) => !current);
+                  }}
                 >
                   <WorkspaceGlyph />
                   <span>{t("代码")}</span>
@@ -6113,6 +6097,25 @@ export function App({
           />
         )}
 
+        {artifactsOpen && (
+          <ArtifactsPanel
+            base={base}
+            token={authToken}
+            roomId={currentRoomId}
+            epoch={artifactsEpoch}
+            onCounts={setArtifactCounts}
+            onLocate={(item) => {
+              // 先关面板再跳：面板铺满时挡着聊天
+              setArtifactsOpen(false);
+              void locateMessage(item);
+            }}
+            onClose={() => {
+              setArtifactsOpen(false);
+              window.requestAnimationFrame(() => artifactsButtonRef.current?.focus());
+            }}
+          />
+        )}
+
         <aside
           className={`members-panel panel ${mobilePanel === "members" ? "mobile-open" : ""}`}
           aria-label={t("成员列表")}
@@ -6209,28 +6212,6 @@ export function App({
                   </span>
                 )}
               </button>
-              <button
-                type="button"
-                role="tab"
-                id="side-tab-artifacts"
-                title={t("产物")}
-                aria-selected={sidePanelTab === "artifacts"}
-                aria-controls="side-panel-artifacts"
-                tabIndex={sidePanelTab === "artifacts" ? 0 : -1}
-                className={sidePanelTab === "artifacts" ? "active" : ""}
-                onClick={() => setSidePanelTab("artifacts")}
-              >
-                <Icon name="files" size={15} />
-                <span className="side-tab-label">{t("产物")}</span>
-                {artifactCount ? (
-                  <span
-                    className="side-tab-count"
-                    aria-label={t("{0} 个图片和文件", { 0: artifactCount })}
-                  >
-                    {artifactCount}
-                  </span>
-                ) : null}
-              </button>
             </div>
             <button
               ref={membersCloseRef}
@@ -6242,23 +6223,7 @@ export function App({
               <Icon name="close" />
             </button>
           </div>
-          {sidePanelTab === "artifacts" ? (
-            <div
-              className="whiteboard-scroll"
-              role="tabpanel"
-              id="side-panel-artifacts"
-              aria-labelledby="side-tab-artifacts"
-            >
-              <ArtifactsPanel
-                base={base}
-                token={authToken}
-                roomId={currentRoomId}
-                epoch={artifactsEpoch}
-                onLocate={(item) => void locateMessage(item)}
-                onCounts={setArtifactCounts}
-              />
-            </div>
-          ) : sidePanelTab === "schedules" ? (
+          {sidePanelTab === "schedules" ? (
             <div
               className="whiteboard-scroll"
               role="tabpanel"

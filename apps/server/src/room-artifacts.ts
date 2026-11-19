@@ -6,6 +6,7 @@ import {
   type Artifact,
   type ArtifactCounts,
   type ArtifactItem,
+  type ArtifactSender,
   type ArtifactsQuery,
   type ArtifactsResponse,
 } from "@superhive/protocol";
@@ -35,15 +36,35 @@ export function listRoomArtifacts(
     versions.length > 0 ? { ...latest!, versions } : latest!,
   );
 
+  const senders = new Map<string, ArtifactSender>();
+  for (const artifact of artifacts) {
+    const sender = senders.get(artifact.senderId);
+    if (sender) sender.count += 1;
+    else
+      senders.set(artifact.senderId, {
+        id: artifact.senderId,
+        name: artifact.senderName,
+        type: artifact.senderType,
+        count: 1,
+      });
+  }
+
+  // 发送者、时间是范围：计数跟着变；类型、搜索词不影响计数，筛选按钮上的数字不会跳
+  const since = query.since ? Date.parse(query.since) : undefined;
+  const scoped = artifacts.filter(
+    (artifact) =>
+      (!query.sender || artifact.senderId === query.sender) &&
+      (since === undefined || Date.parse(artifact.createdAt) >= since),
+  );
   const counts: ArtifactCounts = {};
   for (const filter of ["all", "file", ...artifactCategorySchema.options] as const) {
-    counts[filter] = artifacts.filter((artifact) =>
+    counts[filter] = scoped.filter((artifact) =>
       matchesArtifactFilter(artifact.category, filter),
     ).length;
   }
 
   const needle = query.q.normalize("NFKC").toLocaleLowerCase();
-  const matched = artifacts.filter(
+  const matched = scoped.filter(
     (artifact) =>
       matchesArtifactFilter(artifact.category, query.type) &&
       (!needle ||
@@ -73,5 +94,8 @@ export function listRoomArtifacts(
       ? { nextCursor: `${last.messageSeq}.${last.id}` }
       : {}),
     counts,
+    senders: [...senders.values()].sort(
+      (a, b) => b.count - a.count || a.name.localeCompare(b.name),
+    ),
   };
 }
