@@ -232,11 +232,18 @@
   flex: 1;
   align-items: center;
   gap: 8px;
-  padding: 0 10px;
+  /* 左边多留 4px 给置顶房间悬停时出现的拖动把手，所有房间统一缩进，名字对齐 */
+  padding: 0 10px 0 14px;
   border: 0;
   border-radius: var(--radius-md);
   background: transparent;
   text-align: left;
+}
+
+/* 键盘焦点框画在房间行里面，不往外扩出一圈压到相邻房间和分隔线 */
+.room-item-main:focus-visible,
+.room-item-manage:focus-visible {
+  outline-offset: -2px;
 }
 
 /* 房间名，工作区是 git 仓库时下面再加一行当前分支 */
@@ -378,13 +385,15 @@
   opacity: 1;
 }
 
-.room-item:hover .room-item-meta,
-.room-item:focus-within .room-item-meta,
-.room-item:hover .room-unread,
-.room-item:focus-within .room-unread,
-.room-item:hover .room-task,
-.room-item:focus-within .room-task {
-  opacity: 0;
+/* 悬停时管理按钮占住在线人数、任务、未读的位置：把它们收起来、给按钮留出位置，
+   图钉跟着靠到按钮旁边，中间不留空洞；没有管理按钮（非房主）时照常显示 */
+.room-item:has(.room-item-manage):is(:hover, :focus-within) .room-item-main {
+  padding-right: 36px;
+}
+
+.room-item:has(.room-item-manage):is(:hover, :focus-within)
+  :is(.room-item-meta, .room-unread, .room-task) {
+  display: none;
 }
 
 .room-item-manage:hover {
@@ -1020,11 +1029,13 @@ div.member[role="button"] {
     margin-right: 30px;
   }
 
-  .room-item:hover .room-item-meta,
-  .room-item:focus-within .room-item-meta,
-  .room-item:hover .room-unread,
-  .room-item:focus-within .room-unread {
-    opacity: 1;
+  .room-item:has(.room-item-manage):is(:hover, :focus-within) .room-item-main {
+    padding-right: 10px;
+  }
+
+  .room-item:has(.room-item-manage):is(:hover, :focus-within)
+    :is(.room-item-meta, .room-unread, .room-task) {
+    display: revert;
   }
 
   .chat-header {
@@ -1105,7 +1116,7 @@ div.member[role="button"] {
 
 .room-drag-handle {
   position: absolute;
-  left: -2px;
+  left: 0;
   top: 50%;
   width: 14px;
   height: 24px;
