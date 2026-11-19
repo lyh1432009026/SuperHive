@@ -1,6 +1,6 @@
 ---
 title: 安装与启动 SuperHive
-description: 了解 Node.js 与 Agent CLI 前提，用 npx 启动 SuperHive，确认网页地址，并安全地停止、更新和配置开机自启。
+description: 了解 Node.js 与 Agent CLI 前提，用 npm 全局安装 SuperHive 并以 hive 命令启动，确认网页地址，并安全地停止、用 hive update 更新和配置开机自启。
 ---
 
 ## 有什么用

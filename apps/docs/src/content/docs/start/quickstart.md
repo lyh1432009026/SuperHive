@@ -7,7 +7,14 @@ description: 从打开 Hive 网页到创建演示房间、手动完成接入向�
 
 先用一个房间、一个只读 Agent，确认「你发消息 → Agent 接到任务 → 回复出现在房间」这条链路。这里不需要真实项目、私人文件或写入权限，也不需要一次启动多个 Agent。
 
-尚未启动服务？先看 [安装与启动](/start/installation/)。本教程假设你在 Hive Server 所在电脑上，且已经安装、登录准备使用的 Agent CLI。
+尚未启动服务？在终端运行下面两行（需要 Node.js 22.12+），详细说明见 [安装与启动](/start/installation/)：
+
+```bash
+npm i -g superhive
+hive
+```
+
+本教程假设你在 Hive Server 所在电脑上，且已经安装、登录准备使用的 Agent CLI。
 
 ## 第一步：进入网页并准备房间
 
