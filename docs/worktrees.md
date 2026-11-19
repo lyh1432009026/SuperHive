@@ -55,7 +55,7 @@ Merge evidence is evaluated against the recorded default branch's current commit
 - Linear cherry-picks use Git's patch-equivalence checks; unrepresented merge commits are not accepted through this shortcut.
 - Multi-commit squashes compare the aggregate patch with first-parent target-branch patches. Search is bounded to 500 commits and Git operations have time/output limits. Uncertain or unmatched histories remain non-removable rather than being guessed safe.
 
-Bound running, queued, cancelling, waiting-human and unresolved timed-out invocations block cleanup, as do their active descendants and queued tasks for the same room/agent. A new independent task must register its slug before writing. A completed turn alone is not proof that a branch was merged.
+Bound running, queued, cancelling, waiting-human and unresolved timed-out invocations block cleanup, as do the owning agent's own active descendants (for example the turn woken by a subtask receipt) and queued tasks for the same room/agent. Work delegated to a different agent never uses this checkout and does not occupy it. A new independent task must register its slug before writing. A completed turn alone is not proof that a branch was merged.
 
 Branch deletion defaults to `git branch -d`. Squash/cherry-pick equivalence can justify removing the checkout while Git still refuses `-d`; in that case the tool reports `removed: true`, `branchDeleted: false` and `branchError`. The branch is retained. `deleteBranch: false` also retains it. No force option is provided.
 

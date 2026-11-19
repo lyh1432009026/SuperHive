@@ -2378,11 +2378,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           )
         )
           continue;
+        // 只算这条任务线所属 Agent 自己的调用：排队中的，以及接着绑定调用往下走的（例如子任务回执唤醒的那一轮）。
+        // 委派给别的 Agent 的调用不会用这个目录（选目录时也只沿用同一个 Agent 上游的任务目录），不算占用
         if (
-          (invocation.agentName === record.agentName && invocation.status === "queued") ||
-          database
-            .invocationAncestors(invocation.id)
-            .some((item) => record.invocationIds.includes(item.id))
+          invocation.agentName === record.agentName &&
+          (invocation.status === "queued" ||
+            database
+              .invocationAncestors(invocation.id)
+              .some((item) => record.invocationIds.includes(item.id)))
         )
           active.add(invocation.id);
       }

@@ -5,7 +5,13 @@ import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { ChatMessage, Invocation, ManagedWorktree, ServerEvent } from "@superhive/protocol";
+import type {
+  ChatMessage,
+  Invocation,
+  ManagedWorktree,
+  ServerEvent,
+  WorktreeStatus,
+} from "@superhive/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { HiveDatabase } from "./database.js";
@@ -810,6 +816,69 @@ describe("worktree MCP permissions and bindings", () => {
     expect(removed.isError).toBeFalsy();
     expect(removed.structuredContent).toMatchObject({ removed: true, branchDeleted: true });
   }, 15_000);
+
+  it("counts only the owning agent's follow-up turns as occupying a task line, not work delegated to another agent", async () => {
+    const { app, join, mcp, run, finish } = await start();
+    const owner = await join("Alice", "human");
+    const helper = await join("helper", "agent");
+    const writer = await join("writer", "agent");
+    const call = await mcp("helper");
+    const task = await run(owner, helper, "helper");
+    const worktree = (await call("hive_worktree_create", { slug: "feature" })).structuredContent!
+      .worktree as ManagedWorktree;
+    const session = (await app.inject({ method: "GET", url: "/api/local/session" })).json();
+    const active = async () =>
+      (
+        (
+          await app.inject({
+            url: "/api/local/worktrees/general",
+            headers: { "x-hive-owner": session.ownerToken },
+          })
+        ).json().worktrees as WorktreeStatus[]
+      ).find((item) => item.worktree.id === worktree.id)!.activeInvocationIds;
+    const delegated = await call("hive_invoke", { agent: "writer", task: "review it" });
+    expect(delegated.isError).toBeFalsy();
+    const mention = await nextEvent(
+      writer,
+      "deliver writer",
+      (event) => event.type === "agent.mentioned",
+    );
+    const child = (mention as Extract<ServerEvent, { type: "agent.mentioned" }>).message;
+    writer.send({ type: "invocation.report", messageId: child.id, status: "running" });
+    await nextEvent(
+      owner,
+      "writer running",
+      (event) =>
+        event.type === "invocation.updated" &&
+        event.invocation.messageId === child.id &&
+        event.invocation.status === "running",
+    );
+    await finish(owner, helper, task);
+    // 上游那一轮已结束，委派给 writer 的调用还在跑：它不用 helper 的任务目录，不算占用
+    expect(await active()).toEqual([]);
+    await finish(owner, writer, child);
+    // writer 做完后回执唤醒 helper 接着做，这一轮是 helper 自己的后续调用，照旧算占用
+    const receipt = await nextEvent(
+      helper,
+      "deliver receipt",
+      (event) => event.type === "agent.mentioned",
+    );
+    const followUp = (receipt as Extract<ServerEvent, { type: "agent.mentioned" }>).message;
+    helper.send({ type: "invocation.report", messageId: followUp.id, status: "running" });
+    await nextEvent(
+      owner,
+      "receipt running",
+      (event) =>
+        event.type === "invocation.updated" &&
+        event.invocation.messageId === followUp.id &&
+        event.invocation.status === "running",
+    );
+    const occupying = await active();
+    expect(occupying).toHaveLength(1);
+    expect(occupying).not.toContain(task.id);
+    await finish(owner, helper, followUp);
+    expect(await active()).toEqual([]);
+  }, 20_000);
 
   it("rejects readonly, unconfigured and proxied agents and explicitly marks workspace scope", async () => {
     const { app, join, mcp, run } = await start();
