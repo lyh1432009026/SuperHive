@@ -995,4 +995,162 @@ describe("managed worktrees", () => {
     expect(ready).toHaveLength(61);
     expect(ready.some((entry) => entry.key === "released")).toBe(true);
   });
+
+  describe("dependencies", () => {
+    async function nodeProject() {
+      writeFileSync(path.join(repo, ".gitignore"), "ignored\nnode_modules\n");
+      writeFileSync(path.join(repo, "package.json"), '{"name":"example"}\n');
+      writeFileSync(path.join(repo, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+      await git(repo, "add", ".");
+      await git(repo, "commit", "-m", "node project");
+    }
+
+    it("installs dependencies for a new task line and lets Hive-installed ones be cleaned", async () => {
+      await nodeProject();
+      const prepare = vi.fn(async ({ worktree }: { worktree: string }) => {
+        mkdirSync(path.join(worktree, "node_modules", "left-pad"), { recursive: true });
+        return { state: "installed" as const, manager: "pnpm" as const, command: "pnpm install" };
+      });
+      manager = new WorktreeManager({
+        database,
+        activeInvocations: () => active,
+        dependencies: { prepare },
+      });
+      const created = await create();
+      expect(prepare).toHaveBeenCalledOnce();
+      expect(prepare.mock.calls[0]![0]).toMatchObject({
+        worktree: created.worktree.path,
+        primary: repo,
+        packageDirs: [""],
+      });
+      expect(created.dependencies).toMatchObject({ state: "installed", command: "pnpm install" });
+      expect(created.dependencies?.message).toContain("依赖已装好");
+      // 依赖是按锁文件装出来的，可以重建：不算要保护的忽略文件
+      expect((await manager.list(repo))[0]).toMatchObject({
+        ignored: false,
+        removable: true,
+        dependencies: { state: "installed" },
+      });
+      // 复用同一 slug 不再重装
+      expect((await create()).dependencies?.state).toBe("installed");
+      expect(prepare).toHaveBeenCalledOnce();
+      // 别的忽略文件照旧保护
+      writeFileSync(path.join(created.worktree.path, "ignored"), "private\n");
+      expect((await manager.list(repo))[0]).toMatchObject({ ignored: true, removable: false });
+      rmSync(path.join(created.worktree.path, "ignored"));
+      await manager.remove(repo, { path: created.worktree.path });
+      expect(existsSync(created.worktree.path)).toBe(false);
+      expect(manager.dependencies(created.worktree.id)).toBeUndefined();
+    });
+
+    it("never cleans a checkout whose branch was switched, even with Hive-installed dependencies", async () => {
+      await nodeProject();
+      manager = new WorktreeManager({
+        database,
+        activeInvocations: () => active,
+        // 列表有 15 秒缓存，换分支不改登记分支的提交，这里直接看最新状态
+        statusCacheMs: 0,
+        dependencies: {
+          prepare: async ({ worktree }: { worktree: string }) => {
+            mkdirSync(path.join(worktree, "node_modules", "left-pad"), { recursive: true });
+            return { state: "installed" as const, manager: "pnpm" as const, command: "pnpm i" };
+          },
+        },
+      });
+      const { worktree } = await create();
+      expect((await manager.list(repo))[0]).toMatchObject({ ignored: false, removable: true });
+      await git(worktree.path, "checkout", "-q", "-b", "feat/other-task");
+      const listed = (await manager.list(repo))[0];
+      expect(listed).toMatchObject({
+        removable: false,
+        dependencies: { state: "installed" },
+        branchSwitched: { registered: worktree.branch, current: "feat/other-task" },
+      });
+      await expect(manager.remove(repo, { path: worktree.path })).rejects.toThrow();
+      expect(existsSync(path.join(worktree.path, "node_modules", "left-pad"))).toBe(true);
+    });
+
+    it("keeps protecting node_modules that Hive did not install", async () => {
+      await nodeProject();
+      manager = new WorktreeManager({
+        database,
+        activeInvocations: () => active,
+        dependencies: {
+          prepare: async () => ({ state: "skipped" as const, reason: "present" }),
+        },
+      });
+      const { worktree, dependencies } = await create();
+      expect(dependencies?.message).toContain("已有 node_modules");
+      mkdirSync(path.join(worktree.path, "node_modules"));
+      writeFileSync(path.join(worktree.path, "node_modules", "data"), "x");
+      expect((await manager.list(repo))[0]).toMatchObject({ ignored: true, removable: false });
+    });
+
+    it("returns while still installing, blocks cleanup until done and survives a restart", async () => {
+      await nodeProject();
+      let finish!: () => void;
+      const done = new Promise<void>((resolve) => (finish = resolve));
+      manager = new WorktreeManager({
+        database,
+        activeInvocations: () => active,
+        dependencies: {
+          waitMs: 20,
+          prepare: async () => {
+            await done;
+            return { state: "installed" as const, manager: "pnpm" as const, command: "pnpm i" };
+          },
+        },
+      });
+      const { worktree, dependencies } = await create();
+      expect(dependencies).toMatchObject({
+        state: "preparing",
+        command: "pnpm install --frozen-lockfile --prefer-offline",
+      });
+      expect((await manager.list(repo))[0]).toMatchObject({
+        dependencies: { state: "preparing" },
+        removable: false,
+      });
+      await expect(manager.remove(repo, { path: worktree.path })).rejects.toMatchObject({
+        code: "WORKTREE_UNSAFE",
+      });
+      // 另一个 Server 进程接手时，上一个没装完的不能一直挂着「准备中」
+      const restarted = new WorktreeManager({ database, activeInvocations: () => [] });
+      expect(restarted.dependencies(worktree.id)).toMatchObject({ state: "failed" });
+      expect(restarted.dependencies(worktree.id)?.message).toContain("Server 重启");
+      finish();
+      await vi.waitFor(() => expect(manager.dependencies(worktree.id)?.state).toBe("installed"));
+      expect((await manager.list(repo))[0]?.removable).toBe(true);
+    });
+
+    it("lists every workspace package directory and is off unless configured", async () => {
+      await nodeProject();
+      mkdirSync(path.join(repo, "packages", "lib"), { recursive: true });
+      writeFileSync(path.join(repo, "packages", "lib", "package.json"), "{}\n");
+      await git(repo, "add", ".");
+      await git(repo, "commit", "-m", "workspace package");
+      const prepare = vi.fn<(input: { packageDirs: string[] }) => Promise<{ state: "installed" }>>(
+        async () => ({ state: "installed" }),
+      );
+      manager = new WorktreeManager({
+        database,
+        activeInvocations: () => active,
+        dependencies: { prepare },
+      });
+      await create();
+      expect(prepare.mock.calls[0]![0]).toMatchObject({ packageDirs: ["", "packages/lib"] });
+      const off = new WorktreeManager({
+        database,
+        activeInvocations: () => [],
+        dependencies: false,
+      });
+      const other = await off.create(repo, agent, "Alice", [randomUUID()], { slug: "other" });
+      expect(other.dependencies).toBeUndefined();
+      expect(existsSync(path.join(other.worktree.path, "node_modules"))).toBe(false);
+      // 不传就不准备：其余用例建任务线时不会真去装依赖
+      const unset = new WorktreeManager({ database, activeInvocations: () => [] });
+      const third = await unset.create(repo, agent, "Alice", [randomUUID()], { slug: "third" });
+      expect(third.dependencies).toBeUndefined();
+      expect(unset.dependencies(third.worktree.id)).toBeUndefined();
+    });
+  });
 });

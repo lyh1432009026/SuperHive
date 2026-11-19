@@ -117,6 +117,12 @@ const app = await buildApp({
       }
     : {}),
   ...(process.env.HIVE_HANDOVER_FILE ? { handoverFile: process.env.HIVE_HANDOVER_FILE } : {}),
+  // 新任务目录自动准备依赖，HIVE_WORKTREE_DEPS=0 关闭
+  worktreeDependencies: ["0", "false", "off"].includes(
+    process.env.HIVE_WORKTREE_DEPS?.toLowerCase() ?? "",
+  )
+    ? false
+    : {},
   logger: true,
 });
 /**

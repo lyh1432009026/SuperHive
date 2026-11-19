@@ -385,8 +385,10 @@ test(
       "scripts/dev-supervisor.mjs",
       `import fs from 'node:fs';
     const p='.superhive-dev/status.json';const old=JSON.parse(fs.readFileSync(p,'utf8'));
-    fs.writeFileSync(p,JSON.stringify({...old,generation:old.generation+1,state:'ready'}));setInterval(()=>{},1000);`,
+    fs.writeFileSync(p+'.tmp',JSON.stringify({...old,generation:old.generation+1,state:'ready'}));fs.renameSync(p+'.tmp',p);setInterval(()=>{},1000);`,
     );
+    // 替身 supervisor 跟真的一样先写临时文件再改名：直接 writeFileSync 是先清空再写，
+    // 测试这边轮询读到清空后那一下就是空文件，JSON.parse 报错（机器忙时偶发）
     // 重新拉起 supervisor 要冷启动 node，Windows 上比 macOS 慢得多
     await until(() => status().state === "ready", 20_000);
     assert.equal(status().generation, 42);

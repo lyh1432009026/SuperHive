@@ -14,6 +14,19 @@ type WorktreeApi = Pick<
   | "canManage"
 >;
 
+function dependencyLabel(state: NonNullable<WorktreeStatus["dependencies"]>["state"]): string {
+  switch (state) {
+    case "preparing":
+      return t("正在准备依赖");
+    case "installed":
+      return t("依赖已安装");
+    case "linked":
+      return t("依赖软链自主目录");
+    default:
+      return t("依赖没准备好");
+  }
+}
+
 export function WorktreePanel({ roomId, api }: { roomId: string; api: WorktreeApi }) {
   const [rows, setRows] = useState<WorktreeStatus[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -203,6 +216,14 @@ export function WorktreePanel({ roomId, api }: { roomId: string; api: WorktreeAp
                   )}
                   <span>{item.dirty || item.untracked ? t("有未提交文件") : t("工作区干净")}</span>
                   {item.ignored && <span>{t("有忽略文件，需先自行处理")}</span>}
+                  {item.dependencies && item.dependencies.state !== "skipped" && (
+                    <span
+                      className={item.dependencies.state === "failed" ? "warning" : ""}
+                      title={item.dependencies.message}
+                    >
+                      {dependencyLabel(item.dependencies.state)}
+                    </span>
+                  )}
                   {item.activeInvocationIds.length > 0 && <span>{t("有任务占用")}</span>}
                   {item.removable && <span className="passed">{t("可清理")}</span>}
                 </div>

@@ -27,6 +27,8 @@ const markdownReady = import("./message-markdown").then((module) => {
   loadedMarkdown = module.MessageMarkdown;
   return module.MessageMarkdown;
 });
+/** Markdown 渲染器加载好时完成；之后渲染的卡片直接按 Markdown 显示（测试里先等它，免得赶上首次加载） */
+export const narrativeMarkdownReady: Promise<unknown> = markdownReady;
 
 function useMarkdown(): MarkdownComponent | undefined {
   const [component, setComponent] = useState(() => loadedMarkdown);

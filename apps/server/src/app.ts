@@ -77,7 +77,7 @@ import {
 import { createHiveMcpServer, type AttachmentReadResult, type InboxDigest } from "./hive-mcp.js";
 import { readMessageContent } from "./message-content.js";
 import { gitBranch } from "./git-branch.js";
-import { WorktreeManager, worktreeRepository } from "./worktrees.js";
+import { WorktreeManager, worktreeRepository, type DependencySettings } from "./worktrees.js";
 import { registerWorkspaceFileRoutes } from "./workspace-files-routes.js";
 import { readOnlyGit, resolveInside } from "./workspace-files.js";
 import {
@@ -204,6 +204,11 @@ export type BuildAppOptions = {
    * 任务目录不建不删不自动清理、不开终端、不阻止睡眠、不读写运行时全局配置。
    */
   sandbox?: boolean;
+  /**
+   * 新任务目录自动准备依赖（按锁文件安装，失败退回软链主目录）。省略或 false 时关闭（测试默认关闭，
+   * 免得每个建任务线的用例都去跑安装）；由 index.ts 按 HIVE_WORKTREE_DEPS 打开。
+   */
+  worktreeDependencies?: DependencySettings | false;
 };
 
 function participantKey(roomId: string, username: string): string {
@@ -292,7 +297,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       done,
     );
   });
-  app.addHook("onSend", async (request, reply, payload) => {
+  // 回调式而不是 async：async 的 onSend 会把写响应头推迟到下一轮微任务，路由里「reply.send 之后
+  // return undefined」（guard 拒绝时就是这样）的 async 处理函数会被 Fastify 当成还没回复、再发一次，
+  // 两次写响应头报 ERR_HTTP_HEADERS_SENT
+  app.addHook("onSend", (request, reply, payload, done) => {
     slowOps.record({
       kind: "request",
       name: `${request.method} ${request.routeOptions.url ?? "(unmatched)"}`,
@@ -300,7 +308,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       status: reply.statusCode,
       ...(reply.statusCode >= 500 ? { failed: true } : {}),
     });
-    return payload;
+    done(null, payload);
   });
   const database = new HiveDatabase(options.databasePath ?? "./data/hive.sqlite");
   const joinToken = database.getOrCreateToken(options.token ?? process.env.HIVE_TOKEN);
@@ -369,8 +377,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   if (hasWebUi) {
     await app.register(fastifyStatic, { root: configuredStaticDir, wildcard: false });
   }
-  // 网页的内容安全策略：只运行自己的脚本，减少注入脚本偷走 localStorage 里登录凭证的可能
-  app.addHook("onSend", async (request, reply, payload) => {
+  // 网页的内容安全策略：只运行自己的脚本，减少注入脚本偷走 localStorage 里登录凭证的可能。
+  // 同上面慢操作那个钩子，用回调式，不推迟写响应头
+  app.addHook("onSend", (request, reply, payload, done) => {
     const type = reply.getHeader("content-type");
     if (
       typeof type === "string" &&
@@ -400,7 +409,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       reply.header("X-Content-Type-Options", "nosniff");
       reply.header("Referrer-Policy", "no-referrer");
     }
-    return payload;
+    done(null, payload);
   });
 
   function broadcast(roomId: string, event: ServerEvent): void {
@@ -2330,6 +2339,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     database,
     readOnly: sandbox,
     audit: (message, details) => app.log.warn({ worktreeAudit: details }, message),
+    dependencies: options.worktreeDependencies ?? false,
     onCleanup: (batch) => {
       for (const connection of connections) {
         const person = connection.participant;
@@ -3201,12 +3211,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   // 同上：睡眠醒来后的第一轮扫描不把「执行中」判成超时（睡着的那段时间 Agent 不可能报进度），
   // 宽限一个超时周期让它重新连上、报心跳；真卡住的，宽限过后照常判超时
+  // 两轮扫描间隔超过三个周期才算睡过；至少一分钟，扫描周期很短时（测试里 20ms）
+  // 机器繁忙导致的事件循环卡顿（几十到几百毫秒）不会被误当成睡眠而跳过超时判定
   const sweepIntervalMs = options.invocationSweepMs ?? 30_000;
+  const sleepGapMs = Math.max(sweepIntervalMs * 3, 60_000);
   let lastSweepAt = Date.now();
   let staleGraceUntil = 0;
   function sweepStaleInvocations(): void {
     const sweptAt = Date.now();
-    if (sweptAt - lastSweepAt > sweepIntervalMs * 3) staleGraceUntil = sweptAt + 2 * 60_000;
+    if (sweptAt - lastSweepAt > sleepGapMs) staleGraceUntil = sweptAt + 2 * 60_000;
     lastSweepAt = sweptAt;
     // 服务重启前没来得及发出、或因限流暂时失败的回执，在这里补发
     for (const invocation of database.listPendingContinuations())

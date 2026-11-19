@@ -5,16 +5,24 @@ import path from "node:path";
 import {
   managedWorktreeSchema,
   createWorktreeRequestSchema,
+  worktreeDependenciesSchema,
   serverText,
   zhText,
   type CreateWorktreeRequest,
   type ManagedWorktree,
   type Participant,
   type ServerText,
+  type WorktreeDependencies,
   type WorktreeStatus,
 } from "@superhive/protocol";
 import { HiveDatabase, HiveError } from "./database.js";
 import { gitOperationName, slowOps } from "./slow-ops.js";
+import {
+  dependencyPlan,
+  planCommand,
+  prepareDependencies,
+  type DependencyOutcome,
+} from "./worktree-deps.js";
 
 type GitResult = { code: number; stdout: string; stderr: string };
 
@@ -38,6 +46,17 @@ export type FocusDropped = {
 type Checkout = { path: string; branch: string | undefined; locked: boolean };
 type Repository = { repo: string; commonDir: string; target: string };
 type RemovedWorktree = ManagedWorktree & { removed: true };
+
+export type DependencySettings = {
+  /** 测试注入；默认按锁文件安装，失败退回软链主目录 */
+  prepare?: typeof prepareDependencies;
+  /** hive_worktree_create 最多等多久；没装完就转后台，Agent 之后用 hive_worktree_list 查 */
+  waitMs?: number;
+  /** 安装命令的总时限 */
+  timeoutMs?: number;
+  /** 同时最多几条任务线在装依赖 */
+  concurrency?: number;
+};
 
 export type WorktreeCleanupBatch = {
   id: string;
@@ -240,6 +259,30 @@ const STATUS_CONCURRENCY = 4;
 /** 合入判断按（分支提交, 目标提交）缓存：两边都没动结论就不会变，上限防止无限增长 */
 const MERGE_CACHE_LIMIT = 1_000;
 
+function dependencyMessage(outcome: DependencyOutcome, durationMs: number) {
+  const reason = serverText(
+    `worktree.deps.reason.${outcome.reason ?? "error"}` as "worktree.deps.reason.error",
+    { manager: outcome.manager ?? "npm" },
+  );
+  switch (outcome.state) {
+    case "installed":
+      return serverText("worktree.deps.installed", {
+        command: outcome.command ?? "",
+        seconds: String(Math.max(1, Math.round(durationMs / 1000))),
+      });
+    case "linked":
+      return outcome.command
+        ? serverText("worktree.deps.linked", { command: outcome.command, reason })
+        : serverText("worktree.deps.linkedNoInstall");
+    case "skipped":
+      return serverText(
+        outcome.reason === "present" ? "worktree.deps.present" : "worktree.deps.notNode",
+      );
+    default:
+      return serverText("worktree.deps.failed", { reason });
+  }
+}
+
 export class WorktreeManager {
   /** 写操作（建、删、选目录绑定任务）按仓库串行；只读的状态查询不进这个队列 */
   private readonly queues = new Map<string, Promise<unknown>>();
@@ -255,6 +298,11 @@ export class WorktreeManager {
   >();
   private scanning: Promise<void> | undefined;
   private closed = false;
+  /** 正在准备依赖的任务线：装的时候目录在变，不算可清理 */
+  private readonly dependencyJobs = new Map<string, Promise<WorktreeDependencies>>();
+  private installing = 0;
+  private readonly installQueue: Array<() => void> = [];
+  private readonly stopInstalls = new AbortController();
 
   constructor(
     private readonly options: {
@@ -271,6 +319,8 @@ export class WorktreeManager {
        * 免得副本里的记录把真实的任务目录删掉。
        */
       readOnly?: boolean;
+      /** 新任务目录自动准备依赖；省略或 false 不准备 */
+      dependencies?: DependencySettings | false;
     },
   ) {
     options.database.connection().exec(`CREATE TABLE IF NOT EXISTS managed_worktrees (
@@ -294,7 +344,23 @@ export class WorktreeManager {
       id TEXT PRIMARY KEY, record TEXT NOT NULL
     ); CREATE TABLE IF NOT EXISTS managed_worktree_preferences (
       room_id TEXT PRIMARY KEY, auto_cleanup INTEGER NOT NULL DEFAULT 0
+    ); CREATE TABLE IF NOT EXISTS managed_worktree_dependencies (
+      worktree_id TEXT PRIMARY KEY, record TEXT NOT NULL
     )`);
+    // 上次没装完 Server 就退出了：装到一半的状态不能一直挂着「准备中」
+    for (const row of options.database
+      .connection()
+      .prepare("SELECT worktree_id, record FROM managed_worktree_dependencies")
+      .all() as Array<{ worktree_id: string; record: string }>) {
+      const record = worktreeDependenciesSchema.parse(JSON.parse(row.record));
+      if (record.state !== "preparing") continue;
+      this.saveDependencies(row.worktree_id, {
+        ...record,
+        state: "failed",
+        finishedAt: new Date().toISOString(),
+        message: zhText(serverText("worktree.deps.interrupted")),
+      });
+    }
   }
 
   allRecords(): ManagedWorktree[] {
@@ -518,6 +584,143 @@ export class WorktreeManager {
     }
   }
 
+  dependencies(id: string): WorktreeDependencies | undefined {
+    const row = this.options.database
+      .connection()
+      .prepare("SELECT record FROM managed_worktree_dependencies WHERE worktree_id = ?")
+      .get(id) as { record: string } | undefined;
+    return row ? worktreeDependenciesSchema.parse(JSON.parse(row.record)) : undefined;
+  }
+
+  private saveDependencies(id: string, record: WorktreeDependencies): void {
+    this.options.database
+      .connection()
+      .prepare(
+        "INSERT INTO managed_worktree_dependencies (worktree_id, record) VALUES (?, ?) ON CONFLICT(worktree_id) DO UPDATE SET record = excluded.record",
+      )
+      .run(id, JSON.stringify(record));
+  }
+
+  /** Hive 自己装的依赖能按锁文件重新装出来，清理时不算要保护的忽略文件；目录里原有的不算 */
+  private regenerableDependencies(id: string): boolean {
+    const record = this.dependencies(id);
+    return Boolean(record && record.state !== "skipped" && !this.dependencyJobs.has(id));
+  }
+
+  /**
+   * 建好（或复用）任务线后准备依赖，不占仓库写锁。最多等 waitMs，没装完就返回「准备中」，
+   * 后台接着装，结果之后在 hive_worktree_list 里看。
+   */
+  private async prepareDependenciesFor(
+    record: ManagedWorktree,
+  ): Promise<WorktreeDependencies | undefined> {
+    const settings = this.options.dependencies;
+    if (!settings || this.options.readOnly) return undefined;
+    let job = this.dependencyJobs.get(record.id);
+    if (!job) {
+      const known = this.dependencies(record.id);
+      // 复用的目录准备过就不再重来（Agent 之后自己改依赖、重装都由它决定）
+      if (known) return known;
+      job = this.startDependencies(record, settings);
+    }
+    // Codex 的 MCP 工具默认 60 秒超时，留出建目录的时间
+    const waitMs = settings.waitMs ?? 30_000;
+    let timer: NodeJS.Timeout | undefined;
+    const finished = await Promise.race([
+      job,
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), waitMs);
+      }),
+    ]).finally(() => clearTimeout(timer));
+    return finished ?? this.dependencies(record.id);
+  }
+
+  private startDependencies(
+    record: ManagedWorktree,
+    settings: DependencySettings,
+  ): Promise<WorktreeDependencies> {
+    const startedAt = new Date();
+    const job = (async () => {
+      const plan = await dependencyPlan(record.path).catch(() => undefined);
+      const command = plan ? planCommand(plan) : undefined;
+      this.saveDependencies(record.id, {
+        state: "preparing",
+        ...(plan ? { manager: plan.manager, command } : {}),
+        startedAt: startedAt.toISOString(),
+        message: zhText(
+          serverText("worktree.deps.preparing", { command: command ?? "node_modules" }),
+        ),
+      });
+      this.invalidate(record.id);
+      await this.installSlot(settings.concurrency ?? 3);
+      let outcome: DependencyOutcome;
+      try {
+        outcome = await (settings.prepare ?? prepareDependencies)({
+          worktree: record.path,
+          primary: record.repo,
+          packageDirs: await this.packageDirs(record),
+          signal: this.stopInstalls.signal,
+          ...(settings.timeoutMs ? { timeoutMs: settings.timeoutMs } : {}),
+        });
+      } catch (error) {
+        outcome = {
+          state: "failed",
+          reason: "error",
+          output: error instanceof Error ? error.message : String(error),
+        };
+      } finally {
+        this.installing--;
+        this.installQueue.shift()?.();
+      }
+      const finishedAt = new Date();
+      const result: WorktreeDependencies = {
+        state: outcome.state,
+        ...(outcome.manager ? { manager: outcome.manager } : {}),
+        ...(outcome.command ? { command: outcome.command } : {}),
+        ...(outcome.output ? { output: outcome.output } : {}),
+        startedAt: startedAt.toISOString(),
+        finishedAt: finishedAt.toISOString(),
+        durationMs: finishedAt.getTime() - startedAt.getTime(),
+        message: zhText(dependencyMessage(outcome, finishedAt.getTime() - startedAt.getTime())),
+      };
+      // 装的过程中任务线被清理、或 Server 在关：不再写回
+      if (!this.closed && this.records(record.repo).some((item) => item.id === record.id))
+        this.saveDependencies(record.id, result);
+      this.invalidate(record.id);
+      return result;
+    })().finally(() => this.dependencyJobs.delete(record.id));
+    this.dependencyJobs.set(record.id, job);
+    return job;
+  }
+
+  private installSlot(limit: number): Promise<void> {
+    if (this.installing < limit) {
+      this.installing++;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) =>
+      this.installQueue.push(() => {
+        this.installing++;
+        resolve();
+      }),
+    );
+  }
+
+  /** 仓库里登记的 package.json 所在目录：monorepo 的每个包各有一份 node_modules */
+  private async packageDirs(record: ManagedWorktree): Promise<string[]> {
+    const files = (await git(record.path, ["ls-files", "-z", "--", "*package.json"]))
+      .split("\0")
+      .filter(
+        (file) =>
+          path.posix.basename(file) === "package.json" && !file.split("/").includes("node_modules"),
+      );
+    return [
+      ...new Set(
+        files.map((file) => path.posix.dirname(file)).map((dir) => (dir === "." ? "" : dir)),
+      ),
+    ];
+  }
+
   private assertWritable(): void {
     if (this.options.readOnly)
       throw new HiveError("SANDBOX_DISABLED", serverText("error.sandbox.disabled"));
@@ -525,6 +728,7 @@ export class WorktreeManager {
 
   async close(): Promise<void> {
     this.closed = true;
+    this.stopInstalls.abort();
     await this.scanning;
   }
 
@@ -663,6 +867,10 @@ export class WorktreeManager {
       this.options.database
         .connection()
         .prepare("DELETE FROM managed_worktree_bindings WHERE worktree_id = ?")
+        .run(record.id);
+      this.options.database
+        .connection()
+        .prepare("DELETE FROM managed_worktree_dependencies WHERE worktree_id = ?")
         .run(record.id);
       this.options.database
         .connection()
@@ -912,10 +1120,26 @@ export class WorktreeManager {
     ownerName: string,
     invocationIds: string[],
     input: CreateWorktreeRequest,
-  ): Promise<{ worktree: ManagedWorktree; reused: boolean }> {
+  ): Promise<{
+    worktree: ManagedWorktree;
+    reused: boolean;
+    dependencies?: WorktreeDependencies;
+  }> {
     this.assertWritable();
     input = createWorktreeRequestSchema.parse(input);
     const repository = await worktreeRepository(workspace);
+    const created = await this.createIn(repository, actor, ownerName, invocationIds, input);
+    const dependencies = await this.prepareDependenciesFor(created.worktree);
+    return { ...created, ...(dependencies ? { dependencies } : {}) };
+  }
+
+  private createIn(
+    repository: Repository,
+    actor: Participant,
+    ownerName: string,
+    invocationIds: string[],
+    input: CreateWorktreeRequest,
+  ): Promise<{ worktree: ManagedWorktree; reused: boolean }> {
     return this.serial(repository.repo, "create", async () => {
       const existing = this.records(repository.repo).find(
         (record) => record.agentName === actor.username && record.slug === input.slug,
@@ -1212,9 +1436,15 @@ export class WorktreeManager {
   }
 
   async status(record: ManagedWorktree, expectedTarget = record.target): Promise<WorktreeStatus> {
-    return slowOps.track("worktrees.status", { repo: record.path }, () =>
+    const status = await slowOps.track("worktrees.status", { repo: record.path }, () =>
       this.inspect(record, expectedTarget),
     );
+    const dependencies = this.dependencies(record.id);
+    return {
+      ...status,
+      ...(dependencies ? { dependencies } : {}),
+      removable: status.removable && !this.dependencyJobs.has(record.id),
+    };
   }
 
   private async inspect(record: ManagedWorktree, expectedTarget: string): Promise<WorktreeStatus> {
@@ -1238,10 +1468,21 @@ export class WorktreeManager {
         };
       await this.identity(record);
       const { dirty, untracked } = await this.changes(record.path);
-      const ignored = Boolean(
-        (await git(record.path, ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"]))
-          .length,
-      );
+      // --directory：整个被忽略的目录只列一行，node_modules 里成千上万个文件不用逐个列出
+      const regenerable = this.regenerableDependencies(record.id);
+      const ignored = (
+        await git(record.path, [
+          "ls-files",
+          "--others",
+          "--ignored",
+          "--exclude-standard",
+          "--directory",
+          "-z",
+        ])
+      )
+        .split("\0")
+        .filter(Boolean)
+        .some((entry) => !(regenerable && entry.split("/").includes("node_modules")));
       const merged = await this.merged(record);
       return {
         worktree: record,
@@ -1345,11 +1586,14 @@ export class WorktreeManager {
     const clean = status.missing
       ? true
       : !status.error && !status.dirty && !status.untracked && !status.ignored && status.merged;
+    const dependencies = this.dependencies(record.id);
     return {
       ...status,
       worktree: record,
       activeInvocationIds,
-      removable: clean && idle && !this.writes.has(record.id),
+      ...(dependencies ? { dependencies } : {}),
+      removable:
+        clean && idle && !this.writes.has(record.id) && !this.dependencyJobs.has(record.id),
     };
   }
 
@@ -1524,7 +1768,7 @@ export class WorktreeManager {
         );
       return this.writing(record.id, async () => {
         const status = await this.status(record, repository.target);
-        if (!status.removable)
+        if (!status.removable || this.dependencyJobs.has(record.id))
           throw new HiveError(
             "WORKTREE_UNSAFE",
             serverText("error.worktree.unsafe", { path: input.path }),

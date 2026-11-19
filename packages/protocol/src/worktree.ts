@@ -38,6 +38,22 @@ export const managedWorktreeSchema = z.object({
   phase: z.enum(["creating", "ready", "removing", "error"]),
 });
 
+/**
+ * 新任务目录的依赖准备情况：installed = 按锁文件装好；linked = 安装失败，退回软链主目录的依赖、
+ * workspace 内部包指回本任务线；skipped = 不是 Node 项目或已有依赖；failed = 两种都不行，要自己处理。
+ */
+export const worktreeDependenciesSchema = z.object({
+  state: z.enum(["preparing", "installed", "linked", "skipped", "failed"]),
+  manager: z.enum(["pnpm", "npm", "yarn", "bun"]).optional(),
+  command: z.string().optional(),
+  startedAt: z.string().datetime(),
+  finishedAt: z.string().datetime().optional(),
+  durationMs: z.number().nonnegative().optional(),
+  message: z.string().optional(),
+  /** 安装命令输出的末尾一段，失败时用来看原因 */
+  output: z.string().optional(),
+});
+
 export const worktreeStatusSchema = z.object({
   worktree: managedWorktreeSchema,
   dirty: z.boolean(),
@@ -52,6 +68,7 @@ export const worktreeStatusSchema = z.object({
   missing: z.boolean().optional(),
   /** 有人在任务目录里换了分支（同一个 checkout，只是不在登记的分支上）：标出来，交给房主处理 */
   branchSwitched: z.object({ registered: z.string(), current: z.string() }).optional(),
+  dependencies: worktreeDependenciesSchema.optional(),
 });
 
 /** 房主对「被换了分支」的任务目录能做的两个安全操作 */
@@ -73,3 +90,4 @@ export type CreateWorktreeRequest = z.infer<typeof createWorktreeRequestSchema>;
 export type ManagedWorktree = z.infer<typeof managedWorktreeSchema>;
 export type WorktreeStatus = z.infer<typeof worktreeStatusSchema>;
 export type RepairWorktreeRequest = z.infer<typeof repairWorktreeRequestSchema>;
+export type WorktreeDependencies = z.infer<typeof worktreeDependenciesSchema>;

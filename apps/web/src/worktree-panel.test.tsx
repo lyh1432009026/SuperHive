@@ -48,6 +48,40 @@ const api = (canManage = true) => ({
 });
 
 describe("WorktreePanel", () => {
+  it("shows how each task line's dependencies were prepared", async () => {
+    const client = api();
+    const startedAt = new Date().toISOString();
+    client.worktrees.mockResolvedValue({
+      worktrees: [
+        { ...row("installed", true), dependencies: { state: "installed", startedAt } },
+        {
+          ...row("linked", true),
+          dependencies: { state: "linked", startedAt, message: "pnpm 没成功，已退回软链" },
+        },
+        { ...row("failed", false), dependencies: { state: "failed", startedAt } },
+        { ...row("preparing", false), dependencies: { state: "preparing", startedAt } },
+        { ...row("skipped", true), dependencies: { state: "skipped", startedAt } },
+        // 依赖状态和「分支已被切换」同时出现，互不覆盖
+        {
+          ...row("switched", false),
+          dependencies: { state: "installed", startedAt },
+          branchSwitched: { registered: "feat/switched", current: "feat/other" },
+        },
+      ],
+      autoCleanup: false,
+      cleanupBatch: null,
+    });
+    render(<WorktreePanel roomId="general" api={client} />);
+    expect(await screen.findAllByText("依赖已安装")).toHaveLength(2);
+    expect(screen.getByText("依赖软链自主目录").getAttribute("title")).toBe(
+      "pnpm 没成功，已退回软链",
+    );
+    expect(screen.getByText("依赖没准备好").className).toBe("warning");
+    expect(screen.getByText("正在准备依赖")).toBeTruthy();
+    expect(screen.getAllByText(/^依赖|正在准备依赖/)).toHaveLength(5);
+    expect(screen.getByText("分支已被切换：登记 feat/switched，当前 feat/other")).toBeTruthy();
+  });
+
   it("flags a checkout whose branch was switched and offers the two safe fixes", async () => {
     const client = api();
     const switched = (dirty: boolean): WorktreeStatus => ({

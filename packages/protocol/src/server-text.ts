@@ -205,6 +205,46 @@ export const serverTexts = {
     zh: "任务目录已被清理：{path}",
     en: "The task workspace was cleaned up: {path}",
   },
+  "worktree.deps.preparing": {
+    zh: "正在后台准备依赖（{command}）。装好前不要自己再跑安装；用 hive_worktree_list 看 dependencies 的结果。",
+    en: "Preparing dependencies in the background ({command}). Do not start another install meanwhile; check dependencies in hive_worktree_list.",
+  },
+  "worktree.deps.installed": {
+    zh: "依赖已装好（{command}，{seconds} 秒）。",
+    en: "Dependencies installed ({command}, {seconds}s).",
+  },
+  "worktree.deps.linked": {
+    zh: "{command} 没成功（{reason}），已退回软链主目录的依赖，workspace 内部包指向本任务线。改了 package.json 或锁文件要自己重新安装。",
+    en: "{command} did not succeed ({reason}); dependencies are symlinked from the primary checkout, with workspace packages pointing at this worktree. Reinstall yourself after changing package.json or the lockfile.",
+  },
+  "worktree.deps.linkedNoInstall": {
+    zh: "没有锁文件，没有安装；已软链主目录的依赖，workspace 内部包指向本任务线。",
+    en: "No lockfile, so nothing was installed; dependencies are symlinked from the primary checkout, with workspace packages pointing at this worktree.",
+  },
+  "worktree.deps.failed": {
+    zh: "依赖没准备好（{reason}），主目录也没有可软链的 node_modules。请在任务目录里自己安装。",
+    en: "Dependencies were not prepared ({reason}) and the primary checkout has no node_modules to link. Install them yourself in the worktree.",
+  },
+  "worktree.deps.notNode": {
+    zh: "不是 Node 项目，没有准备依赖。",
+    en: "Not a Node project; no dependencies prepared.",
+  },
+  "worktree.deps.present": {
+    zh: "目录里已有 node_modules，没有动。",
+    en: "node_modules already exists; left untouched.",
+  },
+  "worktree.deps.interrupted": {
+    zh: "Server 重启打断了依赖准备。请在任务目录里自己安装。",
+    en: "A server restart interrupted dependency preparation. Install them yourself in the worktree.",
+  },
+  "worktree.deps.reason.timeout": { zh: "超时", en: "timed out" },
+  "worktree.deps.reason.spawn": {
+    zh: "命令没能运行，可能没装 {manager}",
+    en: "the command could not start; {manager} may be missing",
+  },
+  "worktree.deps.reason.exit": { zh: "安装出错退出", en: "the install exited with an error" },
+  "worktree.deps.reason.noLockfile": { zh: "没有锁文件", en: "no lockfile" },
+  "worktree.deps.reason.error": { zh: "准备时出错", en: "an error occurred" },
   "worktree.missingReleased": {
     zh: "目录与分支均已不存在，已释放登记；不代表已验证合入：{path}",
     en: "The checkout and branch no longer exist; registration was released. This does not confirm a merge: {path}",

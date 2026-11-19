@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Invocation, TraceStep } from "@superhive/protocol";
 import {
   ThinkingCard,
   TraceRecap,
   cardAttention,
   groupLiveCards,
+  narrativeMarkdownReady,
   narrativeSteps,
   showsCard,
   showsLiveCard,
@@ -38,6 +39,9 @@ const step = (id: string, extra: Partial<TraceStep>): TraceStep => ({
   ...extra,
 });
 
+// Markdown 渲染器是单独加载的 chunk：首次加载（转译 react-markdown、remark 一整套）在机器繁忙时
+// 会超过 waitFor 默认的 1 秒。先在钩子里等它加载完，下面的卡片第一次渲染就是 Markdown
+beforeAll(() => narrativeMarkdownReady);
 afterEach(cleanup);
 
 describe("thinking card", () => {
@@ -239,7 +243,7 @@ describe("thinking card", () => {
     expect(screen.getByText("先看看")).toBeTruthy();
   });
 
-  it("思考和中途的话按 Markdown 渲染：列表、代码块、加粗照常；链接不可点、图片不加载、HTML 不渲染", async () => {
+  it("思考和中途的话按 Markdown 渲染：列表、代码块、加粗照常；链接不可点、图片不加载、HTML 不渲染", () => {
     const text = [
       "**先确认**两点：",
       "",
@@ -262,11 +266,7 @@ describe("thinking card", () => {
         avatar="AI"
       />,
     );
-    // Markdown 渲染器是单独的 chunk，机器忙时第一次加载可能超过默认的 1 秒
-    await waitFor(
-      () => expect(container.querySelector(".thinking-card-md strong")?.textContent).toBe("先确认"),
-      { timeout: 5000 },
-    );
+    expect(container.querySelector(".thinking-card-md strong")?.textContent).toBe("先确认");
     expect(container.querySelectorAll("li")).toHaveLength(2);
     expect(container.querySelector("pre code")?.textContent).toContain("const a = 1;");
     expect(container.querySelector("a")).toBeNull();
@@ -279,7 +279,7 @@ describe("thinking card", () => {
     expect(container.querySelectorAll("pre code")[1]?.textContent).toContain("const b");
   });
 
-  it("回顾收起时露出最后一段话的开头，点一下展开", async () => {
+  it("回顾收起时露出最后一段话的开头，点一下展开", () => {
     render(
       <TraceRecap
         invocation={invocation({ status: "completed", finishedAt: now })}
@@ -287,9 +287,7 @@ describe("thinking card", () => {
       />,
     );
     const preview = screen.getByRole("button", { name: "展开 helper 的过程" });
-    await waitFor(() => expect(preview.querySelector("strong")?.textContent).toBe("两处"), {
-      timeout: 5000,
-    });
+    expect(preview.querySelector("strong")?.textContent).toBe("两处");
     fireEvent.click(preview);
     expect(screen.queryByRole("button", { name: "展开 helper 的过程" })).toBeNull();
     expect(

@@ -68,6 +68,8 @@ pnpm test
 pnpm build
 ```
 
+`pnpm install` 会顺带把仓库的 Git 钩子目录设成 `.githooks`（只在没设过 `core.hooksPath`、`.git/hooks` 里也没有自己的钩子时）：提交前拒绝任何 `node_modules` 路径，包括软链过来的依赖目录。`pnpm test` 里也会检查已提交的文件（`node scripts/git-hooks.mjs check`）。`pnpm test` 按包依次跑（`--workspace-concurrency=1`），各包的 vitest 不互相抢 CPU，机器忙时少出偶发超时。不想启用设 `HIVE_SKIP_GIT_HOOKS=1`。Hive 新建的任务目录会自动准备依赖，见 [worktrees.md](worktrees.md#dependencies)。
+
 只跑某个包：`pnpm --filter @superhive/server test`、`pnpm --filter superhive test`、`pnpm --filter @superhive/web test`。文档可单独用 `pnpm docs:dev` 编辑、`pnpm docs:verify` 验收，发布配置见 [apps/docs/README.md](../apps/docs/README.md)。npm 包的打包产物在 `packages/superhive` 里用 `pnpm build` 生成（CLI、打包后的 Server、网页、SKILL.md），`pnpm pack` 可以在发布前本地验证；不需要打包独立文档站才能运行 Hive。
 
 开发环境接入了 `ai-ins`：按住 macOS `Option` 或 Windows/Linux `Alt` 点选 DOM 元素，写下需求后会连同源码位置交给本机的 Agent CLI（Codex、Claude Code 等）直接改代码，热更新后即可看到结果。生产构建不会注入该面板。
@@ -189,6 +191,7 @@ HIVE_PUBLIC_URL        对外访问地址，例如 https://hive.example.com
 HIVE_AGENT_COMMAND     页面生成的 Agent 命令前缀
 HIVE_LOCAL_AGENTS      设为 0 关闭网页上的「在本机启动」
 HIVE_IM_WECHAT         设为 0 整体不加载个人微信通道
+HIVE_WORKTREE_DEPS     设为 0 不再给新任务目录自动准备依赖
 HIVE_SANDBOX           设为 1 进入沙箱预览：不连 IM、不起本机 Agent、不跑定时任务、不建删任务目录（见「UI 验证」）
 HIVE_SLOW_OP_MS        锁、git、重查询超过多少毫秒记为慢操作，默认 3000
 HIVE_SLOW_REQUEST_MS   HTTP 请求和 MCP 工具超过多少毫秒记为慢操作，默认 5000

@@ -5,10 +5,11 @@
   "description": "A self-hosted shared workspace for humans, Codex, Claude Code, Copilot, OpenClaw, and extensible agents.",
   "type": "module",
   "scripts": {
+    "prepare": "node scripts/git-hooks.mjs install",
     "pretest": "pnpm --filter @superhive/protocol build",
     "dev": "node scripts/dev.mjs",
     "build": "pnpm -r --workspace-concurrency=1 build",
-    "test": "pnpm test:dev && pnpm -r --if-present test",
+    "test": "pnpm test:dev && pnpm -r --workspace-concurrency=1 --if-present test",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "start": "pnpm --filter @superhive/server start",
@@ -20,7 +21,7 @@
     "docs:build": "pnpm --filter @superhive/docs build",
     "docs:check": "pnpm --filter @superhive/docs check",
     "docs:verify": "pnpm --filter @superhive/docs verify",
-    "test:dev": "node --test scripts/dev-supervisor.test.mjs scripts/dev-reload.test.mjs scripts/preview-sandbox.test.mjs",
+    "test:dev": "node --test scripts/dev-supervisor.test.mjs scripts/dev-reload.test.mjs scripts/preview-sandbox.test.mjs scripts/git-hooks.test.mjs",
     "test:dev:smoke": "node scripts/dev-supervisor.smoke.mjs"
   },
   "keywords": [

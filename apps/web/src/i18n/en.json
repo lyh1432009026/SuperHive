@@ -1674,5 +1674,9 @@
   "切回登记分支": "Switch back to the registered branch",
   "按当前分支重新登记": "Re-register on the current branch",
   "目录里有未提交或未跟踪的文件，不能切回；可以按当前分支重新登记。": "The directory has uncommitted or untracked files, so it can't switch back; you can re-register it on the current branch.",
-  "还有任务在用这个目录，结束后才能处理。": "Tasks are still using this directory; fix it after they finish."
+  "还有任务在用这个目录，结束后才能处理。": "Tasks are still using this directory; fix it after they finish.",
+  "正在准备依赖": "Preparing dependencies",
+  "依赖已安装": "Dependencies installed",
+  "依赖软链自主目录": "Dependencies linked from primary checkout",
+  "依赖没准备好": "Dependencies not prepared"
 }

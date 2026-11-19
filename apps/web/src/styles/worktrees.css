@@ -111,6 +111,10 @@
   color: var(--accent);
 }
 
+.worktree-statuses .warning {
+  color: var(--warning);
+}
+
 .worktree-toolbar {
   justify-content: flex-start;
 }

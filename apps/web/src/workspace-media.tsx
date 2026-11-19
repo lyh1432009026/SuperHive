@@ -255,13 +255,18 @@ export function MediaView({
 }) {
   const kind = mediaKind(path);
   const raw = useRawUrl(api, source, path, ref, { version });
-  const [size, setSize] = useState<{ width: number; height: number }>();
-  const [failed, setFailed] = useState(false);
+  // 尺寸和「显示不了」都记在是哪个链接上，换了链接自然作废。不用 effect 在链接变化后清空：
+  // effect 晚于提交执行，图片已缓存时 load 可能先到，量好的尺寸会被随后的清空抹掉
+  const src = raw.data?.src;
+  const [measured, setMeasured] = useState<{ src: string; width: number; height: number }>();
+  const [failedSrc, setFailedSrc] = useState<string>();
   const [zoomed, setZoomed] = useState(false);
-  useEffect(() => {
-    setSize(undefined);
-    setFailed(false);
-  }, [raw.data?.src]);
+  const size = src !== undefined && measured?.src === src ? measured : undefined;
+  const failed = src !== undefined && failedSrc === src;
+  const setSize = (value: { width: number; height: number }) => {
+    if (src !== undefined) setMeasured({ ...value, src });
+  };
+  const setFailed = () => setFailedSrc(src);
   const name = path.slice(path.lastIndexOf("/") + 1);
 
   let body: ReactNode;
@@ -306,7 +311,7 @@ export function MediaView({
               height: event.currentTarget.naturalHeight,
             })
           }
-          onError={() => setFailed(true)}
+          onError={setFailed}
         />
       </button>
     );
@@ -324,7 +329,7 @@ export function MediaView({
             height: event.currentTarget.videoHeight,
           })
         }
-        onError={() => setFailed(true)}
+        onError={setFailed}
       />
     );
   else if (kind === "audio")
@@ -335,7 +340,7 @@ export function MediaView({
         controls
         preload="metadata"
         aria-label={name}
-        onError={() => setFailed(true)}
+        onError={setFailed}
       />
     );
   else

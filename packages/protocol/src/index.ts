@@ -552,6 +552,7 @@ export {
   managedWorktreeSchema,
   worktreeStatusSchema,
   repairWorktreeRequestSchema,
+  worktreeDependenciesSchema,
 } from "./worktree.js";
 export type {
   WorktreeClaim,
@@ -559,6 +560,7 @@ export type {
   ManagedWorktree,
   WorktreeStatus,
   RepairWorktreeRequest,
+  WorktreeDependencies,
 } from "./worktree.js";
 
 export const whiteboardEntrySchema = z.object({

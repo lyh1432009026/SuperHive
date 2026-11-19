@@ -1,0 +1,7 @@
+#!/bin/sh
+# 提交前拒绝 node_modules 路径，见 scripts/git-hooks.mjs
+if ! command -v node >/dev/null 2>&1; then
+  echo "pre-commit: 找不到 node，跳过 node_modules 检查" >&2
+  exit 0
+fi
+exec node "$(git rev-parse --show-toplevel)/scripts/git-hooks.mjs" pre-commit
