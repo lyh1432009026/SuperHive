@@ -13,6 +13,7 @@ import {
   type WorktreeStatus,
 } from "@superhive/protocol";
 import { HiveDatabase, HiveError } from "./database.js";
+import { gitOperationName, slowOps } from "./slow-ops.js";
 
 type GitResult = { code: number; stdout: string; stderr: string };
 type Checkout = { path: string; branch: string | undefined; locked: boolean };
@@ -30,6 +31,25 @@ export type WorktreeCleanupBatch = {
 };
 
 export async function worktreeGit(cwd: string, args: string[], input?: string): Promise<GitResult> {
+  const started = performance.now();
+  let failed = false;
+  try {
+    return await spawnGit(cwd, args, input);
+  } catch (error) {
+    failed = true;
+    throw error;
+  } finally {
+    slowOps.record({
+      kind: "git",
+      name: gitOperationName(args),
+      durationMs: performance.now() - started,
+      repo: cwd,
+      ...(failed ? { failed } : {}),
+    });
+  }
+}
+
+function spawnGit(cwd: string, args: string[], input?: string): Promise<GitResult> {
   return new Promise((resolve, reject) => {
     const env = Object.fromEntries(
       Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
@@ -612,7 +632,7 @@ export class WorktreeManager {
     )
       return result;
     const repository = await worktreeRepository(workspace);
-    return this.serial(repository.repo, async () => {
+    return this.serial(repository.repo, "runtimeWorkspaces", async () => {
       const records = new Map(this.records(repository.repo).map((record) => [record.id, record]));
       const removed = this.removedRecords(repository.repo);
       const occupants = new Map<ManagedWorktree, string[]>();
@@ -728,14 +748,42 @@ export class WorktreeManager {
     });
   }
 
-  private async serial<Result>(repo: string, operation: () => Promise<Result>): Promise<Result> {
+  /**
+   * 仓库级写锁：同一仓库的建、删、选目录一个一个来。排队和持有的时长合起来超过阈值就记一条慢操作，
+   * 看得出是谁占着锁、别人等了多久。
+   */
+  private async serial<Result>(
+    repo: string,
+    name: string,
+    operation: () => Promise<Result>,
+  ): Promise<Result> {
     const previous = this.queues.get(repo) ?? Promise.resolve();
-    const next = previous.catch(() => undefined).then(operation);
+    const queued = performance.now();
+    let acquired: number | undefined;
+    const next = previous
+      .catch(() => undefined)
+      .then(() => {
+        acquired = performance.now();
+        return operation();
+      });
     this.queues.set(repo, next);
+    let failed = false;
     try {
       return await next;
+    } catch (error) {
+      failed = true;
+      throw error;
     } finally {
       if (this.queues.get(repo) === next) this.queues.delete(repo);
+      const released = performance.now();
+      slowOps.record({
+        kind: "lock",
+        name: `worktrees.lock ${name}`,
+        waitMs: (acquired ?? released) - queued,
+        durationMs: acquired === undefined ? 0 : released - acquired,
+        repo,
+        ...(failed ? { failed } : {}),
+      });
     }
   }
 
@@ -748,7 +796,7 @@ export class WorktreeManager {
   ): Promise<{ worktree: ManagedWorktree; reused: boolean }> {
     input = createWorktreeRequestSchema.parse(input);
     const repository = await worktreeRepository(workspace);
-    return this.serial(repository.repo, async () => {
+    return this.serial(repository.repo, "create", async () => {
       const existing = this.records(repository.repo).find(
         (record) => record.agentName === actor.username && record.slug === input.slug,
       );
@@ -950,7 +998,9 @@ export class WorktreeManager {
     const key = `${record.repo}\0${tip}\0${target}`;
     const known = this.mergeCache.get(key);
     if (known) return known;
-    const result = await this.mergedBetween(record, tip, target);
+    const result = await slowOps.track("worktrees.merged", { repo: record.path }, () =>
+      this.mergedBetween(record, tip, target),
+    );
     if (this.mergeCache.size >= MERGE_CACHE_LIMIT)
       this.mergeCache.delete(this.mergeCache.keys().next().value!);
     this.mergeCache.set(key, result);
@@ -1016,6 +1066,12 @@ export class WorktreeManager {
   }
 
   async status(record: ManagedWorktree, expectedTarget = record.target): Promise<WorktreeStatus> {
+    return slowOps.track("worktrees.status", { repo: record.path }, () =>
+      this.inspect(record, expectedTarget),
+    );
+  }
+
+  private async inspect(record: ManagedWorktree, expectedTarget: string): Promise<WorktreeStatus> {
     const activeInvocationIds = this.options.activeInvocations(record);
     try {
       if (record.target !== expectedTarget)
@@ -1081,6 +1137,12 @@ export class WorktreeManager {
    */
   async list(workspace: string): Promise<WorktreeStatus[]> {
     const repository = await worktreeRepository(workspace);
+    return slowOps.track("worktrees.list", { repo: repository.repo }, () =>
+      this.listIn(repository),
+    );
+  }
+
+  private async listIn(repository: Repository): Promise<WorktreeStatus[]> {
     const records = this.records(repository.repo);
     // 一次读出所有分支的提交，用来判断缓存是否还对得上（比逐条 rev-parse 省得多）
     const tips = new Map(
@@ -1193,7 +1255,7 @@ export class WorktreeManager {
     input: { path: string; deleteBranch?: boolean; expectedCommit?: string },
   ): Promise<{ removed: true; branchDeleted: boolean; branchError?: string }> {
     const repository = await worktreeRepository(workspace);
-    return this.serial(repository.repo, async () => {
+    return this.serial(repository.repo, "remove", async () => {
       const record = this.records(repository.repo).find((item) => item.path === input.path);
       if (!record)
         throw new HiveError(

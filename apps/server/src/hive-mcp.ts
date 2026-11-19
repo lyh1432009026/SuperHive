@@ -24,8 +24,12 @@ import {
   previewMessage,
   readMessageContent,
 } from "./message-content.js";
+import { slowOps } from "./slow-ops.js";
 
 const BOARD_READ_PER_SLOT = 50;
+
+/** 本来就要等的工具（等子任务、等新房间的 Agent 进来）：耗时不算慢操作 */
+const UNTIMED_TOOLS = new Set(["hive_wait", "hive_room_post"]);
 
 export type InboxDigest = {
   messages: Array<{
@@ -197,6 +201,23 @@ function toolError(error: unknown) {
 
 export function createHiveMcpServer(context: HiveMcpContext): McpServer {
   const server = new McpServer({ name: "superhive", version: "0.2.0" });
+  // 每个工具调用记耗时（/mcp 请求被接管，HTTP 层记不到）；也作为里面锁和 git 调用的来源
+  const register = server.registerTool.bind(server) as (...args: unknown[]) => unknown;
+  (server as unknown as { registerTool: unknown }).registerTool = (
+    name: string,
+    config: unknown,
+    handler: (...args: unknown[]) => unknown,
+  ) =>
+    register(
+      name,
+      config,
+      UNTIMED_TOOLS.has(name)
+        ? handler
+        : (...args: unknown[]) =>
+            slowOps.track(`MCP ${name}`, { roomId: context.roomId, kind: "request" }, async () =>
+              handler(...args),
+            ),
+    );
 
   server.registerTool(
     "hive_room_read",

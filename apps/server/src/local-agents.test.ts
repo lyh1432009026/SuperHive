@@ -262,6 +262,7 @@ describe("local agent routes", () => {
     expect((await call("GET", "/api/local/owner-token")).json().code).toBe("LOCAL_ONLY");
     expect((await call("POST", "/api/local/owner-devices/pair")).json().code).toBe("LOCAL_ONLY");
     expect((await call("GET", "/api/local/approvals")).json().code).toBe("LOCAL_ONLY");
+    expect((await call("GET", "/api/local/slow-ops")).json().code).toBe("LOCAL_ONLY");
     // 管理要先获批；测量会起进程，也算管理
     const directory = mkdtempSync(path.join(tmpdir(), "hive-device-"));
     const workspace = { provider: "omp", name: "rd-omp", access: "workspace", cwd: directory };

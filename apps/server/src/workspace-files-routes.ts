@@ -22,6 +22,7 @@ import {
   isSensitivePath,
   normalizeRelative,
 } from "./workspace-files.js";
+import { slowOps } from "./slow-ops.js";
 import { errorText } from "./texts.js";
 
 /**
@@ -298,30 +299,33 @@ export function registerWorkspaceFileRoutes(
             });
           }
           // 面板打开时要挑默认显示哪份代码：补上每份的改动数、领先提交数、最近改动时间、是否已合入
-          if (detail) {
-            const merged = await options.mergedWorktrees(roomId).catch(() => new Set<string>());
-            await Promise.all(
-              sources.map(async (source) => {
-                if (source.missing) return;
-                const record =
-                  source.kind === "worktree"
-                    ? options.worktrees(roomId).find((item) => item.id === source.id)
-                    : undefined;
-                const sourceRoot = record ? await realpath(record.path) : root;
-                const activity = await new WorkspaceView(sourceRoot)
-                  .activity(record ? record.base : source.base)
-                  .catch(() => undefined);
-                if (activity) Object.assign(source, activity);
-                if (
-                  record &&
-                  // 还有未提交改动的不算已合入（刚分出来、正在改的任务线 HEAD 也在目标分支里）
-                  !activity?.changeCount &&
-                  (merged.has(record.id) || !activity?.ahead)
-                )
-                  source.merged = true;
-              }),
-            );
-          }
+          if (detail)
+            await slowOps.track("workspace.overviewDetail", { repo: root, roomId }, async () => {
+              const merged = await options.mergedWorktrees(roomId).catch(() => new Set<string>());
+              await Promise.all(
+                sources.map(async (source) => {
+                  if (source.missing) return;
+                  const record =
+                    source.kind === "worktree"
+                      ? options.worktrees(roomId).find((item) => item.id === source.id)
+                      : undefined;
+                  const sourceRoot = record ? await realpath(record.path) : root;
+                  const activity = await slowOps
+                    .track("workspace.activity", { repo: sourceRoot }, () =>
+                      new WorkspaceView(sourceRoot).activity(record ? record.base : source.base),
+                    )
+                    .catch(() => undefined);
+                  if (activity) Object.assign(source, activity);
+                  if (
+                    record &&
+                    // 还有未提交改动的不算已合入（刚分出来、正在改的任务线 HEAD 也在目标分支里）
+                    !activity?.changeCount &&
+                    (merged.has(record.id) || !activity?.ahead)
+                  )
+                    source.merged = true;
+                }),
+              );
+            });
         }
       } catch (error) {
         request.log.warn({ err: error }, "workspace overview failed");

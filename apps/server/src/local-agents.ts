@@ -23,6 +23,7 @@ import type {
 } from "@superhive/protocol";
 import { HiveError, type HiveDatabase, type LocalAgentConfig } from "./database.js";
 import { expandHome } from "./local-directories.js";
+import { slowOps } from "./slow-ops.js";
 import { commandFor } from "./windows-command.js";
 
 /**
@@ -651,7 +652,11 @@ export class LocalAgentSupervisor {
     const result = Promise.all(
       (Object.keys(PROVIDER_COMMANDS) as LocalAgentProvider[]).map(async (provider) => {
         const command = PROVIDER_COMMANDS[provider];
-        const { installed, version } = await this.probe(command);
+        const { installed, version } = await slowOps.track(
+          `localAgents.probe ${provider}`,
+          {},
+          () => this.probe(command),
+        );
         return { provider, command, installed, version };
       }),
     );

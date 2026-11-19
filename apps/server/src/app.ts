@@ -100,6 +100,7 @@ import {
 } from "./access-store.js";
 import { AttachmentStore, publicAttachment, type StoredAttachment } from "./attachment-store.js";
 import { listRoomArtifacts } from "./room-artifacts.js";
+import { slowOps, slowOpsSettingsFromEnv, type SlowOpsSettings } from "./slow-ops.js";
 import { ImHub } from "./im/im-hub.js";
 import { ImStore } from "./im/im-store.js";
 import { SecretBox } from "./im/secret-box.js";
@@ -179,6 +180,8 @@ export type BuildAppOptions = {
    * 本机 Agent 不随之结束，由下一个 Server 接管；不存在则照常结束本机 Agent。
    */
   handoverFile?: string;
+  /** 慢操作阈值与保留条数；省略时读 HIVE_SLOW_OP_MS 等环境变量，再缺省用默认值 */
+  slowOps?: Partial<SlowOpsSettings>;
   localAgents?: Omit<
     LocalAgentSupervisorOptions,
     "database" | "joinToken" | "isAgentOnline" | "isNameInUse"
@@ -256,6 +259,29 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const app = Fastify({
     logger: options.logger ?? false,
     bodyLimit: LIMITS.maxClientPayloadBytes,
+  });
+  slowOps.configure({ ...slowOpsSettingsFromEnv(), ...options.slowOps }, app.log);
+  // 请求的路由模板作为里面锁、git 调用的来源；处理完（开始发响应前）超过阈值记一条。
+  // 只记路由模板和状态码，不记实际路径、查询串；被接管的 /mcp、/ws 记不到，MCP 工具另在 hive-mcp 里记
+  app.addHook("onRequest", (request, _reply, done) => {
+    const roomId = (request.params as { roomId?: unknown } | undefined)?.roomId;
+    slowOps.within(
+      {
+        source: `${request.method} ${request.routeOptions.url ?? "(unmatched)"}`,
+        roomId: typeof roomId === "string" ? roomId : undefined,
+      },
+      done,
+    );
+  });
+  app.addHook("onSend", async (request, reply, payload) => {
+    slowOps.record({
+      kind: "request",
+      name: `${request.method} ${request.routeOptions.url ?? "(unmatched)"}`,
+      durationMs: reply.elapsedTime,
+      status: reply.statusCode,
+      ...(reply.statusCode >= 500 ? { failed: true } : {}),
+    });
+    return payload;
   });
   const database = new HiveDatabase(options.databasePath ?? "./data/hive.sqlite");
   const joinToken = database.getOrCreateToken(options.token ?? process.env.HIVE_TOKEN);
@@ -659,6 +685,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     notifyOwner: (text) => void imHub.notifyOwner(text),
     ...(options.runtimeCredentials ? { runtimeCredentials: options.runtimeCredentials } : {}),
     ...(options.agentClis ? { agentClis: options.agentClis } : {}),
+    slowOps: () => slowOps.list(),
     keepAwake: {
       state: () => keepAwake?.state(),
       update: (patch) => keepAwake?.update(patch),
@@ -4667,7 +4694,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
       }
       if (!guard(request, reply, params.data.roomId)) return reply;
-      return listRoomArtifacts(attachments.listSent(params.data.roomId), query.data);
+      const roomId = params.data.roomId;
+      return slowOps.measure("attachments.artifacts", { roomId }, () =>
+        listRoomArtifacts(attachments.listSent(roomId), query.data),
+      );
     },
   );
 
@@ -4680,8 +4710,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       const principal = guard(request, reply);
       if (!principal) return reply;
       return {
-        messages: database
-          .searchMessages(query.data.q, query.data.limit)
+        messages: slowOps
+          .measure("messages.search", {}, () =>
+            database.searchMessages(query.data.q, query.data.limit),
+          )
           .filter((message) => canAccessRoom(principal, message.roomId)),
       };
     },

@@ -16,6 +16,7 @@ import {
   type ServerText,
 } from "@superhive/protocol";
 import { HiveError } from "./database.js";
+import { slowOps } from "./slow-ops.js";
 import { findWindowsCommand, resolveCommand } from "./windows-command.js";
 
 /**
@@ -772,7 +773,11 @@ export class AgentCliManager {
     return value;
   }
 
-  private async readLoginPath(): Promise<string | undefined> {
+  private readLoginPath(): Promise<string | undefined> {
+    return slowOps.track("agentClis.loginShell", {}, () => this.probeLoginPath());
+  }
+
+  private async probeLoginPath(): Promise<string | undefined> {
     if (this.platform === "win32") return undefined;
     const configured = this.env.SHELL;
     const shell =
@@ -862,7 +867,11 @@ export class AgentCliManager {
     };
   }
 
-  private async detectTool(tool: AgentCliTool, loginPath: string): Promise<Detected> {
+  private detectTool(tool: AgentCliTool, loginPath: string): Promise<Detected> {
+    return slowOps.track(`agentClis.detect ${tool}`, {}, () => this.findInstalls(tool, loginPath));
+  }
+
+  private async findInstalls(tool: AgentCliTool, loginPath: string): Promise<Detected> {
     if (this.platform === "win32") {
       const found = findWindowsCommand(tool, { ...this.env, PATH: loginPath });
       if (!found) return { installations: [], primary: undefined };
@@ -1098,10 +1107,12 @@ export class AgentCliManager {
 
   /** 各 CLI 的安装情况；refresh 时重新探测、重新查最新版 */
   async list(refresh = false): Promise<AgentCliInfo[]> {
-    const [detected, loginPath] = await Promise.all([this.detectAll(refresh), this.loginPath()]);
-    return Promise.all(
-      AGENT_CLI_TOOLS.map((tool) => this.info(tool, detected[tool], loginPath, refresh)),
-    );
+    return slowOps.track("agentClis.list", {}, async () => {
+      const [detected, loginPath] = await Promise.all([this.detectAll(refresh), this.loginPath()]);
+      return Promise.all(
+        AGENT_CLI_TOOLS.map((tool) => this.info(tool, detected[tool], loginPath, refresh)),
+      );
+    });
   }
 
   job(id: string): AgentCliJob | undefined {

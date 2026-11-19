@@ -15,6 +15,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { WorktreePanel } from "./worktree-panel";
+import { SlowOpsGroup } from "./slow-ops";
 import { WorkspaceGlyph, WorkspacePanel, workspaceApi } from "./workspace-panel";
 import { sortParticipantsByLastSeen } from "@superhive/protocol";
 import type {
@@ -7413,6 +7414,7 @@ export function App({
                     <HostManageNotice local={local} />
                     <KeepAwakeSettingsGroup local={local} />
                     <OwnerDevicesGroup local={local} />
+                    {local.mode === "local" && <SlowOpsGroup local={local} />}
                   </section>
                 )}
                 {settingsTab === "runtimes" && local.mode === "local" && (

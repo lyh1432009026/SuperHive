@@ -20,6 +20,7 @@ import {
   runtimeCredentialProviderSchema,
   type RuntimeCredentialField,
   type RuntimeCredentialProvider,
+  type SlowOperationsResponse,
   updateRuntimeCredentialsRequestSchema,
 } from "@superhive/protocol";
 import QRCode from "qrcode";
@@ -153,6 +154,8 @@ export type LocalRoomActions = {
   runtimeCredentials?: RuntimeCredentialStore;
   /** 本机装的 Agent CLI：检测版本与一键升级 */
   agentClis?: AgentCliManager;
+  /** 最近的慢操作（锁、git、重查询、HTTP 请求）；只限本机 */
+  slowOps?: () => SlowOperationsResponse;
   /** 熄屏后保持在线 */
   keepAwake?: {
     state(): KeepAwakeState | undefined;
@@ -657,6 +660,14 @@ export function registerLocalAgentRoutes(
       authorizeLocal: (request, reply) => Boolean(authorize(request, reply, "local")),
     });
   }
+
+  // 慢操作里有仓库路径、房间和调用来源：和运行时配置一样只给本机看
+  app.get("/api/local/slow-ops", async (request, reply) => {
+    if (!authorize(request, reply, "local")) return reply;
+    if (!rooms.slowOps)
+      return reply.code(404).send({ ...errorText(serverText("error.feature.disabled")) });
+    return rooms.slowOps();
+  });
 
   app.get("/api/local/keep-awake", async (request, reply) => {
     if (!authorize(request, reply, "read")) return reply;

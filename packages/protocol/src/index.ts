@@ -1563,6 +1563,42 @@ export const keepAwakeStateSchema = keepAwakeSettingsSchema.extend({
 });
 export type KeepAwakeSettings = z.infer<typeof keepAwakeSettingsSchema>;
 export type KeepAwakeState = z.infer<typeof keepAwakeStateSchema>;
+
+/**
+ * Server 上一次超过阈值的慢操作（锁、git 子进程、重查询、HTTP 请求）。只记操作名和耗时，
+ * 不记命令参数、请求体或查询串。
+ */
+export const slowOperationSchema = z.object({
+  id: z.string(),
+  /** 结束时间 */
+  at: z.string().datetime(),
+  /** lock=任务目录写锁；git=git 子进程；operation=重查询；request=HTTP 请求 */
+  kind: z.enum(["lock", "git", "operation", "request"]),
+  /** 操作名：git 只到子命令（git status），请求是「方法 路由模板」 */
+  name: z.string(),
+  /** 执行耗时；锁是拿到锁之后持有的时长 */
+  durationMs: z.number(),
+  /** 排队等锁的时长（只有锁有） */
+  waitMs: z.number().optional(),
+  /** 调用来源：外层的 HTTP 路由、MCP 工具或操作名 */
+  source: z.string().optional(),
+  repo: z.string().optional(),
+  roomId: z.string().optional(),
+  /** HTTP 状态码 */
+  status: z.number().optional(),
+  /** 以出错或超时结束 */
+  failed: z.boolean().optional(),
+});
+export const slowOperationsResponseSchema = z.object({
+  operations: z.array(slowOperationSchema),
+  /** 普通操作和 HTTP 请求的阈值（毫秒） */
+  thresholdMs: z.number(),
+  requestThresholdMs: z.number(),
+  /** 最多保留多少条 */
+  capacity: z.number(),
+});
+export type SlowOperation = z.infer<typeof slowOperationSchema>;
+export type SlowOperationsResponse = z.infer<typeof slowOperationsResponseSchema>;
 export type LocalProviderInfo = z.infer<typeof localProviderInfoSchema>;
 export type LocalDirectoryListing = z.infer<typeof localDirectoryListingSchema>;
 

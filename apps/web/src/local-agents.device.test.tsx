@@ -194,6 +194,12 @@ describe("房主设备上的本机功能", () => {
       canManage: false,
       ownerDevices: async () => devices,
       hostApprovers: async () => [],
+      slowOps: async () => ({
+        operations: [],
+        thresholdMs: 3000,
+        requestThresholdMs: 5000,
+        capacity: 200,
+      }),
     } as unknown as LocalAgentsState;
     render(<OwnerDevicesGroup local={local} />);
     expect(await screen.findByText("iPhone（这台）")).toBeTruthy();

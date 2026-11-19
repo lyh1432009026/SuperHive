@@ -18,6 +18,7 @@ import type {
   RuntimeCredentialField,
   RuntimeCredentialProvider,
   RuntimeConfig,
+  SlowOperationsResponse,
   RuntimeCredentials,
   RuntimeMcpServerInput,
   UpdateRuntimeCredentialsRequest,
@@ -82,6 +83,8 @@ export type LocalAgentsState = {
   /** 本机：哪些 IM 账号可以在卡片上批准 */
   hostApprovers(): Promise<HostApprover[]>;
   setHostApprover(connectionId: string, allowed: boolean): Promise<HostApprover[]>;
+  /** 本机：Server 上最近超过阈值的慢操作 */
+  slowOps(): Promise<SlowOperationsResponse>;
   revokeAllOwnerDevices(): Promise<number>;
   /** 本机：装了哪些 Agent CLI、版本、来源和升级命令；refresh 时重新探测 */
   agentClis(refresh?: boolean): Promise<{ tools: AgentCliWithAgents[]; job: AgentCliJob | null }>;
@@ -785,6 +788,10 @@ export function useLocalAgents(
     const response = await request("/api/local/host-approvers");
     return ((await response.json()) as { approvers: HostApprover[] }).approvers;
   }, [request]);
+  const slowOps = useCallback(async () => {
+    const response = await request("/api/local/slow-ops");
+    return (await response.json()) as SlowOperationsResponse;
+  }, [request]);
   const setHostApprover = useCallback(
     async (connectionId: string, allowed: boolean) => {
       const response = await request(`/api/local/host-approvers/${connectionId}`, {
@@ -831,6 +838,7 @@ export function useLocalAgents(
     decideApproval,
     hostApprovers,
     setHostApprover,
+    slowOps,
     revokeAllOwnerDevices,
     agentClis,
     upgradeAgentCli,

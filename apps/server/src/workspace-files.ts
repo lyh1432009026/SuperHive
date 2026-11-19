@@ -16,6 +16,7 @@ import type {
   WorkspaceTreeEntry,
 } from "@superhive/protocol";
 import { HiveError } from "./database.js";
+import { gitOperationName, slowOps } from "./slow-ops.js";
 
 /**
  * 房间工作区的只读浏览：文件树、预览、git 状态、diff、提交。
@@ -112,10 +113,33 @@ const FULL_CONTEXT = 1_000_000;
 type GitOutput = { code: number; stdout: Buffer; stderr: string };
 
 /** 只读 git：不经 shell、去掉继承的 GIT_* 变量、不抢可选锁、不跑钩子；超时或输出超限报错 */
-export function readOnlyGit(
+export async function readOnlyGit(
   cwd: string,
   args: string[],
   options: { maxBytes?: number; timeoutMs?: number; input?: string } = {},
+): Promise<GitOutput> {
+  const started = performance.now();
+  let failed = false;
+  try {
+    return await spawnReadOnlyGit(cwd, args, options);
+  } catch (error) {
+    failed = true;
+    throw error;
+  } finally {
+    slowOps.record({
+      kind: "git",
+      name: gitOperationName(args),
+      durationMs: performance.now() - started,
+      repo: cwd,
+      ...(failed ? { failed } : {}),
+    });
+  }
+}
+
+function spawnReadOnlyGit(
+  cwd: string,
+  args: string[],
+  options: { maxBytes?: number; timeoutMs?: number; input?: string },
 ): Promise<GitOutput> {
   const maxBytes = options.maxBytes ?? WORKSPACE_LIMITS.gitOutputBytes;
   return new Promise((resolve, reject) => {

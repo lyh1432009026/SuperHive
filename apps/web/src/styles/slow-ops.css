@@ -1,0 +1,93 @@
+/* 这台电脑：最近慢操作 */
+.slow-ops-heading {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.slow-ops-heading .settings-action {
+  flex-shrink: 0;
+  margin-top: 0;
+}
+
+.slow-ops-heading .settings-action:disabled {
+  opacity: 0.5;
+}
+
+.slow-ops {
+  display: grid;
+  gap: 6px;
+  max-height: 420px;
+  margin: 8px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.slow-ops li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+}
+
+.slow-op-kind {
+  flex: 0 0 auto;
+  min-width: 40px;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.slow-op-kind.lock {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.slow-ops li.failed .slow-op-kind {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.slow-op-main {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.slow-op-main strong {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slow-op-main small,
+.slow-op-time small {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slow-op-time {
+  display: grid;
+  flex: 0 0 auto;
+  justify-items: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.slow-op-time strong {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
