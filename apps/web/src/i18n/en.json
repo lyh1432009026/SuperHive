@@ -1518,5 +1518,7 @@
   "{0}（被 .gitignore 忽略）": "{0} (ignored by .gitignore)",
   "文件较大，只显示前 {0}。": "Large file; showing only the first {0}.",
   "还没有提交。": "No commits yet.",
-  "选择一个提交查看改动。": "Select a commit to see its changes."
+  "选择一个提交查看改动。": "Select a commit to see its changes.",
+  "还原为侧边面板": "Restore to side panel",
+  "占满整个窗口": "Fill the window"
 }

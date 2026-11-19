@@ -53,6 +53,8 @@ type Tab = "changes" | "files" | "commits";
 type DiffView = "unified" | "split";
 
 const WIDTH_KEY = "superhive.workspace-width";
+/** 默认占满整个窗口看代码；点「还原」或拖动边缘改成侧边抽屉，选择记在本机 */
+const MAXIMIZED_KEY = "superhive.workspace-maximized";
 const VIEW_KEY = "superhive.workspace-diff-view";
 const MIN_WIDTH = 560;
 /** 打开时变更列表的刷新间隔 */
@@ -289,6 +291,10 @@ export function WorkspacePanel({
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const [width, setWidth] = useState(storedWidth);
+  const [maximized, setMaximized] = useState(() => localStorage.getItem(MAXIMIZED_KEY) !== "false");
+  useEffect(() => {
+    localStorage.setItem(MAXIMIZED_KEY, String(maximized));
+  }, [maximized]);
   const [narrow, setNarrow] = useState(false);
   const [tab, setTab] = useState<Tab>("changes");
   const [sourceId, setSourceId] = useState("workspace");
@@ -332,7 +338,11 @@ export function WorkspacePanel({
     const handle = event.currentTarget;
     handle.setPointerCapture(event.pointerId);
     const startX = event.clientX;
-    const startWidth = width;
+    // 全屏时拖边缘：从当前实际宽度开始变成抽屉
+    const startWidth = maximized
+      ? (panelRef.current?.getBoundingClientRect().width ?? window.innerWidth)
+      : width;
+    if (maximized) setMaximized(false);
     document.body.classList.add("resizing-panel");
     const move = (moveEvent: PointerEvent) =>
       setWidth(clampWidth(startWidth - (moveEvent.clientX - startX)));
@@ -445,8 +455,8 @@ export function WorkspacePanel({
   return (
     <aside
       ref={panelRef}
-      className="workspace-panel"
-      style={{ width }}
+      className={`workspace-panel${maximized ? " maximized" : ""}`}
+      style={maximized ? undefined : { width }}
       role="dialog"
       aria-modal="false"
       aria-labelledby="workspace-panel-title"
@@ -462,10 +472,11 @@ export function WorkspacePanel({
         aria-valuenow={width}
         tabIndex={0}
         onPointerDown={startResize}
-        onDoubleClick={() => setWidth(clampWidth(Math.round(window.innerWidth * 0.68)))}
+        onDoubleClick={() => setMaximized((current) => !current)}
         onKeyDown={(event) => {
           if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
           event.preventDefault();
+          setMaximized(false);
           setWidth((current) => clampWidth(current + (event.key === "ArrowLeft" ? 32 : -32)));
         }}
       />
@@ -518,6 +529,32 @@ export function WorkspacePanel({
               aria-hidden="true"
             >
               <path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="workspace-icon-button"
+            aria-label={maximized ? t("还原为侧边面板") : t("占满整个窗口")}
+            aria-pressed={maximized}
+            title={maximized ? t("还原为侧边面板") : t("占满整个窗口")}
+            onClick={() => setMaximized((current) => !current)}
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.9"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              {maximized ? (
+                <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+              ) : (
+                <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+              )}
             </svg>
           </button>
           <button

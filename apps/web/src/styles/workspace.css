@@ -21,6 +21,15 @@
   animation: workspace-slide-in var(--duration) var(--ease-out);
 }
 
+/* 默认占满整个窗口：从右侧滑出铺满，宽度随窗口；「还原」后回到可拖宽的侧边抽屉 */
+.workspace-panel.maximized {
+  left: 0;
+  width: auto;
+  max-width: none;
+  border-left: 0;
+  box-shadow: none;
+}
+
 @keyframes workspace-slide-in {
   from {
     transform: translateX(24px);

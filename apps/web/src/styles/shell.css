@@ -553,24 +553,17 @@
   color: var(--text);
 }
 
-/* 显示 / 隐藏侧栏这类布局开关：开着时只是略深的底 */
+/* 显示 / 隐藏侧栏这类布局开关：开着时只把图标加深，不加底，免得整排都像选中 */
 .header-button[aria-pressed="true"]:not(.desktop-only) {
-  background: var(--bg-active);
   color: var(--text);
 }
 
-/* 打开了某个面板或进入了某种模式（产物、分享）：强调色的底和字，一眼看出现在开着的是哪个 */
+/* 打开了某个面板或进入了某种模式（产物、代码、分享）：加深的底和字，跟整体黑白灰配色一致 */
 .header-button.active,
 .header-button.share-fab[aria-pressed="true"] {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.header-button.active:hover,
-.header-button.share-fab[aria-pressed="true"]:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
-  filter: brightness(1.08);
+  background: var(--bg-active);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .header-button.active .icon,
@@ -806,7 +799,7 @@
   color: var(--text);
 }
 
-/* 选中的底由上面的滑块画，标签本身只加深文字、图标和计数用强调色 */
+/* 选中的底由上面的滑块画，标签本身只把文字、图标和计数加深，跟整体的黑白灰配色一致 */
 .side-tabs button {
   position: relative;
   z-index: 1;
@@ -817,12 +810,12 @@
 }
 
 .side-tabs button.active .icon {
-  color: var(--accent);
+  color: var(--text);
 }
 
 .side-tabs button.active .side-tab-count:not(.warning) {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--bg-hover);
+  color: var(--text);
 }
 
 .side-tab-count {
