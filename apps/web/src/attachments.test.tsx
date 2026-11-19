@@ -207,6 +207,27 @@ describe("图片查看器", () => {
     }
     expect(screen.getByRole("button", { name: "复位缩放" }).textContent).toBe("113%");
 
+    // 快速连续捏合（一帧里好几个事件）：以指针为中心累乘，指针下那一点始终不动，不会来回抖
+    fireEvent.keyDown(window, { key: "0" });
+    act(() => {
+      for (let i = 0; i < 30; i += 1) {
+        fireEvent.wheel(viewerOf("c.png"), {
+          deltaY: -5,
+          ctrlKey: true,
+          clientX: 100,
+          clientY: 40,
+        });
+      }
+    });
+    const zoomed = viewerOf("c.png").querySelector("img")!;
+    const [, x, y, scale] = /translate\((-?[\d.e-]+)px, (-?[\d.e-]+)px\) scale\(([\d.]+)\)/
+      .exec(zoomed.style.transform)!
+      .map(Number);
+    // jsdom 里舞台中心在 (0, 0)：指针点 (100, 40) 缩放后仍在原处 ⇒ 平移 = 指针 × (1 - 倍数)
+    expect(x).toBeCloseTo(100 * (1 - scale!), 3);
+    expect(y).toBeCloseTo(40 * (1 - scale!), 3);
+    expect(zoomed.classList.contains("wheeling")).toBe(true);
+
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
   });

@@ -890,7 +890,9 @@ function Lightbox({
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | undefined>(undefined);
   const rootRef = useRef<HTMLDivElement>(null);
-  const imageRef = useRef<HTMLImageElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [wheeling, setWheeling] = useState(false);
+  const wheelTimer = useRef<number | undefined>(undefined);
   // 捏合时一帧会来好几个 wheel 事件，按最新值累乘，不用等重新渲染
   const view = useRef({ zoom, offset });
   view.current = { zoom, offset };
@@ -918,25 +920,35 @@ function Lightbox({
       const { zoom: from, offset: was } = view.current;
       const to = clampZoom(from * wheelZoomFactor(event));
       if (to === from) return;
-      if (to <= 1) {
-        setZoom(to);
-        setOffset({ x: 0, y: 0 });
-        return;
-      }
-      const rect = imageRef.current?.getBoundingClientRect();
-      // 图片没缩放时的中心 = 现在的中心 - 平移；让指针下的那一点缩放后仍在指针下
-      const cx = rect ? rect.left + rect.width / 2 - was.x : event.clientX;
-      const cy = rect ? rect.top + rect.height / 2 - was.y : event.clientY;
+      // 连续滚动 / 捏合时每个事件直接到位，不走过渡动画，否则动画追着新目标跑会一顿一顿的
+      setWheeling(true);
+      window.clearTimeout(wheelTimer.current);
+      wheelTimer.current = window.setTimeout(() => setWheeling(false), 150);
+      // 图片在舞台里居中，没平移没缩放时的中心就是舞台中心。不读图片自己的位置：快速捏合时
+      // 一帧里连来好几个事件，图片还没按上一次的结果重绘（或还在过渡动画里），读到的是旧位置，会抖
+      const rect = stageRef.current?.getBoundingClientRect();
+      const cx = rect ? rect.left + rect.width / 2 : event.clientX;
+      const cy = rect ? rect.top + rect.height / 2 : event.clientY;
       const px = event.clientX - cx;
       const py = event.clientY - cy;
       const ratio = to / from;
-      const next = { x: px - (px - was.x) * ratio, y: py - (py - was.y) * ratio };
+      // 放大：指针下的那一点缩放后仍在指针下。缩小：平移量随缩放连续收回，到 100% 正好回到居中，
+      // 不会在跨过 100% 那一下突然跳回中间
+      const next =
+        to <= 1
+          ? { x: 0, y: 0 }
+          : ratio < 1 && from > 1
+            ? { x: (was.x * (to - 1)) / (from - 1), y: (was.y * (to - 1)) / (from - 1) }
+            : { x: px - (px - was.x) * ratio, y: py - (py - was.y) * ratio };
       view.current = { zoom: to, offset: next };
       setZoom(to);
       setOffset(next);
     };
     stage.addEventListener("wheel", onWheel, { passive: false });
-    return () => stage.removeEventListener("wheel", onWheel);
+    return () => {
+      stage.removeEventListener("wheel", onWheel);
+      window.clearTimeout(wheelTimer.current);
+    };
   }, [url]);
 
   // 换图时复位缩放；相邻的图预先取回，切换不用等
@@ -976,14 +988,15 @@ function Lightbox({
       aria-label={current.name}
       onClick={onClose}
     >
-      <div className="attachment-lightbox-stage">
+      <div className="attachment-lightbox-stage" ref={stageRef}>
         {url ? (
           <img
-            ref={imageRef}
             src={url}
             alt={current.name}
             draggable={false}
-            className={zoom > 1 ? "zoomed" : undefined}
+            className={
+              [zoom > 1 && "zoomed", wheeling && "wheeling"].filter(Boolean).join(" ") || undefined
+            }
             style={{
               transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
             }}

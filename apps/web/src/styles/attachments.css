@@ -301,6 +301,10 @@
   transition: none;
 }
 
+.attachment-lightbox img.wheeling {
+  transition: none;
+}
+
 .attachment-lightbox img.zoomed:active {
   cursor: grabbing;
 }
