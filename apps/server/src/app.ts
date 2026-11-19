@@ -1,4 +1,9 @@
-import { serverText, type RoomClearOptions, isResumableUnknown } from "@superhive/protocol";
+import {
+  artifactsQuerySchema,
+  serverText,
+  type RoomClearOptions,
+  isResumableUnknown,
+} from "@superhive/protocol";
 import { errorText, hiveErrorBody, wsText } from "./texts.js";
 import { observeRuntime } from "./runtime-observation.js";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -92,6 +97,7 @@ import {
   type ResolvedSession,
 } from "./access-store.js";
 import { AttachmentStore, publicAttachment, type StoredAttachment } from "./attachment-store.js";
+import { listRoomArtifacts } from "./room-artifacts.js";
 import { ImHub } from "./im/im-hub.js";
 import { ImStore } from "./im/im-store.js";
 import { SecretBox } from "./im/secret-box.js";
@@ -4577,6 +4583,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       latestSeq: database.latestSeq(params.data.roomId),
     };
   });
+
+  /** 房间产物（附件汇总）：读权限和读消息一致，撤回的不返回，不带本机路径 */
+  app.get<{ Params: { roomId: string }; Querystring: Record<string, string | undefined> }>(
+    "/api/rooms/:roomId/attachments",
+    async (request, reply) => {
+      const params = roomParamsSchema.safeParse(request.params);
+      const query = artifactsQuerySchema.safeParse(request.query);
+      if (!params.success || !query.success) {
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      }
+      if (!guard(request, reply, params.data.roomId)) return reply;
+      return listRoomArtifacts(attachments.listSent(params.data.roomId), query.data);
+    },
+  );
 
   app.get<{ Querystring: { q?: string; limit?: string } }>(
     "/api/search",

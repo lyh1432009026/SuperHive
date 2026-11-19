@@ -703,7 +703,7 @@
   justify-content: center;
   align-items: center;
   gap: 5px;
-  /* 三个标签（成员 / 白板 / 定时）挤在窄侧栏里：左右留白收紧一些 */
+  /* 几个标签（成员 / 白板 / 定时 / 产物）挤在窄侧栏里：左右留白收紧一些 */
   padding: 0 8px;
   border: 0;
   border-radius: var(--radius-pill);
@@ -719,6 +719,21 @@
 /* 放不下时（见 fitSideTabs）：未选中的标签只显示图标与计数，选中的照常带文字 */
 .side-tabs.compact button:not(.active) {
   flex: 0 0 auto;
+}
+
+/* 四个标签时仍可能放不下：选中标签的文字可以省略，计数始终完整 */
+.side-tabs.compact button.active {
+  min-width: 0;
+}
+
+.side-tabs.compact button.active .side-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.side-tabs .side-tab-count {
+  flex: none;
 }
 
 .side-tabs.compact button:not(.active) .side-tab-label {
@@ -947,6 +962,11 @@ div.member[role="button"] {
     display: inline-flex;
   }
 
+  /* 顶栏变窄：「产物」只留图标和数量 */
+  .artifacts-toggle span:not(.header-count) {
+    display: none;
+  }
+
   .members-panel,
   .workspace.members-collapsed .members-panel {
     position: fixed;
@@ -1060,7 +1080,8 @@ div.member[role="button"] {
   }
 
   .share-fab span,
-  .new-topic span {
+  .new-topic span,
+  .artifacts-toggle span:not(.header-count) {
     display: none;
   }
 

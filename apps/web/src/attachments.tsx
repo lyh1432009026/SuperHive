@@ -129,7 +129,7 @@ export function useAttachmentQueue(options: {
           return;
         }
         if (file.size > MAX_ATTACHMENT_BYTES) {
-          notice = t("{0} 超过 20 MB，没有加入", { 0: file.name || t("文件") });
+          notice = t("{0} 超过 20 MB，没有加入", { 0: file.name || t("这个文件") });
           return;
         }
         if (total + file.size > MAX_MESSAGE_ATTACHMENT_BYTES) {
@@ -223,7 +223,7 @@ export function useAttachmentQueue(options: {
   };
 }
 
-function FileGlyph({ kind }: { kind: Attachment["kind"] | "pending" }) {
+export function FileGlyph({ kind }: { kind: Attachment["kind"] | "pending" }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -368,7 +368,12 @@ function fetchAttachment(
   return task;
 }
 
-function useAttachmentUrl(base: string, token: string | undefined, id: string, enabled: boolean) {
+export function useAttachmentUrl(
+  base: string,
+  token: string | undefined,
+  id: string,
+  enabled: boolean,
+) {
   const [state, setState] = useState<{ url?: string; blob?: Blob; error?: string }>({});
   useEffect(() => {
     if (!enabled || !token) return;
@@ -524,7 +529,7 @@ function readBlobText(blob: Blob): Promise<string> {
 /** 文本预览最多显示这么多字，再长的请下载看全文 */
 const PREVIEW_TEXT_LIMIT = 200_000;
 
-async function downloadAttachment(base: string, token: string, attachment: Attachment) {
+export async function downloadAttachment(base: string, token: string, attachment: Attachment) {
   const url = await fetchAttachmentUrl(base, token, attachment.id);
   const link = document.createElement("a");
   link.href = url;
@@ -541,7 +546,7 @@ function codeFence(name: string, text: string): string {
   return `${fence}${language}\n${text}\n${fence}`;
 }
 
-function FilePreview({
+export function FilePreview({
   attachment,
   base,
   token,
@@ -867,15 +872,16 @@ export function wheelZoomFactor(event: Pick<WheelEvent, "deltaY" | "deltaMode" |
 }
 
 /**
- * 图片查看器：同一条消息里的多张图用 ← → 切换；滚轮 / 触控板捏合（以指针为中心、按滚动量平滑缩放）、+ / -、双击缩放，放大后可拖动，0 复位；Esc 关闭。
+ * 图片查看器：同一条消息（或产物面板里）的多张图用 ← → 切换；滚轮 / 触控板捏合（以指针为中心、按滚动量平滑缩放）、+ / -、双击缩放，放大后可拖动，0 复位；Esc 关闭。
  */
-function Lightbox({
+export function Lightbox({
   images,
   index,
   base,
   token,
   onIndex,
   onClose,
+  actions,
 }: {
   images: Attachment[];
   index: number;
@@ -883,6 +889,8 @@ function Lightbox({
   token: string | undefined;
   onIndex: (index: number) => void;
   onClose: () => void;
+  /** 工具栏右侧的额外按钮（产物面板放「下载」「定位到消息」） */
+  actions?: (current: Attachment) => ReactNode;
 }) {
   const current = images[index]!;
   const { url, error } = useAttachmentUrl(base, token, current.id, true);
@@ -1092,6 +1100,7 @@ function Lightbox({
         >
           +
         </button>
+        {actions?.(current)}
       </div>
       <button
         type="button"

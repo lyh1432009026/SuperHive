@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
+  Artifact,
   LocalAgent,
   ChatMessage,
   Invocation,
@@ -128,6 +129,13 @@ const whiteboardApi: {
   requests: Array<{ action: string; entries: Array<{ id: string; updatedAt: string }> }>;
 } = { entries: [], requests: [] };
 
+/** 房间产物接口与按 afterSeq 补拉的历史消息 */
+const artifactsApi: { artifacts: Artifact[]; history: ChatMessage[]; requests: string[] } = {
+  artifacts: [],
+  history: [],
+  requests: [],
+};
+
 /** 房主的置顶房间（服务端存的那份）和收到的 PUT /api/room-pins */
 const roomPins: { ids: string[]; requests: string[][] } = { ids: [], requests: [] };
 const pinnedSummary = (id: string) => {
@@ -184,6 +192,9 @@ describe("App mention autocomplete", () => {
     localApi.cleanupBatch = null;
     roomPins.ids = [];
     roomPins.requests = [];
+    artifactsApi.artifacts = [];
+    artifactsApi.history = [];
+    artifactsApi.requests = [];
     FakeNotification.permission = "default";
     FakeNotification.nextPermission = "granted";
     localStorage.clear();
@@ -298,7 +309,29 @@ describe("App mention autocomplete", () => {
           });
         }
         if (/\/api\/rooms\/[^/]+\/messages/.test(url)) {
-          return jsonResponse({ messages: [], latestSeq: 0 });
+          const afterSeq = Number(new URL(url).searchParams.get("afterSeq") ?? 0);
+          const messages = artifactsApi.history.filter((message) => message.seq > afterSeq);
+          return jsonResponse({ messages, latestSeq: messages.at(-1)?.seq ?? 0 });
+        }
+        if (/\/api\/rooms\/[^/]+\/attachments\?/.test(url)) {
+          artifactsApi.requests.push(url);
+          const type = new URL(url).searchParams.get("type");
+          const all = artifactsApi.artifacts;
+          return jsonResponse({
+            artifacts: all.filter((item) =>
+              type === "image"
+                ? item.kind === "image"
+                : type === "file"
+                  ? item.kind !== "image"
+                  : true,
+            ),
+            counts: {
+              all: all.length,
+              image: all.filter((item) => item.kind === "image").length,
+              file: all.filter((item) => item.kind !== "image").length,
+              document: all.length,
+            },
+          });
         }
         if (url.includes("/whiteboard")) {
           if (init?.method === "POST") {
@@ -1746,6 +1779,99 @@ describe("App mention autocomplete", () => {
     // 保持「视口到内容底部的距离」800 不变 → scrollTop 应为 4000，而不是停在顶部 0
     expect(height()).toBe(4800);
     expect(scrollTop).toBe(4000);
+  });
+
+  it("opens room artifacts from the chat header and jumps back to an older message", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    const agent = participant("00000000-0000-4000-8000-000000000002", "rd-codex", "agent");
+    const message = (seq: number, content: string): ChatMessage => ({
+      id: `00000000-0000-4000-8000-${String(1000 + seq).padStart(12, "0")}`,
+      roomId: "general",
+      seq,
+      senderId: agent.id,
+      senderName: "rd-codex",
+      senderType: "agent",
+      content,
+      mentions: [],
+      traceId: "00000000-0000-4000-8000-000000000011",
+      hopCount: 0,
+      createdAt: new Date().toISOString(),
+    });
+    const artifact = (seq: number, name: string): Artifact => ({
+      id: `00000000-0000-4000-8000-${String(2000 + seq).padStart(12, "0")}`,
+      name,
+      mime: "text/markdown",
+      size: 1200,
+      kind: "text",
+      sha256: "b".repeat(64),
+      category: "document",
+      messageId: message(seq, "").id,
+      messageSeq: seq,
+      senderId: agent.id,
+      senderName: "rd-codex",
+      senderType: "agent",
+      createdAt: new Date().toISOString(),
+    });
+    // 快照里只有最近的 150–200 号；报告在更早的 2 号消息里
+    artifactsApi.history = Array.from({ length: 200 }, (_, index) =>
+      message(index + 1, `第 ${index + 1} 条`),
+    );
+    artifactsApi.artifacts = [artifact(2, "report.md")];
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self, agent],
+        messages: artifactsApi.history.slice(150),
+        latestSeq: 200,
+      }),
+    );
+
+    const entry = await screen.findByRole("button", { name: "产物：1 个图片和文件" });
+    expect(entry.textContent).toContain("1");
+    await user.click(entry);
+    expect(screen.getByRole("tab", { name: /产物/ }).getAttribute("aria-selected")).toBe("true");
+    const panel = screen.getByRole("tabpanel", { name: /产物/ });
+    expect(await within(panel).findByText("report.md")).toBeTruthy();
+
+    // 新附件到达：列表与角标自动更新
+    const fresh = { ...message(201, ""), attachments: [] as ChatMessage["attachments"] };
+    const added = artifact(201, "summary.md");
+    fresh.attachments = [
+      {
+        id: added.id,
+        name: added.name,
+        mime: added.mime,
+        size: added.size,
+        kind: added.kind,
+        sha256: added.sha256,
+      },
+    ];
+    artifactsApi.artifacts = [added, ...artifactsApi.artifacts];
+    artifactsApi.history.push(fresh);
+    act(() => socket.serverEvent({ type: "message.created", message: fresh }));
+    expect(await within(panel).findByText("summary.md")).toBeTruthy();
+
+    // 定位到更早的消息：先补拉 2 号起的消息，再滚过去高亮
+    await user.click(within(panel).getByRole("button", { name: "定位到 report.md 所在的消息" }));
+    const container = document.querySelector(".message-list")! as HTMLElement;
+    const list = within(container.shadowRoot as unknown as HTMLElement);
+    await waitFor(() => expect(list.getByText("第 2 条")).toBeTruthy());
+    await waitFor(() =>
+      expect(
+        container
+          .shadowRoot!.querySelector(`[data-message-id="${message(2, "").id}"]`)
+          ?.classList.contains("highlighted"),
+      ).toBe(true),
+    );
   });
 
   it("asks returning users to grant notification permission from an in-app prompt", async () => {

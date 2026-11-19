@@ -539,4 +539,122 @@ describe("附件", () => {
     });
     expect(viaGuest.statusCode).toBe(403);
   });
+
+  describe("房间产物列表", () => {
+    type Listing = {
+      artifacts: Array<Record<string, any> & { versions?: Array<Record<string, any>> }>;
+      nextCursor?: string;
+      counts: Record<string, number>;
+    };
+    const list = async (
+      base: string,
+      query = "",
+      headers: Record<string, string> = OWNER,
+      roomId = "general",
+    ) => {
+      const response = await fetch(`${base}/api/rooms/${roomId}/attachments${query}`, { headers });
+      return { status: response.status, body: (await response.json()) as Listing };
+    };
+
+    it("只列随消息发出的附件，新的在前；同一人同名文件归成一个产物带历史版本；权限同读消息，不含本机路径", async () => {
+      const { base, upload, join, sendMessage, guest } = await start();
+      const owner = await join("rd", "human");
+      const agent = await join("rd-codex", "agent");
+      const alice = await guest("alice");
+      const outsider = await guest("eve", "secret");
+
+      const pending = (await upload("draft.md", "# not sent")).body;
+      const v1 = (await upload("report.md", "# v1")).body;
+      created(await sendMessage(agent, { clientMessageId: "a1", attachmentIds: [v1.id] }));
+      const shot = (await upload("shot.png", PNG)).body;
+      const other = (await upload("Report.md", "# by rd")).body;
+      created(
+        await sendMessage(owner, { clientMessageId: "o1", attachmentIds: [shot.id, other.id] }),
+      );
+      const v2 = (await upload("REPORT.md", "# v2")).body;
+      agent.send({ type: "message.send", clientMessageId: "a2", attachmentIds: [v2.id] });
+      const m3 = created(
+        await agent.next(
+          (event) => event.type === "message.created" && event.message.clientMessageId === "a2",
+        ),
+      );
+
+      const { status, body } = await list(base);
+      expect(status).toBe(200);
+      expect(body.artifacts.map((item) => item.id)).toEqual([v2.id, shot.id, other.id]);
+      expect(body.artifacts.some((item) => item.id === pending.id)).toBe(false);
+      expect(body.artifacts[0]).toMatchObject({
+        name: "REPORT.md",
+        category: "document",
+        messageId: m3.id,
+        messageSeq: m3.seq,
+        senderName: "rd-codex",
+        senderType: "agent",
+      });
+      expect(body.artifacts[0]!.versions?.map((item) => item.id)).toEqual([v1.id]);
+      // 不同发送者的同名文件不归到一起
+      expect(body.artifacts[2]!.versions).toBeUndefined();
+      expect(body.artifacts[1]).toMatchObject({ category: "image", width: 1, height: 1 });
+      expect(body.counts).toMatchObject({ all: 3, image: 1, file: 2, document: 2, code: 0 });
+      expect(body.nextCursor).toBeUndefined();
+      const raw = JSON.stringify(body);
+      expect(raw).not.toContain("filePath");
+      expect(raw).not.toContain(tmpdir());
+
+      expect((await list(base, "", alice.headers)).body.artifacts).toHaveLength(3);
+      expect((await list(base, "", outsider.headers)).status).toBe(403);
+      expect((await list(base, "", {})).status).toBe(401);
+      expect((await list(base, "", outsider.headers, "secret")).body.artifacts).toEqual([]);
+      expect((await list(base, "?type=nope")).status).toBe(400);
+    });
+
+    it("撤回的消息不再列出；按类型、文件名筛选；游标分页不重不漏", async () => {
+      const { base, upload, join, sendMessage } = await start();
+      const owner = await join("rd", "human");
+      const ids: string[] = [];
+      for (const name of ["a.ts", "b.json", "c.zip", "d.png", "notes.txt", "e.ts"]) {
+        const item = (await upload(name, name === "d.png" ? PNG : `content of ${name}`)).body;
+        created(await sendMessage(owner, { clientMessageId: name, attachmentIds: [item.id] }));
+        ids.unshift(item.id);
+      }
+      const recalled = (await upload("secret.ts", "oops")).body;
+      const message = created(
+        await sendMessage(owner, { clientMessageId: "r", attachmentIds: [recalled.id] }),
+      );
+      expect((await list(base)).body.artifacts[0]!.id).toBe(recalled.id);
+      owner.send({ type: "message.delete", messageId: message.id });
+      await owner.next((event) => event.type === "message.deleted");
+
+      const all = (await list(base)).body;
+      expect(all.artifacts.map((item) => item.id)).toEqual(ids);
+      expect(all.counts).toMatchObject({ all: 6, image: 1, file: 5, code: 2, data: 1, archive: 1 });
+
+      const code = (await list(base, "?type=code")).body.artifacts.map((item) => item.name);
+      expect(code).toEqual(["e.ts", "a.ts"]);
+      expect((await list(base, "?type=image")).body.artifacts.map((item) => item.name)).toEqual([
+        "d.png",
+      ]);
+      expect((await list(base, "?type=file&q=NOTES")).body.artifacts.map((i) => i.name)).toEqual([
+        "notes.txt",
+      ]);
+      // 搜索不影响各类型总数（筛选按钮上的数字）
+      expect((await list(base, "?q=zzz")).body).toMatchObject({
+        artifacts: [],
+        counts: { all: 6 },
+      });
+
+      const seen: string[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = (
+          await list(base, `?limit=4${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`)
+        ).body;
+        expect(page.artifacts.length).toBeLessThanOrEqual(4);
+        seen.push(...page.artifacts.map((item) => item.id));
+        cursor = page.nextCursor;
+      } while (cursor);
+      expect(seen).toEqual(ids);
+      expect((await list(base, "?cursor=bad")).status).toBe(400);
+    });
+  });
 });

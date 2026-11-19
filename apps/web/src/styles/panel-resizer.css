@@ -1,6 +1,8 @@
-/* 侧栏拖拽手柄：贴在侧栏内侧边缘，平时看不见，悬停或拖动时显出一条细线 */
-.rooms-panel,
-.members-panel {
+/*
+ * 侧栏拖拽手柄：贴在侧栏内侧边缘，平时看不见，悬停或拖动时显出一条细线。
+ * 用 :where 不占优先级：窄屏下侧栏变成抽屉要用 shell.css 里的 position: fixed，不能被这里盖掉
+ */
+:where(.rooms-panel, .members-panel) {
   position: relative;
 }
 

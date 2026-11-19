@@ -57,6 +57,7 @@ import { WhiteboardPanel, upsertWhiteboardEntry } from "./whiteboard";
 import { highlightDraft } from "./draft-highlight";
 import type { ComposerHandle, ComposerKeyInfo } from "./rich-composer";
 import { SchedulePanel, isPendingSchedule, upsertSchedule } from "./schedules";
+import { ArtifactsPanel, useArtifactCount } from "./artifacts";
 import {
   sortRoomsForSidebar,
   moveRoom,
@@ -215,8 +216,8 @@ type ThreadWidth = "standard" | "wide" | "full";
 type MessageSize = "small" | "standard" | "large";
 type BrowserNotificationPermission = NotificationPermission | "unsupported";
 type MobilePanel = "members" | "rooms";
-type SidePanelTab = "members" | "whiteboard" | "schedules";
-const sidePanelTabs: SidePanelTab[] = ["members", "whiteboard", "schedules"];
+type SidePanelTab = "members" | "whiteboard" | "schedules" | "artifacts";
+const sidePanelTabs: SidePanelTab[] = ["members", "whiteboard", "schedules", "artifacts"];
 
 /**
  * 侧栏标签一行放不下时（窄面板、英文等较长的译文），未选中的标签只留图标和计数，文字仍供读屏与悬停提示；
@@ -261,6 +262,7 @@ type IconName =
   | "close"
   | "copy"
   | "external"
+  | "files"
   | "hash"
   | "logout"
   | "maximize"
@@ -544,6 +546,13 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
       </>
     ),
     shield: <path d="M12 3 5 6v5c0 4.6 2.9 8 7 10 4.1-2 7-5.4 7-10V6l-7-3Zm-3 9 2 2 4-4" />,
+    files: (
+      <>
+        <path d="M8 7V5a2 2 0 0 1 2-2h5l4 4v9a2 2 0 0 1-2 2h-2" />
+        <path d="M14 3v4h4" />
+        <rect x="5" y="9" width="10" height="12" rx="2" />
+      </>
+    ),
     message: <path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9l-4 3.5V6a1 1 0 0 1 1-1z" />,
     "user-plus": (
       <>
@@ -1336,6 +1345,8 @@ export function App({
     () => guest?.username ?? localStorage.getItem(storedUsernameKey) ?? "",
   );
   const [currentRoomId, setCurrentRoomId] = useState(() => guest?.roomId ?? initialRoomId());
+  const currentRoomIdRef = useRef(currentRoomId);
+  currentRoomIdRef.current = currentRoomId;
   // 访客用兑换得到的会话令牌；房主用共享 join token（只在 Server 所在电脑或填入令牌时拿得到）
   const authToken = meta?.joinToken ?? guest?.token;
   const isOwner = Boolean(meta?.joinToken);
@@ -1382,6 +1393,10 @@ export function App({
   const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab>("members");
   const [highlightedMessageId, setHighlightedMessageId] = useState<string>();
   const [pendingJumpId, setPendingJumpId] = useState<string>();
+  /** 产物面板「定位到消息」：目标消息还没载入时先补拉，载入后再跳 */
+  const [pendingLocate, setPendingLocate] = useState<string>();
+  /** 有新附件或撤回时加一，产物面板和入口角标据此刷新 */
+  const [artifactsEpoch, setArtifactsEpoch] = useState(0);
   // 跨房间入口：搜索、提及我、Agent 任务
   const [activityView, setActivityView] = useState<ActivityView>();
   const [gotoOpen, setGotoOpen] = useState(false);
@@ -2538,6 +2553,8 @@ export function App({
           whiteboardChangesRef.current.clear();
           setSchedules(new Map((event.schedules ?? []).map((schedule) => [schedule.id, schedule])));
           setPendingApprovals(new Set(event.approvals ?? []));
+          // 断线期间可能有新附件或撤回
+          setArtifactsEpoch((current) => current + 1);
           // 重连后服务端会重新补发执行中调用的过程；已经结束的留着汇总
           {
             const live = new Set(
@@ -2568,6 +2585,7 @@ export function App({
           }
           // 房主清空了房间：本地的消息和调用记录一并丢弃，只留清空后的话题分隔
           setMessages([event.message]);
+          setArtifactsEpoch((current) => current + 1);
           setInvocations(new Map());
           setPendingNewMessages(0);
           setRecallCandidateId(undefined);
@@ -2575,10 +2593,12 @@ export function App({
         } else if (event.type === "message.deleted") {
           if (event.message.roomId !== currentRoomId) return;
           setMessages((current) => mergeMessages(current, [event.message]));
+          setArtifactsEpoch((current) => current + 1);
           setRecallCandidateId((current) => (current === event.message.id ? undefined : current));
         } else if (event.type === "message.created") {
           if (event.message.roomId !== currentRoomId) return;
           setMessages((current) => mergeMessages(current, [event.message]));
+          if (event.message.attachments?.length) setArtifactsEpoch((current) => current + 1);
           // 新的权限申请：等人批，选项可点
           if (event.message.approval) {
             const approvalId = event.message.id;
@@ -3103,6 +3123,24 @@ export function App({
     });
   }, [base, authToken, currentRoomId]);
 
+  const artifactsPanelOpen =
+    sidePanelTab === "artifacts" && (mobilePanel === "members" || !membersCollapsed);
+  const { count: artifactCount, setCounts: setArtifactCounts } = useArtifactCount({
+    base,
+    token: authToken,
+    roomId: currentRoomId,
+    epoch: artifactsEpoch,
+    // 面板开着时由面板顺带报数，不重复查
+    enabled: Boolean(meta) && !artifactsPanelOpen,
+  });
+
+  // 补拉的消息合进来之后再跳
+  useEffect(() => {
+    if (!pendingLocate || !messages.some((message) => message.id === pendingLocate)) return;
+    setPendingLocate(undefined);
+    jumpToMessage(pendingLocate);
+  });
+
   if (!username) {
     return (
       <LoginDialog
@@ -3123,6 +3161,26 @@ export function App({
       .map((participant) => participant.username.toLocaleLowerCase()),
   );
   const pendingScheduleCount = [...schedules.values()].filter(isPendingSchedule).length;
+
+  /** 打开右侧面板的「产物」：宽屏展开侧栏，窄屏打开抽屉；已经开着就收起 */
+  function toggleArtifactsPanel(trigger: HTMLButtonElement) {
+    const narrow = window.matchMedia?.("(max-width: 1100px)").matches ?? false;
+    if (narrow) {
+      setSidePanelTab("artifacts");
+      openMobilePanel("members", trigger);
+      return;
+    }
+    if (artifactsPanelOpen) {
+      setMembersCollapsed(true);
+      localStorage.setItem(storedMembersCollapsedKey, "true");
+      return;
+    }
+    setSidePanelTab("artifacts");
+    if (membersCollapsed) {
+      setMembersCollapsed(false);
+      localStorage.setItem(storedMembersCollapsedKey, "false");
+    }
+  }
 
   const offline = participants.filter((participant) => participant.status === "offline");
 
@@ -3573,6 +3631,47 @@ export function App({
     const needed = messages.length - index;
     if (needed > visibleLimit) setVisibleLimit(needed + 10);
     setPendingJumpId(messageId);
+  }
+
+  /**
+   * 定位到产物所在的消息：已经载入的直接跳；更早的先从这条起往后补拉到已载入的最早一条，再跳。
+   * 窄屏下先收起抽屉，让聊天流露出来。
+   */
+  async function locateMessage(target: { messageId: string; messageSeq: number }) {
+    if (window.matchMedia?.("(max-width: 1100px)").matches) closeMobilePanel(false);
+    if (messages.some((message) => message.id === target.messageId)) {
+      jumpToMessage(target.messageId);
+      return;
+    }
+    if (!meta || !authToken) return;
+    const roomId = currentRoomId;
+    const earliest = messages[0]?.seq ?? Number.MAX_SAFE_INTEGER;
+    const loaded: ChatMessage[] = [];
+    try {
+      let afterSeq = target.messageSeq - 1;
+      // 一次最多 500 条，最多补 10 次；再早的提示去搜索
+      for (let page = 0; page < 10 && afterSeq + 1 < earliest; page += 1) {
+        const response = await fetch(
+          `${base}/api/rooms/${encodeURIComponent(roomId)}/messages?afterSeq=${afterSeq}&limit=500`,
+          { headers: { Authorization: `Bearer ${authToken}` } },
+        );
+        if (!response.ok) throw new Error(t("消息加载失败 ({0})", { 0: response.status }));
+        const payload = localizeServerPayload((await response.json()) as MessagesResponse);
+        if (payload.messages.length === 0) break;
+        loaded.push(...payload.messages);
+        afterSeq = payload.messages.at(-1)!.seq;
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+      return;
+    }
+    if (roomId !== currentRoomIdRef.current) return;
+    if (!loaded.some((message) => message.id === target.messageId)) {
+      setGotoNotice(t("这条消息已经不在了，可能被撤回或房间被清空。"));
+      return;
+    }
+    setMessages((current) => mergeMessages(current, loaded));
+    setPendingLocate(target.messageId);
   }
 
   function toggleMessageSelected(messageId: string) {
@@ -4607,6 +4706,26 @@ export function App({
               >
                 <Icon name="plus" size={16} />
                 <span>{t("新话题")}</span>
+              </button>
+              <button
+                type="button"
+                className={`header-button artifacts-toggle ${artifactsPanelOpen ? "active" : ""}`}
+                aria-label={
+                  artifactCount
+                    ? t("产物：{0} 个图片和文件", { 0: artifactCount })
+                    : t("产物：房间里的图片和文件")
+                }
+                aria-expanded={artifactsPanelOpen}
+                title={t("产物：房间里的图片和文件")}
+                onClick={(event) => toggleArtifactsPanel(event.currentTarget)}
+              >
+                <Icon name="files" size={16} />
+                <span>{t("产物")}</span>
+                {artifactCount ? (
+                  <span className="header-count" aria-hidden="true">
+                    {artifactCount > 99 ? "99+" : artifactCount}
+                  </span>
+                ) : null}
               </button>
               <button
                 type="button"
@@ -5872,6 +5991,28 @@ export function App({
                   </span>
                 )}
               </button>
+              <button
+                type="button"
+                role="tab"
+                id="side-tab-artifacts"
+                title={t("产物")}
+                aria-selected={sidePanelTab === "artifacts"}
+                aria-controls="side-panel-artifacts"
+                tabIndex={sidePanelTab === "artifacts" ? 0 : -1}
+                className={sidePanelTab === "artifacts" ? "active" : ""}
+                onClick={() => setSidePanelTab("artifacts")}
+              >
+                <Icon name="files" size={15} />
+                <span className="side-tab-label">{t("产物")}</span>
+                {artifactCount ? (
+                  <span
+                    className="side-tab-count"
+                    aria-label={t("{0} 个图片和文件", { 0: artifactCount })}
+                  >
+                    {artifactCount}
+                  </span>
+                ) : null}
+              </button>
             </div>
             <button
               ref={membersCloseRef}
@@ -5883,7 +6024,23 @@ export function App({
               <Icon name="close" />
             </button>
           </div>
-          {sidePanelTab === "schedules" ? (
+          {sidePanelTab === "artifacts" ? (
+            <div
+              className="whiteboard-scroll"
+              role="tabpanel"
+              id="side-panel-artifacts"
+              aria-labelledby="side-tab-artifacts"
+            >
+              <ArtifactsPanel
+                base={base}
+                token={authToken}
+                roomId={currentRoomId}
+                epoch={artifactsEpoch}
+                onLocate={(item) => void locateMessage(item)}
+                onCounts={setArtifactCounts}
+              />
+            </div>
+          ) : sidePanelTab === "schedules" ? (
             <div
               className="whiteboard-scroll"
               role="tabpanel"

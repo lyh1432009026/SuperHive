@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  artifactCategory,
+  artifactGroupKey,
+  artifactsQuerySchema,
+  matchesArtifactFilter,
   roomWorkspaceSchema,
   isMentioned,
   parseMentions,
@@ -119,5 +123,39 @@ describe("isResumableUnknown", () => {
     expect(isResumableUnknown({ status: "failed", detailText: { key: "bridge.uncertain" } })).toBe(
       false,
     );
+  });
+});
+
+describe("room artifacts", () => {
+  const file = (
+    name: string,
+    kind: "image" | "text" | "file" = "file",
+    mime = "application/octet-stream",
+  ) => artifactCategory({ name, kind, mime });
+
+  it("sorts attachments into image / document / code / data / archive / media / other", () => {
+    expect(file("shot.png", "image", "image/png")).toBe("image");
+    expect(file("report.pdf", "file", "application/pdf")).toBe("document");
+    expect(file("README.md", "text", "text/markdown")).toBe("document");
+    expect(file("page.html", "text", "text/plain")).toBe("document");
+    expect(file("App.TSX", "text", "text/plain")).toBe("code");
+    expect(file("Dockerfile", "text", "text/plain")).toBe("code");
+    expect(file("diagram.svg", "text", "text/plain")).toBe("code");
+    expect(file("rows.csv", "text", "text/csv")).toBe("data");
+    expect(file("dist.tar.gz")).toBe("archive");
+    expect(file("clip", "file", "video/mp4")).toBe("media");
+    expect(file("notes", "text", "text/plain")).toBe("document");
+    expect(file("blob.bin")).toBe("other");
+  });
+
+  it("filters, groups names case-insensitively per sender and validates queries", () => {
+    expect(matchesArtifactFilter("code", "file")).toBe(true);
+    expect(matchesArtifactFilter("image", "file")).toBe(false);
+    expect(matchesArtifactFilter("image", "all")).toBe(true);
+    expect(artifactGroupKey("a", "Report.MD")).toBe(artifactGroupKey("a", "report.md"));
+    expect(artifactGroupKey("a", "report.md")).not.toBe(artifactGroupKey("b", "report.md"));
+    expect(artifactsQuerySchema.parse({})).toEqual({ type: "all", q: "", limit: 60 });
+    expect(artifactsQuerySchema.safeParse({ limit: "500" }).success).toBe(false);
+    expect(artifactsQuerySchema.safeParse({ cursor: "1;drop" }).success).toBe(false);
   });
 });

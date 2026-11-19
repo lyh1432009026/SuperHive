@@ -1609,6 +1609,109 @@ export function stripUnsafeCharacters(value: string): string {
   );
 }
 
+/**
+ * 房间「产物」：房间里随消息发出、没撤回的附件（人上传的、Agent 用 hive-attachments 发的）。
+ * 同一个人发的同名文件（不分大小写）算同一个产物的不同版本，列表只显示最新版，旧版本放在 versions 里。
+ */
+
+/** 细分类型：按服务端嗅探出的 kind / MIME 和扩展名归类，网页筛选和图标都用它 */
+export const artifactCategorySchema = z.enum([
+  "image",
+  "document",
+  "code",
+  "data",
+  "archive",
+  "media",
+  "other",
+]);
+export type ArtifactCategory = z.infer<typeof artifactCategorySchema>;
+
+/** 筛选：all 全部，file 除图片以外的全部，其余是单个细分类型 */
+export const artifactFilterSchema = z.union([z.enum(["all", "file"]), artifactCategorySchema]);
+export type ArtifactFilter = z.infer<typeof artifactFilterSchema>;
+
+const EXTENSION_CATEGORY: Record<string, ArtifactCategory> = {};
+for (const [category, extensions] of [
+  ["document", "pdf md markdown mdx txt rtf doc docx odt ppt pptx odp key pages html htm epub"],
+  ["data", "json jsonl ndjson csv tsv xls xlsx ods numbers yaml yml toml xml sql db sqlite log"],
+  [
+    "code",
+    "ts tsx js jsx mjs cjs py rb go rs java kt kts swift c h cc cpp hpp cs php sh bash zsh fish ps1 css scss less vue svelte astro lua dart scala r m mm pl ex exs erl hs clj zig nim patch diff svg ini conf env lock gradle mk cmake dockerfile",
+  ],
+  ["archive", "zip tar gz tgz bz2 xz 7z rar zst br lz4 jar war dmg iso"],
+  ["media", "mp4 m4v mov webm mkv avi mp3 m4a aac wav ogg oga opus flac"],
+] as const) {
+  for (const extension of extensions.split(" ")) EXTENSION_CATEGORY[extension] = category;
+}
+
+export function artifactCategory(
+  attachment: Pick<Attachment, "kind" | "mime" | "name">,
+): ArtifactCategory {
+  if (attachment.kind === "image") return "image";
+  if (attachment.mime.startsWith("video/") || attachment.mime.startsWith("audio/")) return "media";
+  if (attachment.mime === "application/pdf") return "document";
+  const extension = /\.([a-z0-9]{1,10})$/i.exec(attachment.name)?.[1]?.toLowerCase() ?? "";
+  // 没有扩展名的 Dockerfile、Makefile 之类按文件名认
+  const byName = /^(dockerfile|makefile|rakefile|gemfile|procfile)$/i.test(attachment.name)
+    ? "code"
+    : undefined;
+  return (
+    EXTENSION_CATEGORY[extension] ?? byName ?? (attachment.kind === "text" ? "document" : "other")
+  );
+}
+
+export function matchesArtifactFilter(category: ArtifactCategory, filter: ArtifactFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "file") return category !== "image";
+  return category === filter;
+}
+
+/** 同一产物的分组键：发送者 + 文件名（不分大小写） */
+export function artifactGroupKey(senderId: string, name: string): string {
+  return `${senderId}\u0000${name.normalize("NFKC").toLocaleLowerCase()}`;
+}
+
+export const artifactItemSchema = attachmentSchema.extend({
+  category: artifactCategorySchema,
+  messageId: z.string().uuid(),
+  messageSeq: z.number().int().positive(),
+  senderId: z.string().uuid(),
+  senderName: z.string(),
+  senderType: participantTypeSchema,
+  createdAt: z.string().datetime(),
+});
+export type ArtifactItem = z.infer<typeof artifactItemSchema>;
+
+export const artifactSchema = artifactItemSchema.extend({
+  /** 同一产物更早的版本，新的在前；只有一个版本时省略 */
+  versions: z.array(artifactItemSchema).optional(),
+});
+export type Artifact = z.infer<typeof artifactSchema>;
+
+export const artifactCountsSchema = z.record(artifactFilterSchema, z.number().int().min(0));
+export type ArtifactCounts = Partial<Record<ArtifactFilter, number>>;
+
+export const artifactsQuerySchema = z.object({
+  type: artifactFilterSchema.default("all"),
+  q: z.string().trim().max(200).default(""),
+  /** 上一页最后一项的游标（服务端给的 nextCursor，原样带回） */
+  cursor: z
+    .string()
+    .regex(/^\d{1,15}\.[0-9a-f-]{36}$/)
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(60),
+});
+export type ArtifactsQuery = z.infer<typeof artifactsQuerySchema>;
+
+export const artifactsResponseSchema = z.object({
+  artifacts: z.array(artifactSchema),
+  /** 还有下一页时给出；不带它就是到底了 */
+  nextCursor: z.string().optional(),
+  /** 不计搜索词的各类型产物数（每个产物只算一次），给筛选按钮和入口角标用 */
+  counts: artifactCountsSchema,
+});
+export type ArtifactsResponse = z.infer<typeof artifactsResponseSchema>;
+
 export * from "./invocation-state.js";
 export * from "./agent-session.js";
 export * from "./plural.js";

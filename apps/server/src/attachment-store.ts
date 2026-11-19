@@ -50,6 +50,16 @@ export type StoredAttachment = Attachment & {
   filePath: string;
 };
 
+/** 已随消息发出的附件，带上所属消息的发送者与时间 */
+export type SentAttachment = Attachment & {
+  messageId: string;
+  messageSeq: number;
+  senderId: string;
+  senderName: string;
+  senderType: "human" | "agent";
+  createdAt: string;
+};
+
 export type AttachmentStoreOptions = {
   dir: string;
   roomQuotaBytes?: number;
@@ -453,6 +463,40 @@ export class AttachmentStore {
         throw new HiveError("ATTACHMENT_UNAVAILABLE", serverText("error.attachment.sentElsewhere"));
       }
     }
+  }
+
+  /**
+   * 房间里随消息发出、仍可读的附件（产物面板用）：没撤回、所属消息还在且没撤回。
+   * 新消息在前；同一条消息里的附件按上传顺序。只给元数据，不含本机路径。
+   */
+  listSent(roomId: string): SentAttachment[] {
+    const rows = this.db
+      .prepare(
+        `SELECT a.*, m.seq AS message_seq, m.sender_id, m.sender_name, m.sender_type,
+            m.created_at AS sent_at
+          FROM attachments a JOIN messages m ON m.id = a.message_id
+          WHERE a.room_id = ? AND m.room_id = a.room_id
+            AND a.revoked_at IS NULL AND m.deleted_at IS NULL
+          ORDER BY m.seq DESC, a.rowid ASC`,
+      )
+      .all(roomId) as Array<
+      AttachmentRow & {
+        message_seq: number;
+        sender_id: string;
+        sender_name: string;
+        sender_type: "human" | "agent";
+        sent_at: string;
+      }
+    >;
+    return rows.map((row) => ({
+      ...publicAttachment(this.map(row)),
+      messageId: row.message_id!,
+      messageSeq: row.message_seq,
+      senderId: row.sender_id,
+      senderName: row.sender_name,
+      senderType: row.sender_type,
+      createdAt: row.sent_at,
+    }));
   }
 
   /** 撤回消息：撤销它引用的附件；文件在没有其他引用后由 sweep 删除 */
