@@ -1385,6 +1385,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       participant.type === "agent" && message.parentMessageId
         ? database.getInvocationFor(message.parentMessageId, participant.id)
         : undefined;
+    const requester = replyRequester(participant, message, parentInvocation, targets, options);
+    if (requester) targets.push(requester.username);
     for (const mention of targets) {
       if (mention.toLocaleLowerCase() === "all") continue;
       const agent = database.findParticipant(participant.roomId, mention);
@@ -1455,6 +1457,47 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       deliverMention(message, agent, false, steer);
     }
     return result;
+  }
+
+  /**
+   * Agent 回复另一个 Agent 用 @ 发来的请求、正文却没 @ 回对方时，把回复也送到请求方，
+   * 否则请求方收不到结果、只能靠人提醒。照常走下面的派发循环，hop / trace / 轮数预算一样生效。
+   * 不送的情况：已经 @ 了请求方；请求来自人（人看得到回复）；hive_invoke 的委派（有子任务回执）；
+   * 进度、回执、委派消息；同一个请求已经送过一次回复。
+   */
+  function replyRequester(
+    participant: Participant,
+    message: ChatMessage,
+    request: Invocation | undefined,
+    targets: string[],
+    options: { receipt?: boolean; delegateTo?: string; relay?: boolean },
+  ): Participant | undefined {
+    if (participant.type !== "agent" || !request || options.receipt || options.delegateTo) {
+      return undefined;
+    }
+    if (message.kind || request.requesterType !== "agent" || request.continuation) return undefined;
+    if (request.requesterId === participant.id) return undefined;
+    // 只认对方亲手发的、@ 了自己的普通消息：子任务回执、定时触发等由服务端代发的不算请求
+    const asked = database.getMessage(request.messageId);
+    const self = participant.username.toLocaleLowerCase();
+    if (
+      !asked ||
+      asked.kind ||
+      asked.senderId !== request.requesterId ||
+      !asked.mentions.some((mention) => mention.toLocaleLowerCase() === self)
+    ) {
+      return undefined;
+    }
+    const requester = database.getParticipant(request.requesterId);
+    if (!requester || requester.type !== "agent" || requester.roomId !== message.roomId) {
+      return undefined;
+    }
+    const name = requester.username.toLocaleLowerCase();
+    if (targets.some((mention) => mention.toLocaleLowerCase() === name)) return undefined;
+    if (database.hasReplyDelivery(requester.id, participant.id, request.messageId, message.id)) {
+      return undefined;
+    }
+    return requester;
   }
 
   /** 房间设了主 Agent 且它还在房间里时返回它 */
@@ -3132,8 +3175,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       ? database.getInvocationFor(parent.id, requester.id)
       : undefined;
     if (parentInvocation) {
+      // 只有仍在进行的上游才可能在等结果；结果未知（timed_out）的委派回执已经送出，
+      // 对方不再等这条链，算进来会把重新委派误判成相互等待
       const waiting = [parentInvocation, ...database.invocationAncestors(parentInvocation.id)].find(
-        (invocation) => invocation.agentId === target.id && !isTerminal(invocation),
+        (invocation) =>
+          invocation.agentId === target.id &&
+          !isTerminal(invocation) &&
+          invocation.status !== "timed_out",
       );
       if (waiting) {
         throw new HiveError(

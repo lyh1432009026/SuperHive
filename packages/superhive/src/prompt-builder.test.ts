@@ -280,3 +280,26 @@ describe("lead agent hint", () => {
     ).not.toContain("主 Agent，由你接话");
   });
 });
+
+describe("reply to own request hint", () => {
+  it("explains an agent reply that reached the agent without an @", () => {
+    const reply = chat({
+      seq: 20,
+      senderName: "helper",
+      senderType: "agent",
+      content: "lead，改好了",
+      mentions: [],
+    });
+    expect(
+      buildMentionPrompt({ messages: [reply], triggers: [reply], agentName: "lead" }),
+    ).toContain("#20 是对方回复你此前发出的请求");
+    // 正文 @ 了自己、或是回执：照常处理，不加说明
+    const mentioned = chat({ ...reply, content: "@lead 改好了", mentions: ["lead"] });
+    const receipt = chat({ ...reply, kind: "receipt" });
+    for (const trigger of [mentioned, receipt]) {
+      expect(
+        buildMentionPrompt({ messages: [trigger], triggers: [trigger], agentName: "lead" }),
+      ).not.toContain("回复你此前发出的请求");
+    }
+  });
+});

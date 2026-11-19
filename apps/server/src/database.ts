@@ -1600,6 +1600,23 @@ export class HiveDatabase {
     return rows.map(mapInvocation);
   }
 
+  /** 发送者对这条请求的回复是否已经给请求方派过调用（同一请求只代为送达一次回复） */
+  hasReplyDelivery(
+    requesterId: string,
+    senderId: string,
+    requestMessageId: string,
+    exceptMessageId: string,
+  ): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM invocations i JOIN messages m ON m.id = i.message_id
+          WHERE i.agent_id = ? AND m.sender_id = ? AND m.parent_message_id = ? AND m.id <> ?
+          LIMIT 1`,
+      )
+      .get(requesterId, senderId, requestMessageId, exceptMessageId);
+    return Boolean(row);
+  }
+
   /** 沿 parentInvocationId 向上的委派链（不含自身），用来拒绝会形成相互等待的委派 */
   invocationAncestors(id: string): Invocation[] {
     const chain: Invocation[] = [];

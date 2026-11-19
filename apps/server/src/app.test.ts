@@ -66,6 +66,13 @@ class TestPeer {
     });
   }
 
+  /** 取出（并移除）目前已收到、符合条件的全部事件，用来断言「没有收到」 */
+  drain(predicate: (event: ServerEvent) => boolean): ServerEvent[] {
+    const matched = this.events.filter(predicate);
+    for (const event of matched) this.events.splice(this.events.indexOf(event), 1);
+    return matched;
+  }
+
   close(): void {
     this.socket.close();
   }
@@ -1485,6 +1492,159 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
     await mcpB.client.close();
   });
 
+  describe("replies to another agent's request", () => {
+    async function requestRoom() {
+      const room = await startRoom();
+      const { peer: alice } = await room.join("Alice", "human");
+      const { peer: lead } = await room.join("lead", "agent");
+      const { peer: helper } = await room.join("helper", "agent");
+      const leadMcp = mcpClient(room.port, "lead");
+      const helperMcp = mcpClient(room.port, "helper");
+      await leadMcp.connect();
+      await helperMcp.connect();
+      alice.send({ type: "message.send", clientMessageId: "root", content: "@lead 帮我看看" });
+      const rooted = await lead.next((event) => event.type === "agent.mentioned");
+      const root = rooted.type === "agent.mentioned" ? rooted.message : undefined;
+      lead.send({ type: "invocation.report", messageId: root!.id, status: "running" });
+      await leadMcp.client.callTool({
+        name: "hive_message_send",
+        arguments: { content: "@helper 请改一下登录页", parentMessageId: root!.id },
+      });
+      const asked = await helper.next((event) => event.type === "agent.mentioned");
+      const request = asked.type === "agent.mentioned" ? asked.message : undefined;
+      helper.send({ type: "invocation.report", messageId: request!.id, status: "running" });
+      return { ...room, alice, lead, helper, leadMcp, helperMcp, request: request! };
+    }
+
+    it("wakes the requester when the reply does not @ it, and only once per request", async () => {
+      const { alice, lead, helperMcp, leadMcp, request } = await requestRoom();
+      await helperMcp.client.callTool({
+        name: "hive_message_send",
+        arguments: { content: "lead，登录页改好了", parentMessageId: request.id },
+      });
+      const woken = await lead.next(
+        (event) => event.type === "agent.mentioned" && event.message.content.includes("改好了"),
+      );
+      const reply = woken.type === "agent.mentioned" ? woken.message : undefined;
+      expect(reply?.mentions).toEqual([]);
+      const delivered = invocationOf(
+        await alice.next(
+          (event) =>
+            event.type === "invocation.updated" &&
+            event.invocation.messageId === reply!.id &&
+            event.invocation.agentName === "lead",
+        ),
+      );
+      expect(delivered.parentInvocationId).toEqual(expect.any(String));
+
+      // 同一个请求的第二条回复不再重复唤醒
+      await helperMcp.client.callTool({
+        name: "hive_message_send",
+        arguments: { content: "补充：截图也更新了", parentMessageId: request.id },
+      });
+      const second = await alice.next(
+        (event) =>
+          event.type === "message.created" && event.message.content.includes("截图也更新了"),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      const extra = lead.drain(
+        (event) =>
+          event.type === "agent.mentioned" &&
+          second.type === "message.created" &&
+          event.message.id === second.message.id,
+      );
+      expect(extra).toHaveLength(0);
+      await leadMcp.client.close();
+      await helperMcp.client.close();
+    });
+
+    it("does not deliver twice when the reply already @s the requester", async () => {
+      const { alice, lead, helperMcp, leadMcp, request } = await requestRoom();
+      await helperMcp.client.callTool({
+        name: "hive_message_send",
+        arguments: { content: "@lead 改好了", parentMessageId: request.id },
+      });
+      const woken = await lead.next((event) => event.type === "agent.mentioned");
+      const reply = woken.type === "agent.mentioned" ? woken.message : undefined;
+      expect(reply?.mentions).toEqual(["lead"]);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      const invocations = alice
+        .drain(
+          (event) =>
+            event.type === "invocation.updated" &&
+            event.invocation.messageId === reply!.id &&
+            event.invocation.agentName === "lead",
+        )
+        .map((event) => invocationOf(event).id);
+      expect(new Set(invocations).size).toBe(1);
+      await leadMcp.client.close();
+      await helperMcp.client.close();
+    });
+
+    it("does not wake anyone extra when replying to a human", async () => {
+      const { port, join } = await startRoom();
+      const { peer: alice } = await join("Alice", "human");
+      const { peer: helper } = await join("helper", "agent");
+      const { peer: lead } = await join("lead", "agent");
+      const helperMcp = mcpClient(port, "helper");
+      await helperMcp.connect();
+      alice.send({ type: "message.send", clientMessageId: "ask", content: "@helper 改一下" });
+      const asked = await helper.next((event) => event.type === "agent.mentioned");
+      const request = asked.type === "agent.mentioned" ? asked.message : undefined;
+      helper.send({ type: "invocation.report", messageId: request!.id, status: "running" });
+      await helperMcp.client.callTool({
+        name: "hive_message_send",
+        arguments: { content: "改好了", parentMessageId: request!.id },
+      });
+      await alice.next(
+        (event) => event.type === "message.created" && event.message.content === "改好了",
+      );
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(lead.drain((event) => event.type === "agent.mentioned")).toHaveLength(0);
+      expect(helper.drain((event) => event.type === "agent.mentioned")).toHaveLength(0);
+      await helperMcp.client.close();
+    });
+
+    it("keeps reply delivery under the hop limit", async () => {
+      const { port, join } = await startRoom();
+      const { peer: alice } = await join("Alice", "human");
+      const { peer: agentA } = await join("agent-a", "agent");
+      const { peer: agentB } = await join("agent-b", "agent");
+      const mcpA = mcpClient(port, "agent-a");
+      const mcpB = mcpClient(port, "agent-b");
+      await mcpA.connect();
+      await mcpB.connect();
+      alice.send({ type: "message.send", clientMessageId: "start", content: "@agent-a 开始" });
+      let trigger = await agentA.next((event) => event.type === "agent.mentioned");
+      const route = [
+        { client: mcpA.client, other: "agent-b", otherPeer: agentB },
+        { client: mcpB.client, other: "agent-a", otherPeer: agentA },
+      ];
+      for (let hop = 1; hop <= LIMITS.maxHopCount; hop += 1) {
+        const step = route[(hop - 1) % 2]!;
+        const parent = trigger.type === "agent.mentioned" ? trigger.message : undefined;
+        // 最后一跳只回复、不 @ 对方：代为送达同样受 hop 上限约束
+        const last = hop === LIMITS.maxHopCount;
+        await step.client.callTool({
+          name: "hive_message_send",
+          arguments: {
+            content: last ? `hop ${hop} 回复` : `@${step.other} hop ${hop}`,
+            parentMessageId: parent!.id,
+          },
+        });
+        if (!last) trigger = await step.otherPeer.next((event) => event.type === "agent.mentioned");
+      }
+      const blocked = invocationOf(
+        await alice.next(
+          (event) => event.type === "invocation.updated" && event.invocation.status === "blocked",
+        ),
+      );
+      expect(blocked.blockReason).toBe("hop_limit");
+      await mcpA.client.close();
+      await mcpB.client.close();
+    });
+  });
+
   it("marks hop-limited mentions as blocked instead of silently dropping them", async () => {
     const { port, join } = await startRoom();
     const { peer: alice } = await join("Alice", "human");
@@ -1903,6 +2063,36 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
       });
       expect(cycle.isError).toBe(true);
       expect(JSON.stringify(cycle.content)).toContain("相互等待");
+
+      await plannerMcp.client.close();
+      await workerMcp.client.close();
+    });
+
+    it("delegates again to an agent whose earlier subtask ended with an unknown result", async () => {
+      const { planner, worker, plannerMcp, workerMcp, invoke } = await delegationRoom();
+      await invoke({ agent: "worker", task: "第一次" });
+      const delegated = await worker.next((event) => event.type === "agent.mentioned");
+      const delegation = delegated.type === "agent.mentioned" ? delegated.message : undefined;
+      worker.send({ type: "invocation.report", messageId: delegation!.id, status: "running" });
+      worker.send({
+        type: "invocation.report",
+        messageId: delegation!.id,
+        status: "uncertain",
+        detail: "gone",
+      });
+      // 结果未知的回执唤醒 planner；它在回执这一轮里再派给 worker，不能被当成相互等待
+      const receiptEvent = await planner.next(
+        (event) => event.type === "agent.mentioned" && event.message.kind === "receipt",
+      );
+      const receipt = receiptEvent.type === "agent.mentioned" ? receiptEvent.message : undefined;
+      planner.send({ type: "invocation.report", messageId: receipt!.id, status: "running" });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const again = await invoke({ agent: "worker", task: "接着做", clientMessageId: "again" });
+      expect(again.result.isError).not.toBe(true);
+      const redelegated = await worker.next(
+        (event) => event.type === "agent.mentioned" && event.message.content.includes("接着做"),
+      );
+      expect(redelegated.type).toBe("agent.mentioned");
 
       await plannerMcp.client.close();
       await workerMcp.client.close();
