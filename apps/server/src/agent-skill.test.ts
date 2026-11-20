@@ -28,4 +28,10 @@ describe("skills/superhive/SKILL.md", () => {
     expect(AGENT_INSTRUCTIONS).toContain(skillRules().split("\n")[0]!);
     expect(() => renderSkill("没有标记")).toThrow();
   });
+
+  it("该找人时立刻提问、长任务开工先报进度写在规则里", () => {
+    expect(AGENT_INSTRUCTIONS).toContain("18. 以下情况必须立刻用 hive_ask_human 找人");
+    expect(AGENT_INSTRUCTIONS).toContain("这条优先于「能自己判断的不要问」");
+    expect(AGENT_INSTRUCTIONS).toContain("开工先用 hive_message_send 加 progress=true 发一条进度");
+  });
 });

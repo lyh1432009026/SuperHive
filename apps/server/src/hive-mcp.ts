@@ -321,7 +321,7 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
     "hive_message_send",
     {
       title: "Send a Hive room message",
-      description: `以当前已连接 Agent 身份向 Hive 房间发送一条公共消息。可在 content 中 @其他在线 Agent。回复或委派时传入触发消息 ID；执行调用期间省略时，服务端会自动挂到当前触发消息下，防循环上限照常生效。长任务中途有值得人知道的进展（完成一个阶段、发现需要人知道的问题、有中间产物）时传 progress=true 发进度：人发起的任务每个最多 ${LIMITS.maxProgressPerTask} 条，Agent 之间委派的任务 1 条；进度不算这一轮的回复（最终结论照常直接输出），也不会唤醒其他 Agent（要别人干活用 hive_invoke）。不要发心跳、不要发百分比。`,
+      description: `以当前已连接 Agent 身份向 Hive 房间发送一条公共消息。可在 content 中 @其他在线 Agent。回复或委派时传入触发消息 ID；执行调用期间省略时，服务端会自动挂到当前触发消息下，防循环上限照常生效。人发起的任务预计要做很久（比如超过 5 分钟）时，开工先传 progress=true 发一条进度，说清打算怎么做、大概要多久；之后完成一个阶段、发现和预期不一样或有中间产物时再发：人发起的任务每个最多 ${LIMITS.maxProgressPerTask} 条，Agent 之间委派的任务 1 条；进度不算这一轮的回复（最终结论照常直接输出），也不会唤醒其他 Agent（要别人干活用 hive_invoke）。不要发心跳、不要发百分比。`,
       inputSchema: {
         content: messageContentSchema.describe("要发送到公共房间的文本"),
         clientMessageId: z
@@ -438,7 +438,7 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
     {
       title: "Ask a human to decide",
       description:
-        "需要人拍板、补充信息或授权才能继续时，向人提一个问题；是做选择的就传 options（2-10 个，服务端按顺序编为 A、B、C…），网页会渲染成可点选的选项，最后自动附一个「其它」输入框，multiple=true 为多选。服务端会发出一条提问消息，你当前的任务转为「等人回答」，不会因为超时被判为卡住。提问后用一两句话说明你在等什么、已经做到哪里，然后结束本轮即可，不要原地等待或轮询；人回复这条提问后，服务端会带着回答重新唤醒你继续。只用于确实需要人决定的事，能自己判断的不要问；问题要具体，最好给出选项和你的建议。",
+        "需要人拍板、补充信息或授权才能继续时，向人提一个问题；是做选择的就传 options（2-10 个，服务端按顺序编为 A、B、C…），网页会渲染成可点选的选项，最后自动附一个「其它」输入框，multiple=true 为多选。服务端会发出一条提问消息，你当前的任务转为「等人回答」，不会因为超时被判为卡住。提问后用一两句话说明你在等什么、已经做到哪里，然后结束本轮即可，不要原地等待或轮询；人回复这条提问后，服务端会带着回答重新唤醒你继续。需要人在外部系统里操作（点一下、扫码、登录、接管页面、确认验证码）、需要人提供凭据或账号、接下来要做人没明确交代过的不可逆/对外/花钱的操作时，必须立刻调用，不要等一轮做完再在回复里提，也不要自己轮询干等；范围、做法这类能自己判断的不要问。问题要具体，最好给出选项和你的建议。",
       inputSchema: {
         question: messageContentSchema.describe(
           "要人回答的具体问题，可附上你的建议；选项放在 options 里，不要在这里重复列出",

@@ -92,6 +92,18 @@ describe("buildDeveloperInstructions", () => {
       }),
     ).toContain(expected);
   });
+
+  it("要人在外部系统操作、给凭据或拍板高风险操作时必须立刻提问，长任务开工先报进度", () => {
+    const rules = buildDeveloperInstructions({
+      agentName: "agent-a",
+      persona: "协作 Agent",
+      serverRules: "server rules",
+    });
+    expect(rules).toContain("20. 以下情况必须立刻用 hive_ask_human 找人");
+    expect(rules).toContain("扫码、登录、接管页面、确认验证码");
+    expect(rules).toContain("这条优先于「能自己判断的不要问」");
+    expect(rules).toContain("开工先用 hive_message_send 加 progress=true 发一条进度");
+  });
 });
 
 function chat(overrides: Partial<ChatMessage> = {}): ChatMessage {
