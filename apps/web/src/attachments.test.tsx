@@ -355,6 +355,52 @@ describe("文件预览", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("记住上次在右侧栏看：之后点文件直接停到右侧栏，放大成弹窗改回弹窗，关掉不算改", async () => {
+    localStorage.clear();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("# 方案\n\n正文")),
+    );
+    const report = file("00000000-0000-4000-8000-0000000000da", "plan.md", "text", "text/markdown");
+    const onDock = vi.fn();
+    render(
+      <MessageAttachments attachments={[report]} base="http://hive" token="t" onDock={onDock} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "预览 plan.md" }));
+    await screen.findByRole("dialog", { name: "预览 plan.md" });
+    fireEvent.click(screen.getByRole("button", { name: "在右侧栏打开" }));
+    expect(localStorage.getItem("superhive.preview-docked")).toBe("1");
+
+    // 再点文件：不弹窗，直接交给 onDock
+    onDock.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "预览 plan.md" }));
+    expect(onDock).toHaveBeenCalledWith(report);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    cleanup();
+
+    // 没有右侧栏可停（不给 onDock）时照旧弹窗
+    render(<MessageAttachments attachments={[report]} base="http://hive" token="t" />);
+    fireEvent.click(screen.getByRole("button", { name: "预览 plan.md" }));
+    await screen.findByRole("dialog", { name: "预览 plan.md" });
+    cleanup();
+
+    const onClose = vi.fn();
+    render(
+      <FilePreview
+        attachment={report}
+        base="http://hive"
+        token="t"
+        docked
+        onClose={onClose}
+        onUndock={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "关闭侧栏预览" }));
+    expect(localStorage.getItem("superhive.preview-docked")).toBe("1");
+    fireEvent.click(screen.getByRole("button", { name: "放大成弹窗" }));
+    expect(localStorage.getItem("superhive.preview-docked")).toBeNull();
+  });
+
   it("音视频在页面内播放：老附件只记了 octet-stream 也按扩展名认出来，并按正确的类型交给播放器", async () => {
     const blobs: Blob[] = [];
     vi.stubGlobal(

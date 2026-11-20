@@ -522,6 +522,29 @@ function savePreviewMaximized(value: boolean) {
   }
 }
 
+const PREVIEW_DOCKED_KEY = "superhive.preview-docked";
+
+/**
+ * 上次是不是在右侧栏看的：点过「在右侧栏打开」就记住，之后点文件直接停到右侧栏；
+ * 在侧栏里点「放大成弹窗」改回弹窗。关掉预览不算改选择
+ */
+export function loadPreviewDocked(): boolean {
+  try {
+    return localStorage.getItem(PREVIEW_DOCKED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function savePreviewDocked(value: boolean) {
+  try {
+    if (value) localStorage.setItem(PREVIEW_DOCKED_KEY, "1");
+    else localStorage.removeItem(PREVIEW_DOCKED_KEY);
+  } catch {
+    // 存不了就只在这次生效
+  }
+}
+
 /** 读出 Blob 里的文字；老一些的环境里 Blob 没有 text()，退回 FileReader */
 function readBlobText(blob: Blob): Promise<string> {
   if (typeof blob.text === "function") return blob.text();
@@ -797,7 +820,10 @@ export function FilePreview({
             className="file-preview-size"
             aria-label={t("在右侧栏打开")}
             title={t("在右侧栏打开：一边看一边发消息")}
-            onClick={onDock}
+            onClick={() => {
+              savePreviewDocked(true);
+              onDock();
+            }}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <rect x="3" y="4" width="18" height="16" rx="2" />
@@ -812,7 +838,10 @@ export function FilePreview({
               className="file-preview-size"
               aria-label={t("放大成弹窗")}
               title={t("放大成弹窗")}
-              onClick={onUndock}
+              onClick={() => {
+                savePreviewDocked(false);
+                onUndock();
+              }}
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
@@ -907,8 +936,9 @@ function FileAttachment({
         className="message-file"
         onClick={(event) => {
           event.stopPropagation();
-          if (previewable) setPreviewing(true);
-          else void download();
+          if (!previewable) void download();
+          else if (onDock && loadPreviewDocked()) onDock(attachment);
+          else setPreviewing(true);
         }}
         title={error ?? label}
         aria-label={label}

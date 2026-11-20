@@ -24,6 +24,7 @@ import {
   downloadAttachment,
   fetchAttachmentBlob,
   formatBytes,
+  loadPreviewDocked,
   previewKind,
   useAttachmentUrl,
 } from "./attachments";
@@ -685,12 +686,13 @@ export function ArtifactsPanel({
           ),
         });
       } else if (previewKind(item)) {
-        setPreviewing(item);
+        if (onDock && loadPreviewDocked()) onDock(item);
+        else setPreviewing(item);
       } else {
         download(item);
       }
     },
-    [download],
+    [download, onDock],
   );
 
   const locate = useCallback(

@@ -374,6 +374,17 @@ describe("ArtifactsPanel", () => {
     expect(within(big).getByRole("button", { name: "预览" })).toBeTruthy();
   });
 
+  it("记住了在右侧栏看时，打开文件直接交给 onDock，不再弹窗", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.preview-docked", "1");
+    store = [item("report.md")];
+    const onDock = vi.fn();
+    render(panel({ onDock }));
+    await user.dblClick(await screen.findByRole("button", { name: /^report\.md，/ }));
+    expect(onDock).toHaveBeenCalledWith(expect.objectContaining({ name: "report.md" }));
+    expect(screen.queryByRole("dialog", { name: "预览 report.md" })).toBeNull();
+  });
+
   it("opens maximized and restores to a side drawer, remembered under its own key", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
