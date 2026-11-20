@@ -87,6 +87,25 @@ export function replaceSymbolBullets(html: string): string {
   return html.replace(/[\uf06c-\uf0fe]/g, (char) => SYMBOL_BULLETS[char] ?? char);
 }
 
+/**
+ * 文档没写页边距（sectPr 里没有 pgMar，脚本生成的 docx 常见）时，docx-preview 不给页面加内边距，
+ * 正文贴着纸边。按 Word 中文版「普通」模板补上：上下 2.54 cm、左右 3.17 cm。
+ * 写了页边距的照原样，包括明确写成 0 的（比如满版封面）。
+ */
+const DEFAULT_PAGE_MARGINS = { top: "2.54cm", right: "3.17cm", bottom: "2.54cm", left: "3.17cm" };
+
+export function applyDefaultPageMargins(root: ParentNode): void {
+  for (const page of root.querySelectorAll<HTMLElement>("section.docx")) {
+    const { style } = page;
+    if (style.paddingTop || style.paddingRight || style.paddingBottom || style.paddingLeft)
+      continue;
+    style.paddingTop = DEFAULT_PAGE_MARGINS.top;
+    style.paddingRight = DEFAULT_PAGE_MARGINS.right;
+    style.paddingBottom = DEFAULT_PAGE_MARGINS.bottom;
+    style.paddingLeft = DEFAULT_PAGE_MARGINS.left;
+  }
+}
+
 export type RenderedDocx = { body: string; pageWidth: number; pages: number };
 
 const PT_TO_PX = 96 / 72;
@@ -125,6 +144,7 @@ export async function renderDocx(bytes: Uint8Array): Promise<RenderedDocx> {
   for (const node of nodes) root.appendChild(node);
   const sections = root.querySelectorAll<HTMLElement>("section.docx");
   if (sections.length === 0) throw new OfficePreviewError("failed", "empty document");
+  applyDefaultPageMargins(root);
   const widths = [...sections]
     .map((section) => lengthToPx(section.style.width))
     .filter((value): value is number => value !== undefined && value > 0);
