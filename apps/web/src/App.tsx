@@ -4046,7 +4046,7 @@ export function App({
         {...(pinned ? roomReorder.itemProps(room.id) : {})}
         onContextMenu={(event) => openRoomMenu(event, room)}
         style={placement?.style}
-        className={`room-item ${pinned ? "pinned" : ""} ${room.id === currentRoomId ? "active" : ""} ${room.archivedAt ? "archived" : ""} ${placement?.dragging ? "dragging" : ""}`}
+        className={`room-item ${pinned ? "pinned" : ""} ${room.archivedAt ? "archived" : ""} ${placement?.dragging ? "dragging" : ""}`}
       >
         {pinned && (
           <span className="room-drag-handle" aria-hidden="true">
@@ -4663,7 +4663,7 @@ export function App({
             )}
             <button
               type="button"
-              className={`sidebar-action ${activityView === "search" ? "active" : ""}`}
+              className="sidebar-action"
               aria-label={t("搜索消息")}
               aria-haspopup="dialog"
               onClick={(event) => openActivity("search", event.currentTarget)}
@@ -4676,7 +4676,7 @@ export function App({
             </button>
             <button
               type="button"
-              className={`sidebar-action ${activityView === "mentions" ? "active" : ""}`}
+              className="sidebar-action"
               aria-label={
                 unreadMentionCount > 0
                   ? t("提及我，{0} 条未读", { 0: unreadMentionCount })
@@ -4695,7 +4695,7 @@ export function App({
             </button>
             <button
               type="button"
-              className={`sidebar-action ${activityView === "tasks" ? "active" : ""}`}
+              className="sidebar-action"
               aria-label={t("Agent 任务{0}{1}", {
                 0: taskCounts.inFlight ? t("，{0} 个进行中", { 0: taskCounts.inFlight }) : "",
                 1: taskCounts.attention ? t("，{0} 个需要处理", { 0: taskCounts.attention }) : "",

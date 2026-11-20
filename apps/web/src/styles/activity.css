@@ -1,8 +1,4 @@
 /* 侧栏跨房间入口的计数，以及紧贴侧栏弹出的搜索 / @我的 / Agent 任务面板 */
-.sidebar-action.active {
-  background: var(--bg-active);
-}
-
 .sidebar-action > span:not(.sidebar-badge) {
   flex: 1;
   min-width: 0;

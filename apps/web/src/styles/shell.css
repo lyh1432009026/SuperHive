@@ -204,10 +204,6 @@
   color: var(--text-tertiary);
 }
 
-.room-item.active .room-item-pin {
-  color: var(--text-secondary);
-}
-
 .room-item {
   position: relative;
   display: flex;
@@ -218,10 +214,6 @@
 
 .room-item:hover {
   background: var(--bg-hover);
-}
-
-.room-item.active {
-  background: var(--bg-active);
 }
 
 .room-item-main {
