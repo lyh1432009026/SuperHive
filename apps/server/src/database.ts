@@ -1653,6 +1653,25 @@ export class HiveDatabase {
     return chain;
   }
 
+  /**
+   * 委派链上和这一轮算「同一件活」的上游（不含自身）：子任务回执、回复唤醒的那一轮接着上游往下做。
+   * 别的 Agent 用 hive_invoke 派给这个 Agent 的是一件新活，链到这里为止：这一轮本身是委派就没有上游，
+   * 往上走到这个 Agent 自己接的委派就停在那一轮，更早的是它之前的另一件活
+   */
+  workAncestors(id: string): Invocation[] {
+    const self = this.getInvocation(id);
+    const delegated = (invocation: Invocation) =>
+      invocation.agentId === self?.agentId &&
+      this.getMessage(invocation.messageId)?.kind === "delegation";
+    if (!self || delegated(self)) return [];
+    const chain: Invocation[] = [];
+    for (const invocation of this.invocationAncestors(id)) {
+      chain.push(invocation);
+      if (delegated(invocation)) break;
+    }
+    return chain;
+  }
+
   /** 已请求停止、尚未收到确认的调用：Agent 重新连接时需要再次下发停止请求 */
   listCancellingInvocations(agentId: string): Invocation[] {
     const rows = this.db

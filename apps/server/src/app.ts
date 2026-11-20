@@ -2392,12 +2392,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         )
           continue;
         // 只算这条任务线所属 Agent 自己的调用：排队中的，以及接着绑定调用往下走的（例如子任务回执唤醒的那一轮）。
-        // 委派给别的 Agent 的调用不会用这个目录（选目录时也只沿用同一个 Agent 上游的任务目录），不算占用
+        // 委派给别的 Agent 的调用不会用这个目录（选目录时也只沿用同一个 Agent 上游的任务目录），不算占用；
+        // 之后又派给它的新活也不是这件活的续跑
         if (
           invocation.agentName === record.agentName &&
           (invocation.status === "queued" ||
             database
-              .invocationAncestors(invocation.id)
+              .workAncestors(invocation.id)
               .some((item) => record.invocationIds.includes(item.id)))
         )
           active.add(invocation.id);
@@ -3187,7 +3188,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       report.detailText?.key === "bridge.worktreeCleaned" && finished.status === "completed"
         ? worktrees.confirmedRemoval(agent, [
             invocation.id,
-            ...database.invocationAncestors(invocation.id).map((item) => item.id),
+            ...database.workAncestors(invocation.id).map((item) => item.id),
           ])
         : undefined;
     emitInvocation(
@@ -4593,6 +4594,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         invocationId: string;
         ownerName: string;
         ancestorIds: string[];
+        earlierIds: string[];
       }> = [];
       for (const messageId of messageIds) {
         const invocation = database.getInvocationFor(messageId, participant.id);
@@ -4608,12 +4610,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         const ancestors = database.invocationAncestors(invocation.id);
         const root = [invocation, ...ancestors].find((item) => item.requesterType === "human");
         const owner = root?.requesterId ? database.getParticipant(root.requesterId) : undefined;
+        // 只有同一件活的上游才沿用它的任务目录；委派链再往上是这个 Agent 之前的别的活，单独交给选目录时说明
+        const work = new Set(database.workAncestors(invocation.id).map((item) => item.id));
         if (owner && !guestSessionOf(owner))
           tasks.push({
             messageId,
             invocationId: invocation.id,
             ownerName: owner.username,
-            ancestorIds: ancestors.map((item) => item.id),
+            ancestorIds: [...work],
+            earlierIds: ancestors.filter((item) => !work.has(item.id)).map((item) => item.id),
           });
       }
       if (tasks.length) worktreeRuntimeAgents.add(participant.id);

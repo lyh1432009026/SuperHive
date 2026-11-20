@@ -992,7 +992,14 @@ export class WorktreeManager {
   async runtimeWorkspaces(
     workspace: string,
     actor: Participant,
-    tasks: Array<{ ownerName: string; invocationId: string; ancestorIds?: string[] }>,
+    tasks: Array<{
+      ownerName: string;
+      invocationId: string;
+      /** 同一件活的上游：子任务回执、回复唤醒的那一轮沿用它们的任务目录 */
+      ancestorIds?: string[];
+      /** 委派链更上面、这个 Agent 之前的别的活：它们的目录被清理了不影响这件新活，只告诉 Agent 一声 */
+      earlierIds?: string[];
+    }>,
   ): Promise<Map<string, ManagedWorktree | RemovedWorktree | FocusDropped | undefined>> {
     const binding = this.options.database
       .connection()
@@ -1014,7 +1021,11 @@ export class WorktreeManager {
       !selections.some((task) => task.selected) &&
       !this.confirmedRemoval(
         actor,
-        tasks.flatMap((task) => [task.invocationId, ...(task.ancestorIds ?? [])]),
+        tasks.flatMap((task) => [
+          task.invocationId,
+          ...(task.ancestorIds ?? []),
+          ...(task.earlierIds ?? []),
+        ]),
       )
     )
       return result;
@@ -1066,6 +1077,18 @@ export class WorktreeManager {
             throw new HiveError(
               "WORKTREE_IDENTITY",
               serverText("error.worktree.identity", { path: task.selected.worktree_id }),
+            );
+          // 上一件活的目录已经合入清理，这是派来的新活：回默认目录开工，并告诉 Agent 那个目录不在了
+          const earlier = removed.find(
+            (item) =>
+              item.agentName === actor.username &&
+              item.roomId === actor.roomId &&
+              (task.earlierIds ?? []).some((id) => item.invocationIds.includes(id)),
+          );
+          if (earlier)
+            result.set(
+              task.invocationId,
+              this.dropFocus(actor, earlier, zhText(serverText("worktree.focusCleaned"))),
             );
           continue;
         }

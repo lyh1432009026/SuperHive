@@ -471,6 +471,122 @@ describe("worktree MCP permissions and bindings", () => {
     ).toBeUndefined();
   }, 15_000);
 
+  it("starts new work delegated after the agent's merged task line was cleaned and still closes that line's own wakeups", async () => {
+    const { app, repo, git, join, mcp, run, finish } = await start();
+    const owner = await join("Alice", "human");
+    const helper = await join("helper", "agent");
+    const writer = await join("writer", "agent");
+    const critic = await join("critic", "agent");
+    const helperCall = await mcp("helper");
+    const writerCall = await mcp("writer");
+    const mentioned = async (peer: Peer, label: string, text: string) =>
+      (
+        (await nextEvent(
+          peer,
+          label,
+          (event) => event.type === "agent.mentioned" && event.message.content.includes(text),
+        )) as Extract<ServerEvent, { type: "agent.mentioned" }>
+      ).message;
+    const running = async (peer: Peer, message: ChatMessage) => {
+      peer.send({ type: "invocation.report", messageId: message.id, status: "running" });
+      await nextEvent(
+        owner,
+        "running",
+        (event) =>
+          event.type === "invocation.updated" &&
+          event.invocation.messageId === message.id &&
+          event.invocation.status === "running",
+      );
+    };
+    const headers = {
+      authorization: "Bearer test-token",
+      "x-hive-room": "general",
+      "x-hive-agent-name": "helper",
+    };
+    const lookup = async (message: ChatMessage) =>
+      (await app.inject({ url: `/api/agent/worktree?messageId=${message.id}`, headers })).json();
+
+    // writer 把第一段派给 helper，helper 在自己的任务线里做完、合入
+    const plan = await run(owner, writer, "writer", "split the work");
+    expect(
+      (await writerCall("hive_invoke", { agent: "helper", task: "part one" })).isError,
+    ).toBeFalsy();
+    const partOne = await mentioned(helper, "deliver part one", "part one");
+    await running(helper, partOne);
+    await finish(owner, writer, plan);
+    const worktree = (await helperCall("hive_worktree_create", { slug: "part-one" }))
+      .structuredContent!.worktree as ManagedWorktree;
+    // 第一段里 helper 又把审查派给 critic：它的回执是第一段的续跑
+    expect(
+      (await helperCall("hive_invoke", { agent: "critic", task: "review part one" })).isError,
+    ).toBeFalsy();
+    const review = await mentioned(critic, "deliver review", "review part one");
+    await running(critic, review);
+    writeFileSync(path.join(worktree.path, "test.txt"), "part one\n");
+    await git(worktree.path, ["add", "."]);
+    await git(worktree.path, ["commit", "-m", "part one"]);
+    await git(repo, ["merge", "--ff-only", worktree.branch]);
+    await finish(owner, helper, partOne);
+    const reviewMerged = await mentioned(writer, "receipt to writer", "part one");
+    const cleaning = await run(owner, helper, "helper", "clean the merged worktree");
+    expect(
+      (await helperCall("hive_worktree_remove", { path: worktree.path })).structuredContent,
+    ).toMatchObject({ removed: true });
+    await finish(owner, helper, cleaning);
+
+    // 绑定在这条任务线上的续跑（critic 的回执唤醒 helper）照旧按「已清理」收尾
+    await finish(owner, critic, review);
+    const wakeup = await mentioned(helper, "receipt to helper", "review part one");
+    expect((await lookup(wakeup)).worktree).toMatchObject({ id: worktree.id, removed: true });
+    helper.send({
+      type: "invocation.report",
+      messageId: wakeup.id,
+      status: "completed",
+      detailText: { key: "bridge.worktreeCleaned", params: { path: worktree.path } },
+    });
+    const closed = await nextEvent(
+      owner,
+      "wakeup superseded",
+      (event) =>
+        event.type === "invocation.updated" &&
+        event.invocation.messageId === wakeup.id &&
+        event.invocation.resolution?.kind === "superseded",
+    );
+    expect(closed.type === "invocation.updated" && closed.invocation.status).toBe("completed");
+
+    // writer 收到回执后再派第二段：委派链上虽然有第一段，但这是新活，回默认目录开工并说明原因
+    await running(writer, reviewMerged);
+    expect(
+      (await writerCall("hive_invoke", { agent: "helper", task: "part two" })).isError,
+    ).toBeFalsy();
+    const partTwo = await mentioned(helper, "deliver part two", "part two");
+    expect(await lookup(partTwo)).toEqual({
+      worktree: null,
+      notice: {
+        kind: "focus_dropped",
+        path: worktree.path,
+        reason: expect.stringContaining("新派的任务"),
+      },
+    });
+    await running(helper, partTwo);
+    const next = await helperCall("hive_worktree_create", { slug: "part-two" });
+    expect(next.isError).toBeFalsy();
+    expect(next.structuredContent!.worktree).toMatchObject({ slug: "part-two" });
+    expect((await lookup(partTwo)).worktree).toMatchObject({
+      id: (next.structuredContent!.worktree as ManagedWorktree).id,
+    });
+    helper.send({ type: "invocation.report", messageId: partTwo.id, status: "completed" });
+    const done = await nextEvent(
+      owner,
+      "part two completed",
+      (event) =>
+        event.type === "invocation.updated" &&
+        event.invocation.messageId === partTwo.id &&
+        event.invocation.status === "completed",
+    );
+    expect(done.type === "invocation.updated" && done.invocation.resolution).toBeUndefined();
+  }, 20_000);
+
   it("lets the safe remove tool release a vanished registration and reuse the same slug", async () => {
     const { app, repo, git, join, mcp, run, finish } = await start();
     const owner = await join("Alice", "human");
