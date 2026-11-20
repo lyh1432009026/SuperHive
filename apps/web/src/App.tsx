@@ -2104,6 +2104,12 @@ export function App({
     () => currentPausedInvocations(invocations.values(), messages),
     [invocations, messages],
   );
+  // 「在做」超过 1 天没更新要标灰：房间整天没动静时也得重算，每 10 分钟走一次
+  const [progressNow, setProgressNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setProgressNow(Date.now()), 10 * 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const progressGroups = useMemo(
     () =>
       buildProgress({
@@ -2111,8 +2117,9 @@ export function App({
         entries: whiteboard.values(),
         invocations: invocations.values(),
         messages,
+        now: progressNow,
       }),
-    [currentRoomId, whiteboard, invocations, messages],
+    [currentRoomId, whiteboard, invocations, messages, progressNow],
   );
   const doingCount = activeCount(progressGroups.doing);
   const pausedAgentNames = useMemo(
