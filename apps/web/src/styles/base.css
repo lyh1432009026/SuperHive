@@ -236,7 +236,7 @@ kbd {
   flex: 0 0 auto;
 }
 
-/* 在线状态点 */
+/* 在线状态点：空闲不画点（在线/离线已分组，满屏绿点会盖过忙碌的黄点），只占位保持对齐 */
 .status-dot {
   width: 8px;
   height: 8px;
@@ -246,7 +246,7 @@ kbd {
 }
 
 .status-dot.online {
-  background: var(--success);
+  background: transparent;
 }
 
 .status-dot.busy {
