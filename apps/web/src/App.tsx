@@ -23,7 +23,7 @@ import {
   type WorkspaceFocus,
 } from "./workspace-panel";
 import { RefResolver, WorkspaceRefsContext, type RefTarget } from "./workspace-refs";
-import { isTaskDirectoryEntry, sortParticipantsByLastSeen } from "@superhive/protocol";
+import { sortParticipantsByLastSeen } from "@superhive/protocol";
 import type {
   ChatMessage,
   Invocation,
@@ -64,6 +64,7 @@ import {
   waitingInvocationForQuestion,
 } from "./invocations";
 import { WhiteboardPanel, upsertWhiteboardEntry } from "./whiteboard";
+import { ProgressPanel, buildProgress, type ProgressTarget } from "./progress";
 import { highlightDraft } from "./draft-highlight";
 import type { ComposerHandle, ComposerKeyInfo } from "./rich-composer";
 import { SchedulePanel, isPendingSchedule, upsertSchedule } from "./schedules";
@@ -2103,18 +2104,15 @@ export function App({
     () => currentPausedInvocations(invocations.values(), messages),
     [invocations, messages],
   );
-  const whiteboardBlockedCount = useMemo(
+  const progressGroups = useMemo(
     () =>
-      [...whiteboard.values()].filter(
-        (entry) => !entry.archivedAt && !isTaskDirectoryEntry(entry) && entry.slot === "blocked",
-      ).length,
-    [whiteboard],
-  );
-  const whiteboardCurrentCount = useMemo(
-    () =>
-      [...whiteboard.values()].filter((entry) => !entry.archivedAt && !isTaskDirectoryEntry(entry))
-        .length,
-    [whiteboard],
+      buildProgress({
+        roomId: currentRoomId,
+        entries: whiteboard.values(),
+        invocations: invocations.values(),
+        messages,
+      }),
+    [currentRoomId, whiteboard, invocations, messages],
   );
   const pausedAgentNames = useMemo(
     () => [...new Set(pausedInvocations.map((invocation) => `@${invocation.agentName}`))],
@@ -3809,10 +3807,24 @@ export function App({
    * 定位到产物所在的消息：已经载入的直接跳；更早的先从这条起往后补拉到已载入的最早一条，再跳。
    * 窄屏下先收起抽屉，让聊天流露出来。
    */
-  async function locateMessage(target: { messageId: string; messageSeq: number }) {
+  /** 「进展」里点一条：有消息 ID 按 ID 找，只有序号（摘要里写的 #1234）按序号找 */
+  function locateProgress(target: ProgressTarget) {
+    const loaded = messages.find((message) =>
+      target.messageId ? message.id === target.messageId : message.seq === target.messageSeq,
+    );
+    if (loaded) void locateMessage({ messageId: loaded.id, messageSeq: loaded.seq });
+    else if (target.messageSeq !== undefined)
+      void locateMessage({ messageId: target.messageId, messageSeq: target.messageSeq });
+  }
+
+  /** messageId 省略时按序号定位 */
+  async function locateMessage(target: { messageId?: string | undefined; messageSeq: number }) {
     if (window.matchMedia?.("(max-width: 1100px)").matches) closeMobilePanel(false);
-    if (messages.some((message) => message.id === target.messageId)) {
-      jumpToMessage(target.messageId);
+    const matches = (message: ChatMessage) =>
+      target.messageId ? message.id === target.messageId : message.seq === target.messageSeq;
+    const present = messages.find(matches);
+    if (present) {
+      jumpToMessage(present.id);
       return;
     }
     if (!meta || !authToken) return;
@@ -3838,12 +3850,13 @@ export function App({
       return;
     }
     if (roomId !== currentRoomIdRef.current) return;
-    if (!loaded.some((message) => message.id === target.messageId)) {
+    const found = loaded.find(matches);
+    if (!found) {
       setGotoNotice(t("这条消息已经不在了，可能被撤回或房间被清空。"));
       return;
     }
     setMessages((current) => mergeMessages(current, loaded));
-    setPendingLocate(target.messageId);
+    setPendingLocate(found.id);
   }
 
   function toggleMessageSelected(messageId: string) {
@@ -6232,7 +6245,7 @@ export function App({
                 type="button"
                 role="tab"
                 id="side-tab-whiteboard"
-                title={t("白板")}
+                title={t("进展")}
                 aria-selected={sidePanelTab === "whiteboard"}
                 aria-controls="side-panel-whiteboard"
                 tabIndex={sidePanelTab === "whiteboard" ? 0 : -1}
@@ -6240,21 +6253,23 @@ export function App({
                 onClick={() => setSidePanelTab("whiteboard")}
               >
                 <Icon name="board" size={15} />
-                <span className="side-tab-label">{t("白板")}</span>
-                {whiteboardCurrentCount > 0 && (
+                <span className="side-tab-label">{t("进展")}</span>
+                {progressGroups.attention.length > 0 ? (
                   <span
-                    className={`side-tab-count ${whiteboardBlockedCount > 0 ? "warning" : ""}`}
-                    aria-label={
-                      whiteboardBlockedCount > 0
-                        ? t("{0} 条，其中 {1} 条阻塞", {
-                            0: whiteboardCurrentCount,
-                            1: whiteboardBlockedCount,
-                          })
-                        : t("{0} 条", { 0: whiteboardCurrentCount })
-                    }
+                    className="side-tab-count warning"
+                    aria-label={t("{0} 件等你处理", { 0: progressGroups.attention.length })}
                   >
-                    {whiteboardCurrentCount}
+                    {progressGroups.attention.length}
                   </span>
+                ) : (
+                  progressGroups.doing.length > 0 && (
+                    <span
+                      className="side-tab-count"
+                      aria-label={t("{0} 件在做", { 0: progressGroups.doing.length })}
+                    >
+                      {progressGroups.doing.length}
+                    </span>
+                  )
                 )}
               </button>
               <button
@@ -6314,14 +6329,20 @@ export function App({
               aria-labelledby="side-tab-whiteboard"
               tabIndex={0}
             >
-              <WhiteboardPanel
+              <ProgressPanel
                 key={currentRoomId}
-                entries={whiteboard}
-                canManage={isOwner}
-                onRemove={removeWhiteboardEntry}
-                onArchive={changeWhiteboardArchive}
-                loadHistory={loadWhiteboardHistory}
-                historyEpoch={whiteboardEpochRef.current}
+                groups={progressGroups}
+                onLocate={locateProgress}
+                board={
+                  <WhiteboardPanel
+                    entries={whiteboard}
+                    canManage={isOwner}
+                    onRemove={removeWhiteboardEntry}
+                    onArchive={changeWhiteboardArchive}
+                    loadHistory={loadWhiteboardHistory}
+                    historyEpoch={whiteboardEpochRef.current}
+                  />
+                }
               />
             </div>
           ) : (

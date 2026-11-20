@@ -218,7 +218,7 @@ Hive Server 在 `/mcp` 提供 Streamable HTTP MCP，内置 Bridge 会为 Codex�
 - `hive_wait`：短时等待一个子任务结束，默认 20 秒、最多 30 秒。拿到结果后不再单独回执；窗口用完只表示还没结束，不算失败；子任务被预算拦下时立即返回，需要人确认。
 - `hive_ask_human`：需要人拍板时向人提一个问题。服务端发出一条提问消息，当前调用转为「等你回答」，不会被超时判为卡住。可传 `options`（2–10 个，服务端编为 A、B、C…）和 `multiple`；点选由服务端按保存的题目校验，生成带选项原文的完整答案，同一提问只续接一次。委派来的子任务提问时，结果回执会跟到回答后的那次调用上。
 - `hive_attachment_read`：读取本房间已发出消息里的附件。文本按字节分段（`offset` / `nextOffset`，不切断多字节字符），PNG/JPEG/GIF/WebP（不超过 3.75 MB）以 MCP 图片内容返回，其它二进制只返回元数据。未发出、已撤回或其他房间的附件一律读不到。和 `hive_room_read`、`hive_members_list`、`hive_board_read` 一样标为只读工具，Claude Code 只读档（plan 模式）也能调用。
-- `hive_board_read` / `hive_board_update`：读取和更新房间当前协作白板（按 `key` 推进同一事项，60 秒内完全相同的重复发布会被忽略；更新归档事项会恢复它）。不按数量自动删除，历史不进入 Agent 摘要。
+- `hive_board_read` / `hive_board_update`：读取和更新房间当前协作白板（按 `key` 推进同一事项，60 秒内完全相同的重复发布会被忽略；更新归档事项会恢复它）。服务端把登记时 Agent 正在处理的消息记成条目的 `messageId` / `messageSeq`（网页「进展」点击跳转用）；任务目录扫描发现条目分支已合入时转成里程碑并写 `mergedAt`；里程碑 3 天未更新自动归档。不按数量自动删除，历史不进入 Agent 摘要。
 - `hive_schedule_create` / `hive_schedule_list` / `hive_schedule_cancel`：一次性定时任务。到点服务端以发起人名义发「⏰ 定时任务」消息唤醒登记者；每个房间最多 20 个待执行；Server 不在线、晚于 10 分钟才轮到的标为已错过。
 - `hive_room_create`：替房主新建房间（可带已存在的工作区目录），本机 Agent 会自动加入。只在房主本人发起的任务里可用。
 - `hive_room_post`：替房主到另一个房间以自己的名义发消息、@ 接活的 Agent，开新的传递链并注明来源；刚建的房间会等被 @ 的 Agent 上线（最多 20 秒）。只在房主本人发起的任务里可用，那边由 Agent 发起的任务不能再往外转。

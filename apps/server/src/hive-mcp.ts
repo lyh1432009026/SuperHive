@@ -760,7 +760,14 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
         slot: z
           .enum(["ready", "in_progress", "blocked", "milestone"])
           .describe("ready=已就绪可被依赖；in_progress=进行中；blocked=阻塞；milestone=里程碑"),
-        summary: z.string().trim().min(1).max(500).describe("一句话说明当前状态"),
+        summary: z
+          .string()
+          .trim()
+          .min(1)
+          .max(500)
+          .describe(
+            "第一句先用人话说清是什么事、现在到哪一步（不超过 30 字，网页「进展」只显示这一句），提交号、测试数、路径等细节放在后面",
+          ),
         repo: z.string().trim().max(200).optional(),
         branch: z.string().trim().max(200).optional(),
         claim: worktreeClaimSchema

@@ -231,6 +231,9 @@ function requestPublicUrl(
   return `${request.protocol}://${request.headers.host ?? "localhost:8787"}`;
 }
 
+/** 里程碑在白板上留多久再自动归档 */
+const MILESTONE_ARCHIVE_MS = 3 * 24 * 60 * 60_000;
+
 const roomParamsSchema = z.object({
   roomId: z
     .string()
@@ -2404,6 +2407,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     onBoardChanged: (roomId) => {
       for (const entry of database.listWhiteboard(roomId))
         broadcast(roomId, { type: "whiteboard.updated", entry });
+    },
+    onMerged: (record, headCommit, clean) => {
+      for (const entry of database.completeMergedWhiteboard(
+        record.roomId,
+        record.branch,
+        headCommit,
+        {
+          includeInProgress: clean,
+        },
+      ))
+        broadcast(entry.roomId, { type: "whiteboard.updated", entry });
     },
   });
 
@@ -4727,7 +4741,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             );
           input.claim = { repo: repository.repo, branch: input.claim.branch };
         }
-        const result = database.upsertWhiteboardEntry(participant, input);
+        const source = inferExecutingParent(participant);
+        const result = database.upsertWhiteboardEntry(participant, {
+          ...input,
+          ...(source ? { source: { id: source.id, seq: source.seq } } : {}),
+        });
         if (result.changed) {
           broadcast(participant.roomId, { type: "whiteboard.updated", entry: result.entry });
           for (const entryId of result.evicted) {
@@ -5782,6 +5800,25 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   }, 30_000);
   worktreeTimer.unref();
   app.decorate("runWorktreeCleanup", () => worktrees.scan());
+  // 里程碑（含合入后自动转成的）放几天就收进历史，白板和「进展」里不留过期的事
+  const archiveStaleMilestones = () => {
+    try {
+      for (const entry of database.archiveStaleMilestones(
+        new Date(clock() - MILESTONE_ARCHIVE_MS).toISOString(),
+      ))
+        broadcast(entry.roomId, {
+          type: "whiteboard.removed",
+          roomId: entry.roomId,
+          entryId: entry.id,
+          archivedEntry: entry,
+        });
+    } catch (error) {
+      app.log.warn({ err: error }, "milestone archive failed");
+    }
+  };
+  archiveStaleMilestones();
+  const milestoneTimer = setInterval(archiveStaleMilestones, 60 * 60_000);
+  milestoneTimer.unref();
   // 分支是在工作区里切的（Agent 或人在终端里切），没有事件可听：隔一会儿读一下 HEAD
   const branchTimer = setInterval(() => {
     try {
@@ -5830,6 +5867,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   app.addHook("onClose", async () => {
     shuttingDown = true;
     clearInterval(worktreeTimer);
+    clearInterval(milestoneTimer);
     await worktrees.close();
     keepAwake?.close();
     // 换代重启：本机 Agent 交给下一个 Server 接管，正在跑的任务不中断；否则先让它们正常离线

@@ -1,0 +1,267 @@
+/*
+ * 「进展」：等你处理 / 在做 / 最近完成三组，每条一行人话，整行可点跳回聊天；
+ * 最下面折叠着 Agent 白板原文（.whiteboard 原样嵌进去）。
+ */
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 6px;
+}
+
+.progress-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 8px 4px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.progress-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+}
+
+.progress-section.attention .progress-dot {
+  background: var(--warning);
+}
+
+.progress-section.doing .progress-dot {
+  background: var(--accent);
+}
+
+.progress-section.done .progress-dot {
+  background: var(--success);
+}
+
+/* 有事等你处理时整组标题醒目一些 */
+.progress-section.attention:not([data-empty]) h3 {
+  color: var(--text);
+}
+
+.progress-count {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-section ul {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.progress-item {
+  position: relative;
+}
+
+.progress-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius-lg);
+  padding: 7px 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  transition: background var(--duration-fast);
+}
+
+button.progress-row {
+  cursor: pointer;
+}
+
+button.progress-row:hover {
+  background: var(--bg-hover);
+}
+
+button.progress-row:focus-visible {
+  outline: 2px solid var(--text-secondary);
+  outline-offset: -2px;
+}
+
+:root[data-density="compact"] .progress-row {
+  padding-block: 5px;
+}
+
+/* 等你处理：左侧 2px 警示条 */
+.progress-item.attention::before {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--warning);
+  content: "";
+}
+
+.progress-title {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.progress-item.done .progress-title {
+  color: var(--text-secondary);
+}
+
+.progress-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.progress-who {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-meta time {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-badge {
+  flex: 0 0 auto;
+  border-radius: var(--radius-pill);
+  padding: 0 7px;
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  line-height: 18px;
+}
+
+.progress-badge.warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.progress-badge.accent {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.progress-badge.success {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.progress-badge.muted {
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+}
+
+.progress-empty {
+  margin: 0 8px;
+  padding: 2px 10px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.progress-more {
+  margin: 2px 8px 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.progress-more:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* Agent 白板原文：默认折叠，样式同任务目录分组 */
+.progress-board {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-sidebar);
+}
+
+.progress-board > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 12px;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  list-style: none;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.progress-board > summary::-webkit-details-marker {
+  display: none;
+}
+
+.progress-board > summary:hover {
+  background: var(--bg-hover);
+}
+
+.progress-board > summary:focus-visible {
+  outline: 2px solid var(--text-secondary);
+  outline-offset: -2px;
+  border-radius: var(--radius-md);
+}
+
+.progress-board-hint {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-weight: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-board > summary > svg {
+  flex: 0 0 auto;
+  margin-left: auto;
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.progress-board[open] > summary > svg {
+  transform: rotate(180deg);
+}
+
+.progress-board-body {
+  padding: 0 8px 8px;
+  background: var(--bg-main);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+/* 嵌进来的白板工具栏吸顶时底色要和外框一致 */
+.progress-board-body .whiteboard-toolbar {
+  margin-inline: -8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-row,
+  .progress-board > summary,
+  .progress-board > summary > svg {
+    transition: none;
+  }
+}

@@ -710,14 +710,43 @@ describe("worktree MCP permissions and bindings", () => {
     const owner = await join("Alice", "human");
     const helper = await join("helper", "agent");
     const task = await run(owner, helper, "helper");
-    const created = await (await mcp("helper"))("hive_worktree_create", { slug: "cleanup" });
+    const call = await mcp("helper");
+    const created = await call("hive_worktree_create", { slug: "cleanup" });
     const worktree = created.structuredContent!.worktree as ManagedWorktree;
+    // 登记时记下正在处理的消息；分支还停在起点（没有提交）时扫描不当成已合入
+    const delivered = await call("hive_board_update", {
+      key: "feature",
+      slot: "ready",
+      summary: "功能做完了，等 review",
+      branch: worktree.branch,
+    });
+    expect(delivered.structuredContent).toMatchObject({
+      entry: { slot: "ready", messageId: task.id, messageSeq: task.seq },
+    });
+    await (app as unknown as { runWorktreeCleanup(): Promise<void> }).runWorktreeCleanup();
+    const unchanged = (
+      await app.inject({
+        url: "/api/rooms/general/whiteboard",
+        headers: { authorization: "Bearer test-token" },
+      })
+    ).json() as { entries: Array<{ key: string; slot: string }> };
+    expect(unchanged.entries.find((item) => item.key === "feature")?.slot).toBe("ready");
     writeFileSync(path.join(worktree.path, "test.txt"), "feature\n");
     await git(worktree.path, ["add", "."]);
     await git(worktree.path, ["commit", "-m", "feature"]);
     await git(repo, ["merge", "--ff-only", worktree.branch]);
     await finish(owner, helper, task);
     await (app as unknown as { runWorktreeCleanup(): Promise<void> }).runWorktreeCleanup();
+    const board = (
+      await app.inject({
+        url: "/api/rooms/general/whiteboard",
+        headers: { authorization: "Bearer test-token" },
+      })
+    ).json() as { entries: Array<{ key: string; slot: string; mergedAt?: string }> };
+    expect(board.entries.find((item) => item.key === "feature")).toMatchObject({
+      slot: "milestone",
+      mergedAt: expect.any(String),
+    });
     const notice = await owner.next((event) => event.type === "worktree.cleanup");
     expect(notice).toMatchObject({ type: "worktree.cleanup", count: 1, state: "available" });
     if (notice.type !== "worktree.cleanup") throw new Error("Missing cleanup notice");

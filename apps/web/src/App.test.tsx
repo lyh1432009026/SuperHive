@@ -102,6 +102,15 @@ function participant(id: string, username: string, type: Participant["type"]): P
   };
 }
 
+/** 「进展」最下面折叠着 Agent 白板原文：展开后返回它的内容区域 */
+async function openAgentBoard(
+  user: ReturnType<typeof userEvent.setup>,
+  panel: HTMLElement,
+): Promise<HTMLElement> {
+  await user.click(within(panel).getByText("Agent 白板（原文）"));
+  return panel.querySelector<HTMLElement>(".progress-board-body")!;
+}
+
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
     status,
@@ -1959,7 +1968,7 @@ describe("App mention autocomplete", () => {
 
     const entry = await screen.findByRole("button", { name: "产物：1 个图片和文件" });
     expect(entry.textContent).toContain("1");
-    // 右侧栏只剩成员、白板、定时；「产物」是头部打开的大面板
+    // 右侧栏只剩成员、进展、定时；「产物」是头部打开的大面板
     expect(
       within(screen.getByRole("tablist", { name: "侧栏视图" }))
         .getAllByRole("tab")
@@ -2605,10 +2614,11 @@ describe("App mention autocomplete", () => {
       }),
     );
     const panel = screen.getByLabelText("成员列表");
-    const tab = within(panel).getByRole("tab", { name: /白板/ });
+    const tab = within(panel).getByRole("tab", { name: /进展/ });
     await user.click(tab);
+    const board = await openAgentBoard(user, panel);
     act(() => socket.serverEvent({ type: "room.cleared", message, whiteboardArchived: false }));
-    expect(within(panel).getByText(entry.summary)).toBeTruthy();
+    expect(within(board).getByText(entry.summary)).toBeTruthy();
     act(() =>
       socket.serverEvent({
         type: "room.cleared",
@@ -2616,7 +2626,7 @@ describe("App mention autocomplete", () => {
         whiteboardArchived: true,
       }),
     );
-    expect(within(panel).getByText(entry.summary)).toBeTruthy();
+    expect(within(board).getByText(entry.summary)).toBeTruthy();
     act(() => {
       socket.serverEvent({
         type: "whiteboard.removed",
@@ -2627,10 +2637,10 @@ describe("App mention autocomplete", () => {
       socket.serverEvent({ type: "room.cleared", message, whiteboardArchived: true });
     });
     expect(within(panel).queryByText(entry.summary)).toBeNull();
-    expect(tab.textContent).toBe("白板");
+    expect(tab.textContent).toBe("进展");
     whiteboardApi.entries = [{ ...entry, archivedAt: now }];
-    await user.click(within(panel).getByRole("button", { name: "历史归档" }));
-    await waitFor(() => expect(within(panel).getByText(entry.summary)).toBeTruthy());
+    await user.click(within(board).getByRole("button", { name: "历史归档" }));
+    await waitFor(() => expect(within(board).getByText(entry.summary)).toBeTruthy());
   });
 
   it("shows the room whiteboard grouped by slot and keeps it in sync", async () => {
@@ -2693,12 +2703,24 @@ describe("App mention autocomplete", () => {
     );
 
     const panel = screen.getByLabelText("成员列表");
-    const tab = within(panel).getByRole("tab", { name: /白板/ });
+    const tab = within(panel).getByRole("tab", { name: /进展/ });
     expect(tab.getAttribute("aria-selected")).toBe("false");
     await user.click(tab);
     expect(tab.getAttribute("aria-selected")).toBe("true");
-    expect(tab.textContent).toBe("白板2");
-    const board = within(panel).getByRole("tabpanel");
+    // 阻塞算「等你处理」，标签上的数字只数这一组
+    expect(tab.textContent).toBe("进展1");
+    const progress = within(panel).getByRole("tabpanel");
+    expect(
+      within(progress)
+        .getAllByRole("heading")
+        .slice(0, 3)
+        .map((heading) => heading.textContent),
+    ).toEqual(["等你处理1", "在做1", "最近完成"]);
+    expect(within(progress).getByText("做完待验收")).toBeTruthy();
+    expect(within(progress).getByText("卡住了")).toBeTruthy();
+    // 任务目录登记只在原文里
+    expect(within(progress).getAllByText("Directory reservation")).toHaveLength(1);
+    const board = await openAgentBoard(user, panel);
     const headings = within(board)
       .getAllByRole("heading")
       .map((heading) => heading.textContent);
@@ -2737,7 +2759,7 @@ describe("App mention autocomplete", () => {
     expect(whiteboardApi.requests).toEqual([
       { action: "archive", entries: [{ id: ready.id, updatedAt: ready.updatedAt }] },
     ]);
-    expect(tab.textContent).toBe("白板2");
+    expect(tab.textContent).toBe("进展1");
     await user.click(within(board).getByRole("button", { name: "历史归档" }));
     await waitFor(() => expect(within(board).getByText(ready.summary)).toBeTruthy());
     expect(within(board).queryByText(blockedEntry.summary)).toBeNull();
@@ -2772,8 +2794,9 @@ describe("App mention autocomplete", () => {
       });
       socket.serverEvent({ type: "whiteboard.removed", roomId: "general", entryId: directory.id });
     });
-    expect(within(panel).getByText("白板还是空的")).toBeTruthy();
-    expect(within(panel).getByText("hive_board_update")).toBeTruthy();
+    expect(within(board).getByText("白板还是空的")).toBeTruthy();
+    expect(within(board).getByText("hive_board_update")).toBeTruthy();
+    expect(within(progress).getByText("没有要你处理的事")).toBeTruthy();
   });
 
   it("does not let a stale history response resurrect deleted items or overwrite a restore", async () => {
@@ -2829,9 +2852,10 @@ describe("App mention autocomplete", () => {
       }),
     );
     const panel = screen.getByLabelText("成员列表");
-    const tab = within(panel).getByRole("tab", { name: /白板/ });
+    const tab = within(panel).getByRole("tab", { name: /进展/ });
     await user.click(tab);
-    await user.click(within(panel).getByRole("button", { name: "历史归档" }));
+    const board = await openAgentBoard(user, panel);
+    await user.click(within(board).getByRole("button", { name: "历史归档" }));
     await waitFor(() => expect(resolveHistory).toBeTypeOf("function"));
     const current: WhiteboardEntry = { ...restored };
     delete current.archivedAt;
@@ -2844,11 +2868,11 @@ describe("App mention autocomplete", () => {
       resolveHistory(jsonResponse({ entries: [restored, deleted] }));
     });
     await waitFor(() => expect(within(panel).queryByText("正在加载白板历史…")).toBeNull());
-    expect(within(panel).queryByText(deleted.summary)).toBeNull();
-    expect(within(panel).queryByText(restored.summary)).toBeNull();
-    await user.click(within(panel).getByRole("button", { name: "当前事项" }));
-    expect(within(panel).getByText(restored.summary)).toBeTruthy();
-    expect(tab.textContent).toBe("白板1");
+    expect(within(board).queryByText(deleted.summary)).toBeNull();
+    expect(within(board).queryByText(restored.summary)).toBeNull();
+    await user.click(within(board).getByRole("button", { name: "当前事项" }));
+    expect(within(board).getByText(restored.summary)).toBeTruthy();
+    expect(tab.textContent).toBe("进展1");
   });
 
   it.each(["snapshot", "clear"])(
@@ -2885,8 +2909,9 @@ describe("App mention autocomplete", () => {
       };
       act(() => socket.serverEvent(snapshot));
       const panel = screen.getByLabelText("成员列表");
-      await user.click(within(panel).getByRole("tab", { name: /白板/ }));
-      await user.click(within(panel).getByRole("button", { name: "历史归档" }));
+      await user.click(within(panel).getByRole("tab", { name: /进展/ }));
+      const board = await openAgentBoard(user, panel);
+      await user.click(within(board).getByRole("button", { name: "历史归档" }));
       await waitFor(() => expect(resolveHistory).toBeTypeOf("function"));
       act(() => {
         if (eventType === "snapshot") socket.serverEvent(snapshot);

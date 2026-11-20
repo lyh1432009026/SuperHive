@@ -964,6 +964,119 @@ describe("HiveDatabase", () => {
     expect(db.changeWhiteboardArchive("general", [registered, claimed], true)).toHaveLength(2);
   });
 
+  it("records the source message and keeps it when a later update has none", () => {
+    const source = { id: "00000000-0000-4000-8000-0000000000c1", seq: 42 };
+    const first = db.upsertWhiteboardEntry(agentA, {
+      key: "task",
+      slot: "in_progress",
+      summary: "做登录页",
+      source,
+    }).entry;
+    expect(first).toMatchObject({ messageId: source.id, messageSeq: 42 });
+    const later = db.upsertWhiteboardEntry(agentA, {
+      key: "task",
+      slot: "ready",
+      summary: "登录页做完了",
+    }).entry;
+    expect(later).toMatchObject({ messageId: source.id, messageSeq: 42 });
+  });
+
+  it("turns open entries on a merged branch into milestones once per merged commit", () => {
+    const ready = db.upsertWhiteboardEntry(agentA, {
+      key: "review",
+      slot: "ready",
+      summary: "做完待 review",
+      branch: "feat/a",
+    }).entry;
+    const working = db.upsertWhiteboardEntry(agentB, {
+      key: "work",
+      slot: "in_progress",
+      summary: "还在做",
+      claim: { repo: "/repo", branch: "feat/a" },
+    }).entry;
+    const blocked = db.upsertWhiteboardEntry(agentA, {
+      key: "stuck",
+      slot: "blocked",
+      summary: "卡住了",
+      branch: "feat/a",
+    }).entry;
+    const other = db.upsertWhiteboardEntry(agentA, {
+      key: "other",
+      slot: "ready",
+      summary: "别的分支",
+      branch: "feat/b",
+    }).entry;
+    // 目录不干净：进行中的不动
+    const dirty = db.completeMergedWhiteboard("general", "feat/a", "c1", {
+      includeInProgress: false,
+    });
+    expect(dirty.map((entry) => entry.id)).toEqual([ready.id]);
+    expect(dirty[0]).toMatchObject({ slot: "milestone", mergedAt: expect.any(String) });
+    const clean = db.completeMergedWhiteboard("general", "feat/a", "c1", {
+      includeInProgress: true,
+    });
+    expect(clean.map((entry) => entry.id)).toEqual([working.id]);
+    expect(clean[0]!.claim).toBeUndefined();
+    // 同一个合入提交不再重复转；Agent 重新登记回进行中后，也不会被改回去
+    db.upsertWhiteboardEntry(agentA, {
+      key: "review",
+      slot: "in_progress",
+      summary: "接着做",
+      branch: "feat/a",
+    });
+    expect(
+      db.completeMergedWhiteboard("general", "feat/a", "c1", { includeInProgress: true }),
+    ).toEqual([]);
+    const reopened = db.listWhiteboard("general").find((entry) => entry.id === ready.id)!;
+    expect(reopened).toMatchObject({ slot: "in_progress" });
+    expect(reopened.mergedAt).toBeUndefined();
+    // 新的提交合入后再转
+    expect(
+      db
+        .completeMergedWhiteboard("general", "feat/a", "c2", { includeInProgress: true })
+        .map((entry) => entry.id),
+    ).toEqual([ready.id]);
+    const current = new Map(db.listWhiteboard("general").map((entry) => [entry.id, entry]));
+    expect(current.get(blocked.id)!.slot).toBe("blocked");
+    expect(current.get(other.id)!.slot).toBe("ready");
+  });
+
+  it("archives milestones that have not changed for a while, except protected ones", () => {
+    const old = db.upsertWhiteboardEntry(agentA, {
+      key: "old",
+      slot: "milestone",
+      summary: "早就合入",
+    }).entry;
+    const fresh = db.upsertWhiteboardEntry(agentA, {
+      key: "fresh",
+      slot: "milestone",
+      summary: "刚合入",
+    }).entry;
+    const working = db.upsertWhiteboardEntry(agentA, {
+      key: "working",
+      slot: "in_progress",
+      summary: "还在做",
+    }).entry;
+    const protectedEntry = db.upsertWhiteboardEntry(agentA, {
+      key: "worktree:managed",
+      slot: "milestone",
+      summary: "目录还在",
+    }).entry;
+    const past = "2026-01-01T00:00:00.000Z";
+    db.connection()
+      .prepare("UPDATE whiteboard_entries SET updated_at = ? WHERE id IN (?, ?, ?)")
+      .run(past, old.id, working.id, protectedEntry.id);
+    const archived = db.archiveStaleMilestones("2026-02-01T00:00:00.000Z");
+    expect(archived.map((entry) => entry.id)).toEqual([old.id]);
+    expect(archived[0]!.archivedAt).toBeTruthy();
+    expect(
+      db
+        .listWhiteboard("general")
+        .map((entry) => entry.id)
+        .sort(),
+    ).toEqual([fresh.id, working.id, protectedEntry.id].sort());
+  });
+
   it("reactivates the same archived key even for an identical update within the throttle window", () => {
     const input = { key: "task", slot: "ready" as const, summary: "done" };
     const entry = db.upsertWhiteboardEntry(agentA, input).entry;

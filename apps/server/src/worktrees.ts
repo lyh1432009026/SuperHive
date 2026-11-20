@@ -309,6 +309,11 @@ export class WorktreeManager {
       database: HiveDatabase;
       activeInvocations: (worktree: ManagedWorktree) => string[];
       onBoardChanged?: (roomId: string) => void;
+      /**
+       * 后台扫描发现任务线的分支已合入（分支上有过提交、不只是停在起点）：白板据此把对应条目转成已完成。
+       * clean = 目录里没有未提交、未跟踪的改动
+       */
+      onMerged?: (record: ManagedWorktree, headCommit: string, clean: boolean) => void;
       onCleanup?: (batch: WorktreeCleanupBatch) => void;
       /** Server 替人做了决定（比如不再沿用某个任务目录）：记审计日志 */
       audit?: (message: string, details: Record<string, string>) => void;
@@ -498,6 +503,13 @@ export class WorktreeManager {
       statuses.push(status);
       // 被换了分支的目录：不清理，只在白板上提示房主
       if (status.branchSwitched) this.markSwitched(record, status.branchSwitched.current);
+      if (
+        status.merged &&
+        status.headCommit &&
+        status.headCommit !== record.baseCommit &&
+        !status.error
+      )
+        this.options.onMerged?.(record, status.headCommit, !status.dirty && !status.untracked);
       if (!status.removable || !status.headCommit) continue;
       const notice = this.options.database
         .connection()

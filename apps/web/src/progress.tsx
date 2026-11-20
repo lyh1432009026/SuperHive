@@ -1,0 +1,312 @@
+import { useEffect, useState, type ReactNode } from "react";
+import {
+  isTaskDirectoryEntry,
+  type ChatMessage,
+  type Invocation,
+  type WhiteboardEntry,
+} from "@superhive/protocol";
+import { attentionKind, attentionLabels, type AttentionKind } from "./attention";
+import { t } from "./i18n";
+import { formatRelativeTime } from "./whiteboard";
+
+/**
+ * 「进展」：右侧栏给人看的那一面。白板原文是 Agent 之间的协作记录（提交号、测试数、目录），
+ * 这里只挑人关心的三件事，每条一句话：等你处理、在做、最近完成；点一条跳回聊天里对应的那段。
+ */
+
+export type ProgressGroup = "attention" | "doing" | "done";
+
+/** 跳回聊天的位置：有消息 ID 按 ID 找，只知道序号（摘要里写的 #1234）按序号找 */
+export type ProgressTarget = { messageId?: string; messageSeq?: number };
+
+export type ProgressItem = {
+  id: string;
+  group: ProgressGroup;
+  /** 一句话：Agent 摘要的第一句，或服务端事件拼出的说明 */
+  title: string;
+  /** 悬停看到的完整原文 */
+  detail: string;
+  who: string;
+  at: string;
+  badge?: { label: string; tone: "warning" | "accent" | "success" | "muted" };
+  target?: ProgressTarget;
+};
+
+const HEADLINE_MAX = 60;
+
+/**
+ * 摘要的第一句：去掉开头的消息引用（#4003）、提交号，截到第一个句号/分号/换行；
+ * 旧条目没有按「先一句人话」写，第一句可能很长，超过 60 字截断。
+ */
+export function progressHeadline(summary: string): string {
+  const text = summary
+    .trim()
+    .replace(/^(?:(?:#\d+|[0-9a-f]{7,40})(?=[\s，,：:、]|[一-鿿])[\s，,：:、]*)+/i, "");
+  const sentence = (/^[^。！？!?；;\n]+[！？!?]?/.exec(text)?.[0] ?? text).trim();
+  const chars = [...sentence];
+  return chars.length > HEADLINE_MAX
+    ? `${chars.slice(0, HEADLINE_MAX - 1).join("")}…`
+    : sentence || summary.trim();
+}
+
+function entryTarget(
+  entry: WhiteboardEntry,
+  messages: readonly ChatMessage[],
+): ProgressTarget | undefined {
+  if (entry.messageId) return { messageId: entry.messageId, messageSeq: entry.messageSeq };
+  const seq = /#(\d+)/.exec(entry.summary)?.[1];
+  if (seq) return { messageSeq: Number(seq) };
+  // 旧条目没记来源：退回到作者在这次登记前后发的最后一条消息（只在已载入的消息里找）
+  const before = Date.parse(entry.updatedAt) + 60_000;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if (message.deletedAt || message.senderId !== entry.authorId) continue;
+    if (Date.parse(message.createdAt) <= before)
+      return { messageId: message.id, messageSeq: message.seq };
+  }
+  return undefined;
+}
+
+/** 等你回答的问题：提问消息挂在触发这一轮的消息下面；找不到就跳到触发消息 */
+function questionOf(
+  invocation: Invocation,
+  messages: readonly ChatMessage[],
+): ChatMessage | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if (
+      message.kind === "question" &&
+      !message.deletedAt &&
+      message.senderId === invocation.agentId &&
+      message.parentMessageId === invocation.messageId
+    )
+      return message;
+  }
+  return undefined;
+}
+
+const humanKinds: AttentionKind[] = ["question", "approval", "decide"];
+
+function attentionTitle(
+  kind: AttentionKind,
+  invocation: Invocation,
+  question?: ChatMessage,
+): string {
+  switch (kind) {
+    case "question":
+      return question
+        ? t("{0} 在问：{1}", {
+            0: invocation.agentName,
+            1: progressHeadline(question.content),
+          })
+        : t("{0} 在等你回答", { 0: invocation.agentName });
+    case "approval":
+      return t("{0} 的任务被拦下，等你放行", { 0: invocation.agentName });
+    default:
+      return t("{0} 中途中断，等你决定继续还是忽略", { 0: invocation.agentName });
+  }
+}
+
+export function buildProgress({
+  roomId,
+  entries,
+  invocations,
+  messages,
+}: {
+  roomId: string;
+  entries: Iterable<WhiteboardEntry>;
+  invocations: Iterable<Invocation>;
+  messages: readonly ChatMessage[];
+}): Record<ProgressGroup, ProgressItem[]> {
+  const groups: Record<ProgressGroup, ProgressItem[]> = { attention: [], doing: [], done: [] };
+  for (const invocation of invocations) {
+    if (invocation.roomId !== roomId) continue;
+    const kind = attentionKind(invocation);
+    if (!kind || !humanKinds.includes(kind)) continue;
+    const question = kind === "question" ? questionOf(invocation, messages) : undefined;
+    groups.attention.push({
+      id: `invocation:${invocation.id}`,
+      group: "attention",
+      title: attentionTitle(kind, invocation, question),
+      detail: question?.content ?? invocation.detail ?? "",
+      who: invocation.agentName,
+      at: invocation.updatedAt,
+      badge: { label: attentionLabels[kind], tone: "warning" },
+      target: question
+        ? { messageId: question.id, messageSeq: question.seq }
+        : { messageId: invocation.messageId },
+    });
+  }
+  for (const entry of entries) {
+    if (entry.archivedAt || isTaskDirectoryEntry(entry)) continue;
+    const base = {
+      id: entry.id,
+      title: progressHeadline(entry.summary),
+      detail: entry.summary,
+      who: entry.authorName,
+      at: entry.updatedAt,
+      target: entryTarget(entry, messages),
+    };
+    switch (entry.slot) {
+      case "blocked":
+        groups.attention.push({
+          ...base,
+          group: "attention",
+          badge: { label: t("卡住了"), tone: "warning" },
+        });
+        break;
+      case "in_progress":
+        groups.doing.push({ ...base, group: "doing" });
+        break;
+      case "ready":
+        groups.doing.push({
+          ...base,
+          group: "doing",
+          badge: { label: t("做完待验收"), tone: "success" },
+        });
+        break;
+      case "milestone":
+        groups.done.push({
+          ...base,
+          group: "done",
+          ...(entry.mergedAt ? { badge: { label: t("已合入"), tone: "muted" as const } } : {}),
+        });
+        break;
+    }
+  }
+  // 等你处理：等得最久的在前；在做、最近完成：最近有动静的在前
+  groups.attention.sort((a, b) => a.at.localeCompare(b.at));
+  groups.doing.sort((a, b) => b.at.localeCompare(a.at));
+  groups.done.sort((a, b) => b.at.localeCompare(a.at));
+  return groups;
+}
+
+const DONE_PREVIEW = 8;
+
+function ProgressRow({
+  item,
+  now,
+  onLocate,
+}: {
+  item: ProgressItem;
+  now: number;
+  onLocate: (target: ProgressTarget) => void;
+}) {
+  const body = (
+    <>
+      <span className="progress-title">{item.title}</span>
+      <span className="progress-meta">
+        {item.badge && (
+          <span className={`progress-badge ${item.badge.tone}`}>{item.badge.label}</span>
+        )}
+        <span className="progress-who">{item.who}</span>
+        <time dateTime={item.at} title={new Date(item.at).toLocaleString()}>
+          {formatRelativeTime(item.at, now)}
+        </time>
+      </span>
+    </>
+  );
+  const target = item.target;
+  return (
+    <li className={`progress-item ${item.group}`}>
+      {target ? (
+        <button
+          type="button"
+          className="progress-row"
+          title={item.detail ? `${item.detail}\n\n${t("点击跳到聊天里的这段")}` : undefined}
+          onClick={() => onLocate(target)}
+        >
+          {body}
+        </button>
+      ) : (
+        <div className="progress-row" title={item.detail || undefined}>
+          {body}
+        </div>
+      )}
+    </li>
+  );
+}
+
+export function ProgressPanel({
+  groups,
+  onLocate,
+  board,
+}: {
+  groups: Record<ProgressGroup, ProgressItem[]>;
+  onLocate: (target: ProgressTarget) => void;
+  /** 折叠在最下面的 Agent 白板原文 */
+  board: ReactNode;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  const [showAllDone, setShowAllDone] = useState(false);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const sections: Array<{ group: ProgressGroup; label: string; empty: string }> = [
+    { group: "attention", label: t("等你处理"), empty: t("没有要你处理的事") },
+    { group: "doing", label: t("在做"), empty: t("现在没有进行中的工作") },
+    { group: "done", label: t("最近完成"), empty: t("最近几天没有完成的事") },
+  ];
+  return (
+    <div className="progress">
+      {sections.map(({ group, label, empty }) => {
+        const items = groups[group];
+        const visible = group === "done" && !showAllDone ? items.slice(0, DONE_PREVIEW) : items;
+        const headingId = `progress-${group}`;
+        return (
+          <section
+            key={group}
+            className={`progress-section ${group}`}
+            aria-labelledby={headingId}
+            data-empty={items.length === 0 || undefined}
+          >
+            <h3 id={headingId}>
+              <span className="progress-dot" aria-hidden="true" />
+              {label}
+              {items.length > 0 && <span className="progress-count">{items.length}</span>}
+            </h3>
+            {items.length === 0 ? (
+              <p className="progress-empty">{empty}</p>
+            ) : (
+              <ul>
+                {visible.map((item) => (
+                  <ProgressRow key={item.id} item={item} now={now} onLocate={onLocate} />
+                ))}
+              </ul>
+            )}
+            {group === "done" && items.length > DONE_PREVIEW && (
+              <button
+                type="button"
+                className="progress-more"
+                onClick={() => setShowAllDone((value) => !value)}
+              >
+                {showAllDone ? t("收起") : t("显示全部 {0} 条", { 0: items.length })}
+              </button>
+            )}
+          </section>
+        );
+      })}
+      <details className="progress-board">
+        <summary>
+          <span>{t("Agent 白板（原文）")}</span>
+          <span className="progress-board-hint">{t("Agent 协作用的原始记录")}</span>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="m7 10 5 5 5-5" />
+          </svg>
+        </summary>
+        <div className="progress-board-body">{board}</div>
+      </details>
+    </div>
+  );
+}

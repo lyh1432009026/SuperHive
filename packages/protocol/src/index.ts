@@ -583,6 +583,11 @@ export const whiteboardEntrySchema = z.object({
   updatedAt: z.string().datetime(),
   archivedAt: z.string().datetime().optional(),
   archiveProtected: z.boolean().optional(),
+  /** 最近一次登记时 Agent 正在处理的那条消息：「进展」里点一条跳回聊天里对应的讨论 */
+  messageId: z.string().uuid().optional(),
+  messageSeq: z.number().int().positive().optional(),
+  /** 服务端发现条目对应的分支已合入、自动转成里程碑的时间；Agent 再登记会清掉 */
+  mergedAt: z.string().datetime().optional(),
 });
 
 export function isTaskDirectoryEntry(entry: { key: string; kind?: "task_directory" }): boolean {

@@ -198,6 +198,10 @@ type WhiteboardRow = {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  message_id: string | null;
+  message_seq: number | null;
+  merged_at: string | null;
+  merged_commit: string | null;
 };
 
 type ScheduleRow = {
@@ -271,6 +275,8 @@ export type WhiteboardInput = {
   claim?: { repo: string; branch: string } | undefined;
   commit?: string | undefined;
   unblocks?: string[] | undefined;
+  /** 登记时 Agent 正在处理的消息；不给就沿用上次的 */
+  source?: { id: string; seq: number } | undefined;
 };
 
 export const TERMINAL_INVOCATION_STATUSES: readonly InvocationStatus[] = [
@@ -563,6 +569,10 @@ function mapWhiteboard(row: WhiteboardRow): WhiteboardEntry {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
+    ...(row.message_id && row.message_seq
+      ? { messageId: row.message_id, messageSeq: row.message_seq }
+      : {}),
+    ...(row.merged_at ? { mergedAt: row.merged_at } : {}),
   };
 }
 
@@ -786,6 +796,14 @@ export class HiveDatabase {
     if (!boardColumns.some((column) => column.name === "claim_repo")) {
       this.db.exec("ALTER TABLE whiteboard_entries ADD COLUMN claim_repo TEXT");
       this.db.exec("ALTER TABLE whiteboard_entries ADD COLUMN claim_branch TEXT");
+    }
+    if (!boardColumns.some((column) => column.name === "message_id")) {
+      this.db.exec("ALTER TABLE whiteboard_entries ADD COLUMN message_id TEXT");
+      this.db.exec("ALTER TABLE whiteboard_entries ADD COLUMN message_seq INTEGER");
+    }
+    if (!boardColumns.some((column) => column.name === "merged_at")) {
+      this.db.exec("ALTER TABLE whiteboard_entries ADD COLUMN merged_at TEXT");
+      this.db.exec("ALTER TABLE whiteboard_entries ADD COLUMN merged_commit TEXT");
     }
     this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS whiteboard_branch_claim
       ON whiteboard_entries(claim_repo, claim_branch)
@@ -2310,7 +2328,8 @@ export class HiveDatabase {
       this.db
         .prepare(
           `UPDATE whiteboard_entries SET slot = ?, summary = ?, repo = ?, branch = ?, claim_repo = ?, claim_branch = ?, commit_ref = ?,
-             unblocks = ?, author_id = ?, author_name = ?, updated_at = ?, archived_at = NULL WHERE id = ?`,
+             unblocks = ?, author_id = ?, author_name = ?, updated_at = ?, archived_at = NULL, merged_at = NULL,
+             message_id = COALESCE(?, message_id), message_seq = COALESCE(?, message_seq) WHERE id = ?`,
         )
         .run(
           input.slot,
@@ -2324,6 +2343,8 @@ export class HiveDatabase {
           author.id,
           author.username,
           new Date(Math.max(now.getTime(), Date.parse(existing.updatedAt) + 1)).toISOString(),
+          input.source?.id ?? null,
+          input.source?.seq ?? null,
           existing.id,
         );
     } else {
@@ -2331,8 +2352,8 @@ export class HiveDatabase {
         .prepare(
           `INSERT INTO whiteboard_entries(
             id, room_id, key, slot, summary, repo, branch, claim_repo, claim_branch, commit_ref, unblocks,
-            author_id, author_name, created_at, updated_at
-          ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            author_id, author_name, created_at, updated_at, message_id, message_seq
+          ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           randomUUID(),
@@ -2350,6 +2371,8 @@ export class HiveDatabase {
           author.username,
           now.toISOString(),
           now.toISOString(),
+          input.source?.id ?? null,
+          input.source?.seq ?? null,
         );
     }
     const row = this.db
@@ -2371,6 +2394,75 @@ export class HiveDatabase {
         .prepare("DELETE FROM whiteboard_entries WHERE room_id = ? AND id = ?")
         .run(roomId, entryId).changes > 0
     );
+  }
+
+  /**
+   * 分支已合入目标分支：这条分支上还没收尾的条目（进行中、已就绪）转成里程碑，「进展」里归到最近完成。
+   * 同一个合入提交只转一次：Agent 之后又把它登记回进行中（比如在同一分支上接着做），不再反复改回去。
+   * 进行中的条目只在目录干净时转（mergedClean），免得把合入后还在改的活当成做完了。
+   */
+  completeMergedWhiteboard(
+    roomId: string,
+    branch: string,
+    headCommit: string,
+    options: { includeInProgress: boolean },
+  ): WhiteboardEntry[] {
+    return this.db.transaction(() => {
+      const slots = options.includeInProgress ? ["ready", "in_progress"] : ["ready"];
+      const rows = this.db
+        .prepare(
+          `SELECT * FROM whiteboard_entries
+          WHERE room_id = ? AND archived_at IS NULL AND key NOT LIKE 'worktree:%'
+          AND slot IN (${slots.map(() => "?").join(", ")})
+          AND (branch = ? OR claim_branch = ?)
+          AND (merged_commit IS NULL OR merged_commit != ?)`,
+        )
+        .all(roomId, ...slots, branch, branch, headCommit) as WhiteboardRow[];
+      return rows.map((row) => {
+        const updatedAt = new Date(
+          Math.max(Date.now(), Date.parse(row.updated_at) + 1),
+        ).toISOString();
+        // 占用只对进行中有意义；转成里程碑后清掉，几天后才能自动归档
+        this.db
+          .prepare(
+            `UPDATE whiteboard_entries SET slot = 'milestone', claim_repo = NULL, claim_branch = NULL,
+            merged_at = ?, merged_commit = ?, updated_at = ? WHERE id = ?`,
+          )
+          .run(updatedAt, headCommit, updatedAt, row.id);
+        return this.mapWhiteboardEntry({
+          ...row,
+          slot: "milestone",
+          claim_repo: null,
+          claim_branch: null,
+          merged_at: updatedAt,
+          merged_commit: headCommit,
+          updated_at: updatedAt,
+        });
+      });
+    })();
+  }
+
+  /** 超过 olderThan 没再更新的里程碑自动归档（仍占着任务目录的除外）；历史里照样能看到、能恢复 */
+  archiveStaleMilestones(olderThan: string): WhiteboardEntry[] {
+    return this.db.transaction(() => {
+      const rows = this.db
+        .prepare(
+          `SELECT * FROM whiteboard_entries
+          WHERE slot = 'milestone' AND archived_at IS NULL AND key NOT LIKE 'worktree:%' AND updated_at < ?`,
+        )
+        .all(olderThan) as WhiteboardRow[];
+      return rows
+        .filter((row) => !this.whiteboardProtected(row))
+        .map((row) => {
+          const updatedAt = new Date(
+            Math.max(Date.now(), Date.parse(row.updated_at) + 1),
+          ).toISOString();
+          this.db
+            .prepare("UPDATE whiteboard_entries SET archived_at = ?, updated_at = ? WHERE id = ?")
+            .run(updatedAt, updatedAt, row.id);
+          return this.mapWhiteboardEntry({ ...row, archived_at: updatedAt, updated_at: updatedAt });
+        });
+    })();
   }
 
   /* ---------- 本机 Agent 配置（只存配置，进程状态由 LocalAgentSupervisor 维护） ---------- */
