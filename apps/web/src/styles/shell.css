@@ -204,6 +204,10 @@
   color: var(--text-tertiary);
 }
 
+.room-item.active .room-item-pin {
+  color: var(--text-secondary);
+}
+
 .room-item {
   position: relative;
   display: flex;
@@ -214,6 +218,12 @@
 
 .room-item:hover {
   background: var(--bg-hover);
+}
+
+/* 当前房间常亮底色；右侧状态和其它房间一样，齿轮只在悬停或键盘聚焦时出现，
+   鼠标点进房间后按钮留着的焦点不算（用 :focus-visible 而不是 :focus-within） */
+.room-item.active {
+  background: var(--bg-active);
 }
 
 .room-item-main {
@@ -372,17 +382,17 @@
 }
 
 .room-item:hover .room-item-manage,
-.room-item:focus-within .room-item-manage {
+.room-item:has(:focus-visible) .room-item-manage {
   opacity: 1;
 }
 
-/* 悬停时管理按钮占住在线人数、任务、未读的位置：把它们收起来、给按钮留出位置，
+/* 悬停或用键盘移到这一行时管理按钮占住在线人数、任务、未读的位置：把它们收起来、给按钮留出位置，
    图钉跟着靠到按钮旁边，中间不留空洞；没有管理按钮（非房主）时照常显示 */
-.room-item:has(.room-item-manage):is(:hover, :focus-within) .room-item-main {
+.room-item:has(.room-item-manage):is(:hover, :has(:focus-visible)) .room-item-main {
   padding-right: 36px;
 }
 
-.room-item:has(.room-item-manage):is(:hover, :focus-within)
+.room-item:has(.room-item-manage):is(:hover, :has(:focus-visible))
   :is(.room-item-meta, .room-unread, .room-task) {
   display: none;
 }
@@ -1100,11 +1110,11 @@ div.member[role="button"] {
     margin-right: 30px;
   }
 
-  .room-item:has(.room-item-manage):is(:hover, :focus-within) .room-item-main {
+  .room-item:has(.room-item-manage):is(:hover, :has(:focus-visible)) .room-item-main {
     padding-right: 10px;
   }
 
-  .room-item:has(.room-item-manage):is(:hover, :focus-within)
+  .room-item:has(.room-item-manage):is(:hover, :has(:focus-visible))
     :is(.room-item-meta, .room-unread, .room-task) {
     display: revert;
   }

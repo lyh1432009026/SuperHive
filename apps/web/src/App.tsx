@@ -4046,7 +4046,7 @@ export function App({
         {...(pinned ? roomReorder.itemProps(room.id) : {})}
         onContextMenu={(event) => openRoomMenu(event, room)}
         style={placement?.style}
-        className={`room-item ${pinned ? "pinned" : ""} ${room.archivedAt ? "archived" : ""} ${placement?.dragging ? "dragging" : ""}`}
+        className={`room-item ${pinned ? "pinned" : ""} ${room.id === currentRoomId ? "active" : ""} ${room.archivedAt ? "archived" : ""} ${placement?.dragging ? "dragging" : ""}`}
       >
         {pinned && (
           <span className="room-drag-handle" aria-hidden="true">
