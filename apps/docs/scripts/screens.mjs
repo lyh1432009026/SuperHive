@@ -307,6 +307,8 @@ async function captureShot(cdp, demo, shot, theme, file) {
   const { identifier } = await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
     source: `${SHOT_HELPERS}
       if (location.origin === ${JSON.stringify(url.origin)}) {
+        // 输入框草稿按房间存在 localStorage：上一张图（如浅色版）敲的「@」会留到下一张，再敲就成了「@@」
+        for (const key of Object.keys(localStorage)) if (key.startsWith("superhive.draft.")) localStorage.removeItem(key);
         for (const [key, value] of Object.entries(${JSON.stringify(storage)})) localStorage.setItem(key, value);
       }`,
   });
