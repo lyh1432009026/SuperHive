@@ -15,6 +15,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { WorktreePanel } from "./worktree-panel";
+import { BranchGlyph, WorktreeSwitcher } from "./worktree-switcher";
 import { SlowOpsSettingsEntry, useSlowOps } from "./slow-ops";
 import {
   WorkspaceGlyph,
@@ -500,23 +501,6 @@ function PinGlyph() {
       <path
         d="M10.3 1.8 14.2 5.7l-1.4.5-2.6 2.6.3 3.2-1.3 1.3-2.6-2.6L3 14.3l-.9.1-.1-.9 3.6-3.6L3 7.3 4.3 6l3.2.3 2.6-2.6.2-1.9Z"
         fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-function BranchGlyph() {
-  return (
-    <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
-      <circle cx="4.5" cy="3.5" r="1.6" fill="none" stroke="currentColor" strokeWidth="1.4" />
-      <circle cx="4.5" cy="12.5" r="1.6" fill="none" stroke="currentColor" strokeWidth="1.4" />
-      <circle cx="11.5" cy="5.5" r="1.6" fill="none" stroke="currentColor" strokeWidth="1.4" />
-      <path
-        d="M4.5 5.1v5.8M11.5 7.1c0 2.4-2.6 2.9-5.6 4"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
       />
     </svg>
   );
@@ -1927,6 +1911,20 @@ export function App({
     setWorkspaceFocus({ agent, nonce: Date.now() });
     setWorkspaceOpen(true);
   }
+  // 顶栏「⎇ 分支」下拉：列这个仓库的任务目录，点一行在「代码」面板里打开
+  const loadRoomWorktrees = useCallback(
+    () => local.worktrees(currentRoomId),
+    [local.worktrees, currentRoomId],
+  );
+  const loadWorkspaceDetail = useCallback(
+    () => workspaceRequest("", { detail: "1" }) as Promise<WorkspaceOverview>,
+    [workspaceRequest],
+  );
+  const openWorkspaceSource = useCallback((source: string) => {
+    setArtifactsOpen(false);
+    setWorkspaceFocus({ source, nonce: Date.now() });
+    setWorkspaceOpen(true);
+  }, []);
   // 消息、白板里的提交号和任务分支名：能看代码的人才变成链接，点了打开「代码」面板定位过去
   const workspaceRefs = useMemo(
     () =>
@@ -4888,12 +4886,23 @@ export function App({
                   >
                     {" "}
                     · {currentRoomWorkspace.split("/").filter(Boolean).at(-1)}
-                    {currentRoom?.branch && (
-                      <span className="chat-title-branch" title={t("当前分支")}>
-                        <BranchGlyph />
-                        {currentRoom.branch}
-                      </span>
-                    )}
+                    {currentRoom?.branch &&
+                      (isOwner && local.enabled ? (
+                        <WorktreeSwitcher
+                          branch={currentRoom.branch}
+                          loadWorktrees={loadRoomWorktrees}
+                          loadOverview={loadWorkspaceDetail}
+                          onOpenSource={openWorkspaceSource}
+                          onManage={(trigger) =>
+                            openRoomDialog({ mode: "manage", room: currentRoom }, trigger)
+                          }
+                        />
+                      ) : (
+                        <span className="chat-title-branch" title={t("当前分支")}>
+                          <BranchGlyph />
+                          {currentRoom.branch}
+                        </span>
+                      ))}
                   </span>
                 )}
                 {local.keepAwake &&

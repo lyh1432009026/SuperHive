@@ -1,0 +1,214 @@
+/* 顶栏「⎇ 分支」按钮和它的任务目录下拉 */
+.worktree-switcher-toggle {
+  min-width: 0;
+  max-width: 220px;
+  height: 20px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-family: var(--font-mono);
+  cursor: pointer;
+}
+
+.worktree-switcher-toggle:hover,
+.worktree-switcher-toggle.active {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.worktree-switcher-toggle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.chat-title span.worktree-switcher-branch {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  font-size: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worktree-switcher-toggle svg {
+  flex: 0 0 auto;
+}
+
+.worktree-switcher {
+  position: fixed;
+  z-index: 1100;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(440px, calc(100vw - 16px));
+  max-height: min(520px, calc(100dvh - 80px));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-popover);
+  color: var(--text);
+  outline: none;
+  animation: worktree-switcher-in 120ms ease-out;
+}
+
+@keyframes worktree-switcher-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .worktree-switcher {
+    animation: none;
+  }
+}
+
+.worktree-switcher-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 6px;
+}
+
+.worktree-switcher-header h2 {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.worktree-switcher-header span {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.worktree-switcher-list {
+  min-height: 0;
+  margin: 0;
+  padding: 0 6px 6px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.worktree-switcher-row {
+  width: 100%;
+  display: grid;
+  gap: 3px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.worktree-switcher-row:hover:not(:disabled),
+.worktree-switcher-row:focus-visible {
+  background: var(--bg-hover);
+  outline: none;
+}
+
+.worktree-switcher-row.current {
+  background: var(--accent-soft);
+}
+
+.worktree-switcher-row.current:hover,
+.worktree-switcher-row.current:focus-visible {
+  background: color-mix(in srgb, var(--accent-soft), var(--bg-hover));
+}
+
+.worktree-switcher-row:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.worktree-switcher-line {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.worktree-switcher-line code {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worktree-switcher-current {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--text-inverse);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.worktree-switcher-line time {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.worktree-switcher-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.worktree-switcher-owner {
+  color: var(--text-tertiary);
+}
+
+.worktree-switcher-meta .passed {
+  color: var(--accent);
+}
+
+.worktree-switcher-meta .warning {
+  color: var(--warning);
+}
+
+.worktree-switcher-note {
+  margin: 0;
+  padding: 8px 12px 12px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.worktree-switcher-footer {
+  padding: 6px;
+  border-top: 1px solid var(--border-light);
+}
+
+.worktree-switcher-manage {
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.worktree-switcher-manage:hover,
+.worktree-switcher-manage:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text);
+  outline: none;
+}
