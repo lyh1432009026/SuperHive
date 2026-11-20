@@ -32,6 +32,25 @@ describe("rich composer markdown", () => {
     expect(roundTrip("价格 ~100~200 元，~~删掉~~")).toBe("价格 ~100~200 元，~~删掉~~");
   });
 
+  it("links pasted text only when it is an explicit url", () => {
+    editor = new Editor({ extensions: richComposerExtensions(() => "") });
+    const paste = (text: string) => {
+      editor!.commands.clearContent();
+      // jsdom 没有 ClipboardEvent
+      editor!.view.pasteText(text, new Event("paste") as ClipboardEvent);
+      return editorMarkdown(editor!);
+    };
+    // .chat、.app、.tsx 这类后缀会被当成域名，类名、文件名不能变成链接
+    expect(paste("div.chat-title · src/App.tsx:4880:13")).toBe(
+      "div.chat-title · src/App.tsx:4880:13",
+    );
+    expect(paste("config.app index.dev")).toBe("config.app index.dev");
+    expect(paste("见 https://example.com/a")).toBe(
+      "见 [https://example.com/a](https://example.com/a)",
+    );
+    expect(paste("www.example.com")).toBe("[www.example.com](http://www.example.com)");
+  });
+
   it("keeps task lists", () => {
     expect(roundTrip("- [ ] todo\n- [x] done")).toBe("- [ ] todo\n- [x] done");
   });

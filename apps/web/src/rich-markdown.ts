@@ -123,11 +123,24 @@ const MentionHighlight = Extension.create({
   },
 });
 
+/**
+ * 粘贴时只把写明协议或以 www. 开头的识别成链接。默认连 div.chat、config.app 这种
+ * 类名、文件名也当网址（.chat、.app 都是真域名），粘进来就成了 [div.chat](http://div.chat)
+ */
+function isExplicitUrl(url: string): boolean {
+  return /^(?:https?:\/\/|mailto:|www\.)/i.test(url);
+}
+
 export function richComposerExtensions(placeholder: () => string): AnyExtension[] {
   return [
     StarterKit.configure({
       // 链接只在发出去后可点；输入框里点链接会跳走，正在写的内容就丢了
-      link: { openOnClick: false, autolink: false, linkOnPaste: true },
+      link: {
+        openOnClick: false,
+        autolink: false,
+        linkOnPaste: true,
+        shouldAutoLink: isExplicitUrl,
+      },
       hardBreak: false,
       // Markdown 没有下划线
       underline: false,
