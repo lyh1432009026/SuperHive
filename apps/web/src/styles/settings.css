@@ -674,7 +674,7 @@
 
 /* 房间标题下的状态行：正在阻止睡眠时的小标签 */
 .keep-awake-badge {
-  margin-left: 6px;
+  margin-left: 2px;
   padding: 0 7px;
   border: 0;
   border-radius: var(--radius-pill);
@@ -683,7 +683,6 @@
   font: inherit;
   font-size: 11px;
   line-height: 18px;
-  vertical-align: 1px;
   cursor: pointer;
 }
 

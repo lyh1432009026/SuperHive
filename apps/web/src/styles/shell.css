@@ -289,7 +289,7 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  margin-left: 6px;
+  margin-left: 2px;
   font-family: var(--font-mono);
 }
 
@@ -499,7 +499,7 @@
   min-width: 0;
   display: flex;
   flex: 1;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
 }
 
@@ -523,6 +523,16 @@
   flex: 0 0 auto;
   color: var(--text-tertiary);
   font-size: var(--text-xs);
+}
+
+/* 标题下的状态行：在线人数、工作区、分支图标和「保持在线」标签都按中线对齐，
+   不靠基线——分支图标和标签的基线和文字对不上，会上下错开 */
+.chat-title > span,
+.chat-title-workspace {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
 }
 
 .chat-header-actions {
