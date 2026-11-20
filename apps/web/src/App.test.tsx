@@ -386,6 +386,9 @@ describe("App mention autocomplete", () => {
         if (url.includes("/api/rooms")) {
           return jsonResponse({ rooms: [pinnedSummary("general"), pinnedSummary("frontend")] });
         }
+        // 附件正文：Markdown 标题里带上附件 ID 的末尾，分得清是哪一版
+        const attachment = /\/api\/attachments\/([0-9a-f-]+)$/.exec(url);
+        if (attachment) return new Response(`# 版本 ${attachment[1]!.slice(-4)}`);
         return jsonResponse({ error: "not found" }, 404);
       }),
     );
@@ -2024,6 +2027,101 @@ describe("App mention autocomplete", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "产物" })).toBeNull();
     await waitFor(() => expect(document.activeElement).toBe(entry));
+  });
+
+  it("docks a file preview into the right sidebar so the chat stays usable, and offers newer versions", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    // 成员栏原本收起：停靠预览时露出来，关掉预览又收回去
+    localStorage.setItem("superhive.members-collapsed", "true");
+    Object.assign(URL, { createObjectURL: () => "blob:doc", revokeObjectURL: () => {} });
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    const agent = participant("00000000-0000-4000-8000-000000000002", "rd-codex", "agent");
+    const other = participant("00000000-0000-4000-8000-000000000003", "rd-claude", "agent");
+    const withFile = (seq: number, sender: Participant, name: string): ChatMessage => ({
+      id: `00000000-0000-4000-8000-${String(3000 + seq).padStart(12, "0")}`,
+      roomId: "general",
+      seq,
+      senderId: sender.id,
+      senderName: sender.username,
+      senderType: "agent",
+      content: `第 ${seq} 版`,
+      mentions: [],
+      traceId: "00000000-0000-4000-8000-000000000011",
+      hopCount: 0,
+      createdAt: new Date().toISOString(),
+      attachments: [
+        {
+          id: `00000000-0000-4000-8000-${String(4000 + seq).padStart(12, "0")}`,
+          name,
+          mime: "text/markdown",
+          size: 100 + seq,
+          kind: "text",
+          sha256: "c".repeat(64),
+        },
+      ],
+    });
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self, agent, other],
+        messages: [withFile(1, agent, "plan.md")],
+        latestSeq: 1,
+      }),
+    );
+    const workspace = document.querySelector(".workspace")!;
+    expect(workspace.classList.contains("members-collapsed")).toBe(true);
+    const container = document.querySelector(".message-list")! as HTMLElement;
+    const list = within(container.shadowRoot as unknown as HTMLElement);
+    await user.click(await list.findByRole("button", { name: "预览 plan.md" }));
+    const dialog = await screen.findByRole("dialog", { name: "预览 plan.md" });
+    await user.click(within(dialog).getByRole("button", { name: "在右侧栏打开" }));
+
+    // 弹窗关掉，预览占住右侧栏；输入框照常能用
+    expect(screen.queryByRole("dialog", { name: "预览 plan.md" })).toBeNull();
+    expect(workspace.classList.contains("preview-docked")).toBe(true);
+    expect(workspace.classList.contains("members-collapsed")).toBe(false);
+    const sidebar = screen.getByRole("complementary", { name: "成员列表" });
+    expect(within(sidebar).queryByRole("tablist", { name: "侧栏视图" })).toBeNull();
+    expect(
+      await within(sidebar).findByRole("heading", { name: "版本 4001" }, { timeout: 5_000 }),
+    ).toBeTruthy();
+    expect((workspace as HTMLElement).style.getPropertyValue("--panel-width")).toBe("560px");
+    expect(screen.getByRole("textbox", { name: "消息" })).toBeTruthy();
+
+    // 别人发的同名文件不算新版本；同一个人再发才算，点一下换过去
+    act(() =>
+      socket.serverEvent({ type: "message.created", message: withFile(2, other, "plan.md") }),
+    );
+    expect(within(sidebar).queryByRole("button", { name: "有新版本" })).toBeNull();
+    act(() =>
+      socket.serverEvent({ type: "message.created", message: withFile(3, agent, "plan.md") }),
+    );
+    await user.click(await within(sidebar).findByRole("button", { name: "有新版本" }));
+    expect(
+      await within(sidebar).findByRole("heading", { name: "版本 4003" }, { timeout: 5_000 }),
+    ).toBeTruthy();
+    expect(within(sidebar).queryByRole("button", { name: "有新版本" })).toBeNull();
+
+    // 放大成弹窗再停回去
+    await user.click(within(sidebar).getByRole("button", { name: "放大成弹窗" }));
+    expect(workspace.classList.contains("preview-docked")).toBe(false);
+    const popped = await screen.findByRole("dialog", { name: "预览 plan.md" });
+    await user.click(within(popped).getByRole("button", { name: "在右侧栏打开" }));
+    expect(workspace.classList.contains("preview-docked")).toBe(true);
+
+    // 关掉预览：右侧栏回到原来收起的样子
+    await user.click(within(sidebar).getByRole("button", { name: "关闭侧栏预览" }));
+    expect(workspace.classList.contains("preview-docked")).toBe(false);
+    expect(workspace.classList.contains("members-collapsed")).toBe(true);
+    expect(localStorage.getItem("superhive.members-collapsed")).toBe("true");
   });
 
   it("asks returning users to grant notification permission from an in-app prompt", async () => {

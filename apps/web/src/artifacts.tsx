@@ -468,6 +468,8 @@ export type ArtifactsPanelProps = {
   /** 没按发送者、时间筛时，把最新的各类型数量报上去，给入口角标 */
   onCounts?: (counts: ArtifactCounts) => void;
   onClose: () => void;
+  /** 文件预览里「在右侧栏打开」：由 App 关掉面板，把文件停靠到对话旁边 */
+  onDock?: (item: ArtifactItem) => void;
 };
 
 export function ArtifactsPanel({
@@ -478,6 +480,7 @@ export function ArtifactsPanel({
   onLocate,
   onCounts,
   onClose,
+  onDock,
 }: ArtifactsPanelProps): ReactNode {
   const [filter, setFilter] = useState<ArtifactFilter>("all");
   const [input, setInput] = useState("");
@@ -1389,7 +1392,19 @@ export function ArtifactsPanel({
         />
       )}
       {previewing && (
-        <FilePreview attachment={previewing} base={base} token={token} onClose={closePreview} />
+        <FilePreview
+          attachment={previewing}
+          base={base}
+          token={token}
+          onClose={closePreview}
+          onDock={
+            onDock &&
+            (() => {
+              setPreviewing(undefined);
+              onDock(previewing);
+            })
+          }
+        />
       )}
     </SheetPanel>
   );

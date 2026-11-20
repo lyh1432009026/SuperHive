@@ -1732,5 +1732,13 @@
   "未合入": "Not merged",
   "有未提交改动": "Uncommitted changes",
   "有任务在用": "In use by a task",
-  "房间工作区": "Room workspace"
+  "房间工作区": "Room workspace",
+  "在右侧栏打开": "Open in side panel",
+  "在右侧栏打开：一边看一边发消息": "Open in side panel to keep chatting while you read",
+  "放大成弹窗": "Open as dialog",
+  "关闭侧栏预览": "Close side preview",
+  "收起右侧栏": "Hide side panel",
+  "有新版本": "New version",
+  "换成最新发的 {0}": "Switch to the latest {0}",
+  "调整预览栏宽度": "Resize preview panel"
 }

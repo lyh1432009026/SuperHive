@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { utils, write } from "xlsx";
 import {
   ComposerAttachments,
+  FilePreview,
   MessageAttachments,
   formatBytes,
   nameForPastedFile,
@@ -302,6 +303,56 @@ describe("文件预览", () => {
 
     // 不能预览的照旧是下载
     expect(screen.getByRole("button", { name: "下载 data.zip" })).toBeTruthy();
+  });
+
+  it("预览顶部能停到右侧栏：弹窗关掉交给 onDock；停靠时不是弹窗、不接管 Esc，能放大回弹窗", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("# 方案\n\n正文")),
+    );
+    const report = file("00000000-0000-4000-8000-0000000000d9", "plan.md", "text", "text/markdown");
+    const onDock = vi.fn();
+    const { unmount } = render(
+      <MessageAttachments attachments={[report]} base="http://hive" token="t" onDock={onDock} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "预览 plan.md" }));
+    await screen.findByRole("dialog", { name: "预览 plan.md" });
+    fireEvent.click(screen.getByRole("button", { name: "在右侧栏打开" }));
+    expect(onDock).toHaveBeenCalledWith(report);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    unmount();
+
+    // 不给 onDock 就没有这个按钮（例如代码面板里的预览）
+    render(<MessageAttachments attachments={[report]} base="http://hive" token="t" />);
+    fireEvent.click(screen.getByRole("button", { name: "预览 plan.md" }));
+    await screen.findByRole("dialog", { name: "预览 plan.md" });
+    expect(screen.queryByRole("button", { name: "在右侧栏打开" })).toBeNull();
+    cleanup();
+
+    const onClose = vi.fn();
+    const onUndock = vi.fn();
+    render(
+      <FilePreview
+        attachment={report}
+        base="http://hive"
+        token="t"
+        docked
+        onClose={onClose}
+        onUndock={onUndock}
+        notice={<button type="button">有新版本</button>}
+      />,
+    );
+    expect(await screen.findByRole("heading", { name: "方案" }, { timeout: 5_000 })).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: "有新版本" })).toBeTruthy();
+    // 停靠时只有「放大成弹窗」，没有铺满窗口的放大
+    expect(screen.queryByRole("button", { name: "放大预览" })).toBeNull();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "放大成弹窗" }));
+    expect(onUndock).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "关闭侧栏预览" }));
+    expect(onClose).toHaveBeenCalled();
   });
 
   it("音视频在页面内播放：老附件只记了 octet-stream 也按扩展名认出来，并按正确的类型交给播放器", async () => {

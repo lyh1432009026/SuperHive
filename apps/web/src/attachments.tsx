@@ -553,16 +553,29 @@ function codeFence(name: string, text: string): string {
   return `${fence}${language}\n${text}\n${fence}`;
 }
 
+/**
+ * 文件预览：默认是盖住页面的弹窗；docked 时改成对话区右边的一栏，对话和输入框照常能用，
+ * 可以一边看文件一边让 Agent 改。弹窗顶部的「在右侧栏打开」由 onDock 提供，
+ * 侧栏顶部的「放大回弹窗」由 onUndock 提供；notice 放在标题后面（例如「有新版本」）
+ */
 export function FilePreview({
   attachment,
   base,
   token,
   onClose,
+  docked = false,
+  onDock,
+  onUndock,
+  notice,
 }: {
   attachment: Attachment;
   base: string;
   token: string | undefined;
   onClose: () => void;
+  docked?: boolean;
+  onDock?: () => void;
+  onUndock?: () => void;
+  notice?: ReactNode;
 }) {
   const kind = previewKind(attachment)!;
   // Office 文档由 OfficePreview 自己取（超过大小上限就不下载）
@@ -642,6 +655,8 @@ export function FilePreview({
   }, [blob, kind]);
 
   useEffect(() => {
+    // 停靠在侧栏时不抢焦点、不接管 Esc：输入框里按 Esc 不该把侧栏关掉
+    if (docked) return;
     closeRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -653,7 +668,7 @@ export function FilePreview({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
+  }, [docked, onClose]);
 
   function startDownload() {
     if (!token) return;
@@ -739,49 +754,72 @@ export function FilePreview({
     </div>
   );
 
-  return createPortal(
-    <div
-      className={`file-preview-backdrop${maximized ? " maximized" : ""}`}
-      role="dialog"
-      aria-modal="true"
-      aria-label={t("预览 {0}", { 0: attachment.name })}
-      onClick={onClose}
-    >
-      <div className="file-preview" onClick={(event) => event.stopPropagation()}>
-        <header className="file-preview-header">
-          <span className="message-file-icon">
-            <FileGlyph kind={attachment.kind} />
-          </span>
-          <span className="file-preview-title">
-            <strong title={attachment.name}>{attachment.name}</strong>
-            <small className={downloadError ? "danger" : undefined}>
-              {downloadError ?? formatBytes(attachment.size)}
-            </small>
-          </span>
-          {kind === "html" && (
-            <>
-              <div className="file-preview-views" role="radiogroup" aria-label={t("预览方式")}>
-                {(["page", "source"] as const).map((view) => (
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={htmlView === view}
-                    className={htmlView === view ? "active" : ""}
-                    onClick={() => setHtmlView(view)}
-                    key={view}
-                  >
-                    {view === "page" ? t("页面") : t("源码")}
-                  </button>
-                ))}
-              </div>
-              <button type="button" onClick={openInNewWindow}>
-                {t("新窗口打开")}
-              </button>
-            </>
-          )}
-          <button type="button" onClick={startDownload}>
-            {t("下载")}
+  const panel = (
+    <div className="file-preview" onClick={(event) => event.stopPropagation()}>
+      <header className="file-preview-header">
+        <span className="message-file-icon">
+          <FileGlyph kind={attachment.kind} />
+        </span>
+        <span className="file-preview-title">
+          <strong title={attachment.name}>{attachment.name}</strong>
+          <small className={downloadError ? "danger" : undefined}>
+            {downloadError ?? formatBytes(attachment.size)}
+          </small>
+        </span>
+        {notice}
+        {kind === "html" && (
+          <>
+            <div className="file-preview-views" role="radiogroup" aria-label={t("预览方式")}>
+              {(["page", "source"] as const).map((view) => (
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={htmlView === view}
+                  className={htmlView === view ? "active" : ""}
+                  onClick={() => setHtmlView(view)}
+                  key={view}
+                >
+                  {view === "page" ? t("页面") : t("源码")}
+                </button>
+              ))}
+            </div>
+            <button type="button" onClick={openInNewWindow}>
+              {t("新窗口打开")}
+            </button>
+          </>
+        )}
+        <button type="button" onClick={startDownload}>
+          {t("下载")}
+        </button>
+        {onDock && !docked && (
+          <button
+            type="button"
+            className="file-preview-size"
+            aria-label={t("在右侧栏打开")}
+            title={t("在右侧栏打开：一边看一边发消息")}
+            onClick={onDock}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <path d="M14 4v16" />
+            </svg>
           </button>
+        )}
+        {docked ? (
+          onUndock && (
+            <button
+              type="button"
+              className="file-preview-size"
+              aria-label={t("放大成弹窗")}
+              title={t("放大成弹窗")}
+              onClick={onUndock}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+              </svg>
+            </button>
+          )
+        ) : (
           <button
             type="button"
             className="file-preview-size"
@@ -798,18 +836,34 @@ export function FilePreview({
               )}
             </svg>
           </button>
-          <button
-            ref={closeRef}
-            type="button"
-            className="file-preview-close"
-            aria-label={t("关闭")}
-            onClick={onClose}
-          >
-            ×
-          </button>
-        </header>
-        <div className="file-preview-body">{body}</div>
-      </div>
+        )}
+        <button
+          ref={closeRef}
+          type="button"
+          className="file-preview-close"
+          aria-label={docked ? t("关闭侧栏预览") : t("关闭")}
+          title={docked ? t("关闭侧栏预览") : undefined}
+          onClick={onClose}
+        >
+          ×
+        </button>
+      </header>
+      <div className="file-preview-body">{body}</div>
+    </div>
+  );
+
+  // 停靠时外面那一栏（宽度、拖拽手柄）由页面布局提供
+  if (docked) return panel;
+
+  return createPortal(
+    <div
+      className={`file-preview-backdrop${maximized ? " maximized" : ""}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("预览 {0}", { 0: attachment.name })}
+      onClick={onClose}
+    >
+      {panel}
     </div>,
     document.body,
   );
@@ -819,10 +873,12 @@ function FileAttachment({
   attachment,
   base,
   token,
+  onDock,
 }: {
   attachment: Attachment;
   base: string;
   token: string | undefined;
+  onDock?: (attachment: Attachment) => void;
 }) {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -873,7 +929,19 @@ function FileAttachment({
         </span>
       </button>
       {previewing && (
-        <FilePreview attachment={attachment} base={base} token={token} onClose={closePreview} />
+        <FilePreview
+          attachment={attachment}
+          base={base}
+          token={token}
+          onClose={closePreview}
+          onDock={
+            onDock &&
+            (() => {
+              setPreviewing(false);
+              onDock(attachment);
+            })
+          }
+        />
       )}
     </>
   );
@@ -1150,10 +1218,13 @@ export function MessageAttachments({
   attachments,
   base,
   token,
+  onDock,
 }: {
   attachments: Attachment[];
   base: string;
   token: string | undefined;
+  /** 给了就在文件预览顶部显示「在右侧栏打开」 */
+  onDock?: (attachment: Attachment) => void;
 }): ReactNode {
   const [open, setOpen] = useState<number>();
   const images = attachments.filter((item) => item.kind === "image");
@@ -1175,7 +1246,7 @@ export function MessageAttachments({
         </div>
       )}
       {files.map((item) => (
-        <FileAttachment key={item.id} attachment={item} base={base} token={token} />
+        <FileAttachment key={item.id} attachment={item} base={base} token={token} onDock={onDock} />
       ))}
       {open !== undefined && images[open] && (
         <Lightbox

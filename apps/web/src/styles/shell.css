@@ -1058,6 +1058,11 @@ div.member[role="button"] {
     animation: drawer-right 220ms var(--ease-out);
   }
 
+  /* 停靠着文件预览：抽屉一直显示，靠预览自己的 × 关掉（窄屏放不下第三栏，只能盖在对话上） */
+  .workspace.preview-docked .members-panel {
+    display: flex;
+  }
+
   .members-panel .panel-close {
     display: grid;
   }
