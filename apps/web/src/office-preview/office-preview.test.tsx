@@ -107,6 +107,9 @@ describe("OfficePreview 各格式", () => {
     const region = await screen.findByRole("region", { name: "方案.pptx" }, { timeout: 5000 });
     expect(loaded.pptx).toBe(true);
     expect(region.textContent).toContain("1 / 3");
+    // 幻灯片区出现后，舞台和缩略图还要等量完容器宽度的下一次渲染才有，负载高时会晚一拍
+    await within(region).findByTitle("方案.pptx 第 1 页", {}, { timeout: 5000 });
+    const thumbs = await within(region).findByRole("navigation", { name: "幻灯片缩略图" });
     const stage = () =>
       region.querySelector<HTMLIFrameElement>(".office-pptx-stage iframe")!.getAttribute("srcdoc")!;
     expect(stage()).toContain("第1页");
@@ -118,7 +121,6 @@ describe("OfficePreview 各格式", () => {
     expect(within(region).getByRole<HTMLButtonElement>("button", { name: "下一页" }).disabled).toBe(
       true,
     );
-    const thumbs = within(region).getByRole("navigation", { name: "幻灯片缩略图" });
     fireEvent.click(within(thumbs).getByRole("button", { name: "第 1 页" }));
     expect(region.textContent).toContain("1 / 3");
     for (const frame of region.querySelectorAll("iframe"))
@@ -140,7 +142,9 @@ describe("OfficePreview 各格式", () => {
         { body: "<div>b</div>", width: 960, height: 540 },
       ]);
       render(<OfficePreview name="窄.pptx" source="n" load={async () => ZIP.buffer} />);
-      await screen.findByRole("region", { name: "窄.pptx" }, { timeout: 5000 });
+      const region = await screen.findByRole("region", { name: "窄.pptx" }, { timeout: 5000 });
+      // 等量完宽度、舞台出来以后再断言，免得在量之前就判定「没有缩略图」
+      await within(region).findByTitle("窄.pptx 第 1 页", {}, { timeout: 5000 });
       expect(screen.queryByRole("navigation", { name: "幻灯片缩略图" })).toBeNull();
     } finally {
       sizes.width = 960;
