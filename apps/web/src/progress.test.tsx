@@ -84,7 +84,12 @@ describe("buildProgress", () => {
       seq: 11,
       kind: "question",
       parentMessageId: trigger.id,
-      content: "要不要顺手清掉旧条目？两条都已合入",
+      content:
+        "@rd ❓ 要不要顺手清掉旧条目？两条都已合入\n（直接回复这条消息即可把答案交给 helper）",
+      text: {
+        key: "question.ask",
+        params: { asker: "@rd ", question: "要不要顺手清掉旧条目？两条都已合入" },
+      },
     });
     const groups = buildProgress({
       roomId: "build",

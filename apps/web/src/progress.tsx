@@ -94,6 +94,12 @@ function questionOf(
   return undefined;
 }
 
+/** 提问的原话：正文前面有服务端加的「@提问对象 ❓」，结构化正文里取不带它的那段 */
+function questionText(question: ChatMessage): string {
+  const asked = question.text?.key === "question.ask" ? question.text.params?.question : undefined;
+  return typeof asked === "string" ? asked : question.content;
+}
+
 const humanKinds: AttentionKind[] = ["question", "approval", "decide"];
 
 function attentionTitle(
@@ -106,7 +112,7 @@ function attentionTitle(
       return question
         ? t("{0} 在问：{1}", {
             0: invocation.agentName,
-            1: progressHeadline(question.content),
+            1: progressHeadline(questionText(question)),
           })
         : t("{0} 在等你回答", { 0: invocation.agentName });
     case "approval":
