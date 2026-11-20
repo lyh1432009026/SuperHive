@@ -1,97 +1,36 @@
 import {
-  Fragment,
-  Suspense,
-  lazy,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { BranchGlyph, WorktreeSwitcher } from "./worktree-switcher";
+import { BranchGlyph } from "./worktree-switcher";
 import { useSlowOps } from "./slow-ops";
-import {
-  WorkspaceGlyph,
-  WorkspacePanel,
-  workspaceApi,
-  type WorkspaceFocus,
-} from "./workspace-panel";
+import { WorkspacePanel, workspaceApi, type WorkspaceFocus } from "./workspace-panel";
 import { RefResolver, WorkspaceRefsContext, type RefTarget } from "./workspace-refs";
-import { sortParticipantsByLastSeen } from "@superhive/protocol";
 import type {
   Attachment,
   ChatMessage,
   Invocation,
   LocalAgent,
-  MessagesResponse,
   MetaResponse,
   Participant,
-  QuestionAnswer,
   RoomSummary,
-  RoomsResponse,
-  ServerEvent,
   WhiteboardEntry,
-  Schedule,
-  TraceStep,
-  UsageSummary,
   WorkspaceOverview,
 } from "@superhive/protocol";
-import {
-  applyMention,
-  draftMentions,
-  filterMentionParticipants,
-  recentMentionOrder,
-  findMentionContext,
-  type MentionContext,
-} from "./mention-autocomplete";
-import { createClientMessageId } from "./client-id";
 import { localizeServerPayload, serverError } from "./server-text";
-import { composerHistory, stepComposerHistory } from "./composer-history";
-import {
-  InvocationChips,
-  groupInvocationsByMessage,
-  BUDGET_EXTEND_TURNS,
-  currentPausedInvocations,
-  invocationStatusLabel,
-  upsertInvocation,
-  waitingInvocationForQuestion,
-} from "./invocations";
-import { upsertWhiteboardEntry } from "./whiteboard";
-import { activeCount, buildProgress, type ProgressTarget } from "./progress";
-import { highlightDraft } from "./draft-highlight";
-import type { ComposerHandle, ComposerKeyInfo } from "./rich-composer";
-import { isPendingSchedule, upsertSchedule } from "./schedules";
+import { invocationStatusLabel } from "./invocations";
+import { activeCount, buildProgress } from "./progress";
+import { isPendingSchedule } from "./schedules";
 import { ArtifactsPanel, useArtifactCount } from "./artifacts";
-import {
-  sortRoomsForSidebar,
-  moveRoom,
-  orderRooms,
-  storedRoomOrderKey,
-  useRoomReorder,
-} from "./room-reorder";
-import { isLiveInvocation, mergeTraceSteps } from "./live-trace";
-import {
-  ActivityPanel,
-  isInFlight,
-  needsAttention,
-  plainPreview,
-  type ActivityView,
-} from "./activity";
-import {
-  ThinkingCard,
-  TraceRecap,
-  cardAttention,
-  groupLiveCards,
-  showsCard,
-  showsLiveCard,
-  sortCards,
-} from "./thinking-card";
+import { moveRoom } from "./room-reorder";
+import { ActivityPanel, isInFlight, type ActivityView } from "./activity";
 import { buildGoToItems } from "./goto";
 import { GoToPalette } from "./goto-palette";
-import { KeyCombo } from "./key-combo";
 import { matchShortcut, type ShortcutId } from "./shortcuts";
 import { ShortcutsHelp } from "./shortcuts-help";
 import {
@@ -100,7 +39,6 @@ import {
   type ContextMenuItem,
   type ContextMenuState,
 } from "./context-menu";
-import { isMachineMessage, machinePreview, splitMentions } from "./machine-message";
 import { AttentionToasts, useAttention, type AttentionDelivery } from "./attention-alerts";
 import { attentionLabels, concernsMe, nextAttention } from "./attention";
 import { useFaviconBadge } from "./favicon-badge";
@@ -113,32 +51,16 @@ import {
 } from "./onboarding";
 import { useLocalAgents } from "./local-agents";
 import type { SelectableAgentProvider } from "./agent-name";
-import { createFrameClock, easeInOutCubic, easeOutQuint } from "./easing";
-import { ShadowContent } from "./shadow-content";
-import {
-  CollapsibleMessage,
-  MAX_MESSAGE_LENGTH,
-  MESSAGE_LENGTH_WARNING_RATIO,
-} from "./collapsible-message";
-import { buildShareMarkdown, downloadFile, formatShareTimestamp, shareFilename } from "./share";
 import { copyTextToClipboard } from "./clipboard";
-import { QuestionOptions } from "./question-options";
 import type { GuestAccess } from "./access-gate";
 import { GuestAgentDialog, InviteDialog } from "./invite-dialog";
 import { ImDialog } from "./im-dialog";
 import { AgentSettingsDialog, SettingsGlyph } from "./agent-settings-dialog";
 import { RetryModelDialog } from "./model-picker";
-import {
-  ComposerAttachments,
-  FilePreview,
-  MessageAttachments,
-  PaperclipIcon,
-  useAttachmentQueue,
-} from "./attachments";
-import { agentActivity } from "./agent-activity";
-import { IM_CHANNEL_LABELS, listImConnections } from "./im-api";
-import { resolveShareBase, resolveWebSocketUrl } from "./server-url";
-import { getLocale, getLocalePreference, t, useLocale } from "./i18n";
+import { FilePreview } from "./attachments";
+import { listImConnections } from "./im-api";
+import { resolveShareBase } from "./server-url";
+import { getLocalePreference, t, useLocale } from "./i18n";
 import { usePanelWidths } from "./panel-resizer";
 import {
   storedUsernameKey,
@@ -175,63 +97,32 @@ import {
   storedBoolean,
   storedChoice,
   storedMessageNotificationMode,
-  draftStorageKey,
-  readSeqStorageKey,
 } from "./app-storage";
-import { roomIdFromHash, initialRoomId, sortRooms } from "./rooms";
-import {
-  BrowserNotificationPermission,
-  browserNotificationPermission,
-  showBrowserNotification,
-  playNotificationTone,
-} from "./browser-notify";
-import { animateLayout, platformModifierLabel } from "./ui-utils";
-import {
-  AgentAccessMode,
-  AgentSetupStep,
-  participantStatusLabel,
-  agentProviderLabel,
-  agentCommandFor,
-} from "./agent-setup";
-import { PinGlyph, Icon, HiveLogo } from "./app-icons";
-import { AvatarGlyph, avatarHueStyle } from "./avatar";
+import { roomIdFromHash, initialRoomId } from "./rooms";
+import { BrowserNotificationPermission, browserNotificationPermission } from "./browser-notify";
+import { platformModifierLabel } from "./ui-utils";
+import { AgentAccessMode, AgentSetupStep, agentCommandFor } from "./agent-setup";
+import { PinGlyph, Icon } from "./app-icons";
 import { serverBase } from "./server-base";
-import { mergeMessages, buildTimeline, dateDividerLabel } from "./timeline";
-import { composerMaxHeight, resizeComposer, highlightOffsetX } from "./composer-size";
-import { keepAwakeSummary, HostApprovalsBanner, HostApprovalWaiting } from "./host-settings";
+import { HostApprovalsBanner, HostApprovalWaiting } from "./host-settings";
 import { LoginDialog } from "./login-dialog";
 import { RoomDialog } from "./room-dialog";
 import { SettingsDialog } from "./settings-dialog";
 import { AgentSetupDialog } from "./agent-setup-dialog";
 import { SidePanel } from "./side-panel";
 import { RoomSidebar } from "./room-sidebar";
-
-// Markdown 渲染器（react-markdown + highlight.js）体积较大，拆成独立 chunk 且在应用启动时
-// 立即预加载：不阻塞首屏解析，又通常能赶在 WebSocket 快照到达前就绪，避免消息先以纯文本闪现
-const messageMarkdownModule = import("./message-markdown");
-type MessageMarkdownComponent = (typeof import("./message-markdown"))["MessageMarkdown"];
-// 模块下载完成后同步渲染：React.lazy 第一次使用时总会挂起一轮（即使模块早已就绪），
-// 先显示纯文本占位再换成 Markdown，会让消息列表在刷新时多一次重排和高度跳变
-let loadedMessageMarkdown: MessageMarkdownComponent | undefined;
-void messageMarkdownModule.then((module) => {
-  loadedMessageMarkdown = module.MessageMarkdown;
-});
-const LazyMessageMarkdown = lazy(() =>
-  messageMarkdownModule.then((module) => ({ default: module.MessageMarkdown })),
-);
-function MessageMarkdown(props: Parameters<MessageMarkdownComponent>[0]) {
-  // 每个实例挂载时选定一次，避免模块就绪后组件类型改变导致整条消息重新挂载
-  const [Component] = useState<MessageMarkdownComponent | typeof LazyMessageMarkdown>(
-    () => loadedMessageMarkdown ?? LazyMessageMarkdown,
-  );
-  return <Component {...props} />;
-}
-
-/** 自绘滚动动画单帧最多推进的时间：约两帧，主线程卡顿时动画放慢而不是跳跃 */
-const MAX_FRAME_STEP_MS = 32;
-
-/** 所见即所得输入框（Tiptap）单独打包，用到时才加载；加载完之前先用纯文本输入框顶着 */
-const RichComposer = lazy(() => import("./rich-composer"));
+import { useRoomData } from "./use-room-data";
+import { useRoomList } from "./use-room-list";
+import { useRoomConnection } from "./use-room-connection";
+import { useMessageScroll } from "./use-message-scroll";
+import { useMessageJump, useMessageWindow } from "./use-message-timeline";
+import { useComposer } from "./use-composer";
+import { useMessageActions } from "./use-message-actions";
+import { useActivityData } from "./use-activity-data";
+import { ChatHeader, ChatNotices } from "./chat-header";
+import { MessageList } from "./message-list";
+import { ShareBar, useShareSelection } from "./share-bar";
+import { Composer } from "./composer";
 
 export function App({
   guest,
@@ -274,10 +165,50 @@ export function App({
     const timer = window.setInterval(() => setAccessNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
-  const [rooms, setRooms] = useState<RoomSummary[]>([]);
-  const [readSeqs, setReadSeqs] = useState<Record<string, number>>({});
-  const [showArchivedRooms, setShowArchivedRooms] = useState(false);
-  const [participants, setParticipants] = useState<Participant[]>([]);
+  const base = useMemo(serverBase, []);
+  const [error, setError] = useState<string>();
+  const room = useRoomData({ base, authToken, currentRoomId });
+  const {
+    participants,
+    setParticipants,
+    messages,
+    setMessages,
+    setMessagesLoaded,
+    invocations,
+    setInvocations,
+    whiteboard,
+    setWhiteboard,
+    whiteboardEpochRef,
+    whiteboardChangesRef,
+    schedules,
+    setSchedules,
+    setPendingApprovals,
+    setTraces,
+    retryRef,
+    latestSeqRef,
+    participantStatusRef,
+    loadWhiteboardHistory,
+    changeWhiteboardArchive,
+  } = room;
+  const {
+    rooms,
+    setRooms,
+    readSeqs,
+    setReadSeqs,
+    showArchivedRooms,
+    setShowArchivedRooms,
+    sidebarRooms,
+    pinnedRoomIds,
+    freezeRoomList,
+    thawRoomList,
+    savePinnedRooms,
+    roomReorder,
+    activeRoomCount,
+    markRoomRead,
+    upsertRoom,
+    refreshRooms,
+    markRoomReadNow,
+  } = useRoomList({ base, authToken, meta, isOwner, username, latestSeqRef, setError });
   // 消息本身不带 provider：按发送者名到成员表里查，离开房间的 Agent 回退为 "AI"
   const agentProviderByName = useMemo(
     () =>
@@ -288,28 +219,7 @@ export function App({
       ),
     [participants],
   );
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  // 收到房间快照之前为 false：区分"还在加载"和"房间真的是空的"，避免欢迎页闪现
-  const [messagesLoaded, setMessagesLoaded] = useState(false);
-  const [invocations, setInvocations] = useState<ReadonlyMap<string, Invocation>>(new Map());
-  const [whiteboard, setWhiteboard] = useState<ReadonlyMap<string, WhiteboardEntry>>(new Map());
-  const whiteboardEpochRef = useRef(0);
-  const whiteboardChangesRef = useRef(new Map<string, number>());
-  const [schedules, setSchedules] = useState<ReadonlyMap<string, Schedule>>(new Map());
-  /** 还在等人批的权限申请（提问消息 ID） */
-  const [pendingApprovals, setPendingApprovals] = useState<ReadonlySet<string>>(new Set());
-  /**
-   * 调用的实时过程（房主和获准看过程的访客的页面会收到）。结束后在这个页面里留着，
-   * 刷新或切换房间就没了；服务端不保存。
-   */
-  const [traces, setTraces] = useState<ReadonlyMap<string, TraceStep[]>>(new Map());
-  /** 收到过结束标记的调用：同一个调用重试时重新开始记，不和上一次的步骤混在一起 */
-  const endedTracesRef = useRef(new Set<string>());
   const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab>("members");
-  const [highlightedMessageId, setHighlightedMessageId] = useState<string>();
-  const [pendingJumpId, setPendingJumpId] = useState<string>();
-  /** 产物面板「定位到消息」：目标消息还没载入时先补拉，载入后再跳 */
-  const [pendingLocate, setPendingLocate] = useState<string>();
   /** 有新附件或撤回时加一，产物面板和入口角标据此刷新 */
   const [artifactsEpoch, setArtifactsEpoch] = useState(0);
   /* 「产物」大面板：和「代码」一样从头部打开，默认铺满窗口；两个面板同时只开一个 */
@@ -334,42 +244,7 @@ export function App({
   const [contextMenu, setContextMenu] = useState<ContextMenuState>();
   // Agent 之间的委派、回执默认收成一行；点开的记在这里
   const [openMachineIds, setOpenMachineIds] = useState<ReadonlySet<string>>(new Set());
-  const agentNames = useMemo(
-    () =>
-      new Set(
-        participants
-          .filter((participant) => participant.type === "agent")
-          .map((participant) => participant.username.toLocaleLowerCase()),
-      ),
-    [participants],
-  );
-  const isMachine = (message: ChatMessage) =>
-    isMachineMessage(message, (name) => agentNames.has(name.toLocaleLowerCase()));
   const closeContextMenu = useCallback(() => setContextMenu(undefined), []);
-  const [mentionMessages, setMentionMessages] = useState<ChatMessage[]>([]);
-  // 正在回答的 Agent 提问；发送时作为 replyToMessageId
-  const [answering, setAnswering] = useState<ChatMessage>();
-  // 已点选提交、等服务端确认的提问 ID → 幂等键（重发沿用同一个键，只续接一次）
-  const [pendingAnswers, setPendingAnswers] = useState<ReadonlyMap<string, string>>(new Map());
-  const [activeInvocations, setActiveInvocations] = useState<ReadonlyMap<string, Invocation>>(
-    new Map(),
-  );
-  const [invocationMessages, setInvocationMessages] = useState<ReadonlyMap<string, ChatMessage>>(
-    new Map(),
-  );
-  // 切换语言：已经收到的消息、任务、定时按新语言重新显示服务端写的文字
-  useEffect(() => {
-    const relocalize = <T,>(map: ReadonlyMap<string, T>) =>
-      new Map([...map].map(([id, value]) => [id, localizeServerPayload(value)]));
-    setMessages((current) => localizeServerPayload(current));
-    setInvocations(relocalize);
-    setActiveInvocations(relocalize);
-    setSchedules(relocalize);
-    setInvocationMessages(relocalize);
-  }, [locale]);
-  // 切换房间后待定位的消息（在新房间快照到达后再滚动过去）
-  const [crossRoomJumpId, setCrossRoomJumpId] = useState<string>();
-  const [onlineInvocationIds, setOnlineInvocationIds] = useState<ReadonlySet<string>>(new Set());
   const activityTriggerRef = useRef<HTMLElement | null>(null);
   const attentionRef = useRef<ReturnType<typeof useAttention> | undefined>(undefined);
   const slowOpsRef = useRef<ReturnType<typeof useSlowOps> | undefined>(undefined);
@@ -382,18 +257,9 @@ export function App({
     onRoomActivity: () => undefined,
     onSnapshot: () => undefined,
   });
-  const [draft, setDraft] = useState(() => {
-    const storedUsername = localStorage.getItem(storedUsernameKey) ?? "";
-    return storedUsername && storedBoolean(storedAutoSaveDraftKey, true)
-      ? (localStorage.getItem(draftStorageKey(storedUsername, initialRoomId())) ?? "")
-      : "";
-  });
-  const [mentionContext, setMentionContext] = useState<MentionContext>();
-  const [activeMentionIndex, setActiveMentionIndex] = useState(0);
   const [connectionState, setConnectionState] = useState<"connecting" | "online" | "offline">(
     "connecting",
   );
-  const [error, setError] = useState<string>();
   const [commandCopied, setCommandCopied] = useState(false);
   const [copyError, setCopyError] = useState<string>();
   const [agentProvider, setAgentProvider] = useState<SelectableAgentProvider>("codex");
@@ -427,21 +293,6 @@ export function App({
   const [clearWhiteboard, setClearWhiteboard] = useState(true);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuHoverTimer = useRef<number | undefined>(undefined);
-  const [pendingNewMessages, setPendingNewMessages] = useState(0);
-  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
-  const [shadowHost, setShadowHost] = useState<HTMLDivElement | null>(null);
-  const [scrollContentElement, setScrollContentElement] = useState<HTMLDivElement | null>(null);
-  const [copiedMessageId, setCopiedMessageId] = useState<string>();
-  const [recallCandidateId, setRecallCandidateId] = useState<string>();
-  const [shareMode, setShareMode] = useState(false);
-  const [selectedMessageIds, setSelectedMessageIds] = useState<ReadonlySet<string>>(new Set());
-  const [shareBusy, setShareBusy] = useState(false);
-  const [shareFeedback, setShareFeedback] = useState<string>();
-  const shareCardRef = useRef<HTMLDivElement>(null);
-  const selectedMessages = useMemo(
-    () => messages.filter((message) => selectedMessageIds.has(message.id) && !message.deletedAt),
-    [messages, selectedMessageIds],
-  );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("chat");
   /** 从接入 Agent 弹窗跳到「Agent 运行时」时要看的 CLI；关掉设置后回到接入弹窗 */
@@ -502,55 +353,11 @@ export function App({
   const [reduceMotion, setReduceMotion] = useState(() =>
     storedBoolean(storedReduceMotionKey, false),
   );
-  const socketRef = useRef<WebSocket | undefined>(undefined);
-  const reconnectTimerRef = useRef<number | undefined>(undefined);
-  const retryRef = useRef(0);
-  const latestSeqRef = useRef(0);
-  const composingRef = useRef(false);
-  const draftContextRef = useRef(`${username}:${initialRoomId()}`);
-  const participantStatusRef = useRef(new Map<string, Participant["status"]>());
   const notificationPreferencesRef = useRef({
     messageNotifications,
     notificationSound,
     presenceNotifications,
   });
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messageScrollContentRef = useRef<HTMLDivElement>(null);
-  const bottomAnimationRef = useRef(0);
-  const detachAnimationCancelRef = useRef<(() => void) | undefined>(undefined);
-  const messageListRef = useRef<HTMLDivElement>(null);
-  const locateMessageRef = useRef(locateMessage);
-  locateMessageRef.current = locateMessage;
-  const locateMessageFromMarkdown = useCallback(
-    (target: { messageId: string; messageSeq: number }) => {
-      void locateMessageRef.current(target);
-    },
-    [],
-  );
-  const nearBottomRef = useRef(true);
-  const messageCountRef = useRef(0);
-  /** 纯文本模式下就是 textarea 本身；所见即所得模式下是编辑器给的同名方法 */
-  const textareaRef = useRef<ComposerHandle | null>(null);
-  /** 输入框：预览 Markdown 效果、展开成大输入框 */
-  const [composerPreview, setComposerPreview] = useState(false);
-  const [composerExpanded, setComposerExpanded] = useState(false);
-  /** 打开或刷新页面后，输入框出现时自动聚焦一次（触屏不聚焦，免得一进来就弹出键盘） */
-  const composerAutoFocused = useRef(false);
-  const attachComposer = useCallback((element: ComposerHandle | null) => {
-    textareaRef.current = element;
-    if (!element || composerAutoFocused.current) return;
-    composerAutoFocused.current = true;
-    if (window.matchMedia?.("(hover: none)").matches) return;
-    window.requestAnimationFrame(() => {
-      // 已经有别的地方拿到焦点（弹窗、搜索框）就不抢
-      const active = document.activeElement;
-      if (active && active !== document.body) return;
-      // 所见即所得编辑器加载完会顶替先挂上的纯文本输入框，聚焦当下的那个
-      textareaRef.current?.focus({ preventScroll: true });
-    });
-  }, []);
-  const browsingHistoryRef = useRef<string | undefined>(undefined);
-  const highlightRef = useRef<HTMLDivElement>(null);
   const membersCloseRef = useRef<HTMLButtonElement>(null);
   const roomsCloseRef = useRef<HTMLButtonElement>(null);
   const agentDialogRef = useRef<HTMLDivElement>(null);
@@ -566,16 +373,6 @@ export function App({
   const settingsTriggerRef = useRef<HTMLButtonElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const lastPanelTriggerRef = useRef<HTMLButtonElement>(null);
-  const base = useMemo(serverBase, []);
-  const attachmentQueue = useAttachmentQueue({ base, token: authToken, roomId: currentRoomId });
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [attachmentNotice, setAttachmentNotice] = useState<string>();
-  const [dragActive, setDragActive] = useState(false);
-  function addAttachments(files: File[]) {
-    if (files.length === 0) return;
-    setAttachmentNotice(attachmentQueue.add(files));
-    window.requestAnimationFrame(() => textareaRef.current?.focus());
-  }
   // Hive Server 就在这台电脑上时，可以直接在网页上拉起 Agent
   const local = useLocalAgents(base, agentDialogOpen, authToken);
   // 最近慢操作：服务端只给这台电脑上的房主页面发（连上时 slow-op.snapshot，之后逐条 slow-op.recorded）
@@ -652,57 +449,6 @@ export function App({
   const modifierKeyLabel = useMemo(platformModifierLabel, []);
   // 两侧栏可拖宽：默认宽度即最小宽度，记在本机
   const { widths: panelWidths, resize: resizePanel } = usePanelWidths();
-  const recentMentions = useMemo(
-    () => recentMentionOrder(messages, username),
-    [messages, username],
-  );
-  const mentionSuggestions = useMemo(
-    () =>
-      mentionContext
-        ? filterMentionParticipants(
-            participants,
-            mentionContext.query,
-            username,
-            undefined,
-            recentMentions,
-            mentionContext.attached,
-          )
-        : [],
-    [mentionContext, participants, username, recentMentions],
-  );
-  // 候选面板贴着 @ 的位置弹出（输入框很宽时不用把视线挪回最左边）；靠右时往回收，不超出输入区
-  const mentionMenuRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const menu = mentionMenuRef.current;
-    const parent = menu?.offsetParent as HTMLElement | null | undefined;
-    if (!menu || !parent) return;
-    const anchorX = mentionContext?.anchorX;
-    if (anchorX === undefined) {
-      menu.style.left = "";
-      return;
-    }
-    const room = parent.clientWidth - menu.offsetWidth;
-    const left = anchorX - parent.getBoundingClientRect().left - 12;
-    menu.style.left = `${Math.max(0, Math.min(left, room))}px`;
-  }, [mentionContext]);
-  // 点输入框和面板以外的地方就收起面板
-  useEffect(() => {
-    if (!mentionContext) return;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Element | null;
-      if (target?.closest(".mention-menu, .composer-box")) return;
-      setMentionContext(undefined);
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    return () => document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [mentionContext]);
-  const activeMentionId = mentionSuggestions[activeMentionIndex]?.id;
-  useEffect(() => {
-    if (!activeMentionId) return;
-    document
-      .getElementById(`mention-option-${activeMentionId}`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [activeMentionId]);
   // 接入默认名要避开房间现有成员（含离线）：服务端按房间大小写不敏感查重，撞名直接 409
   const takenAgentNames = useMemo(
     () => new Set(participants.map((participant) => participant.username.toLocaleLowerCase())),
@@ -722,6 +468,7 @@ export function App({
   );
   const currentRoomName = currentRoom?.name ?? currentRoomId;
   const currentRoomWorkspace = currentRoom?.workspace;
+  const share = useShareSelection({ messages, currentRoomId, currentRoomName });
 
   /* 工作区面板（文件与 git 变更，只读）：房主总能打开；访客要房主在房间设置里允许，服务端同样校验 */
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -818,142 +565,9 @@ export function App({
     currentRoom?.leadAgent?.toLocaleLowerCase() === participant.username.toLocaleLowerCase();
   // 主 Agent 被删掉后服务端不再派给它：输入框不再这么提示
   const currentLeadAgent = participants.find(isLeadAgent)?.username;
-  // 房间顺序：置顶的在最前（顺序存在服务端，跟着房主走），其余按最近活跃倒序。
-  // 鼠标停在列表上或焦点在列表里时，不置顶区暂停重排，免得正要点的房间被新消息顶走
-  const [roomListFrozen, setRoomListFrozen] = useState<string[]>();
-  const sidebarRooms = useMemo(() => {
-    const sorted = sortRoomsForSidebar(
-      rooms
-        .filter((room) => showArchivedRooms || !room.archivedAt)
-        // 访客看不到房主的置顶
-        .map((room) =>
-          isOwner || room.pinned === undefined ? room : { ...room, pinned: undefined },
-        ),
-    );
-    return roomListFrozen
-      ? { pinned: sorted.pinned, others: orderRooms(sorted.others, roomListFrozen) }
-      : sorted;
-  }, [isOwner, roomListFrozen, rooms, showArchivedRooms]);
-  const pinnedRoomIds = useMemo(
-    () => sidebarRooms.pinned.map((room) => room.id),
-    [sidebarRooms.pinned],
-  );
-  const freezeRoomList = () =>
-    setRoomListFrozen((current) => current ?? sidebarRooms.others.map((room) => room.id));
-  const thawRoomList = (element: HTMLElement) => {
-    if (element.matches(":hover") || element.contains(document.activeElement)) return;
-    setRoomListFrozen(undefined);
-  };
-  const refreshRoomsRef = useRef<() => Promise<unknown>>(undefined);
-  /** 整份写回置顶列表：先在本地改好，服务端确认后会广播新的房间摘要 */
-  const savePinnedRooms = useCallback(
-    (next: string[]) => {
-      const index = new Map(next.map((id, position) => [id, position]));
-      setRooms((current) =>
-        current.map((room) => {
-          const pinned = index.get(room.id);
-          if (pinned === room.pinned) return room;
-          const { pinned: _old, ...rest } = room;
-          void _old;
-          return pinned === undefined ? rest : { ...rest, pinned };
-        }),
-      );
-      void fetch(`${base}/api/room-pins`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ roomIds: next }),
-      })
-        .then(async (response) => {
-          if (!response.ok) {
-            const failure: unknown = await response.json().catch(() => ({}));
-            throw new Error(
-              serverError(failure) ?? t("置顶没保存上（{0}）", { 0: response.status }),
-            );
-          }
-        })
-        .catch((reason: unknown) => {
-          setError(reason instanceof Error ? reason.message : String(reason));
-          // 没存上就以服务端为准重新拉一遍
-          void refreshRoomsRef.current?.().catch(() => undefined);
-        });
-    },
-    [authToken, base],
-  );
-  // 拖动和 Alt+↑/↓ 只在置顶区里排序
-  const roomReorder = useRoomReorder(pinnedRoomIds, savePinnedRooms);
-  useEffect(() => {
-    try {
-      localStorage.removeItem(storedRoomOrderKey);
-    } catch {
-      // 清不掉也无妨：已经不再读取
-    }
-  }, []);
-  const activeRoomCount = useMemo(() => rooms.filter((room) => !room.archivedAt).length, [rooms]);
-  // 渲染窗口：只挂载最近的一段消息，重房间切换时的同步提交成本与内存尖峰被限定为常量；
-  // 更早的消息按需点击展开（数据仍全量在 messages 中，仅渲染被窗口化）
-  const [visibleLimit, setVisibleLimit] = useState(25);
-  // 默认只显示当前话题（最近一条话题分隔之后）；更早的话题折叠，按需展开。
-  // 展开状态绑定到分隔消息本身：开启新话题或切换房间后自动重新折叠
-  const [expandedTopicId, setExpandedTopicId] = useState<string>();
-  const currentTopic = useMemo(() => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      if (messages[index]!.kind === "topic") return { index, id: messages[index]!.id };
-    }
-    return undefined;
-  }, [messages]);
-  const earlierTopicCount =
-    currentTopic && expandedTopicId !== currentTopic.id ? currentTopic.index : 0;
-  const topicMessages = useMemo(
-    () => (earlierTopicCount > 0 ? messages.slice(earlierTopicCount) : messages),
-    [messages, earlierTopicCount],
-  );
-  const hiddenCount = Math.max(0, topicMessages.length - visibleLimit);
-  const timeline = useMemo(
-    () => buildTimeline(hiddenCount > 0 ? topicMessages.slice(-visibleLimit) : topicMessages),
-    [topicMessages, visibleLimit, hiddenCount],
-  );
-  // 点「显示更早」把更早的消息插到上方：浏览器在贴顶（scrollTop=0，正是按钮的位置）时
-  // 不会做滚动锚定，视口会落到插入内容的最顶部、读的位置被顶走。这里在点击瞬间记下
-  // 「视口到内容底部的距离」（新消息只往上方插入，底部不动），渲染完成后按该距离恢复
-  // scrollTop，正在读的内容保持在原位。jumpToMessage 也会扩大窗口，但它要滚到目标消息，不经过这里。
-  const earlierScrollAnchorRef = useRef<number | undefined>(undefined);
-  const captureScrollAnchor = () => {
-    const list = messageListRef.current;
-    earlierScrollAnchorRef.current = list
-      ? Math.max(0, list.scrollHeight - list.scrollTop)
-      : undefined;
-  };
-  useLayoutEffect(() => {
-    const distance = earlierScrollAnchorRef.current;
-    if (distance === undefined) return;
-    earlierScrollAnchorRef.current = undefined;
-    const list = messageListRef.current;
-    if (list && typeof list.scrollTo === "function")
-      list.scrollTo({ top: Math.max(0, list.scrollHeight - distance), behavior: "instant" });
-  }, [timeline]);
-  const invocationsByMessage = useMemo(() => groupInvocationsByMessage(invocations), [invocations]);
-  /** 回复消息 → 产生它的那次调用：回复上方显示这一轮过程的回顾 */
-  const invocationByReply = useMemo(() => {
-    const byReply = new Map<string, Invocation>();
-    for (const invocation of invocations.values()) {
-      if (invocation.replyMessageId) byReply.set(invocation.replyMessageId, invocation);
-    }
-    return byReply;
-  }, [invocations]);
-  // 点选提交的答案按提问归档，用来在提问上高亮所选；先到的一条生效
-  const choiceAnswers = useMemo(() => {
-    const answers = new Map<string, QuestionAnswer>();
-    for (const message of messages) {
-      if (message.answer && !message.deletedAt && !answers.has(message.answer.questionMessageId)) {
-        answers.set(message.answer.questionMessageId, message.answer);
-      }
-    }
-    return answers;
-  }, [messages]);
-  const pausedInvocations = useMemo(
-    () => currentPausedInvocations(invocations.values(), messages),
-    [invocations, messages],
-  );
+  const messageWindow = useMessageWindow({ messages });
+  const { visibleLimit, setVisibleLimit, setExpandedTopicId, currentTopic, timeline } =
+    messageWindow;
   // 「在做」超过 1 天没更新要标灰：房间整天没动静时也得重算，每 10 分钟走一次
   const [progressNow, setProgressNow] = useState(() => Date.now());
   useEffect(() => {
@@ -972,23 +586,6 @@ export function App({
     [currentRoomId, whiteboard, invocations, messages, progressNow],
   );
   const doingCount = activeCount(progressGroups.doing);
-  const pausedAgentNames = useMemo(
-    () => [...new Set(pausedInvocations.map((invocation) => `@${invocation.agentName}`))],
-    [pausedInvocations],
-  );
-  const loadedMessageIds = useMemo(
-    () => new Set(messages.filter((message) => !message.deletedAt).map((message) => message.id)),
-    [messages],
-  );
-  const formatMessageTime = useCallback(
-    (iso: string) =>
-      new Date(iso).toLocaleTimeString(getLocale(), {
-        hour: "2-digit",
-        minute: "2-digit",
-        ...(timeFormat === "system" ? {} : { hour12: timeFormat === "12h" }),
-      }),
-    [timeFormat],
-  );
 
   useEffect(() => {
     notificationPreferencesRef.current = {
@@ -1005,30 +602,6 @@ export function App({
     localStorage.setItem(storedMessageNotificationsKey, "off");
     localStorage.setItem(storedPresenceNotificationsKey, "false");
   }, [notificationPermission]);
-
-  useEffect(() => {
-    const contextKey = `${username}:${currentRoomId}`;
-    if (draftContextRef.current !== contextKey) {
-      draftContextRef.current = contextKey;
-      browsingHistoryRef.current = undefined;
-      setDraft(
-        username && autoSaveDraft
-          ? (localStorage.getItem(draftStorageKey(username, currentRoomId)) ?? "")
-          : "",
-      );
-      setMentionContext(undefined);
-    }
-  }, [autoSaveDraft, currentRoomId, username]);
-
-  useEffect(() => {
-    if (!username || !autoSaveDraft || draftContextRef.current !== `${username}:${currentRoomId}`) {
-      return;
-    }
-    const key = draftStorageKey(username, currentRoomId);
-    // 方向键翻到的旧消息没改过就不算草稿，刷新后不该留在输入框里
-    if (draft && draft !== browsingHistoryRef.current) localStorage.setItem(key, draft);
-    else localStorage.removeItem(key);
-  }, [autoSaveDraft, currentRoomId, draft, username]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -1070,138 +643,24 @@ export function App({
       });
   }, [base, ownerToken]);
 
-  // 自绘滚动动画：每帧重读底部目标位置，消息异步变高（Markdown 渲染、content-visibility
-  // 惰性布局）也能追踪并精确落底；原生 scrollIntoView({behavior:"smooth"}) 的目标在调用
-  // 瞬间就固定了，内容随后变高会导致停在半路
-  const scrollToBottom = useCallback((animated: boolean) => {
-    cancelAnimationFrame(bottomAnimationRef.current);
-    bottomAnimationRef.current = 0;
-    detachAnimationCancelRef.current?.();
-    setShowJumpToBottom(false);
-    const list = messageListRef.current;
-    if (!list || typeof list.scrollTo !== "function") return;
-    nearBottomRef.current = true;
-    const reduceMotion = document.documentElement.dataset.reduceMotion === "true";
-    if (!animated || reduceMotion) {
-      list.scrollTo({ top: list.scrollHeight, behavior: "instant" });
-      return;
-    }
-    const startY = list.scrollTop;
-    const initialDistance = Math.abs(list.scrollHeight - list.clientHeight - startY);
-    if (initialDistance < 2) return;
-    // 时长随距离自适应：短距离（一条新消息）从容一些，长距离（刷新进入）也不至于拖沓；
-    // 长距离用慢起步的 ease-in-out——起步柔和可避开首屏渲染高峰，也不会高速冲进未布局区域
-    const duration = Math.min(1100, Math.max(550, 260 + initialDistance * 0.45));
-    const easing = initialDistance > list.clientHeight * 1.5 ? easeInOutCubic : easeOutQuint;
-    // 进度按实际播放过的帧时间累计而不是墙钟：主线程被长任务卡住后，恢复的第一帧不会把
-    // 落下的进度一次补上（实测曾冻住 528ms 后一帧跳 1800px），只会让动画放慢
-    const clock = createFrameClock(MAX_FRAME_STEP_MS);
-    // 用户主动滚动（滚轮/触摸板/触屏）时动画立即让位：既是正确的交互，也避免动画与用户
-    // 输入每帧互抢 scrollTop 引发布局风暴（实测该冲突可导致渲染进程崩溃）
-    const detach = () => {
-      detachAnimationCancelRef.current = undefined;
-      list.removeEventListener("wheel", stopForUserInput);
-      list.removeEventListener("touchstart", stopForUserInput);
-    };
-    const stopForUserInput = () => {
-      cancelAnimationFrame(bottomAnimationRef.current);
-      bottomAnimationRef.current = 0;
-      detach();
-      nearBottomRef.current = list.scrollHeight - list.scrollTop - list.clientHeight < 120;
-    };
-    detachAnimationCancelRef.current = detach;
-    list.addEventListener("wheel", stopForUserInput, { passive: true });
-    list.addEventListener("touchstart", stopForUserInput, { passive: true });
-    const step = (now: number) => {
-      const target = list.scrollHeight - list.clientHeight;
-      const progress = Math.min(1, clock(now) / duration);
-      const eased = easing(progress);
-      list.scrollTo({ top: startY + (target - startY) * eased, behavior: "instant" });
-      if (progress < 1) {
-        bottomAnimationRef.current = requestAnimationFrame(step);
-      } else {
-        bottomAnimationRef.current = 0;
-        detach();
-      }
-    };
-    bottomAnimationRef.current = requestAnimationFrame(step);
-  }, []);
+  const scroll = useMessageScroll({ messages, username, timeline });
+  const { setPendingNewMessages, setShowJumpToBottom, nearBottomRef, messageCountRef } = scroll;
 
-  useLayoutEffect(() => {
-    const previousCount = messageCountRef.current;
-    messageCountRef.current = messages.length;
-    const last = messages.at(-1);
-    if (!last) return;
-    const own = last.senderName.toLocaleLowerCase() === username.toLocaleLowerCase();
-    if (nearBottomRef.current || own) {
-      setPendingNewMessages(0);
-      // 首屏（刷新、切换房间）：在首帧绘制前直接定位到底部，和 Slack / ChatGPT 打开会话一样，
-      // 不从顶部播动画——那段动画正好落在启动渲染高峰里，任何长任务都会让它冻住再跳。
-      // 随后 Markdown 替换占位导致的高度变化由下方 ResizeObserver 继续贴底
-      scrollToBottom(previousCount !== 0);
-    } else if (messages.length > previousCount) {
-      setPendingNewMessages((current) => current + (messages.length - previousCount));
-    }
-    return undefined;
-  }, [messages, username, scrollToBottom]);
-
-  const handleMessageListScroll = useCallback(() => {
-    // 动画进行中的 scroll 事件是程序驱动的，不代表用户离开了底部
-    if (bottomAnimationRef.current) return;
-    const list = messageListRef.current;
-    if (!list) return;
-    const distance = list.scrollHeight - list.scrollTop - list.clientHeight;
-    const nearBottom = distance < 120;
-    nearBottomRef.current = nearBottom;
-    if (nearBottom) setPendingNewMessages(0);
-    setShowJumpToBottom(distance > 320);
-  }, []);
-
-  // 读者在底部附近点「展开全文」：内容变高时不能被贴底逻辑拉到底，停在原处继续读。
-  // 之后滚回底部时 handleMessageListScroll 会恢复贴底
-  const releaseBottomPin = useCallback(() => {
-    cancelAnimationFrame(bottomAnimationRef.current);
-    bottomAnimationRef.current = 0;
-    detachAnimationCancelRef.current?.();
-    nearBottomRef.current = false;
-  }, []);
-
-  const jumpToLatest = useCallback(() => {
-    setPendingNewMessages(0);
-    scrollToBottom(true);
-  }, [scrollToBottom]);
-
-  // 消息内容异步变高（懒加载的 Markdown 渲染、图片等）时，若用户本就在底部附近则保持贴底。
-  // 内容节点在 shadow root 中经 portal 挂载，比首次 commit 晚一拍，因此用 state 驱动附着时机
-  useEffect(() => {
-    const list = messageListRef.current;
-    if (!list || !scrollContentElement || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
-      if (bottomAnimationRef.current || !nearBottomRef.current) return;
-      const distance = list.scrollHeight - list.scrollTop - list.clientHeight;
-      if (distance > 1) {
-        list.scrollTo({ top: list.scrollHeight, behavior: "instant" });
-      }
-    });
-    observer.observe(scrollContentElement);
-    return () => observer.disconnect();
-  }, [scrollContentElement]);
-
-  useLayoutEffect(() => {
-    const textarea = textareaRef.current;
-    if (!(textarea instanceof HTMLTextAreaElement)) return;
-    resizeComposer(textarea, composerExpanded);
-    if (highlightRef.current) highlightRef.current.scrollTop = textarea.scrollTop;
-  }, [draft, username, composerExpanded, composerPreview, richComposer]);
-  // 窗口大小变了，输入框的最高高度跟着变
-  useEffect(() => {
-    const onResize = () => {
-      const textarea = textareaRef.current;
-      if (textarea instanceof HTMLTextAreaElement) resizeComposer(textarea, composerExpanded);
-    };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [composerExpanded]);
+  const composer = useComposer({
+    username,
+    currentRoomId,
+    participants,
+    messages,
+    invocations,
+    autoSaveDraft,
+    sendShortcut,
+    richComposer,
+    currentLeadAgent,
+    base,
+    authToken,
+    socketRef: room.socketRef,
+  });
+  const { draft, setMentionContext, setComposerPreview, appendMention } = composer;
 
   const closeMobilePanel = useCallback((restoreFocus = true) => {
     setMobilePanel(undefined);
@@ -1214,6 +673,43 @@ export function App({
     lastPanelTriggerRef.current = trigger;
     setMobilePanel(panel);
   }, []);
+
+  const [gotoNotice, setGotoNotice] = useState<string>();
+  const jump = useMessageJump({
+    messages,
+    setMessages,
+    meta,
+    authToken,
+    base,
+    currentRoomId,
+    currentRoomIdRef,
+    currentTopic,
+    visibleLimit,
+    setVisibleLimit,
+    setExpandedTopicId,
+    setOpenMachineIds,
+    closeMobilePanel,
+    setError,
+    setGotoNotice,
+    scroll,
+    timeline,
+  });
+  const {
+    setHighlightedMessageId,
+    setPendingJumpId,
+    setCrossRoomJumpId,
+    jumpToMessage,
+    locateProgress,
+    locateMessage,
+  } = jump;
+  const locateMessageRef = useRef(locateMessage);
+  locateMessageRef.current = locateMessage;
+  const locateMessageFromMarkdown = useCallback(
+    (target: { messageId: string; messageSeq: number }) => {
+      void locateMessageRef.current(target);
+    },
+    [],
+  );
 
   const dockPreview = useCallback(
     (attachment: Attachment, origin: { senderId: string; seq: number }) => {
@@ -1487,22 +983,6 @@ export function App({
     return () => window.removeEventListener("keydown", handleSettingsKeyDown);
   }, [closeSettings, settingsOpen]);
 
-  const markRoomRead = useCallback((roomId: string) => {
-    const seq = latestSeqRef.current;
-    if (seq <= 0) return;
-    const stored = Number(localStorage.getItem(readSeqStorageKey(roomId)) ?? "0");
-    if (seq > stored) localStorage.setItem(readSeqStorageKey(roomId), String(seq));
-    setReadSeqs((current) =>
-      (current[roomId] ?? 0) >= seq ? current : { ...current, [roomId]: seq },
-    );
-  }, []);
-
-  const upsertRoom = useCallback((room: RoomSummary) => {
-    setRooms((current) =>
-      sortRooms([...current.filter((existing) => existing.id !== room.id), room]),
-    );
-  }, []);
-
   const switchRoom = useCallback(
     (roomId: string) => {
       if (roomId === currentRoomId) return;
@@ -1558,495 +1038,89 @@ export function App({
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, [currentRoomId, switchRoom]);
 
-  const refreshRooms = useCallback(async () => {
-    if (!meta || !authToken) return;
-    const response = await fetch(`${base}/api/rooms?includeArchived=true`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    });
-    if (!response.ok) throw new Error(t("房间列表拉取失败 ({0})", { 0: response.status }));
-    const payload = (await response.json()) as RoomsResponse;
-    setRooms(sortRooms(payload.rooms));
-    setReadSeqs((current) => {
-      const next = { ...current };
-      for (const room of payload.rooms) {
-        if (next[room.id] === undefined) {
-          next[room.id] = Number(localStorage.getItem(readSeqStorageKey(room.id)) ?? "0");
-        }
-      }
-      return next;
-    });
-  }, [authToken, base, meta]);
-  refreshRoomsRef.current = refreshRooms;
-
-  useEffect(() => {
-    if (!meta || !username) return;
-    void refreshRooms().catch((reason: unknown) =>
-      setError(reason instanceof Error ? reason.message : String(reason)),
-    );
-  }, [meta, refreshRooms, username]);
-
   useEffect(() => {
     if (messages.length > 0) markRoomRead(currentRoomId);
   }, [currentRoomId, markRoomRead, messages]);
 
-  const catchUp = useCallback(
-    async (afterSeq: number) => {
-      if (!meta || !authToken || afterSeq <= 0) return;
-      const response = await fetch(
-        `${base}/api/rooms/${encodeURIComponent(currentRoomId)}/messages?afterSeq=${afterSeq}`,
-        { headers: { Authorization: `Bearer ${authToken}` } },
-      );
-      if (!response.ok) throw new Error(t("增量消息拉取失败 ({0})", { 0: response.status }));
-      const payload = localizeServerPayload((await response.json()) as MessagesResponse);
-      setMessages((current) => mergeMessages(current, payload.messages));
-      latestSeqRef.current = Math.max(latestSeqRef.current, payload.latestSeq);
-    },
-    [authToken, base, currentRoomId, meta],
-  );
+  const actions = useMessageActions({
+    socketRef: room.socketRef,
+    setError,
+    authToken,
+    base,
+    username,
+  });
+  const {
+    setPendingAnswers,
+    setRecallCandidateId,
+    retryInvocation,
+    dismissInvocations,
+    extendAgentBudget,
+    cancelSchedule,
+    removeWhiteboardEntry,
+    startNewTopic,
+  } = actions;
+  useRoomConnection({
+    meta,
+    username,
+    authToken,
+    base,
+    currentRoomId,
+    room,
+    refreshRooms,
+    switchRoom,
+    upsertRoom,
+    setRooms,
+    onAccessLost,
+    setConnectionState,
+    setError,
+    setArtifactsEpoch,
+    setPendingNewMessages,
+    setRecallCandidateId,
+    setWorktreeNotices,
+    worktreeNoticeVersion,
+    setPendingAnswers,
+    notificationPreferencesRef,
+    slowOpsRef,
+    attentionRef,
+    globalEventsRef,
+  });
 
+  const {
+    mentionMessages,
+    activeInvocations,
+    setActiveInvocations,
+    invocationMessages,
+    setInvocationMessages,
+    onlineInvocationIds,
+    loadUsage,
+    refreshMentions,
+    refreshTasks,
+    searchMessages,
+    unreadMentionCount,
+    taskCounts,
+    roomTaskCounts,
+    markMentionsRead,
+  } = useActivityData({
+    base,
+    meta,
+    authToken,
+    username,
+    currentRoomId,
+    readSeqs,
+    setReadSeqs,
+    attentionRef,
+    globalEventsRef,
+  });
+  // 切换语言：已经收到的消息、任务、定时按新语言重新显示服务端写的文字
   useEffect(() => {
-    if (!meta || !username || !authToken) return;
-    let cancelled = false;
-    let reconnectAllowed = true;
-
-    const connect = () => {
-      if (cancelled) return;
-      setConnectionState("connecting");
-      const socket = new WebSocket(
-        resolveWebSocketUrl({
-          serverBase: base,
-          development: import.meta.env.DEV,
-          advertisedUrl: meta.wsUrl,
-        }),
-      );
-      socketRef.current = socket;
-      socket.addEventListener("open", () => {
-        socket.send(
-          JSON.stringify({
-            type: "participant.join",
-            username,
-            participantType: "human",
-            roomId: currentRoomId,
-            token: authToken,
-          }),
-        );
-      });
-      socket.addEventListener("message", (rawEvent) => {
-        const event = localizeServerPayload(JSON.parse(String(rawEvent.data)) as ServerEvent);
-        if (event.type === "room.snapshot") {
-          const beforeReconnect = latestSeqRef.current;
-          participantStatusRef.current = new Map(
-            event.participants.map((participant) => [participant.id, participant.status]),
-          );
-          setParticipants(sortParticipantsByLastSeen(event.participants));
-          setMessages((current) => mergeMessages(current, event.messages));
-          setMessagesLoaded(true);
-          // 快照里的调用与白板是服务端当前全集，直接替换（重连期间的变化也一并对齐）
-          setInvocations(
-            new Map((event.invocations ?? []).map((invocation) => [invocation.id, invocation])),
-          );
-          setWhiteboard(new Map((event.whiteboard ?? []).map((entry) => [entry.id, entry])));
-          whiteboardEpochRef.current += 1;
-          whiteboardChangesRef.current.clear();
-          setSchedules(new Map((event.schedules ?? []).map((schedule) => [schedule.id, schedule])));
-          setPendingApprovals(new Set(event.approvals ?? []));
-          // 断线期间可能有新附件或撤回
-          setArtifactsEpoch((current) => current + 1);
-          // 重连后服务端会重新补发执行中调用的过程；已经结束的留着汇总
-          {
-            const live = new Set(
-              (event.invocations ?? [])
-                .filter((invocation) => isLiveInvocation(invocation))
-                .map((invocation) => invocation.id),
-            );
-            setTraces(
-              (current) =>
-                new Map([...current].filter(([invocationId]) => !live.has(invocationId))),
-            );
-          }
-          latestSeqRef.current = Math.max(latestSeqRef.current, event.latestSeq);
-          retryRef.current = 0;
-          setConnectionState("online");
-          setError(undefined);
-          void refreshRooms().catch(() => undefined);
-          globalEventsRef.current.onSnapshot();
-          if (beforeReconnect > 0)
-            void catchUp(beforeReconnect).catch((reason: unknown) => setError(String(reason)));
-        } else if (event.type === "room.cleared") {
-          if (event.message.roomId !== currentRoomId) return;
-          if (event.whiteboardArchived) {
-            whiteboardEpochRef.current += 1;
-            setWhiteboard(
-              (current) => new Map([...current].filter(([, entry]) => entry.archivedAt)),
-            );
-          }
-          // 房主清空了房间：本地的消息和调用记录一并丢弃，只留清空后的话题分隔
-          setMessages([event.message]);
-          setArtifactsEpoch((current) => current + 1);
-          setInvocations(new Map());
-          setPendingNewMessages(0);
-          setRecallCandidateId(undefined);
-          latestSeqRef.current = Math.max(latestSeqRef.current, event.message.seq);
-        } else if (event.type === "message.deleted") {
-          if (event.message.roomId !== currentRoomId) return;
-          setMessages((current) => mergeMessages(current, [event.message]));
-          setArtifactsEpoch((current) => current + 1);
-          setRecallCandidateId((current) => (current === event.message.id ? undefined : current));
-        } else if (event.type === "message.created") {
-          if (event.message.roomId !== currentRoomId) return;
-          setMessages((current) => mergeMessages(current, [event.message]));
-          if (event.message.attachments?.length) setArtifactsEpoch((current) => current + 1);
-          // 新的权限申请：等人批，选项可点
-          if (event.message.approval) {
-            const approvalId = event.message.id;
-            setPendingApprovals((current) => new Set(current).add(approvalId));
-          }
-          latestSeqRef.current = Math.max(latestSeqRef.current, event.message.seq);
-          socket.send(JSON.stringify({ type: "message.ack", seq: event.message.seq }));
-          if (event.message.senderName.toLocaleLowerCase() !== username.toLocaleLowerCase()) {
-            const preferences = notificationPreferencesRef.current;
-            if (preferences.notificationSound) playNotificationTone();
-            const mentioned = event.message.mentions.some(
-              (mention) => mention.toLocaleLowerCase() === username.toLocaleLowerCase(),
-            );
-            const shouldNotify =
-              preferences.messageNotifications === "all" ||
-              (preferences.messageNotifications === "mentions" && mentioned);
-            if (shouldNotify && document.visibilityState !== "visible") {
-              showBrowserNotification(
-                mentioned
-                  ? t("{0} 在 SuperHive 提到了你", { 0: event.message.senderName })
-                  : `${event.message.senderName} · # ${event.message.roomId}`,
-                event.message.content.slice(0, 180) ||
-                  (event.message.attachments?.length
-                    ? t("[{0} 个附件]", { 0: event.message.attachments.length })
-                    : ""),
-              );
-            }
-          }
-        } else if (event.type === "slow-op.snapshot") {
-          slowOpsRef.current?.receiveSnapshot(event);
-        } else if (event.type === "slow-op.recorded") {
-          slowOpsRef.current?.receive(event.operation);
-        } else if (event.type === "worktree.cleanup") {
-          worktreeNoticeVersion.current++;
-          setWorktreeNotices((current) => {
-            const next = new Map(current);
-            if (event.state === "available")
-              next.set(event.roomId, { batchId: event.batchId, count: event.count });
-            else if (next.get(event.roomId)?.batchId === event.batchId) next.delete(event.roomId);
-            return next;
-          });
-        } else if (event.type === "invocation.updated") {
-          attentionRef.current?.observe(event.invocation);
-          globalEventsRef.current.onInvocation(event.invocation);
-          if (event.invocation.roomId !== currentRoomId) return;
-          setInvocations((current) => upsertInvocation(current, event.invocation));
-        } else if (event.type === "whiteboard.updated") {
-          if (event.entry.roomId !== currentRoomId) return;
-          whiteboardChangesRef.current.set(
-            event.entry.id,
-            (whiteboardChangesRef.current.get(event.entry.id) ?? 0) + 1,
-          );
-          setWhiteboard((current) => upsertWhiteboardEntry(current, event.entry));
-        } else if (event.type === "invocation.trace") {
-          if (event.roomId !== currentRoomId) return;
-          const ended = endedTracesRef.current;
-          const restarted = !event.ended && ended.delete(event.invocationId);
-          if (event.ended) ended.add(event.invocationId);
-          setTraces((current) => {
-            const next = new Map(current);
-            const previous = restarted ? [] : (current.get(event.invocationId) ?? []);
-            const steps = mergeTraceSteps(previous, event.steps);
-            if (steps.length) next.set(event.invocationId, steps);
-            else next.delete(event.invocationId);
-            // 结束后的汇总只留最近 50 个，页面开久了也不会越攒越多
-            for (const invocationId of next.keys()) {
-              if (next.size <= 50) break;
-              if (ended.has(invocationId)) next.delete(invocationId);
-            }
-            return next;
-          });
-        } else if (event.type === "approval.updated") {
-          if (event.roomId !== currentRoomId) return;
-          setPendingApprovals((current) => {
-            if (!current.has(event.messageId)) return current;
-            const next = new Set(current);
-            next.delete(event.messageId);
-            return next;
-          });
-        } else if (event.type === "schedule.updated") {
-          if (event.schedule.roomId !== currentRoomId) return;
-          setSchedules((current) => upsertSchedule(current, event.schedule));
-        } else if (event.type === "whiteboard.removed") {
-          if (event.roomId !== currentRoomId) return;
-          whiteboardChangesRef.current.set(
-            event.entryId,
-            (whiteboardChangesRef.current.get(event.entryId) ?? 0) + 1,
-          );
-          setWhiteboard((current) => {
-            if (event.archivedEntry) return upsertWhiteboardEntry(current, event.archivedEntry);
-            if (!current.has(event.entryId)) return current;
-            const next = new Map(current);
-            next.delete(event.entryId);
-            return next;
-          });
-        } else if (event.type === "presence.changed") {
-          const previousStatus = participantStatusRef.current.get(event.participant.id);
-          participantStatusRef.current.set(event.participant.id, event.participant.status);
-          setParticipants((current) => {
-            const byId = new Map(current.map((participant) => [participant.id, participant]));
-            byId.set(event.participant.id, event.participant);
-            return sortParticipantsByLastSeen([...byId.values()]);
-          });
-          if (
-            notificationPreferencesRef.current.presenceNotifications &&
-            document.visibilityState !== "visible" &&
-            event.participant.type === "agent" &&
-            event.participant.username.toLocaleLowerCase() !== username.toLocaleLowerCase() &&
-            (event.participant.status === "offline" ||
-              (event.participant.status === "online" && previousStatus === "offline"))
-          ) {
-            showBrowserNotification(
-              `${event.participant.username} ${event.participant.status === "online" ? t("已上线") : t("已离线")}`,
-              `#${event.participant.roomId} · ${agentProviderLabel(event.participant.provider)}`,
-            );
-          }
-        } else if (event.type === "rooms.changed") {
-          upsertRoom(event.room);
-          if (event.room.id === currentRoomId && event.room.archivedAt) {
-            setError(t("房间 # {0} 已被归档，已切换回默认房间。", { 0: event.room.name }));
-            switchRoom("general");
-          }
-        } else if (event.type === "room.activity") {
-          globalEventsRef.current.onRoomActivity();
-          setRooms((current) =>
-            current.map((room) =>
-              room.id === event.roomId
-                ? {
-                    ...room,
-                    latestSeq: event.latestSeq,
-                    onlineCount: event.onlineCount,
-                    ...(event.lastActivityAt ? { lastActivityAt: event.lastActivityAt } : {}),
-                  }
-                : room,
-            ),
-          );
-        } else if (event.type === "error") {
-          if (event.code === "SESSION_EXPIRED" || event.code === "SESSION_REVOKED") {
-            // 访问到期或被房主移除：不再重连，回到入口页给出原因
-            reconnectAllowed = false;
-            socket.close();
-            onAccessLost?.(event.code === "SESSION_EXPIRED" ? "expired" : "revoked");
-          } else if (event.code === "USERNAME_TAKEN") {
-            reconnectAllowed = false;
-            setConnectionState("offline");
-            setError(
-              t("用户名 {0} 已被同名 Agent 或其他身份占用，请点击右上角“退出”后更换用户名。", {
-                0: username,
-              }),
-            );
-            socket.close();
-          } else if (event.code === "ROOM_ARCHIVED") {
-            reconnectAllowed = false;
-            setError(t("房间 # {0} 已归档，无法加入，已切换回默认房间。", { 0: currentRoomId }));
-            socket.close();
-            switchRoom("general");
-          } else if (event.text) {
-            // 新服务端：说明已经是结构化文案、按当前语言显示，比按错误码猜更准确
-            if (
-              event.code === "INVALID_ANSWER" ||
-              event.code === "QUESTION_CLOSED" ||
-              event.code === "QUESTION_NOT_FOUND" ||
-              event.code === "ANSWER_FAILED"
-            ) {
-              setPendingAnswers(new Map());
-            }
-            setError(event.message);
-          } else if (event.code === "FORBIDDEN") {
-            // 旧服务端只发英文说明，按错误码给出中文提示
-            setError(t("只能撤回自己发送的消息。"));
-          } else if (event.code === "MESSAGE_NOT_FOUND" || event.code === "DELETE_FAILED") {
-            setError(t("撤回失败：消息不存在或已被处理。"));
-          } else if (event.code === "INVOCATION_NOT_RETRYABLE") {
-            setError(t("这次调用当前无法重试：它可能已在进行中，或触发消息已被撤回。"));
-          } else if (event.code === "INVOCATION_NOT_FOUND") {
-            setError(t("找不到这次调用，它可能属于其他房间或已被清理。"));
-          } else if (
-            event.code === "INVALID_ANSWER" ||
-            event.code === "QUESTION_CLOSED" ||
-            event.code === "QUESTION_NOT_FOUND" ||
-            event.code === "ANSWER_FAILED"
-          ) {
-            // 点选没被接受：放开选项让人重选，选择与输入保留在表单里
-            setPendingAnswers(new Map());
-            setError(event.message);
-          } else {
-            setError(event.message);
-          }
-        }
-      });
-      socket.addEventListener("close", () => {
-        if (cancelled || !reconnectAllowed) return;
-        setConnectionState("offline");
-        const wait = Math.min(10_000, 500 * 2 ** retryRef.current++);
-        reconnectTimerRef.current = window.setTimeout(connect, wait);
-      });
-      socket.addEventListener("error", () => socket.close());
-    };
-
-    connect();
-    const heartbeat = window.setInterval(() => {
-      if (socketRef.current?.readyState === WebSocket.OPEN) {
-        socketRef.current.send(JSON.stringify({ type: "presence.heartbeat" }));
-      }
-    }, 15_000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(heartbeat);
-      window.clearTimeout(reconnectTimerRef.current);
-      socketRef.current?.close();
-    };
-  }, [base, catchUp, currentRoomId, meta, refreshRooms, switchRoom, upsertRoom, username]);
-
-  // 点击已完成的调用跳到 Agent 回复：等目标消息挂载（可能需要先扩大渲染窗口）后再滚动并短暂高亮
-  useEffect(() => {
-    if (!pendingJumpId) return;
-    const list = messageListRef.current;
-    const root = list?.shadowRoot ?? list;
-    const target = root?.querySelector<HTMLElement>(`[data-message-id="${pendingJumpId}"]`);
-    if (!target) return;
-    setPendingJumpId(undefined);
-    cancelAnimationFrame(bottomAnimationRef.current);
-    bottomAnimationRef.current = 0;
-    detachAnimationCancelRef.current?.();
-    nearBottomRef.current = false;
-    const reduce =
-      document.documentElement.dataset.reduceMotion === "true" ||
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    target.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
-    setHighlightedMessageId(pendingJumpId);
-    const timer = window.setTimeout(
-      () => setHighlightedMessageId((current) => (current === pendingJumpId ? undefined : current)),
-      2200,
-    );
-    return () => window.clearTimeout(timer);
-  }, [pendingJumpId, timeline]);
-
-  const authorizedJson = useCallback(
-    async <T,>(path: string): Promise<T> => {
-      if (!meta || !authToken) throw new Error(t("尚未连接 Hive Server。"));
-      const response = await fetch(`${base}${path}`, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!response.ok) throw new Error(t("请求失败 ({0})", { 0: response.status }));
-      return localizeServerPayload((await response.json()) as T);
-    },
-    [base, meta],
-  );
-
-  const loadUsage = useCallback(
-    (roomId: string, days: number, alertTokens: number) =>
-      authorizedJson<UsageSummary>(
-        `/api/rooms/${encodeURIComponent(roomId)}/usage?days=${days}&alert=${Math.round(alertTokens)}`,
-      ),
-    [authorizedJson],
-  );
-
-  const refreshMentions = useCallback(async () => {
-    if (!username) return;
-    const payload = await authorizedJson<{ messages: ChatMessage[] }>(
-      `/api/mentions?username=${encodeURIComponent(username)}`,
-    );
-    setMentionMessages(payload.messages);
-  }, [authorizedJson, username]);
-
-  const refreshTasks = useCallback(async () => {
-    const payload = await authorizedJson<{
-      invocations: Invocation[];
-      messages: ChatMessage[];
-      onlineInvocationIds?: string[];
-    }>("/api/invocations");
-    setOnlineInvocationIds(new Set(payload.onlineInvocationIds ?? []));
-    attentionRef.current?.seed(payload.invocations);
-    setActiveInvocations(
-      new Map(payload.invocations.map((invocation) => [invocation.id, invocation])),
-    );
-    setInvocationMessages(new Map(payload.messages.map((message) => [message.id, message])));
-  }, [authorizedJson]);
-
-  const searchMessages = useCallback(
-    async (query: string) =>
-      (
-        await authorizedJson<{ messages: ChatMessage[] }>(
-          `/api/search?q=${encodeURIComponent(query)}`,
-        )
-      ).messages,
-    [authorizedJson],
-  );
-
-  // 跨房间数据随全局事件更新：调用状态直接合并，新的提及合并拉取（同一秒内多次活动只查一次）
-  useEffect(() => {
-    let mentionTimer: number | undefined;
-    let taskTimer: number | undefined;
-    const debounced = (timer: number | undefined, run: () => Promise<void>, delay: number) => {
-      window.clearTimeout(timer);
-      return window.setTimeout(() => void run().catch(() => undefined), delay);
-    };
-    globalEventsRef.current = {
-      onInvocation: (invocation) => {
-        setActiveInvocations((current) => {
-          const next = new Map(current);
-          if (isInFlight(invocation) || needsAttention(invocation))
-            next.set(invocation.id, invocation);
-          else next.delete(invocation.id);
-          return next;
-        });
-        taskTimer = debounced(taskTimer, refreshTasks, 1_000);
-      },
-      onRoomActivity: () => {
-        mentionTimer = debounced(mentionTimer, refreshMentions, 800);
-      },
-      onSnapshot: () => {
-        void refreshMentions().catch(() => undefined);
-        void refreshTasks().catch(() => undefined);
-      },
-    };
-    return () => {
-      window.clearTimeout(mentionTimer);
-      window.clearTimeout(taskTimer);
-    };
-  }, [refreshMentions, refreshTasks]);
-
-  const unreadMentionCount = useMemo(
-    () =>
-      mentionMessages.filter(
-        (message) =>
-          message.roomId !== currentRoomId && message.seq > (readSeqs[message.roomId] ?? 0),
-      ).length,
-    [currentRoomId, mentionMessages, readSeqs],
-  );
-  const taskCounts = useMemo(() => {
-    let attention = 0;
-    let inFlight = 0;
-    for (const invocation of activeInvocations.values()) {
-      if (needsAttention(invocation)) attention += 1;
-      else if (isInFlight(invocation)) inFlight += 1;
-    }
-    return { attention, inFlight };
-  }, [activeInvocations]);
-  /** 每个房间正在跑、需要处理的任务数：房间列表右侧据此显示状态 */
-  const roomTaskCounts = useMemo(() => {
-    const counts = new Map<string, { attention: number; inFlight: number }>();
-    for (const invocation of activeInvocations.values()) {
-      const entry = counts.get(invocation.roomId) ?? { attention: 0, inFlight: 0 };
-      if (needsAttention(invocation)) entry.attention += 1;
-      else if (isInFlight(invocation)) entry.inFlight += 1;
-      counts.set(invocation.roomId, entry);
-    }
-    return counts;
-  }, [activeInvocations]);
+    const relocalize = <T,>(map: ReadonlyMap<string, T>) =>
+      new Map([...map].map(([id, value]) => [id, localizeServerPayload(value)]));
+    setMessages((current) => localizeServerPayload(current));
+    setInvocations(relocalize);
+    setActiveInvocations(relocalize);
+    setSchedules(relocalize);
+    setInvocationMessages(relocalize);
+  }, [locale]);
 
   function openActivity(view: ActivityView, trigger?: HTMLElement | null) {
     activityTriggerRef.current = trigger ?? null;
@@ -2061,19 +1135,6 @@ export function App({
     activityTriggerRef.current?.focus();
   }
 
-  function markMentionsRead() {
-    setReadSeqs((current) => {
-      const next = { ...current };
-      for (const message of mentionMessages) {
-        if (message.seq > (next[message.roomId] ?? 0)) {
-          next[message.roomId] = message.seq;
-          localStorage.setItem(readSeqStorageKey(message.roomId), String(message.seq));
-        }
-      }
-      return next;
-    });
-  }
-
   function openMessage(message: ChatMessage) {
     if (message.roomId === currentRoomId) {
       jumpToMessage(message.id);
@@ -2083,20 +1144,8 @@ export function App({
     switchRoom(message.roomId);
   }
 
-  // 切到目标房间并拿到快照后再定位；不在最近加载的记录里时给出提示
-  useEffect(() => {
-    if (!crossRoomJumpId || messages.length === 0) return;
-    setCrossRoomJumpId(undefined);
-    if (messages.some((message) => message.id === crossRoomJumpId)) {
-      jumpToMessage(crossRoomJumpId);
-    } else {
-      setError(t("这条消息较早，不在最近加载的记录里。"));
-    }
-  }, [crossRoomJumpId, messages]);
-
   // 全局快捷键：⌘K 搜索、⌘P 跳转、⌘J 下一个要处理的、? 或 ⌘/ 快捷键帮助（定义见 shortcuts.ts）
   const lastAttentionIdRef = useRef<string | undefined>(undefined);
-  const [gotoNotice, setGotoNotice] = useState<string>();
   function jumpToNextAttention() {
     const items = attentionRef.current?.items ?? [];
     const next = nextAttention(items, lastAttentionIdRef.current);
@@ -2195,35 +1244,6 @@ export function App({
     };
   }, [authToken, base, currentRoomId, imDialogOpen, showOnboarding]);
 
-  const loadWhiteboardHistory = useCallback(async () => {
-    const epoch = whiteboardEpochRef.current;
-    const changes = new Map(whiteboardChangesRef.current);
-    const response = await fetch(
-      `${base}/api/rooms/${encodeURIComponent(currentRoomId)}/whiteboard?view=all`,
-      {
-        headers: { Authorization: `Bearer ${authToken}` },
-      },
-    );
-    if (!response.ok) throw new Error(t("无法加载白板历史。"));
-    const payload = (await response.json()) as { entries: WhiteboardEntry[] };
-    setWhiteboard((current) => {
-      if (whiteboardEpochRef.current !== epoch) return current;
-      const next = new Map<string, WhiteboardEntry>();
-      for (const [entryId, entry] of current) {
-        if (changes.get(entryId) !== whiteboardChangesRef.current.get(entryId))
-          next.set(entryId, entry);
-      }
-      for (const entry of payload.entries) {
-        if (
-          entry.roomId === currentRoomId &&
-          changes.get(entry.id) === whiteboardChangesRef.current.get(entry.id)
-        )
-          next.set(entry.id, entry);
-      }
-      return next;
-    });
-  }, [base, authToken, currentRoomId]);
-
   const { count: artifactCount, setCounts: setArtifactCounts } = useArtifactCount({
     base,
     token: authToken,
@@ -2231,13 +1251,6 @@ export function App({
     epoch: artifactsEpoch,
     // 面板开着时由面板顺带报数，不重复查
     enabled: Boolean(meta) && !artifactsOpen,
-  });
-
-  // 补拉的消息合进来之后再跳
-  useEffect(() => {
-    if (!pendingLocate || !messages.some((message) => message.id === pendingLocate)) return;
-    setPendingLocate(undefined);
-    jumpToMessage(pendingLocate);
   });
 
   if (!username) {
@@ -2347,496 +1360,6 @@ export function App({
     localStorage.setItem(storedPresenceNotificationsKey, String(enabled));
   }
 
-  const draftTooLong = draft.trim().length > MAX_MESSAGE_LENGTH;
-
-  // 有附件在上传或上传失败时不能发：失败的要先重试或移除，避免悄悄丢掉
-  const attachmentsBlocking = attachmentQueue.uploading || attachmentQueue.failed;
-  // 草稿里 @ 到的、正在这个房间执行任务、支持引导的 Agent：可以直接「引导」
-  const steerTargets = (() => {
-    const named = new Set(
-      [...draft.matchAll(/@([\p{L}\p{N}_.-]+)/gu)].map((match) => match[1]!.toLocaleLowerCase()),
-    );
-    if (named.size === 0) return [];
-    const running = new Set(
-      [...invocations.values()]
-        .filter((item) => item.status === "running" && item.roomId === currentRoomId)
-        .map((item) => item.agentId),
-    );
-    return participants
-      .filter(
-        (participant) =>
-          participant.type === "agent" &&
-          named.has(participant.username.toLocaleLowerCase()) &&
-          running.has(participant.id) &&
-          ["claude", "codex", "opencode", "omp"].includes(participant.provider ?? ""),
-      )
-      .map((participant) => participant.username);
-  })();
-  const canSend =
-    (Boolean(draft.trim()) || attachmentQueue.readyIds.length > 0) &&
-    !draftTooLong &&
-    !attachmentsBlocking;
-
-  function sendMessage(steer = false) {
-    const content = draft.trim();
-    const socket = socketRef.current;
-    const attachmentIds = attachmentQueue.readyIds;
-    if (!content && attachmentIds.length === 0) return;
-    if (content.length > MAX_MESSAGE_LENGTH || attachmentsBlocking) return;
-    if (socket?.readyState !== WebSocket.OPEN) return;
-    // 回答提问时带上回复关系：服务端据此把答案交回提问的 Agent，不必再 @ 它
-    const replyTo = answering && answering.roomId === currentRoomId ? answering.id : undefined;
-    socket.send(
-      JSON.stringify({
-        type: "message.send",
-        clientMessageId: createClientMessageId(),
-        content,
-        ...(attachmentIds.length ? { attachmentIds } : {}),
-        ...(replyTo ? { replyToMessageId: replyTo } : {}),
-        ...(steer ? { steer: true } : {}),
-      }),
-    );
-    attachmentQueue.clear();
-    setAttachmentNotice(undefined);
-    setDraft("");
-    setComposerPreview(false);
-    // 发完长内容自动收回，免得输入框一直占着半屏
-    setComposerExpanded(false);
-    setMentionContext(undefined);
-    setAnswering(undefined);
-  }
-
-  function submitChoice(question: ChatMessage, selected: string[], other?: string) {
-    const socket = socketRef.current;
-    if (socket?.readyState !== WebSocket.OPEN || pendingAnswers.has(question.id)) return;
-    const clientMessageId = createClientMessageId();
-    setPendingAnswers((current) => new Map(current).set(question.id, clientMessageId));
-    socket.send(
-      JSON.stringify({
-        type: "question.answer",
-        clientMessageId,
-        questionMessageId: question.id,
-        selected,
-        ...(other ? { other } : {}),
-      }),
-    );
-  }
-
-  function answerQuestion(question: ChatMessage) {
-    setAnswering(question);
-    window.requestAnimationFrame(() => textareaRef.current?.focus());
-  }
-
-  /** 紧贴文字的 @（abc@）名字开头对不上任何在线成员就不弹，打邮箱时不打扰 */
-  function visibleMention(context: MentionContext | undefined) {
-    if (!context?.attached) return context;
-    return filterMentionParticipants(participants, context.query, username, 1, [], true).length
-      ? context
-      : undefined;
-  }
-
-  function updateMentionContext(value: string, cursor: number | null) {
-    const nextContext = visibleMention(findMentionContext(value, cursor ?? value.length));
-    // 纯文本输入框：用背后排版一致的高亮层量出 @ 所在的横坐标，候选面板跟着它
-    const anchorX = nextContext
-      ? highlightOffsetX(highlightRef.current, nextContext.start)
-      : undefined;
-    setMentionContext(
-      nextContext && anchorX !== undefined ? { ...nextContext, anchorX } : nextContext,
-    );
-    setActiveMentionIndex(0);
-  }
-
-  function showHistoryEntry(text: string) {
-    browsingHistoryRef.current = text || undefined;
-    setDraft(text);
-    setMentionContext(undefined);
-    window.requestAnimationFrame(() => {
-      textareaRef.current?.setSelectionRange(text.length, text.length);
-    });
-  }
-
-  /** 输入框的按键：发送、选 @ 成员、翻历史。返回 true 表示已处理，调用方阻止默认行为 */
-  function handleComposerKey(event: KeyboardEvent, caret: ComposerKeyInfo): boolean {
-    if (event.isComposing || event.keyCode === 229) return false;
-    if (event.key === "Enter" && !event.shiftKey && (event.metaKey || event.ctrlKey)) {
-      sendMessage();
-      return true;
-    }
-    if (mentionContext && event.key === "ArrowDown") {
-      setActiveMentionIndex((index) =>
-        mentionSuggestions.length ? (index + 1) % mentionSuggestions.length : 0,
-      );
-      return true;
-    }
-    if (mentionContext && event.key === "ArrowUp") {
-      setActiveMentionIndex((index) =>
-        mentionSuggestions.length
-          ? (index - 1 + mentionSuggestions.length) % mentionSuggestions.length
-          : 0,
-      );
-      return true;
-    }
-    if (mentionContext && event.key === "Escape") {
-      setMentionContext(undefined);
-      return true;
-    }
-    if (
-      mentionContext &&
-      mentionSuggestions[activeMentionIndex] &&
-      (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey))
-    ) {
-      chooseMention(mentionSuggestions[activeMentionIndex]);
-      return true;
-    }
-    // 代码块里 Enter 是换行，要发送用组合键
-    if (sendShortcut === "enter" && event.key === "Enter" && !event.shiftKey && !caret.inCode) {
-      sendMessage();
-      return true;
-    }
-    if (event.key === "Escape" && draft && draft === browsingHistoryRef.current) {
-      showHistoryEntry("");
-      return true;
-    }
-    if (
-      (event.key === "ArrowUp" || event.key === "ArrowDown") &&
-      !event.shiftKey &&
-      !event.altKey &&
-      !event.metaKey &&
-      !event.ctrlKey
-    ) {
-      const next = stepComposerHistory({
-        history: composerHistory(messages, username),
-        draft,
-        browsing: browsingHistoryRef.current,
-        direction: event.key === "ArrowUp" ? "older" : "newer",
-        selectionStart: caret.selectionStart,
-        selectionEnd: caret.selectionEnd,
-      });
-      if (next !== undefined) {
-        showHistoryEntry(next);
-        return true;
-      }
-    }
-    return false;
-  }
-
-  function chooseMention(participant: Participant) {
-    if (!mentionContext) return;
-    if (textareaRef.current?.applyMention) {
-      textareaRef.current.applyMention(participant.username);
-      setMentionContext(undefined);
-      setActiveMentionIndex(0);
-      return;
-    }
-    const next = applyMention(draft, mentionContext, participant.username);
-    setDraft(next.value);
-    setMentionContext(undefined);
-    setActiveMentionIndex(0);
-    window.requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(next.cursor, next.cursor);
-    });
-  }
-
-  function appendMention(usernameToMention: string) {
-    // 已经 @ 过就不再重复追加，只把焦点放回输入框
-    if (draftMentions(draft, usernameToMention)) {
-      setMentionContext(undefined);
-      window.requestAnimationFrame(() => textareaRef.current?.focus());
-      return;
-    }
-    const separator = draft && !draft.endsWith(" ") ? " " : "";
-    const nextValue = `${draft}${separator}@${usernameToMention} `;
-    setDraft(nextValue);
-    setMentionContext(undefined);
-    window.requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(nextValue.length, nextValue.length);
-    });
-  }
-
-  async function copyMessageContent(message: ChatMessage) {
-    try {
-      await copyTextToClipboard(message.content);
-      setCopiedMessageId(message.id);
-      window.setTimeout(
-        () => setCopiedMessageId((current) => (current === message.id ? undefined : current)),
-        1500,
-      );
-    } catch {
-      setError(t("浏览器未允许自动复制，请选中消息文本后手动复制。"));
-    }
-  }
-
-  async function copySeqReference(message: ChatMessage) {
-    const key = `seq:${message.id}`;
-    try {
-      await copyTextToClipboard(`#${message.seq}`);
-      setCopiedMessageId(key);
-      window.setTimeout(
-        () => setCopiedMessageId((current) => (current === key ? undefined : current)),
-        1500,
-      );
-    } catch {
-      setError(t("浏览器未允许自动复制，请手动输入序号。"));
-    }
-  }
-
-  /** stop：一起停掉这条消息派出、还没结束的任务（服务端处理，只停直接派出的，不连带下游） */
-  function recallMessage(messageId: string, stop = false) {
-    const socket = socketRef.current;
-    if (socket?.readyState !== WebSocket.OPEN) {
-      setError(t("当前未连接到 Hive Server，无法撤回。"));
-      return;
-    }
-    socket.send(JSON.stringify({ type: "message.delete", messageId, ...(stop ? { stop } : {}) }));
-    setRecallCandidateId(undefined);
-  }
-
-  function sendClientEvent(payload: Record<string, unknown>, failure: string): void {
-    const socket = socketRef.current;
-    if (socket?.readyState !== WebSocket.OPEN) {
-      setError(t("当前未连接到 Hive Server，{0}", { 0: failure }));
-      return;
-    }
-    socket.send(JSON.stringify(payload));
-  }
-
-  function retryInvocation(invocation: Invocation, model?: string) {
-    sendClientEvent(
-      { type: "invocation.retry", invocationId: invocation.id, ...(model ? { model } : {}) },
-      t("无法重试。"),
-    );
-  }
-
-  // 走 HTTP：「Agent 任务」面板里的调用可能属于其它房间，WebSocket 只作用于当前房间
-  function dismissInvocations(list: Invocation[]) {
-    if (!authToken || list.length === 0) return;
-    void fetch(`${base}/api/invocations/dismiss`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${authToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ invocationIds: list.map((item) => item.id), by: username }),
-    })
-      .then((response) => {
-        if (!response.ok) throw new Error(`(${response.status})`);
-      })
-      .catch((reason: unknown) =>
-        setError(
-          t("无法忽略：{0}", { 0: reason instanceof Error ? reason.message : String(reason) }),
-        ),
-      );
-  }
-
-  function cancelInvocation(invocation: Invocation) {
-    sendClientEvent({ type: "invocation.cancel", invocationId: invocation.id }, t("无法停止。"));
-  }
-
-  function steerInvocation(invocation: Invocation) {
-    sendClientEvent({ type: "invocation.steer", invocationId: invocation.id }, t("无法插入。"));
-  }
-
-  function preemptInvocation(invocation: Invocation) {
-    const confirmed = window.confirm(
-      t(
-        "停下 @{0} 正在执行的任务，改做这条？\n\n正在执行的那一轮会被中断，结果可能是「已停止」或「结果未知」，做到一半的改动不会自动撤回、也不会自动重跑。",
-        { 0: invocation.agentName },
-      ),
-    );
-    if (!confirmed) return;
-    sendClientEvent({ type: "invocation.preempt", invocationId: invocation.id }, t("无法停下。"));
-  }
-
-  function extendAgentBudget() {
-    sendClientEvent(
-      { type: "budget.extend", turns: BUDGET_EXTEND_TURNS },
-      t("无法继续 Agent 对话。"),
-    );
-  }
-
-  function cancelSchedule(schedule: Schedule) {
-    sendClientEvent({ type: "schedule.cancel", scheduleId: schedule.id }, t("无法取消定时任务。"));
-  }
-
-  function removeWhiteboardEntry(entry: WhiteboardEntry) {
-    if (!window.confirm(t("永久删除这条历史事项？此操作无法恢复。"))) return;
-    sendClientEvent(
-      { type: "whiteboard.remove", entryId: entry.id, updatedAt: entry.updatedAt },
-      t("无法移除白板条目。"),
-    );
-  }
-
-  async function changeWhiteboardArchive(entries: WhiteboardEntry[], archive: boolean) {
-    const epoch = whiteboardEpochRef.current;
-    const changes = new Map(whiteboardChangesRef.current);
-    const response = await fetch(
-      `${base}/api/rooms/${encodeURIComponent(currentRoomId)}/whiteboard/${archive ? "archive" : "restore"}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ entries: entries.map(({ id, updatedAt }) => ({ id, updatedAt })) }),
-      },
-    );
-    if (!response.ok) {
-      const failure: unknown = await response.json().catch(() => ({}));
-      throw new Error(serverError(failure) ?? t("白板操作失败，请刷新后重试。"));
-    }
-    const payload = (await response.json()) as { entries: WhiteboardEntry[] };
-    if (whiteboardEpochRef.current !== epoch) return;
-    const changedDuringRequest = new Set<string>();
-    for (const entry of payload.entries) {
-      if (changes.get(entry.id) !== whiteboardChangesRef.current.get(entry.id))
-        changedDuringRequest.add(entry.id);
-      whiteboardChangesRef.current.set(
-        entry.id,
-        (whiteboardChangesRef.current.get(entry.id) ?? 0) + 1,
-      );
-    }
-    setWhiteboard((current) => {
-      if (whiteboardEpochRef.current !== epoch) return current;
-      return payload.entries.reduce(
-        (next, entry) =>
-          changedDuringRequest.has(entry.id) && !next.has(entry.id)
-            ? next
-            : upsertWhiteboardEntry(next, entry),
-        current,
-      );
-    });
-  }
-
-  function jumpToMessage(messageId: string) {
-    const index = messages.findIndex((message) => message.id === messageId);
-    if (index < 0) return;
-    setOpenMachineIds((current) => new Set(current).add(messageId));
-    if (currentTopic && index < currentTopic.index) setExpandedTopicId(currentTopic.id);
-    const needed = messages.length - index;
-    if (needed > visibleLimit) setVisibleLimit(needed + 10);
-    setPendingJumpId(messageId);
-  }
-
-  /**
-   * 定位到产物所在的消息：已经载入的直接跳；更早的先从这条起往后补拉到已载入的最早一条，再跳。
-   * 窄屏下先收起抽屉，让聊天流露出来。
-   */
-  /** 「进展」里点一条：有消息 ID 按 ID 找，只有序号（摘要里写的 #1234）按序号找 */
-  function locateProgress(target: ProgressTarget) {
-    const loaded = messages.find((message) =>
-      target.messageId ? message.id === target.messageId : message.seq === target.messageSeq,
-    );
-    if (loaded) void locateMessage({ messageId: loaded.id, messageSeq: loaded.seq });
-    else if (target.messageSeq !== undefined)
-      void locateMessage({ messageId: target.messageId, messageSeq: target.messageSeq });
-  }
-
-  /** messageId 省略时按序号定位 */
-  async function locateMessage(target: { messageId?: string | undefined; messageSeq: number }) {
-    if (window.matchMedia?.("(max-width: 1100px)").matches) closeMobilePanel(false);
-    const matches = (message: ChatMessage) =>
-      target.messageId ? message.id === target.messageId : message.seq === target.messageSeq;
-    const present = messages.find(matches);
-    if (present) {
-      jumpToMessage(present.id);
-      return;
-    }
-    if (!meta || !authToken) return;
-    const roomId = currentRoomId;
-    const earliest = messages[0]?.seq ?? Number.MAX_SAFE_INTEGER;
-    const loaded: ChatMessage[] = [];
-    try {
-      let afterSeq = target.messageSeq - 1;
-      // 一次最多 500 条，最多补 10 次；再早的提示去搜索
-      for (let page = 0; page < 10 && afterSeq + 1 < earliest; page += 1) {
-        const response = await fetch(
-          `${base}/api/rooms/${encodeURIComponent(roomId)}/messages?afterSeq=${afterSeq}&limit=500`,
-          { headers: { Authorization: `Bearer ${authToken}` } },
-        );
-        if (!response.ok) throw new Error(t("消息加载失败 ({0})", { 0: response.status }));
-        const payload = localizeServerPayload((await response.json()) as MessagesResponse);
-        if (payload.messages.length === 0) break;
-        loaded.push(...payload.messages);
-        afterSeq = payload.messages.at(-1)!.seq;
-      }
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-      return;
-    }
-    if (roomId !== currentRoomIdRef.current) return;
-    const found = loaded.find(matches);
-    if (!found) {
-      setGotoNotice(t("这条消息已经不在了，可能被撤回或房间被清空。"));
-      return;
-    }
-    setMessages((current) => mergeMessages(current, loaded));
-    setPendingLocate(found.id);
-  }
-
-  function toggleMessageSelected(messageId: string) {
-    setSelectedMessageIds((previous) => {
-      const next = new Set(previous);
-      if (next.has(messageId)) {
-        next.delete(messageId);
-      } else {
-        next.add(messageId);
-      }
-      return next;
-    });
-  }
-
-  function toggleSelectAllMessages() {
-    setSelectedMessageIds((previous) =>
-      previous.size === messages.length
-        ? new Set()
-        : new Set(messages.map((message) => message.id)),
-    );
-  }
-
-  function exitShareMode() {
-    setShareMode(false);
-    setSelectedMessageIds(new Set());
-    setShareFeedback(undefined);
-  }
-
-  async function copyShareMarkdown() {
-    try {
-      await copyTextToClipboard(buildShareMarkdown(selectedMessages, currentRoomName));
-      setShareFeedback(t("Markdown 已复制到剪贴板"));
-    } catch {
-      setShareFeedback(t("复制失败：剪贴板不可用"));
-    }
-  }
-
-  function downloadShareMarkdown() {
-    downloadFile(
-      shareFilename(currentRoomId, "md"),
-      new Blob([buildShareMarkdown(selectedMessages, currentRoomName)], {
-        type: "text/markdown;charset=utf-8",
-      }),
-    );
-    setShareFeedback(t("已下载 Markdown 文件"));
-  }
-
-  async function exportShareImage() {
-    const node = shareCardRef.current;
-    if (!node) return;
-    setShareBusy(true);
-    setShareFeedback(undefined);
-    try {
-      const { toPng } = await import("html-to-image");
-      const dataUrl = await toPng(node, { pixelRatio: 2 });
-      const anchor = document.createElement("a");
-      anchor.href = dataUrl;
-      anchor.download = shareFilename(currentRoomId, "png");
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      setShareFeedback(t("图片已导出"));
-    } catch {
-      setShareFeedback(t("图片导出失败，请重试。"));
-    } finally {
-      setShareBusy(false);
-    }
-  }
-
   /**
    * 邀请链接直接指向当前房间的 Web UI：生产环境由 Hive Server 托管页面，用对外地址；
    * 开发环境页面由 Vite 提供，沿用当前页面地址。
@@ -2923,11 +1446,6 @@ export function App({
     } catch {
       setError(t("浏览器未允许自动复制。"));
     }
-  }
-
-  function markRoomReadNow(room: RoomSummary) {
-    localStorage.setItem(readSeqStorageKey(room.id), String(room.latestSeq));
-    setReadSeqs((current) => ({ ...current, [room.id]: room.latestSeq }));
   }
 
   /** 房间右键：打开、复制链接 / ID、标为已读、调整顺序、管理 */
@@ -3324,10 +1842,6 @@ export function App({
     }
   }
 
-  function startNewTopic() {
-    sendClientEvent({ type: "topic.start" }, t("无法开启新话题。"));
-  }
-
   async function clearRoom(room: RoomSummary) {
     setRoomDialogBusy(true);
     setRoomDialogError(undefined);
@@ -3373,105 +1887,6 @@ export function App({
       setRoomDialogBusy(false);
     }
   }
-
-  const composerPlaceholder = currentLeadAgent
-    ? t("发送消息，不 @ 时交给主 Agent {0}…", { 0: currentLeadAgent })
-    : t("发送消息，输入 @ 选择成员…");
-  const plainComposerInput = (
-    <>
-      <div
-        className="composer-highlight"
-        ref={highlightRef}
-        aria-hidden="true"
-        hidden={composerPreview}
-      >
-        {highlightDraft(draft).map((segment, index) =>
-          segment.kind === "mention" ? (
-            <mark key={index}>{segment.text}</mark>
-          ) : segment.kind ? (
-            <span key={index} className={`md-${segment.kind}`}>
-              {segment.text}
-            </span>
-          ) : (
-            segment.text
-          ),
-        )}
-        {/* 末尾换行需要占位，否则高亮层比输入框少一行 */}
-        {"\u200b"}
-      </div>
-      <textarea
-        ref={attachComposer}
-        rows={1}
-        hidden={composerPreview}
-        value={draft}
-        onScroll={(event) => {
-          if (highlightRef.current) {
-            highlightRef.current.scrollTop = event.currentTarget.scrollTop;
-          }
-        }}
-        onChange={(event) => {
-          setDraft(event.target.value);
-          if (!composingRef.current) {
-            updateMentionContext(event.target.value, event.target.selectionStart);
-          }
-        }}
-        onCompositionStart={() => {
-          composingRef.current = true;
-        }}
-        onCompositionEnd={(event) => {
-          composingRef.current = false;
-          updateMentionContext(event.currentTarget.value, event.currentTarget.selectionStart);
-        }}
-        onSelect={(event) => {
-          // 翻到的旧消息以 @某人 结尾时不弹成员列表，否则方向键会被列表接走
-          if (!composingRef.current && event.currentTarget.value !== browsingHistoryRef.current) {
-            updateMentionContext(event.currentTarget.value, event.currentTarget.selectionStart);
-          }
-        }}
-        onPaste={(event) => {
-          // 只接收浏览器交来的文件（截图、复制的图片）；粘贴的路径文本仍按文字处理，不去读本地文件
-          const files = [...event.clipboardData.files];
-          if (files.length === 0) return;
-          event.preventDefault();
-          addAttachments(files);
-        }}
-        onKeyDown={(event) => {
-          // ⌘/Ctrl+Shift+E：切到预览
-          if (
-            (event.metaKey || event.ctrlKey) &&
-            event.shiftKey &&
-            event.key.toLowerCase() === "e" &&
-            draft.trim()
-          ) {
-            event.preventDefault();
-            setComposerPreview(true);
-            return;
-          }
-          if (composingRef.current) return;
-          const textarea = event.currentTarget;
-          if (
-            handleComposerKey(event.nativeEvent, {
-              selectionStart: textarea.selectionStart,
-              selectionEnd: textarea.selectionEnd,
-              inCode: false,
-            })
-          ) {
-            event.preventDefault();
-          }
-        }}
-        placeholder={composerPlaceholder}
-        aria-label={t("消息")}
-        aria-autocomplete="list"
-        aria-controls={mentionContext ? "mention-suggestions" : undefined}
-        aria-expanded={Boolean(mentionContext)}
-        aria-activedescendant={
-          mentionContext && mentionSuggestions[activeMentionIndex]
-            ? `mention-option-${mentionSuggestions[activeMentionIndex].id}`
-            : undefined
-        }
-      />
-    </>
-  );
 
   // 外面包一层：消息、白板里的提交号要能拿到「代码」面板的上下文（不改下面的缩进）
   const page = (
@@ -3540,1357 +1955,108 @@ export function App({
         />
 
         <section className="chat-panel panel" id="main-content" tabIndex={-1}>
-          <header className="chat-header">
-            <button
-              type="button"
-              className="header-button rooms-toggle"
-              aria-label={roomsCollapsed ? t("显示房间列表") : t("隐藏房间列表")}
-              aria-pressed={!roomsCollapsed}
-              title={roomsCollapsed ? t("显示房间列表") : t("隐藏房间列表")}
-              onClick={() =>
-                animateLayout(() =>
-                  setRoomsCollapsed((current) => {
-                    localStorage.setItem(storedRoomsCollapsedKey, String(!current));
-                    return !current;
-                  }),
-                )
-              }
-            >
-              <Icon name="panel-left" size={17} />
-            </button>
-            <button
-              type="button"
-              className="header-button mobile-only"
-              aria-label={t("打开房间列表")}
-              aria-expanded={mobilePanel === "rooms"}
-              onClick={(event) => openMobilePanel("rooms", event.currentTarget)}
-            >
-              <Icon name="hash" size={17} />
-            </button>
-            <div className="chat-title">
-              <h1>{currentRoomName}</h1>
-              <span>
-                {online.length} {t("位在线 ·")} {messages.length} {t("条消息")}
-                {currentRoomWorkspace && (
-                  <span
-                    className="chat-title-workspace"
-                    title={t("房间工作区：{0}", { 0: currentRoomWorkspace })}
-                  >
-                    {" "}
-                    · {currentRoomWorkspace.split("/").filter(Boolean).at(-1)}
-                    {currentRoom?.branch &&
-                      (isOwner && local.enabled ? (
-                        <WorktreeSwitcher
-                          branch={currentRoom.branch}
-                          loadWorktrees={loadRoomWorktrees}
-                          loadOverview={loadWorkspaceDetail}
-                          onOpenSource={openWorkspaceSource}
-                          onManage={(trigger) =>
-                            openRoomDialog({ mode: "manage", room: currentRoom }, trigger)
-                          }
-                        />
-                      ) : (
-                        <span className="chat-title-branch" title={t("当前分支")}>
-                          <BranchGlyph />
-                          {currentRoom.branch}
-                        </span>
-                      ))}
-                  </span>
-                )}
-                {local.keepAwake &&
-                  (local.keepAwake.status === "active" || local.keepAwake.status === "failed") && (
-                    <button
-                      type="button"
-                      className={`keep-awake-badge ${local.keepAwake.status}`}
-                      title={keepAwakeSummary(local.keepAwake)}
-                      aria-label={keepAwakeSummary(local.keepAwake)}
-                      onClick={() => {
-                        setSettingsTab("computer");
-                        setSettingsOpen(true);
-                      }}
-                    >
-                      {local.keepAwake.status === "active"
-                        ? t("☾ 保持在线")
-                        : t("! 保持在线未生效")}
-                    </button>
-                  )}
-              </span>
-            </div>
-            <div className="chat-header-actions">
-              <button
-                type="button"
-                className="header-button new-topic"
-                disabled={messages.length === 0 || messages.at(-1)?.kind === "topic"}
-                title={t("开启新话题：房间里的 Agent 会丢弃之前的会话，从新会话开始；历史消息保留")}
-                onClick={startNewTopic}
-              >
-                <Icon name="plus" size={16} />
-                <span>{t("新话题")}</span>
-              </button>
-              <button
-                ref={artifactsButtonRef}
-                type="button"
-                className={`header-button artifacts-toggle ${artifactsOpen ? "active" : ""}`}
-                aria-label={
-                  artifactCount
-                    ? t("产物：{0} 个图片和文件", { 0: artifactCount })
-                    : t("产物：房间里的图片和文件")
-                }
-                aria-pressed={artifactsOpen}
-                title={t("产物：房间里的图片和文件")}
-                onClick={() => {
-                  setWorkspaceOpen(false);
-                  setArtifactsOpen((current) => !current);
-                }}
-              >
-                <Icon name="files" size={16} />
-                <span>{t("产物")}</span>
-                {artifactCount ? (
-                  <span className="header-count" aria-hidden="true">
-                    {artifactCount > 99 ? "99+" : artifactCount}
-                  </span>
-                ) : null}
-              </button>
-              {canViewWorkspace && (
-                <button
-                  ref={workspaceButtonRef}
-                  type="button"
-                  className={`header-button workspace-toggle ${workspaceOpen ? "active" : ""}`}
-                  aria-pressed={workspaceOpen}
-                  aria-label={
-                    workspaceChangeCount
-                      ? t("工作区文件与改动（{0} 个文件有未提交改动）", { 0: workspaceChangeCount })
-                      : t("工作区文件与改动")
-                  }
-                  title={t("工作区文件与改动（只读）")}
-                  onClick={() => {
-                    setArtifactsOpen(false);
-                    setWorkspaceOpen((current) => !current);
-                  }}
-                >
-                  <WorkspaceGlyph />
-                  <span>{t("代码")}</span>
-                  {workspaceChangeCount > 0 && (
-                    <span className="header-count workspace-toggle-count" aria-hidden="true">
-                      {workspaceChangeCount > 999 ? "999+" : workspaceChangeCount}
-                    </span>
-                  )}
-                </button>
-              )}
-              <button
-                type="button"
-                className={`header-button share-fab ${shareMode ? "active" : ""}`}
-                aria-label={shareMode ? t("退出分享模式") : t("分享对话")}
-                aria-pressed={shareMode}
-                onClick={() => (shareMode ? exitShareMode() : setShareMode(true))}
-              >
-                <Icon name="share" size={16} />
-                <span>{shareMode ? t("取消") : t("分享")}</span>
-              </button>
-              <button
-                type="button"
-                className="header-button members-drawer-toggle"
-                aria-label={t("打开成员列表")}
-                aria-expanded={mobilePanel === "members"}
-                onClick={(event) => openMobilePanel("members", event.currentTarget)}
-              >
-                <Icon name="users" size={17} />
-              </button>
-              <button
-                type="button"
-                className="header-button desktop-only"
-                aria-label={
-                  previewDocked
-                    ? t("收起右侧栏")
-                    : membersCollapsed
-                      ? t("显示成员与白板")
-                      : t("隐藏成员与白板")
-                }
-                aria-pressed={previewDocked || !membersCollapsed}
-                title={
-                  previewDocked
-                    ? t("收起右侧栏")
-                    : membersCollapsed
-                      ? t("显示成员与白板")
-                      : t("隐藏成员与白板")
-                }
-                onClick={() =>
-                  animateLayout(() => {
-                    // 停靠着预览时右侧栏一定是开着的：这里就是收起它，连预览一起关
-                    if (previewDocked) {
-                      setDockedPreview(undefined);
-                      localStorage.setItem(storedMembersCollapsedKey, "true");
-                      setMembersCollapsed(true);
-                      return;
-                    }
-                    setMembersCollapsed((current) => {
-                      localStorage.setItem(storedMembersCollapsedKey, String(!current));
-                      return !current;
-                    });
-                  })
-                }
-              >
-                <Icon name="panel-right" size={17} />
-              </button>
-            </div>
-          </header>
-          {(error ||
-            showNotificationPrompt ||
-            pausedInvocations.length > 0 ||
-            worktreeNotices.has(currentRoomId)) && (
-            <div className="chat-notices">
-              {isOwner && local.enabled && worktreeNotices.has(currentRoomId) && (
-                <div className="notification-prompt worktree-batch" role="status">
-                  <span>
-                    {t("{0} 个 worktree 已合入，可清理。", {
-                      0: worktreeNotices.get(currentRoomId)!.count,
-                    })}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={!local.canManage}
-                    onClick={async () => {
-                      const notice = worktreeNotices.get(currentRoomId)!;
-                      try {
-                        await local.cleanWorktreeBatch(currentRoomId, notice.batchId);
-                        setWorktreeNotices((current) => {
-                          const next = new Map(current);
-                          next.delete(currentRoomId);
-                          return next;
-                        });
-                        setGotoNotice(t("已提交批量清理请求，完成后通知。"));
-                      } catch (reason) {
-                        setError(reason instanceof Error ? reason.message : String(reason));
-                      }
-                    }}
-                  >
-                    {t("清理这批目录")}
-                  </button>
-                </div>
-              )}
-              {error && (
-                <div className="error-banner" role="alert">
-                  <span>{error}</span>
-                  <button
-                    type="button"
-                    aria-label={t("关闭错误提示")}
-                    onClick={() => setError(undefined)}
-                  >
-                    <Icon name="close" size={16} />
-                  </button>
-                </div>
-              )}
-              {pausedInvocations.length > 0 && (
-                <div
-                  className="notification-prompt budget-prompt"
-                  role="status"
-                  aria-label={t("Agent 连续对话已暂停")}
-                >
-                  <Icon name="shield" size={18} />
-                  <p>
-                    <strong>{t("Agent 连续对话已暂停，等待你确认")}</strong>
-                    {pausedAgentNames.slice(0, 3).join(t("、"))}
-                    {pausedAgentNames.length > 3 ? t(" 等") : ""} {t("的调用触及了轮数上限。")}
-                  </p>
-                  <div className="notification-prompt-actions">
-                    <button type="button" className="primary" onClick={extendAgentBudget}>
-                      {t("继续 {0} 轮", { 0: BUDGET_EXTEND_TURNS })}
-                    </button>
-                  </div>
-                </div>
-              )}
-              {showNotificationPrompt && (
-                <div className="notification-prompt" role="status" aria-label={t("开启浏览器通知")}>
-                  <Icon name="bell" size={18} />
-                  <p>
-                    <strong>{t("开启浏览器通知")}</strong>
-                    {t("页面不在前台时，有人 @ 你会收到系统提醒。")}
-                  </p>
-                  <div className="notification-prompt-actions">
-                    <button type="button" onClick={dismissNotificationPrompt}>
-                      {t("暂不")}
-                    </button>
-                    <button
-                      type="button"
-                      className="primary"
-                      onClick={() => void ensureNotificationPermission()}
-                    >
-                      {t("开启")}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-          <div
-            ref={(element) => {
-              messageListRef.current = element;
-              setShadowHost((current) => (current === element ? current : element));
-            }}
-            className="message-list"
-            role="log"
-            aria-label={t("聊天室消息")}
-            aria-live="polite"
-            onScroll={handleMessageListScroll}
-          >
-            <ShadowContent host={shadowHost}>
-              <div className="message-shadow-inner">
-                {messagesLoaded && messages.length === 0 && (
-                  <div className="empty-state">
-                    <HiveLogo />
-                    <h2>{t("今天在 #{0} 协作什么？", { 0: currentRoomName })}</h2>
-                    <p>
-                      {t("发出第一条消息，或输入")} <code>@agent-name</code>{" "}
-                      {t("邀请一个 Agent 参与。")}
-                    </p>
-                    <button type="button" onClick={() => textareaRef.current?.focus()}>
-                      {t("开始一条消息")}
-                      <Icon name="arrow-right" size={16} />
-                    </button>
-                  </div>
-                )}
-                <div
-                  className="message-scroll-content"
-                  ref={(element) => {
-                    messageScrollContentRef.current = element;
-                    setScrollContentElement((current) => (current === element ? current : element));
-                  }}
-                >
-                  {hiddenCount > 0 ? (
-                    <button
-                      type="button"
-                      className="load-earlier"
-                      onClick={() => {
-                        captureScrollAnchor();
-                        setVisibleLimit((current) => current + 100);
-                      }}
-                    >
-                      {t("显示更早的 {0} 条消息（共隐藏 {1} 条）", {
-                        0: Math.min(hiddenCount, 100),
-                        1: hiddenCount,
-                      })}
-                    </button>
-                  ) : (
-                    earlierTopicCount > 0 &&
-                    currentTopic && (
-                      <button
-                        type="button"
-                        className="load-earlier"
-                        onClick={() => {
-                          captureScrollAnchor();
-                          setExpandedTopicId(currentTopic.id);
-                        }}
-                      >
-                        {t("显示更早的话题（{0} 条消息）", { 0: earlierTopicCount })}
-                      </button>
-                    )
-                  )}
-                  {timeline.map(({ message, newDay, grouped }) => (
-                    <Fragment key={message.id}>
-                      {newDay && (
-                        <div className="date-divider" role="separator">
-                          <span>{dateDividerLabel(message.createdAt)}</span>
-                        </div>
-                      )}
-                      {(() => {
-                        // 这条是某次调用的回复：上方收着这一轮的过程（只在内存里，刷新后没有）
-                        const source = message.deletedAt
-                          ? undefined
-                          : invocationByReply.get(message.id);
-                        const steps = source ? traces.get(source.id) : undefined;
-                        return source && steps?.length ? (
-                          <TraceRecap
-                            invocation={source}
-                            steps={steps}
-                            replyText={message.content}
-                          />
-                        ) : null;
-                      })()}
-                      {message.kind === "topic" ? (
-                        <div
-                          className="topic-divider"
-                          role="separator"
-                          data-message-id={message.id}
-                        >
-                          <span>
-                            {message.content} · {formatMessageTime(message.createdAt)}
-                          </span>
-                          <small>{t("之前的消息不再作为 Agent 的上下文")}</small>
-                        </div>
-                      ) : (
-                        <article
-                          className={`message ${message.senderType} ${
-                            message.senderType === "human" &&
-                            message.senderName.toLocaleLowerCase() === username.toLocaleLowerCase()
-                              ? "own"
-                              : ""
-                          } ${grouped ? "grouped" : ""} ${
-                            shareMode && !message.deletedAt ? "selectable" : ""
-                          } ${selectedMessageIds.has(message.id) ? "selected" : ""} ${
-                            message.deletedAt ? "deleted" : ""
-                          } ${highlightedMessageId === message.id ? "highlighted" : ""} ${
-                            message.kind === "question" ? "question" : ""
-                          } ${message.kind === "progress" ? "progress" : ""} ${
-                            isMachine(message) ? "machine" : ""
-                          }`}
-                          data-message-id={message.id}
-                          style={
-                            message.senderType === "human"
-                              ? avatarHueStyle(message.senderName)
-                              : undefined
-                          }
-                          onClick={
-                            shareMode && !message.deletedAt
-                              ? () => toggleMessageSelected(message.id)
-                              : undefined
-                          }
-                        >
-                          {grouped ? (
-                            <span className="hover-time" aria-hidden="true">
-                              {formatMessageTime(message.createdAt)}
-                            </span>
-                          ) : (
-                            <span
-                              className={`avatar ${message.senderType}`}
-                              aria-hidden="true"
-                              onContextMenu={(event) =>
-                                openSenderMenu(event, {
-                                  id: message.senderId,
-                                  name: message.senderName,
-                                })
-                              }
-                            >
-                              <AvatarGlyph
-                                type={message.senderType}
-                                name={message.senderName}
-                                provider={agentProviderByName.get(
-                                  message.senderName.toLocaleLowerCase(),
-                                )}
-                              />
-                            </span>
-                          )}
-                          <div className="message-content">
-                            {message.kind === "progress" && grouped && (
-                              <span
-                                className="message-progress-tag"
-                                title={t("Agent 执行中途发来的进度，最终结论在它之后的回复里")}
-                              >
-                                {t("进度")}
-                              </span>
-                            )}
-                            {!grouped && (
-                              <header>
-                                {/* 名字也能右击，键盘聚焦后按菜单键或 Shift+F10 一样能打开 */}
-                                <strong
-                                  className="message-sender"
-                                  tabIndex={0}
-                                  aria-haspopup="menu"
-                                  onContextMenu={(event) =>
-                                    openSenderMenu(event, {
-                                      id: message.senderId,
-                                      name: message.senderName,
-                                    })
-                                  }
-                                >
-                                  {message.senderName}
-                                </strong>
-                                {message.senderType === "agent" && <b>Agent</b>}
-                                {message.kind === "progress" && (
-                                  <span
-                                    className="message-progress-tag"
-                                    title={t("Agent 执行中途发来的进度，最终结论在它之后的回复里")}
-                                  >
-                                    {t("进度")}
-                                  </span>
-                                )}
-                                {message.via && (
-                                  <span className="message-via">
-                                    {t("来自{0}", { 0: IM_CHANNEL_LABELS[message.via.channel] })}
-                                  </span>
-                                )}
-                                <time dateTime={message.createdAt}>
-                                  {formatMessageTime(message.createdAt)}
-                                </time>
-                                <button
-                                  type="button"
-                                  className="message-seq"
-                                  title={t("复制序号引用（可用于在聊天中引用这条消息）")}
-                                  aria-label={t("复制消息序号 #{0}", { 0: message.seq })}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void copySeqReference(message);
-                                  }}
-                                >
-                                  {copiedMessageId === `seq:${message.id}`
-                                    ? t("已复制")
-                                    : `#${message.seq}`}
-                                </button>
-                              </header>
-                            )}
-                            {message.deletedAt ? (
-                              <p className="message-recalled">
-                                {message.senderName.toLocaleLowerCase() ===
-                                username.toLocaleLowerCase()
-                                  ? t("你撤回了一条消息")
-                                  : t("{0} 撤回了一条消息", { 0: message.senderName })}
-                              </p>
-                            ) : isMachine(message) && !openMachineIds.has(message.id) ? (
-                              (() => {
-                                const preview = machinePreview(message);
-                                return (
-                                  <button
-                                    type="button"
-                                    className="message-machine-card"
-                                    title={t("Agent 之间的往来，点开看全文")}
-                                    aria-expanded={false}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      setOpenMachineIds((current) =>
-                                        new Set(current).add(message.id),
-                                      );
-                                    }}
-                                  >
-                                    <span className="message-machine-label">
-                                      <span>
-                                        {splitMentions(preview.label).map((part, index) =>
-                                          part.mention ? (
-                                            <mark key={index}>{part.text}</mark>
-                                          ) : (
-                                            part.text
-                                          ),
-                                        )}
-                                      </span>
-                                      <small>{t("展开")}</small>
-                                    </span>
-                                    {preview.text && (
-                                      <span className="message-machine-text">
-                                        {splitMentions(preview.text).map((part, index) =>
-                                          part.mention ? (
-                                            <mark key={index}>{part.text}</mark>
-                                          ) : (
-                                            part.text
-                                          ),
-                                        )}
-                                      </span>
-                                    )}
-                                  </button>
-                                );
-                              })()
-                            ) : (
-                              message.content && (
-                                <div className="message-body">
-                                  {isMachine(message) && (
-                                    <button
-                                      type="button"
-                                      className="message-machine-collapse"
-                                      aria-expanded={true}
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        setOpenMachineIds((current) => {
-                                          const next = new Set(current);
-                                          next.delete(message.id);
-                                          return next;
-                                        });
-                                      }}
-                                    >
-                                      {t("收起")}
-                                    </button>
-                                  )}
-                                  <CollapsibleMessage
-                                    content={message.content}
-                                    enabled={message.senderType === "agent"}
-                                    storageKey={`superhive.message-expanded:${message.roomId}:${message.id}`}
-                                    expandOnLocate={
-                                      pendingJumpId === message.id ||
-                                      highlightedMessageId === message.id
-                                    }
-                                    forceExpanded={shareMode}
-                                    onToggle={releaseBottomPin}
-                                  >
-                                    <Suspense
-                                      fallback={
-                                        <p className="message-body-fallback">{message.content}</p>
-                                      }
-                                    >
-                                      <MessageMarkdown
-                                        content={message.content}
-                                        onLocateMessage={locateMessageFromMarkdown}
-                                      />
-                                    </Suspense>
-                                  </CollapsibleMessage>
-                                </div>
-                              )
-                            )}
-                            {!message.deletedAt && message.attachments?.length ? (
-                              <MessageAttachments
-                                attachments={message.attachments}
-                                base={base}
-                                token={authToken}
-                                onDock={(attachment) =>
-                                  dockPreview(attachment, {
-                                    senderId: message.senderId,
-                                    seq: message.seq,
-                                  })
-                                }
-                              />
-                            ) : null}
-                            {message.question && !message.deletedAt && (
-                              <QuestionOptions
-                                spec={message.question}
-                                waiting={
-                                  message.approval
-                                    ? pendingApprovals.has(message.id)
-                                    : Boolean(
-                                        waitingInvocationForQuestion(message, invocations.values()),
-                                      )
-                                }
-                                allowOther={!message.approval}
-                                pending={
-                                  pendingAnswers.has(message.id) && !choiceAnswers.has(message.id)
-                                }
-                                {...(choiceAnswers.get(message.id)
-                                  ? { answer: choiceAnswers.get(message.id)! }
-                                  : {})}
-                                onSubmit={(selected, other) =>
-                                  submitChoice(message, selected, other)
-                                }
-                              />
-                            )}
-                            {!shareMode &&
-                              !message.question &&
-                              waitingInvocationForQuestion(message, invocations.values()) && (
-                                <button
-                                  type="button"
-                                  className="question-answer"
-                                  aria-label={t("回答 {0} 的提问", { 0: message.senderName })}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    answerQuestion(message);
-                                  }}
-                                >
-                                  {answering?.id === message.id ? t("正在回答…") : t("回答")}
-                                </button>
-                              )}
-                            {invocationsByMessage.has(message.id) && (
-                              <InvocationChips
-                                connectionState={connectionState}
-                                invocations={invocationsByMessage.get(message.id) ?? []}
-                                allInvocations={invocations}
-                                participants={participants}
-                                canJumpTo={(messageId) => loadedMessageIds.has(messageId)}
-                                onJump={jumpToMessage}
-                                onRetry={(invocation) => retryInvocation(invocation)}
-                                onRetryWithModel={isOwner ? setRetryModelFor : undefined}
-                                onCancel={cancelInvocation}
-                                onDismiss={(invocation) => dismissInvocations([invocation])}
-                                onExtend={extendAgentBudget}
-                                onSteer={steerInvocation}
-                                onPreempt={preemptInvocation}
-                                onOpenTerminal={
-                                  isOwner
-                                    ? (invocation) => {
-                                        const agent = localAgentFor(invocation.agentName);
-                                        return agent
-                                          ? () => void openAgentTerminal(agent)
-                                          : undefined;
-                                      }
-                                    : undefined
-                                }
-                                onViewChanges={
-                                  canViewWorkspace && currentRoomWorkspace
-                                    ? (invocation) => openWorkspaceFor(invocation.agentName)
-                                    : undefined
-                                }
-                                isOwner={isOwner}
-                                traces={traces}
-                              />
-                            )}
-                            {(invocationsByMessage.get(message.id) ?? [])
-                              .filter(
-                                (invocation) =>
-                                  !invocation.replyMessageId &&
-                                  !showsLiveCard(invocation) &&
-                                  invocation.status !== "queued" &&
-                                  Boolean(traces.get(invocation.id)?.length),
-                              )
-                              .map((invocation) => (
-                                <TraceRecap
-                                  key={`recap-${invocation.id}`}
-                                  invocation={invocation}
-                                  steps={traces.get(invocation.id)!}
-                                />
-                              ))}
-                          </div>
-                          {message.deletedAt ? null : shareMode ? (
-                            <span
-                              className={`select-indicator ${
-                                selectedMessageIds.has(message.id) ? "on" : ""
-                              }`}
-                              role="checkbox"
-                              aria-checked={selectedMessageIds.has(message.id)}
-                              aria-label={t("选择 {0} 的消息", { 0: message.senderName })}
-                            >
-                              {selectedMessageIds.has(message.id) && (
-                                <Icon name="check" size={12} />
-                              )}
-                            </span>
-                          ) : (
-                            <div className="message-actions">
-                              {grouped && (
-                                <button
-                                  type="button"
-                                  className="message-action seq"
-                                  title={t("复制序号引用")}
-                                  aria-label={t("复制消息序号 #{0}", { 0: message.seq })}
-                                  onClick={() => void copySeqReference(message)}
-                                >
-                                  {copiedMessageId === `seq:${message.id}`
-                                    ? "✓"
-                                    : `#${message.seq}`}
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                className="message-action"
-                                aria-label={t("复制消息原文")}
-                                title={t("复制消息")}
-                                onClick={() => void copyMessageContent(message)}
-                              >
-                                <Icon
-                                  name={copiedMessageId === message.id ? "check" : "copy"}
-                                  size={13}
-                                />
-                              </button>
-                              {message.senderName.toLocaleLowerCase() !==
-                              username.toLocaleLowerCase() ? (
-                                <button
-                                  type="button"
-                                  className="message-action"
-                                  aria-label={t("在输入框中提及 {0}", { 0: message.senderName })}
-                                  title={`@${message.senderName}`}
-                                  onClick={() => appendMention(message.senderName)}
-                                >
-                                  @
-                                </button>
-                              ) : recallCandidateId === message.id ? (
-                                (() => {
-                                  // 这条消息派出、还没结束的任务：撤回时默认一起停掉
-                                  const open = (invocationsByMessage.get(message.id) ?? []).filter(
-                                    (invocation) =>
-                                      ["queued", "running", "waiting_human", "blocked"].includes(
-                                        invocation.status,
-                                      ),
-                                  );
-                                  // 只有已经开始做的才有「只撤回、让它做完」可选；排队中的撤回后本来就不会再执行
-                                  const started = open.some(
-                                    (invocation) =>
-                                      invocation.status === "running" ||
-                                      invocation.status === "waiting_human",
-                                  );
-                                  const noteId = `recall-note-${message.id}`;
-                                  return (
-                                    <span
-                                      className={`message-recall-confirm ${open.length ? "with-tasks" : ""}`}
-                                      role="group"
-                                      aria-label={t("确认撤回")}
-                                      {...(open.length ? { "aria-describedby": noteId } : {})}
-                                    >
-                                      <span className="message-recall-question">
-                                        {open.length
-                                          ? t("撤回并停止 {0} 的任务？", {
-                                              0: [
-                                                ...new Set(
-                                                  open.map(
-                                                    (invocation) => `@${invocation.agentName}`,
-                                                  ),
-                                                ),
-                                              ].join("、"),
-                                            })
-                                          : t("撤回这条消息？")}
-                                      </span>
-                                      {open.length > 0 && (
-                                        <small id={noteId} className="message-recall-note">
-                                          {t(
-                                            "只停这条消息直接派出的任务，它们再派出去的子任务不受影响；已经改的文件、跑过的命令不会撤销。",
-                                          )}
-                                        </small>
-                                      )}
-                                      <span className="message-recall-actions">
-                                        <button
-                                          type="button"
-                                          onClick={() => setRecallCandidateId(undefined)}
-                                        >
-                                          {t("取消")}
-                                        </button>
-                                        {started && (
-                                          <button
-                                            type="button"
-                                            title={t("消息撤回，正在做的照常做完，只是不再回复")}
-                                            onClick={() => recallMessage(message.id)}
-                                          >
-                                            {t("只撤回")}
-                                          </button>
-                                        )}
-                                        <button
-                                          type="button"
-                                          className="danger"
-                                          onClick={() => recallMessage(message.id, open.length > 0)}
-                                        >
-                                          {open.length ? t("撤回并停止") : t("撤回")}
-                                        </button>
-                                      </span>
-                                    </span>
-                                  );
-                                })()
-                              ) : (
-                                <button
-                                  type="button"
-                                  className="message-action danger"
-                                  aria-label={t("撤回这条消息")}
-                                  title={t("撤回")}
-                                  onClick={() => setRecallCandidateId(message.id)}
-                                >
-                                  <Icon name="undo" size={13} />
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </article>
-                      )}
-                    </Fragment>
-                  ))}
-                  {(() => {
-                    // 正在干活的 Agent：每人一张「思考中」卡片，出现在回复将来出现的位置；同时超过 3 张时只展开最新的。
-                    // 等你回答、等你决定（只给房主，按钮在房主这边）的也各一张，置顶并标醒目
-                    const live = sortCards(
-                      [...invocations.values()].filter(
-                        (invocation) =>
-                          invocation.roomId === currentRoomId &&
-                          (showsLiveCard(invocation) ||
-                            (cardAttention(invocation) === "decide"
-                              ? isOwner
-                              : showsCard(invocation))),
-                      ),
-                    );
-                    const cards = groupLiveCards(live);
-                    const working = cards.filter((card) => !cardAttention(card.invocation));
-                    const latestWorking = working.at(-1);
-                    const seqOf = new Map(messages.map((message) => [message.id, message.seq]));
-                    const messageById = new Map(messages.map((message) => [message.id, message]));
-                    return cards.map(({ invocation, batch }) => (
-                      <ThinkingCard
-                        key={`card-${invocation.id}`}
-                        invocation={invocation}
-                        steps={
-                          traces.get(invocation.id) ??
-                          batch.map((item) => traces.get(item.id)).find(Boolean)
-                        }
-                        batchSeqs={batch
-                          .map((item) => seqOf.get(item.messageId))
-                          .filter((seq): seq is number => seq !== undefined)
-                          .sort((a, b) => a - b)}
-                        traceAllowed={!guest || guest.showTrace !== false}
-                        onAvatarContextMenu={(event) =>
-                          openSenderMenu(event, {
-                            id: invocation.agentId,
-                            name: invocation.agentName,
-                          })
-                        }
-                        defaultCollapsed={
-                          working.length > 3 && latestWorking?.invocation.id !== invocation.id
-                        }
-                        {...(() => {
-                          // 卡片上写明在处理哪条消息；合批时引用最早的一条
-                          const first = [...batch]
-                            .map((item) => messageById.get(item.messageId))
-                            .filter((message): message is ChatMessage => Boolean(message))
-                            .sort((a, b) => a.seq - b.seq)[0];
-                          if (!first) return {};
-                          return {
-                            trigger: {
-                              seq: first.seq,
-                              preview: plainPreview(first.content).slice(0, 120),
-                            },
-                            onJumpToTrigger: () => jumpToMessage(first.id),
-                          };
-                        })()}
-                        avatar={
-                          <AvatarGlyph
-                            type="agent"
-                            name={invocation.agentName}
-                            provider={agentProviderByName.get(
-                              invocation.agentName.toLocaleLowerCase(),
-                            )}
-                          />
-                        }
-                      />
-                    ));
-                  })()}
-                  {(() => {
-                    // 谁在干活：已经有卡片的不再重复列出，只剩排队、等你回答这些没在跑的
-                    const rows = agentActivity(
-                      participants,
-                      invocations.values(),
-                      currentRoomId,
-                    ).filter((row) => !row.invocation || !showsLiveCard(row.invocation));
-                    if (!rows.length) return null;
-                    return (
-                      <div className="typing" role="status" aria-live="polite">
-                        <span aria-hidden="true" />
-                        <span aria-hidden="true" />
-                        <span aria-hidden="true" />
-                        <ul className="typing-agents">
-                          {rows.map((row) => {
-                            const target = row.invocation?.messageId;
-                            const canJump = Boolean(target && loadedMessageIds.has(target));
-                            return (
-                              <li key={row.participant.id}>
-                                <button
-                                  type="button"
-                                  className={`typing-agent ${row.state}`}
-                                  disabled={!canJump}
-                                  title={
-                                    canJump
-                                      ? t("{0}，点击跳到它正在处理的消息", {
-                                          0: row.participant.username,
-                                        })
-                                      : row.participant.username
-                                  }
-                                  onClick={() => target && jumpToMessage(target)}
-                                >
-                                  <span className="mention-avatar agent" aria-hidden="true">
-                                    <AvatarGlyph
-                                      type="agent"
-                                      name={row.participant.username}
-                                      provider={row.participant.provider}
-                                    />
-                                  </span>
-                                  <strong>{row.participant.username}</strong>
-                                </button>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                        {/* 详细进展看气泡下的状态，这里只说谁在干活 */}
-                        <span>{t("正在处理")}</span>
-                      </div>
-                    );
-                  })()}
-                  <div ref={messagesEndRef} />
-                </div>
-              </div>
-            </ShadowContent>
-          </div>
-          {shareMode && (
-            <div className="share-bar" role="toolbar" aria-label={t("分享选中的消息")}>
-              <span className="share-count" role="status">
-                {t("已选 {0} 条", { 0: selectedMessages.length })}
-              </span>
-              <button type="button" onClick={toggleSelectAllMessages}>
-                {messages.length > 0 && selectedMessageIds.size === messages.length
-                  ? t("清空")
-                  : t("全选")}
-              </button>
-              <button
-                type="button"
-                disabled={selectedMessages.length === 0 || shareBusy}
-                onClick={() => void copyShareMarkdown()}
-              >
-                {t("复制 Markdown")}
-              </button>
-              <button
-                type="button"
-                disabled={selectedMessages.length === 0 || shareBusy}
-                onClick={downloadShareMarkdown}
-              >
-                {t("下载 .md")}
-              </button>
-              <button
-                type="button"
-                disabled={selectedMessages.length === 0 || shareBusy}
-                onClick={() => void exportShareImage()}
-              >
-                {shareBusy ? t("导出中…") : t("导出图片")}
-              </button>
-              {shareFeedback && (
-                <span className="share-feedback" role="status">
-                  {shareFeedback}
-                </span>
-              )}
-              <button type="button" className="share-exit" onClick={exitShareMode}>
-                {t("退出")}
-              </button>
-            </div>
-          )}
-          {shareMode && selectedMessages.length > 0 && (
-            <div className="share-card-stage" aria-hidden="true">
-              <div ref={shareCardRef} className="share-card">
-                <header className="share-card-header">
-                  <strong># {currentRoomName}</strong>
-                  <span>{t("SUPERHIVE · 对话分享")}</span>
-                </header>
-                {selectedMessages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={`share-card-message ${message.senderType}`}
-                    style={
-                      message.senderType === "human"
-                        ? avatarHueStyle(message.senderName)
-                        : undefined
-                    }
-                  >
-                    <span className={`share-card-avatar ${message.senderType}`}>
-                      <AvatarGlyph
-                        type={message.senderType}
-                        name={message.senderName}
-                        provider={agentProviderByName.get(message.senderName.toLocaleLowerCase())}
-                      />
-                    </span>
-                    <div className="share-card-body">
-                      <header>
-                        <strong>{message.senderName}</strong>
-                        {message.senderType === "agent" && <b>Agent</b>}
-                        <time dateTime={message.createdAt}>
-                          {formatShareTimestamp(message.createdAt)}
-                        </time>
-                        <span className="share-card-seq">#{message.seq}</span>
-                      </header>
-                      <div className="message-body">
-                        <Suspense
-                          fallback={<p className="message-body-fallback">{message.content}</p>}
-                        >
-                          <MessageMarkdown content={message.content} />
-                        </Suspense>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                <footer className="share-card-footer">
-                  <span>
-                    {t("导出于 {0}", { 0: formatShareTimestamp(new Date().toISOString()) })}
-                  </span>
-                  <span>SuperHive</span>
-                </footer>
-              </div>
-            </div>
-          )}
-          <div className="composer">
-            {showJumpToBottom && !mentionContext && (
-              <button
-                type="button"
-                className="jump-to-bottom"
-                aria-label={t("滚动到底部")}
-                title={t("回到最新消息")}
-                onClick={jumpToLatest}
-              >
-                <Icon name="arrow-down" size={16} />
-              </button>
-            )}
-            {pendingNewMessages > 0 && !mentionContext && (
-              <button type="button" className="jump-pill" onClick={jumpToLatest}>
-                {t("↓ {0} 条新消息", { 0: pendingNewMessages })}
-              </button>
-            )}
-            {mentionContext && (
-              <div
-                ref={mentionMenuRef}
-                className="mention-menu"
-                id="mention-suggestions"
-                role="listbox"
-              >
-                <div className="mention-menu-heading">
-                  <span>{t("提及成员")}</span>
-                  <small>{t("{0} 个匹配", { 0: mentionSuggestions.length })}</small>
-                </div>
-                {mentionSuggestions.length > 0 ? (
-                  <div className="mention-options">
-                    {mentionSuggestions.map((participant, index) => (
-                      <button
-                        type="button"
-                        role="option"
-                        aria-selected={index === activeMentionIndex}
-                        id={`mention-option-${participant.id}`}
-                        className={`mention-option ${index === activeMentionIndex ? "active" : ""}`}
-                        key={participant.id}
-                        onMouseMove={(event) => {
-                          // 键盘翻动使列表滚到静止的鼠标下时，浏览器也会补发鼠标事件，不能让它抢走选中项
-                          if (event.movementX || event.movementY) setActiveMentionIndex(index);
-                        }}
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => chooseMention(participant)}
-                      >
-                        <span
-                          className={`mention-avatar ${participant.type}`}
-                          style={
-                            participant.type === "human"
-                              ? avatarHueStyle(participant.username)
-                              : undefined
-                          }
-                          aria-hidden="true"
-                        >
-                          <AvatarGlyph
-                            type={participant.type}
-                            name={participant.username}
-                            provider={participant.provider}
-                          />
-                        </span>
-                        <span className="mention-member-copy">
-                          <strong>@{participant.username}</strong>
-                          <small>
-                            {participant.type === "agent" ? "Agent" : t("用户")} ·{" "}
-                            {participantStatusLabel(participant.status)}
-                          </small>
-                        </span>
-                        <span
-                          className={`status-dot ${participant.status}`}
-                          aria-label={participantStatusLabel(participant.status)}
-                        />
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="mention-empty">{t("没有找到匹配的成员")}</div>
-                )}
-                <div className="mention-menu-footer">
-                  <span>
-                    <kbd>↑↓</kbd> {t("选择")}
-                  </span>
-                  <span>
-                    <kbd>Enter</kbd> {t("或")} <kbd>Tab</kbd> {t("补全")}
-                  </span>
-                  <span>
-                    <kbd>Esc</kbd> {t("关闭")}
-                  </span>
-                </div>
-              </div>
-            )}
-            {answering && answering.roomId === currentRoomId && (
-              <div className="composer-answering" role="status">
-                <strong>{t("回答 @{0} 的提问", { 0: answering.senderName })}</strong>
-                <span>{answering.content.replace(/\s+/g, " ")}</span>
-                <button
-                  type="button"
-                  aria-label={t("取消回答")}
-                  title={t("取消回答，改为普通消息")}
-                  onClick={() => setAnswering(undefined)}
-                >
-                  ×
-                </button>
-              </div>
-            )}
-            <div
-              className={`composer-box${dragActive ? " drag-active" : ""}`}
-              onDragEnter={(event) => {
-                if (event.dataTransfer.types.includes("Files")) setDragActive(true);
-              }}
-              onDragOver={(event) => {
-                if (!event.dataTransfer.types.includes("Files")) return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "copy";
-              }}
-              onDragLeave={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                  setDragActive(false);
-                }
-              }}
-              onDrop={(event) => {
-                if (!event.dataTransfer.files.length) return;
-                event.preventDefault();
-                setDragActive(false);
-                addAttachments([...event.dataTransfer.files]);
-              }}
-            >
-              <ComposerAttachments
-                items={attachmentQueue.items}
-                onRemove={attachmentQueue.remove}
-                onRetry={attachmentQueue.retry}
-              />
-              <div className="composer-input">
-                {composerPreview && (
-                  <div
-                    className="composer-preview"
-                    role="region"
-                    aria-label={t("Markdown 预览")}
-                    tabIndex={0}
-                    ref={(element) => element?.focus({ preventScroll: true })}
-                    style={{ maxHeight: `${composerMaxHeight(composerExpanded)}px` }}
-                    onKeyDown={(event) => {
-                      const toggle =
-                        (event.metaKey || event.ctrlKey) &&
-                        event.shiftKey &&
-                        event.key.toLowerCase() === "e";
-                      if (event.key !== "Escape" && !toggle) return;
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setComposerPreview(false);
-                      window.requestAnimationFrame(() => textareaRef.current?.focus());
-                    }}
-                    onClick={() => {
-                      setComposerPreview(false);
-                      window.requestAnimationFrame(() => textareaRef.current?.focus());
-                    }}
-                    title={t("点一下回到编辑")}
-                  >
-                    {draft.trim() ? (
-                      <div className="message-body">
-                        <MessageMarkdown content={draft} />
-                      </div>
-                    ) : (
-                      <p className="composer-preview-empty">{t("还没有内容")}</p>
-                    )}
-                  </div>
-                )}
-                {richComposer ? (
-                  <Suspense fallback={plainComposerInput}>
-                    <RichComposer
-                      value={draft}
-                      onChange={(value) => setDraft(value)}
-                      onMentionContext={(value, context) => {
-                        // 翻到的旧消息以 @某人 结尾时不弹成员列表，否则方向键会被列表接走
-                        if (value && value === browsingHistoryRef.current) return;
-                        setMentionContext(visibleMention(context));
-                        setActiveMentionIndex(0);
-                      }}
-                      onKeyDown={handleComposerKey}
-                      onPasteFiles={addAttachments}
-                      handleRef={attachComposer}
-                      placeholder={composerPlaceholder}
-                      expanded={composerExpanded}
-                      newlineOnEnter={sendShortcut === "modifier-enter"}
-                      ariaLabel={t("消息")}
-                      ariaExpanded={Boolean(mentionContext)}
-                      ariaControls={mentionContext ? "mention-suggestions" : undefined}
-                      ariaActiveDescendant={
-                        mentionContext && mentionSuggestions[activeMentionIndex]
-                          ? `mention-option-${mentionSuggestions[activeMentionIndex].id}`
-                          : undefined
-                      }
-                    />
-                  </Suspense>
-                ) : (
-                  plainComposerInput
-                )}
-              </div>
-              <div className="composer-footer">
-                <button
-                  type="button"
-                  className="composer-attach"
-                  onClick={() => fileInputRef.current?.click()}
-                  aria-label={t("添加附件")}
-                  title={t("添加图片或文件（也可以粘贴截图、拖入文件）")}
-                >
-                  <PaperclipIcon />
-                </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  hidden
-                  onChange={(event) => {
-                    addAttachments([...(event.target.files ?? [])]);
-                    event.target.value = "";
-                  }}
-                />
-                {(attachmentNotice || attachmentQueue.failed) && (
-                  <span className="composer-notice" role="status">
-                    {attachmentNotice ?? t("有附件上传失败，请重试或移除后再发送")}
-                  </span>
-                )}
-                {!richComposer && (draft.trim() || composerPreview) && (
-                  <button
-                    type="button"
-                    className={`composer-tool ${composerPreview ? "active" : ""}`}
-                    aria-pressed={composerPreview}
-                    onClick={() => {
-                      setComposerPreview((value) => !value);
-                      if (composerPreview) {
-                        window.requestAnimationFrame(() => textareaRef.current?.focus());
-                      }
-                    }}
-                    title={
-                      composerPreview
-                        ? t("回到编辑（{0}）", { 0: `${modifierKeyLabel}+Shift+E` })
-                        : t("预览 Markdown 效果（{0}）", { 0: `${modifierKeyLabel}+Shift+E` })
-                    }
-                  >
-                    {composerPreview ? t("编辑") : t("预览")}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className={`composer-tool composer-expand ${composerExpanded ? "active" : ""}`}
-                  aria-pressed={composerExpanded}
-                  aria-label={composerExpanded ? t("收起输入框") : t("展开输入框")}
-                  title={
-                    composerExpanded
-                      ? t("收起输入框，回到普通高度")
-                      : t("把输入框拉高到约半屏，写长内容更方便；发送后自动收回")
-                  }
-                  onClick={() => {
-                    setComposerExpanded((value) => !value);
-                    window.requestAnimationFrame(() => textareaRef.current?.focus());
-                  }}
-                >
-                  <Icon name={composerExpanded ? "minimize" : "maximize"} size={15} />
-                  <span>{composerExpanded ? t("收起") : t("展开")}</span>
-                </button>
-                <span className="composer-hint">
-                  {/* 按当前发送方式显示：⌘↵ 发送 · ↵ 换行，或 ↵ 发送 · ⇧↵ 换行 */}
-                  {t("{0} 发送 · {1} 换行")
-                    .split(/(\{[01]\})/)
-                    .map((part, index) => {
-                      const keys =
-                        sendShortcut === "modifier-enter"
-                          ? { "{0}": ["Mod", "Enter"], "{1}": ["Enter"] }
-                          : { "{0}": ["Enter"], "{1}": ["Shift", "Enter"] };
-                      return part === "{0}" || part === "{1}" ? (
-                        <KeyCombo key={index} keys={keys[part]} />
-                      ) : (
-                        part
-                      );
-                    })}
-                </span>
-                <div className="composer-actions">
-                  {draftTooLong ? (
-                    <span className="char-count danger" role="alert">
-                      {t("超出 {0} 字，无法发送", {
-                        0: (draft.trim().length - MAX_MESSAGE_LENGTH).toLocaleString(),
-                      })}
-                    </span>
-                  ) : (
-                    draft.length > MAX_MESSAGE_LENGTH * MESSAGE_LENGTH_WARNING_RATIO && (
-                      <span className="char-count">
-                        {draft.length.toLocaleString()}/{MAX_MESSAGE_LENGTH.toLocaleString()}
-                      </span>
-                    )
-                  )}
-                  {steerTargets.length > 0 && (
-                    <button
-                      type="button"
-                      className="composer-steer"
-                      onClick={() => sendMessage(true)}
-                      disabled={!canSend || connectionState !== "online"}
-                      title={t("{0} 正在执行任务：发出后直接用来引导它当前的任务，不排队", {
-                        0: steerTargets.map((name) => `@${name}`).join(t("、")),
-                      })}
-                    >
-                      {t("引导")}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="composer-send"
-                    onClick={() => sendMessage()}
-                    disabled={!canSend || connectionState !== "online"}
-                    title={t("发送")}
-                  >
-                    <span className="sr-only">{t("发送")}</span>
-                    <Icon name="arrow-up" size={18} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <ChatHeader
+            roomsCollapsed={roomsCollapsed}
+            setRoomsCollapsed={setRoomsCollapsed}
+            mobilePanel={mobilePanel}
+            openMobilePanel={openMobilePanel}
+            currentRoomName={currentRoomName}
+            online={online}
+            messages={messages}
+            currentRoomWorkspace={currentRoomWorkspace}
+            currentRoom={currentRoom}
+            isOwner={isOwner}
+            local={local}
+            loadRoomWorktrees={loadRoomWorktrees}
+            loadWorkspaceDetail={loadWorkspaceDetail}
+            openWorkspaceSource={openWorkspaceSource}
+            openRoomDialog={openRoomDialog}
+            setSettingsTab={setSettingsTab}
+            setSettingsOpen={setSettingsOpen}
+            startNewTopic={startNewTopic}
+            artifactsButtonRef={artifactsButtonRef}
+            artifactsOpen={artifactsOpen}
+            setArtifactsOpen={setArtifactsOpen}
+            artifactCount={artifactCount}
+            canViewWorkspace={canViewWorkspace}
+            workspaceButtonRef={workspaceButtonRef}
+            workspaceOpen={workspaceOpen}
+            setWorkspaceOpen={setWorkspaceOpen}
+            workspaceChangeCount={workspaceChangeCount}
+            share={share}
+            previewDocked={previewDocked}
+            membersCollapsed={membersCollapsed}
+            setMembersCollapsed={setMembersCollapsed}
+            setDockedPreview={setDockedPreview}
+          />
+          <ChatNotices
+            error={error}
+            setError={setError}
+            showNotificationPrompt={showNotificationPrompt}
+            invocations={invocations}
+            messages={messages}
+            worktreeNotices={worktreeNotices}
+            setWorktreeNotices={setWorktreeNotices}
+            isOwner={isOwner}
+            local={local}
+            currentRoomId={currentRoomId}
+            setGotoNotice={setGotoNotice}
+            extendAgentBudget={extendAgentBudget}
+            dismissNotificationPrompt={dismissNotificationPrompt}
+            ensureNotificationPermission={ensureNotificationPermission}
+          />
+          <MessageList
+            scroll={scroll}
+            win={messageWindow}
+            jump={jump}
+            share={share}
+            composer={composer}
+            actions={actions}
+            messages={messages}
+            messagesLoaded={room.messagesLoaded}
+            currentRoomName={currentRoomName}
+            currentRoomId={currentRoomId}
+            currentRoomWorkspace={currentRoomWorkspace}
+            username={username}
+            guest={guest}
+            isOwner={isOwner}
+            base={base}
+            authToken={authToken}
+            connectionState={connectionState}
+            participants={participants}
+            invocations={invocations}
+            traces={room.traces}
+            pendingApprovals={room.pendingApprovals}
+            agentProviderByName={agentProviderByName}
+            timeFormat={timeFormat}
+            openMachineIds={openMachineIds}
+            setOpenMachineIds={setOpenMachineIds}
+            openSenderMenu={openSenderMenu}
+            locateMessageFromMarkdown={locateMessageFromMarkdown}
+            dockPreview={dockPreview}
+            setRetryModelFor={setRetryModelFor}
+            localAgentFor={localAgentFor}
+            openAgentTerminal={openAgentTerminal}
+            canViewWorkspace={canViewWorkspace}
+            openWorkspaceFor={openWorkspaceFor}
+          />
+          <ShareBar
+            share={share}
+            messages={messages}
+            currentRoomName={currentRoomName}
+            agentProviderByName={agentProviderByName}
+          />
+          <Composer
+            composer={composer}
+            showJumpToBottom={scroll.showJumpToBottom}
+            pendingNewMessages={scroll.pendingNewMessages}
+            jumpToLatest={scroll.jumpToLatest}
+            connectionState={connectionState}
+            sendShortcut={sendShortcut}
+            richComposer={richComposer}
+            modifierKeyLabel={modifierKeyLabel}
+            currentRoomId={currentRoomId}
+          />
         </section>
 
         {workspaceOpen && canViewWorkspace && (

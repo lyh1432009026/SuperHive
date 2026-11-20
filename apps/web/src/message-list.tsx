@@ -1,0 +1,902 @@
+import {
+  Fragment,
+  Suspense,
+  useCallback,
+  useMemo,
+  type Dispatch,
+  type MouseEvent as ReactMouseEvent,
+  type SetStateAction,
+} from "react";
+import type {
+  Attachment,
+  ChatMessage,
+  Invocation,
+  LocalAgent,
+  Participant,
+  QuestionAnswer,
+  TraceStep,
+} from "@superhive/protocol";
+import {
+  InvocationChips,
+  groupInvocationsByMessage,
+  waitingInvocationForQuestion,
+} from "./invocations";
+import { plainPreview } from "./activity";
+import {
+  ThinkingCard,
+  TraceRecap,
+  cardAttention,
+  groupLiveCards,
+  showsCard,
+  showsLiveCard,
+  sortCards,
+} from "./thinking-card";
+import { isMachineMessage, machinePreview, splitMentions } from "./machine-message";
+import { ShadowContent } from "./shadow-content";
+import { CollapsibleMessage } from "./collapsible-message";
+import { QuestionOptions } from "./question-options";
+import type { GuestAccess } from "./access-gate";
+import { MessageAttachments } from "./attachments";
+import { agentActivity } from "./agent-activity";
+import { IM_CHANNEL_LABELS } from "./im-api";
+import { getLocale, t } from "./i18n";
+import type { TimeFormat } from "./app-storage";
+import { Icon, HiveLogo } from "./app-icons";
+import { AvatarGlyph, avatarHueStyle } from "./avatar";
+import { dateDividerLabel } from "./timeline";
+import { MessageMarkdown } from "./message-markdown-lazy";
+import type { MessageScroll } from "./use-message-scroll";
+import type { useMessageJump, useMessageWindow } from "./use-message-timeline";
+import type { ShareSelection } from "./share-bar";
+import type { ComposerState } from "./use-composer";
+import type { MessageActions } from "./use-message-actions";
+
+type SenderMenuOpener = (
+  event: ReactMouseEvent<HTMLElement>,
+  sender: { id?: string; name: string },
+) => void;
+type DockPreview = (attachment: Attachment, origin: { senderId: string; seq: number }) => void;
+
+/** 对话流：消息、日期与话题分隔、Agent 的「思考中」卡片和「正在处理」一行 */
+export function MessageList({
+  scroll,
+  win,
+  jump,
+  share,
+  composer,
+  actions,
+  messages,
+  messagesLoaded,
+  currentRoomName,
+  currentRoomId,
+  currentRoomWorkspace,
+  username,
+  guest,
+  isOwner,
+  base,
+  authToken,
+  connectionState,
+  participants,
+  invocations,
+  traces,
+  pendingApprovals,
+  agentProviderByName,
+  timeFormat,
+  openMachineIds,
+  setOpenMachineIds,
+  openSenderMenu,
+  locateMessageFromMarkdown,
+  dockPreview,
+  setRetryModelFor,
+  localAgentFor,
+  openAgentTerminal,
+  canViewWorkspace,
+  openWorkspaceFor,
+}: {
+  scroll: MessageScroll;
+  win: ReturnType<typeof useMessageWindow>;
+  jump: ReturnType<typeof useMessageJump>;
+  share: ShareSelection;
+  composer: ComposerState;
+  actions: MessageActions;
+  messages: ChatMessage[];
+  messagesLoaded: boolean;
+  currentRoomName: string;
+  currentRoomId: string;
+  currentRoomWorkspace: string | undefined;
+  username: string;
+  guest: GuestAccess | undefined;
+  isOwner: boolean;
+  base: string;
+  authToken: string | undefined;
+  connectionState: "connecting" | "online" | "offline";
+  participants: Participant[];
+  invocations: ReadonlyMap<string, Invocation>;
+  traces: ReadonlyMap<string, TraceStep[]>;
+  pendingApprovals: ReadonlySet<string>;
+  agentProviderByName: ReadonlyMap<string, string | undefined>;
+  timeFormat: TimeFormat;
+  openMachineIds: ReadonlySet<string>;
+  setOpenMachineIds: Dispatch<SetStateAction<ReadonlySet<string>>>;
+  openSenderMenu: SenderMenuOpener;
+  locateMessageFromMarkdown: (target: { messageId: string; messageSeq: number }) => void;
+  dockPreview: DockPreview;
+  setRetryModelFor: Dispatch<SetStateAction<Invocation | undefined>>;
+  localAgentFor: (name: string) => LocalAgent | undefined;
+  openAgentTerminal: (agent: LocalAgent) => Promise<void>;
+  canViewWorkspace: boolean;
+  openWorkspaceFor: (agent: string) => void;
+}) {
+  const {
+    messageListRef,
+    setShadowHost,
+    shadowHost,
+    handleMessageListScroll,
+    messageScrollContentRef,
+    setScrollContentElement,
+    captureScrollAnchor,
+    messagesEndRef,
+  } = scroll;
+  const {
+    hiddenCount,
+    setVisibleLimit,
+    earlierTopicCount,
+    currentTopic,
+    setExpandedTopicId,
+    timeline,
+  } = win;
+  const { jumpToMessage } = jump;
+  const { textareaRef } = composer;
+  const agentNames = useMemo(
+    () =>
+      new Set(
+        participants
+          .filter((participant) => participant.type === "agent")
+          .map((participant) => participant.username.toLocaleLowerCase()),
+      ),
+    [participants],
+  );
+  const isMachine = (message: ChatMessage) =>
+    isMachineMessage(message, (name) => agentNames.has(name.toLocaleLowerCase()));
+  const invocationsByMessage = useMemo(() => groupInvocationsByMessage(invocations), [invocations]);
+  /** 回复消息 → 产生它的那次调用：回复上方显示这一轮过程的回顾 */
+  const invocationByReply = useMemo(() => {
+    const byReply = new Map<string, Invocation>();
+    for (const invocation of invocations.values()) {
+      if (invocation.replyMessageId) byReply.set(invocation.replyMessageId, invocation);
+    }
+    return byReply;
+  }, [invocations]);
+  // 点选提交的答案按提问归档，用来在提问上高亮所选；先到的一条生效
+  const choiceAnswers = useMemo(() => {
+    const answers = new Map<string, QuestionAnswer>();
+    for (const message of messages) {
+      if (message.answer && !message.deletedAt && !answers.has(message.answer.questionMessageId)) {
+        answers.set(message.answer.questionMessageId, message.answer);
+      }
+    }
+    return answers;
+  }, [messages]);
+  const loadedMessageIds = useMemo(
+    () => new Set(messages.filter((message) => !message.deletedAt).map((message) => message.id)),
+    [messages],
+  );
+  const formatMessageTime = useCallback(
+    (iso: string) =>
+      new Date(iso).toLocaleTimeString(getLocale(), {
+        hour: "2-digit",
+        minute: "2-digit",
+        ...(timeFormat === "system" ? {} : { hour12: timeFormat === "12h" }),
+      }),
+    [timeFormat],
+  );
+  return (
+    <div
+      ref={(element) => {
+        messageListRef.current = element;
+        setShadowHost((current) => (current === element ? current : element));
+      }}
+      className="message-list"
+      role="log"
+      aria-label={t("聊天室消息")}
+      aria-live="polite"
+      onScroll={handleMessageListScroll}
+    >
+      <ShadowContent host={shadowHost}>
+        <div className="message-shadow-inner">
+          {messagesLoaded && messages.length === 0 && (
+            <div className="empty-state">
+              <HiveLogo />
+              <h2>{t("今天在 #{0} 协作什么？", { 0: currentRoomName })}</h2>
+              <p>
+                {t("发出第一条消息，或输入")} <code>@agent-name</code> {t("邀请一个 Agent 参与。")}
+              </p>
+              <button type="button" onClick={() => textareaRef.current?.focus()}>
+                {t("开始一条消息")}
+                <Icon name="arrow-right" size={16} />
+              </button>
+            </div>
+          )}
+          <div
+            className="message-scroll-content"
+            ref={(element) => {
+              messageScrollContentRef.current = element;
+              setScrollContentElement((current) => (current === element ? current : element));
+            }}
+          >
+            {hiddenCount > 0 ? (
+              <button
+                type="button"
+                className="load-earlier"
+                onClick={() => {
+                  captureScrollAnchor();
+                  setVisibleLimit((current) => current + 100);
+                }}
+              >
+                {t("显示更早的 {0} 条消息（共隐藏 {1} 条）", {
+                  0: Math.min(hiddenCount, 100),
+                  1: hiddenCount,
+                })}
+              </button>
+            ) : (
+              earlierTopicCount > 0 &&
+              currentTopic && (
+                <button
+                  type="button"
+                  className="load-earlier"
+                  onClick={() => {
+                    captureScrollAnchor();
+                    setExpandedTopicId(currentTopic.id);
+                  }}
+                >
+                  {t("显示更早的话题（{0} 条消息）", { 0: earlierTopicCount })}
+                </button>
+              )
+            )}
+            {timeline.map(({ message, newDay, grouped }) => (
+              <Fragment key={message.id}>
+                {newDay && (
+                  <div className="date-divider" role="separator">
+                    <span>{dateDividerLabel(message.createdAt)}</span>
+                  </div>
+                )}
+                {(() => {
+                  // 这条是某次调用的回复：上方收着这一轮的过程（只在内存里，刷新后没有）
+                  const source = message.deletedAt ? undefined : invocationByReply.get(message.id);
+                  const steps = source ? traces.get(source.id) : undefined;
+                  return source && steps?.length ? (
+                    <TraceRecap invocation={source} steps={steps} replyText={message.content} />
+                  ) : null;
+                })()}
+                {message.kind === "topic" ? (
+                  <div className="topic-divider" role="separator" data-message-id={message.id}>
+                    <span>
+                      {message.content} · {formatMessageTime(message.createdAt)}
+                    </span>
+                    <small>{t("之前的消息不再作为 Agent 的上下文")}</small>
+                  </div>
+                ) : (
+                  <MessageItem
+                    message={message}
+                    grouped={grouped}
+                    isMachine={isMachine}
+                    formatMessageTime={formatMessageTime}
+                    invocationsByMessage={invocationsByMessage}
+                    choiceAnswers={choiceAnswers}
+                    loadedMessageIds={loadedMessageIds}
+                    jump={jump}
+                    share={share}
+                    composer={composer}
+                    actions={actions}
+                    currentRoomWorkspace={currentRoomWorkspace}
+                    username={username}
+                    isOwner={isOwner}
+                    base={base}
+                    authToken={authToken}
+                    connectionState={connectionState}
+                    participants={participants}
+                    invocations={invocations}
+                    traces={traces}
+                    pendingApprovals={pendingApprovals}
+                    agentProviderByName={agentProviderByName}
+                    openMachineIds={openMachineIds}
+                    setOpenMachineIds={setOpenMachineIds}
+                    openSenderMenu={openSenderMenu}
+                    releaseBottomPin={scroll.releaseBottomPin}
+                    locateMessageFromMarkdown={locateMessageFromMarkdown}
+                    dockPreview={dockPreview}
+                    setRetryModelFor={setRetryModelFor}
+                    localAgentFor={localAgentFor}
+                    openAgentTerminal={openAgentTerminal}
+                    canViewWorkspace={canViewWorkspace}
+                    openWorkspaceFor={openWorkspaceFor}
+                  />
+                )}
+              </Fragment>
+            ))}
+            {(() => {
+              // 正在干活的 Agent：每人一张「思考中」卡片，出现在回复将来出现的位置；同时超过 3 张时只展开最新的。
+              // 等你回答、等你决定（只给房主，按钮在房主这边）的也各一张，置顶并标醒目
+              const live = sortCards(
+                [...invocations.values()].filter(
+                  (invocation) =>
+                    invocation.roomId === currentRoomId &&
+                    (showsLiveCard(invocation) ||
+                      (cardAttention(invocation) === "decide" ? isOwner : showsCard(invocation))),
+                ),
+              );
+              const cards = groupLiveCards(live);
+              const working = cards.filter((card) => !cardAttention(card.invocation));
+              const latestWorking = working.at(-1);
+              const seqOf = new Map(messages.map((message) => [message.id, message.seq]));
+              const messageById = new Map(messages.map((message) => [message.id, message]));
+              return cards.map(({ invocation, batch }) => (
+                <ThinkingCard
+                  key={`card-${invocation.id}`}
+                  invocation={invocation}
+                  steps={
+                    traces.get(invocation.id) ??
+                    batch.map((item) => traces.get(item.id)).find(Boolean)
+                  }
+                  batchSeqs={batch
+                    .map((item) => seqOf.get(item.messageId))
+                    .filter((seq): seq is number => seq !== undefined)
+                    .sort((a, b) => a - b)}
+                  traceAllowed={!guest || guest.showTrace !== false}
+                  onAvatarContextMenu={(event) =>
+                    openSenderMenu(event, {
+                      id: invocation.agentId,
+                      name: invocation.agentName,
+                    })
+                  }
+                  defaultCollapsed={
+                    working.length > 3 && latestWorking?.invocation.id !== invocation.id
+                  }
+                  {...(() => {
+                    // 卡片上写明在处理哪条消息；合批时引用最早的一条
+                    const first = [...batch]
+                      .map((item) => messageById.get(item.messageId))
+                      .filter((message): message is ChatMessage => Boolean(message))
+                      .sort((a, b) => a.seq - b.seq)[0];
+                    if (!first) return {};
+                    return {
+                      trigger: {
+                        seq: first.seq,
+                        preview: plainPreview(first.content).slice(0, 120),
+                      },
+                      onJumpToTrigger: () => jumpToMessage(first.id),
+                    };
+                  })()}
+                  avatar={
+                    <AvatarGlyph
+                      type="agent"
+                      name={invocation.agentName}
+                      provider={agentProviderByName.get(invocation.agentName.toLocaleLowerCase())}
+                    />
+                  }
+                />
+              ));
+            })()}
+            {(() => {
+              // 谁在干活：已经有卡片的不再重复列出，只剩排队、等你回答这些没在跑的
+              const rows = agentActivity(participants, invocations.values(), currentRoomId).filter(
+                (row) => !row.invocation || !showsLiveCard(row.invocation),
+              );
+              if (!rows.length) return null;
+              return (
+                <div className="typing" role="status" aria-live="polite">
+                  <span aria-hidden="true" />
+                  <span aria-hidden="true" />
+                  <span aria-hidden="true" />
+                  <ul className="typing-agents">
+                    {rows.map((row) => {
+                      const target = row.invocation?.messageId;
+                      const canJump = Boolean(target && loadedMessageIds.has(target));
+                      return (
+                        <li key={row.participant.id}>
+                          <button
+                            type="button"
+                            className={`typing-agent ${row.state}`}
+                            disabled={!canJump}
+                            title={
+                              canJump
+                                ? t("{0}，点击跳到它正在处理的消息", {
+                                    0: row.participant.username,
+                                  })
+                                : row.participant.username
+                            }
+                            onClick={() => target && jumpToMessage(target)}
+                          >
+                            <span className="mention-avatar agent" aria-hidden="true">
+                              <AvatarGlyph
+                                type="agent"
+                                name={row.participant.username}
+                                provider={row.participant.provider}
+                              />
+                            </span>
+                            <strong>{row.participant.username}</strong>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {/* 详细进展看气泡下的状态，这里只说谁在干活 */}
+                  <span>{t("正在处理")}</span>
+                </div>
+              );
+            })()}
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+      </ShadowContent>
+    </div>
+  );
+}
+
+/** 对话流里的一条消息：头像与名字、正文（Agent 之间的往来默认收成一行）、附件、提问选项、任务状态和操作按钮 */
+function MessageItem({
+  message,
+  grouped,
+  isMachine,
+  formatMessageTime,
+  invocationsByMessage,
+  choiceAnswers,
+  loadedMessageIds,
+  jump,
+  share,
+  composer,
+  actions,
+  currentRoomWorkspace,
+  username,
+  isOwner,
+  base,
+  authToken,
+  connectionState,
+  participants,
+  invocations,
+  traces,
+  pendingApprovals,
+  agentProviderByName,
+  openMachineIds,
+  setOpenMachineIds,
+  openSenderMenu,
+  releaseBottomPin,
+  locateMessageFromMarkdown,
+  dockPreview,
+  setRetryModelFor,
+  localAgentFor,
+  openAgentTerminal,
+  canViewWorkspace,
+  openWorkspaceFor,
+}: {
+  message: ChatMessage;
+  grouped: boolean;
+  isMachine: (message: ChatMessage) => boolean;
+  formatMessageTime: (iso: string) => string;
+  invocationsByMessage: ReadonlyMap<string, Invocation[]>;
+  choiceAnswers: ReadonlyMap<string, QuestionAnswer>;
+  loadedMessageIds: ReadonlySet<string>;
+  jump: ReturnType<typeof useMessageJump>;
+  share: ShareSelection;
+  composer: ComposerState;
+  actions: MessageActions;
+  currentRoomWorkspace: string | undefined;
+  username: string;
+  isOwner: boolean;
+  base: string;
+  authToken: string | undefined;
+  connectionState: "connecting" | "online" | "offline";
+  participants: Participant[];
+  invocations: ReadonlyMap<string, Invocation>;
+  traces: ReadonlyMap<string, TraceStep[]>;
+  pendingApprovals: ReadonlySet<string>;
+  agentProviderByName: ReadonlyMap<string, string | undefined>;
+  openMachineIds: ReadonlySet<string>;
+  setOpenMachineIds: Dispatch<SetStateAction<ReadonlySet<string>>>;
+  openSenderMenu: SenderMenuOpener;
+  releaseBottomPin: () => void;
+  locateMessageFromMarkdown: (target: { messageId: string; messageSeq: number }) => void;
+  dockPreview: DockPreview;
+  setRetryModelFor: Dispatch<SetStateAction<Invocation | undefined>>;
+  localAgentFor: (name: string) => LocalAgent | undefined;
+  openAgentTerminal: (agent: LocalAgent) => Promise<void>;
+  canViewWorkspace: boolean;
+  openWorkspaceFor: (agent: string) => void;
+}) {
+  const { highlightedMessageId, pendingJumpId, jumpToMessage } = jump;
+  const { shareMode, selectedMessageIds, toggleMessageSelected } = share;
+  const { answering, answerQuestion, appendMention } = composer;
+  const {
+    pendingAnswers,
+    submitChoice,
+    copiedMessageId,
+    copySeqReference,
+    copyMessageContent,
+    recallCandidateId,
+    setRecallCandidateId,
+    recallMessage,
+    retryInvocation,
+    cancelInvocation,
+    dismissInvocations,
+    extendAgentBudget,
+    steerInvocation,
+    preemptInvocation,
+  } = actions;
+  return (
+    <article
+      className={`message ${message.senderType} ${
+        message.senderType === "human" &&
+        message.senderName.toLocaleLowerCase() === username.toLocaleLowerCase()
+          ? "own"
+          : ""
+      } ${grouped ? "grouped" : ""} ${
+        shareMode && !message.deletedAt ? "selectable" : ""
+      } ${selectedMessageIds.has(message.id) ? "selected" : ""} ${
+        message.deletedAt ? "deleted" : ""
+      } ${highlightedMessageId === message.id ? "highlighted" : ""} ${
+        message.kind === "question" ? "question" : ""
+      } ${message.kind === "progress" ? "progress" : ""} ${isMachine(message) ? "machine" : ""}`}
+      data-message-id={message.id}
+      style={message.senderType === "human" ? avatarHueStyle(message.senderName) : undefined}
+      onClick={
+        shareMode && !message.deletedAt ? () => toggleMessageSelected(message.id) : undefined
+      }
+    >
+      {grouped ? (
+        <span className="hover-time" aria-hidden="true">
+          {formatMessageTime(message.createdAt)}
+        </span>
+      ) : (
+        <span
+          className={`avatar ${message.senderType}`}
+          aria-hidden="true"
+          onContextMenu={(event) =>
+            openSenderMenu(event, {
+              id: message.senderId,
+              name: message.senderName,
+            })
+          }
+        >
+          <AvatarGlyph
+            type={message.senderType}
+            name={message.senderName}
+            provider={agentProviderByName.get(message.senderName.toLocaleLowerCase())}
+          />
+        </span>
+      )}
+      <div className="message-content">
+        {message.kind === "progress" && grouped && (
+          <span
+            className="message-progress-tag"
+            title={t("Agent 执行中途发来的进度，最终结论在它之后的回复里")}
+          >
+            {t("进度")}
+          </span>
+        )}
+        {!grouped && (
+          <header>
+            {/* 名字也能右击，键盘聚焦后按菜单键或 Shift+F10 一样能打开 */}
+            <strong
+              className="message-sender"
+              tabIndex={0}
+              aria-haspopup="menu"
+              onContextMenu={(event) =>
+                openSenderMenu(event, {
+                  id: message.senderId,
+                  name: message.senderName,
+                })
+              }
+            >
+              {message.senderName}
+            </strong>
+            {message.senderType === "agent" && <b>Agent</b>}
+            {message.kind === "progress" && (
+              <span
+                className="message-progress-tag"
+                title={t("Agent 执行中途发来的进度，最终结论在它之后的回复里")}
+              >
+                {t("进度")}
+              </span>
+            )}
+            {message.via && (
+              <span className="message-via">
+                {t("来自{0}", { 0: IM_CHANNEL_LABELS[message.via.channel] })}
+              </span>
+            )}
+            <time dateTime={message.createdAt}>{formatMessageTime(message.createdAt)}</time>
+            <button
+              type="button"
+              className="message-seq"
+              title={t("复制序号引用（可用于在聊天中引用这条消息）")}
+              aria-label={t("复制消息序号 #{0}", { 0: message.seq })}
+              onClick={(event) => {
+                event.stopPropagation();
+                void copySeqReference(message);
+              }}
+            >
+              {copiedMessageId === `seq:${message.id}` ? t("已复制") : `#${message.seq}`}
+            </button>
+          </header>
+        )}
+        {message.deletedAt ? (
+          <p className="message-recalled">
+            {message.senderName.toLocaleLowerCase() === username.toLocaleLowerCase()
+              ? t("你撤回了一条消息")
+              : t("{0} 撤回了一条消息", { 0: message.senderName })}
+          </p>
+        ) : isMachine(message) && !openMachineIds.has(message.id) ? (
+          (() => {
+            const preview = machinePreview(message);
+            return (
+              <button
+                type="button"
+                className="message-machine-card"
+                title={t("Agent 之间的往来，点开看全文")}
+                aria-expanded={false}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setOpenMachineIds((current) => new Set(current).add(message.id));
+                }}
+              >
+                <span className="message-machine-label">
+                  <span>
+                    {splitMentions(preview.label).map((part, index) =>
+                      part.mention ? <mark key={index}>{part.text}</mark> : part.text,
+                    )}
+                  </span>
+                  <small>{t("展开")}</small>
+                </span>
+                {preview.text && (
+                  <span className="message-machine-text">
+                    {splitMentions(preview.text).map((part, index) =>
+                      part.mention ? <mark key={index}>{part.text}</mark> : part.text,
+                    )}
+                  </span>
+                )}
+              </button>
+            );
+          })()
+        ) : (
+          message.content && (
+            <div className="message-body">
+              {isMachine(message) && (
+                <button
+                  type="button"
+                  className="message-machine-collapse"
+                  aria-expanded={true}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setOpenMachineIds((current) => {
+                      const next = new Set(current);
+                      next.delete(message.id);
+                      return next;
+                    });
+                  }}
+                >
+                  {t("收起")}
+                </button>
+              )}
+              <CollapsibleMessage
+                content={message.content}
+                enabled={message.senderType === "agent"}
+                storageKey={`superhive.message-expanded:${message.roomId}:${message.id}`}
+                expandOnLocate={pendingJumpId === message.id || highlightedMessageId === message.id}
+                forceExpanded={shareMode}
+                onToggle={releaseBottomPin}
+              >
+                <Suspense fallback={<p className="message-body-fallback">{message.content}</p>}>
+                  <MessageMarkdown
+                    content={message.content}
+                    onLocateMessage={locateMessageFromMarkdown}
+                  />
+                </Suspense>
+              </CollapsibleMessage>
+            </div>
+          )
+        )}
+        {!message.deletedAt && message.attachments?.length ? (
+          <MessageAttachments
+            attachments={message.attachments}
+            base={base}
+            token={authToken}
+            onDock={(attachment) =>
+              dockPreview(attachment, {
+                senderId: message.senderId,
+                seq: message.seq,
+              })
+            }
+          />
+        ) : null}
+        {message.question && !message.deletedAt && (
+          <QuestionOptions
+            spec={message.question}
+            waiting={
+              message.approval
+                ? pendingApprovals.has(message.id)
+                : Boolean(waitingInvocationForQuestion(message, invocations.values()))
+            }
+            allowOther={!message.approval}
+            pending={pendingAnswers.has(message.id) && !choiceAnswers.has(message.id)}
+            {...(choiceAnswers.get(message.id) ? { answer: choiceAnswers.get(message.id)! } : {})}
+            onSubmit={(selected, other) => submitChoice(message, selected, other)}
+          />
+        )}
+        {!shareMode &&
+          !message.question &&
+          waitingInvocationForQuestion(message, invocations.values()) && (
+            <button
+              type="button"
+              className="question-answer"
+              aria-label={t("回答 {0} 的提问", { 0: message.senderName })}
+              onClick={(event) => {
+                event.stopPropagation();
+                answerQuestion(message);
+              }}
+            >
+              {answering?.id === message.id ? t("正在回答…") : t("回答")}
+            </button>
+          )}
+        {invocationsByMessage.has(message.id) && (
+          <InvocationChips
+            connectionState={connectionState}
+            invocations={invocationsByMessage.get(message.id) ?? []}
+            allInvocations={invocations}
+            participants={participants}
+            canJumpTo={(messageId) => loadedMessageIds.has(messageId)}
+            onJump={jumpToMessage}
+            onRetry={(invocation) => retryInvocation(invocation)}
+            onRetryWithModel={isOwner ? setRetryModelFor : undefined}
+            onCancel={cancelInvocation}
+            onDismiss={(invocation) => dismissInvocations([invocation])}
+            onExtend={extendAgentBudget}
+            onSteer={steerInvocation}
+            onPreempt={preemptInvocation}
+            onOpenTerminal={
+              isOwner
+                ? (invocation) => {
+                    const agent = localAgentFor(invocation.agentName);
+                    return agent ? () => void openAgentTerminal(agent) : undefined;
+                  }
+                : undefined
+            }
+            onViewChanges={
+              canViewWorkspace && currentRoomWorkspace
+                ? (invocation) => openWorkspaceFor(invocation.agentName)
+                : undefined
+            }
+            isOwner={isOwner}
+            traces={traces}
+          />
+        )}
+        {(invocationsByMessage.get(message.id) ?? [])
+          .filter(
+            (invocation) =>
+              !invocation.replyMessageId &&
+              !showsLiveCard(invocation) &&
+              invocation.status !== "queued" &&
+              Boolean(traces.get(invocation.id)?.length),
+          )
+          .map((invocation) => (
+            <TraceRecap
+              key={`recap-${invocation.id}`}
+              invocation={invocation}
+              steps={traces.get(invocation.id)!}
+            />
+          ))}
+      </div>
+      {message.deletedAt ? null : shareMode ? (
+        <span
+          className={`select-indicator ${selectedMessageIds.has(message.id) ? "on" : ""}`}
+          role="checkbox"
+          aria-checked={selectedMessageIds.has(message.id)}
+          aria-label={t("选择 {0} 的消息", { 0: message.senderName })}
+        >
+          {selectedMessageIds.has(message.id) && <Icon name="check" size={12} />}
+        </span>
+      ) : (
+        <div className="message-actions">
+          {grouped && (
+            <button
+              type="button"
+              className="message-action seq"
+              title={t("复制序号引用")}
+              aria-label={t("复制消息序号 #{0}", { 0: message.seq })}
+              onClick={() => void copySeqReference(message)}
+            >
+              {copiedMessageId === `seq:${message.id}` ? "✓" : `#${message.seq}`}
+            </button>
+          )}
+          <button
+            type="button"
+            className="message-action"
+            aria-label={t("复制消息原文")}
+            title={t("复制消息")}
+            onClick={() => void copyMessageContent(message)}
+          >
+            <Icon name={copiedMessageId === message.id ? "check" : "copy"} size={13} />
+          </button>
+          {message.senderName.toLocaleLowerCase() !== username.toLocaleLowerCase() ? (
+            <button
+              type="button"
+              className="message-action"
+              aria-label={t("在输入框中提及 {0}", { 0: message.senderName })}
+              title={`@${message.senderName}`}
+              onClick={() => appendMention(message.senderName)}
+            >
+              @
+            </button>
+          ) : recallCandidateId === message.id ? (
+            (() => {
+              // 这条消息派出、还没结束的任务：撤回时默认一起停掉
+              const open = (invocationsByMessage.get(message.id) ?? []).filter((invocation) =>
+                ["queued", "running", "waiting_human", "blocked"].includes(invocation.status),
+              );
+              // 只有已经开始做的才有「只撤回、让它做完」可选；排队中的撤回后本来就不会再执行
+              const started = open.some(
+                (invocation) =>
+                  invocation.status === "running" || invocation.status === "waiting_human",
+              );
+              const noteId = `recall-note-${message.id}`;
+              return (
+                <span
+                  className={`message-recall-confirm ${open.length ? "with-tasks" : ""}`}
+                  role="group"
+                  aria-label={t("确认撤回")}
+                  {...(open.length ? { "aria-describedby": noteId } : {})}
+                >
+                  <span className="message-recall-question">
+                    {open.length
+                      ? t("撤回并停止 {0} 的任务？", {
+                          0: [
+                            ...new Set(open.map((invocation) => `@${invocation.agentName}`)),
+                          ].join("、"),
+                        })
+                      : t("撤回这条消息？")}
+                  </span>
+                  {open.length > 0 && (
+                    <small id={noteId} className="message-recall-note">
+                      {t(
+                        "只停这条消息直接派出的任务，它们再派出去的子任务不受影响；已经改的文件、跑过的命令不会撤销。",
+                      )}
+                    </small>
+                  )}
+                  <span className="message-recall-actions">
+                    <button type="button" onClick={() => setRecallCandidateId(undefined)}>
+                      {t("取消")}
+                    </button>
+                    {started && (
+                      <button
+                        type="button"
+                        title={t("消息撤回，正在做的照常做完，只是不再回复")}
+                        onClick={() => recallMessage(message.id)}
+                      >
+                        {t("只撤回")}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => recallMessage(message.id, open.length > 0)}
+                    >
+                      {open.length ? t("撤回并停止") : t("撤回")}
+                    </button>
+                  </span>
+                </span>
+              );
+            })()
+          ) : (
+            <button
+              type="button"
+              className="message-action danger"
+              aria-label={t("撤回这条消息")}
+              title={t("撤回")}
+              onClick={() => setRecallCandidateId(message.id)}
+            >
+              <Icon name="undo" size={13} />
+            </button>
+          )}
+        </div>
+      )}
+    </article>
+  );
+}
