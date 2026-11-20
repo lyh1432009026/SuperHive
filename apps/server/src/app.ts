@@ -153,6 +153,10 @@ export type BuildAppOptions = {
   openTerminal?: (command: string) => Promise<void>;
   /** 在访达 / 资源管理器里选中文件；测试里替换掉，不真的打开 */
   revealInFolder?: (file: string) => Promise<void>;
+  /** 用系统默认应用打开文件；测试里替换掉，不真的打开 */
+  openWithDefaultApp?: (file: string) => Promise<void>;
+  /** 附件按原文件名放副本的目录（本机打开、在访达中显示用）；省略时放在数据库旁的 files/（内存数据库用临时目录） */
+  attachmentFilesDir?: string;
   /** 超时扫描使用的时钟；测试用来模拟时间流逝 */
   now?: () => number;
   /** 检查访客会话到期的间隔；测试可调小 */
@@ -694,6 +698,28 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         ? { openTerminal: options.openTerminal }
         : {}),
     ...(options.revealInFolder ? { revealInFolder: options.revealInFolder } : {}),
+    ...(sandbox
+      ? {
+          openWithDefaultApp: () =>
+            Promise.reject(new HiveError("SANDBOX_DISABLED", serverText("error.sandbox.disabled"))),
+        }
+      : options.openWithDefaultApp
+        ? { openWithDefaultApp: options.openWithDefaultApp }
+        : {}),
+    attachmentFilesDir:
+      options.attachmentFilesDir ??
+      (databasePath === ":memory:"
+        ? mkdtempSync(path.join(tmpdir(), "hive-files-"))
+        : path.join(path.dirname(databasePath), "files")),
+    // 产物 / 附件「用本机应用打开」「在访达中显示」：只认这个房间里随消息发出、没撤回的
+    roomAttachment: (roomId, attachmentId) => {
+      const item = attachments.get(attachmentId);
+      if (!item || item.roomId !== roomId || !item.messageId)
+        throw new HiveError("ATTACHMENT_NOT_FOUND", serverText("error.attachment.notInRoom"));
+      if (item.revokedAt)
+        throw new HiveError("ATTACHMENT_REVOKED", serverText("error.attachment.messageRecalled"));
+      return item;
+    },
     // 工作区面板「在访达中显示」：和只读浏览接口同样的来源解析与路径校验
     workspaceFile: async (roomId, source, file) => {
       const room = database.getRoom(roomId);

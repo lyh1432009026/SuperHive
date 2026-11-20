@@ -11,6 +11,7 @@ import {
 } from "react";
 import type {
   Artifact,
+  Attachment,
   ArtifactCategory,
   ArtifactCounts,
   ArtifactFilter,
@@ -21,12 +22,16 @@ import type {
 import {
   FilePreview,
   Lightbox,
+  OpenLocallyIcon,
+  RevealInFolderIcon,
   downloadAttachment,
   fetchAttachmentBlob,
   formatBytes,
   loadPreviewDocked,
   previewKind,
+  revealInFolderLabel,
   useAttachmentUrl,
+  useLocalOpen,
 } from "./attachments";
 import { getLocale, localized, t } from "./i18n";
 import { OfficePreview } from "./office-preview/office-preview";
@@ -672,6 +677,21 @@ export function ArtifactsPanel({
     [base, token],
   );
 
+  const localOpen = useLocalOpen(
+    useCallback(
+      (item: Attachment, message: string) =>
+        setActionError(t("{0} 打开失败：{1}", { 0: item.name, 1: message })),
+      [],
+    ),
+  );
+  const openLocally = useCallback(
+    (item: ArtifactItem, mode: "open" | "reveal") => {
+      setActionError(undefined);
+      localOpen?.run(item, mode);
+    },
+    [localOpen],
+  );
+
   /** 打开大图或预览；两者都不支持的只能下载 */
   const open = useCallback(
     (item: ArtifactItem, group?: Artifact) => {
@@ -818,6 +838,34 @@ export function ArtifactsPanel({
       >
         <DownloadIcon />
       </button>
+      {localOpen?.canOpen(item) && (
+        <button
+          type="button"
+          className="artifact-action"
+          aria-label={t("用本机应用打开 {0}", { 0: item.name })}
+          title={t("用本机应用打开")}
+          onClick={(event) => {
+            event.stopPropagation();
+            openLocally(item, "open");
+          }}
+        >
+          <OpenLocallyIcon />
+        </button>
+      )}
+      {localOpen && (
+        <button
+          type="button"
+          className="artifact-action"
+          aria-label={`${revealInFolderLabel()}：${item.name}`}
+          title={revealInFolderLabel()}
+          onClick={(event) => {
+            event.stopPropagation();
+            openLocally(item, "reveal");
+          }}
+        >
+          <RevealInFolderIcon />
+        </button>
+      )}
       <button
         type="button"
         className="artifact-action"
@@ -1059,6 +1107,26 @@ export function ArtifactsPanel({
             <DownloadIcon />
             {t("下载")}
           </button>
+          {localOpen?.canOpen(selectedItem) && (
+            <button
+              type="button"
+              className="artifact-button"
+              onClick={() => openLocally(selectedItem, "open")}
+            >
+              <OpenLocallyIcon />
+              {t("用本机应用打开")}
+            </button>
+          )}
+          {localOpen && (
+            <button
+              type="button"
+              className="artifact-button"
+              onClick={() => openLocally(selectedItem, "reveal")}
+            >
+              <RevealInFolderIcon />
+              {revealInFolderLabel()}
+            </button>
+          )}
           <button type="button" className="artifact-button" onClick={() => locate(selectedItem)}>
             <LocateIcon />
             {t("定位到消息")}
@@ -1380,6 +1448,24 @@ export function ArtifactsPanel({
                 >
                   {t("下载")}
                 </button>
+                {localOpen?.canOpen(item) && (
+                  <button
+                    type="button"
+                    className="attachment-lightbox-text"
+                    onClick={() => openLocally(item, "open")}
+                  >
+                    {t("用本机应用打开")}
+                  </button>
+                )}
+                {localOpen && (
+                  <button
+                    type="button"
+                    className="attachment-lightbox-text"
+                    onClick={() => openLocally(item, "reveal")}
+                  >
+                    {revealInFolderLabel()}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="attachment-lightbox-text"

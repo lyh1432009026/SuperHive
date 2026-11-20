@@ -297,6 +297,8 @@ describe("App mention autocomplete", () => {
             return jsonResponse({ agent }, 201);
           }
           if (url.endsWith("/api/local/agents")) return jsonResponse({ agents: localApi.agents });
+          if (/\/api\/local\/rooms\/[^/]+\/attachments\/[^/]+\/open$/.test(url))
+            return jsonResponse({ opened: true, name: "plan.md" });
           if (url.includes("/api/local/worktrees/"))
             return jsonResponse({
               worktrees: [],
@@ -2028,6 +2030,82 @@ describe("App mention autocomplete", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "产物" })).toBeNull();
     await waitFor(() => expect(document.activeElement).toBe(entry));
+  });
+
+  it("本机房主在预览里能用本机应用打开、在文件夹中显示附件；不在 Server 那台电脑上时没有这两个按钮", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    Object.assign(URL, { createObjectURL: () => "blob:doc", revokeObjectURL: () => {} });
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    const agent = participant("00000000-0000-4000-8000-000000000002", "rd-codex", "agent");
+    const message: ChatMessage = {
+      id: "00000000-0000-4000-8000-000000003001",
+      roomId: "general",
+      seq: 1,
+      senderId: agent.id,
+      senderName: agent.username,
+      senderType: "agent",
+      content: "交付",
+      mentions: [],
+      traceId: "00000000-0000-4000-8000-000000000011",
+      hopCount: 0,
+      createdAt: new Date().toISOString(),
+      attachments: [
+        {
+          id: "00000000-0000-4000-8000-000000004001",
+          name: "plan.md",
+          mime: "text/markdown",
+          size: 100,
+          kind: "text",
+          sha256: "c".repeat(64),
+        },
+      ],
+    };
+    const openPreview = async () => {
+      render(<App />);
+      await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
+      const socket = FakeWebSocket.instances.at(-1)!;
+      act(() => socket.open());
+      act(() =>
+        socket.serverEvent({
+          type: "room.snapshot",
+          self,
+          participants: [self, agent],
+          messages: [message],
+          latestSeq: 1,
+        }),
+      );
+      const container = document.querySelector(".message-list")! as HTMLElement;
+      const list = within(container.shadowRoot as unknown as HTMLElement);
+      await user.click(await list.findByRole("button", { name: "预览 plan.md" }));
+      return screen.findByRole("dialog", { name: "预览 plan.md" });
+    };
+
+    // 远程设备、访客：/api/local 不可用，只能下载
+    let dialog = await openPreview();
+    expect(within(dialog).getByRole("button", { name: "下载" })).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: "用本机应用打开" })).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: "在文件夹中显示" })).toBeNull();
+    cleanup();
+
+    localApi.enabled = true;
+    dialog = await openPreview();
+    await user.click(await within(dialog).findByRole("button", { name: "用本机应用打开" }));
+    await user.click(within(dialog).getByRole("button", { name: "在文件夹中显示" }));
+    await waitFor(() =>
+      expect(
+        localApi.requests
+          .filter((request) => request.url.includes("/attachments/"))
+          .map((request) => ({ url: request.url, owner: request.owner, body: request.body })),
+      ).toEqual(
+        (["open", "reveal"] as const).map((mode) => ({
+          url: "http://localhost:8787/api/local/rooms/general/attachments/00000000-0000-4000-8000-000000004001/open",
+          owner: "owner-secret",
+          body: { mode },
+        })),
+      ),
+    );
   });
 
   it("docks a file preview into the right sidebar so the chat stays usable, and offers newer versions", async () => {

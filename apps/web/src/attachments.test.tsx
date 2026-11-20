@@ -12,6 +12,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { utils, write } from "xlsx";
 import {
+  AttachmentLocalOpenContext,
   ComposerAttachments,
   FilePreview,
   MessageAttachments,
@@ -447,6 +448,55 @@ describe("文件预览", () => {
     await vi.waitFor(() =>
       expect(document.querySelector(".file-preview-audio audio")).toBeTruthy(),
     );
+  });
+
+  it("本机房主能在预览顶部用本机应用打开、在文件夹中显示；程序类只能显示；失败在标题下说明", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("# 方案")),
+    );
+    const report = file("00000000-0000-4000-8000-0000000000a7", "plan.md", "text", "text/markdown");
+    // 没有本机能力（远程设备、访客）：没有这两个按钮
+    const { unmount } = render(
+      <FilePreview attachment={report} base="http://hive" token="t" onClose={vi.fn()} />,
+    );
+    expect(screen.getByRole("button", { name: "下载" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "用本机应用打开" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /中显示$/ })).toBeNull();
+    unmount();
+
+    const action = vi.fn(async () => {});
+    const withLocal = (attachment: ReturnType<typeof file>) => (
+      <AttachmentLocalOpenContext.Provider value={action}>
+        <FilePreview attachment={attachment} base="http://hive" token="t" onClose={vi.fn()} />
+      </AttachmentLocalOpenContext.Provider>
+    );
+    const platform = vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
+    const view = render(withLocal(report));
+    fireEvent.click(screen.getByRole("button", { name: "用本机应用打开" }));
+    fireEvent.click(screen.getByRole("button", { name: "在访达中显示" }));
+    expect(action.mock.calls).toEqual([
+      [report, "open"],
+      [report, "reveal"],
+    ]);
+
+    action.mockRejectedValueOnce(new Error("附件文件已被清理。"));
+    fireEvent.click(screen.getByRole("button", { name: "用本机应用打开" }));
+    expect(await screen.findByText("附件文件已被清理。")).toBeTruthy();
+
+    // 程序、脚本：直接打开会运行代码，只给显示
+    platform.mockReturnValue("Win32");
+    const script = file(
+      "00000000-0000-4000-8000-0000000000a8",
+      "setup.exe",
+      "file",
+      "application/octet-stream",
+    );
+    view.rerender(withLocal(script));
+    expect(screen.queryByRole("button", { name: "用本机应用打开" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "在资源管理器中显示" }));
+    expect(action).toHaveBeenLastCalledWith(script, "reveal");
+    platform.mockRestore();
   });
 
   it("PDF 在页面内预览：老附件只记了 octet-stream 也按扩展名认出来，按 application/pdf 交给查看器", async () => {

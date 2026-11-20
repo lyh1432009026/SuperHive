@@ -1,7 +1,22 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  lazy,
+  Suspense,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { serverError } from "./server-text";
 import { createPortal } from "react-dom";
-import type { Attachment, UploadedAttachment } from "@superhive/protocol";
+import {
+  canOpenWithDefaultApp,
+  type Attachment,
+  type UploadedAttachment,
+} from "@superhive/protocol";
 import { t } from "./i18n";
 import { OfficePreview } from "./office-preview/office-preview";
 import { officeKind } from "./office-preview/office-kind";
@@ -568,6 +583,72 @@ export async function downloadAttachment(base: string, token: string, attachment
   link.click();
 }
 
+export type LocalOpenMode = "open" | "reveal";
+
+/**
+ * 页面开在 Server 那台电脑上的本机房主：附件本来就在这台电脑上，可以直接用本机应用打开，或在访达里显示
+ * （Server 先按原文件名放一份副本，看到的不是哈希名）。远程设备和访客不提供，只能下载。
+ */
+export const AttachmentLocalOpenContext = createContext<
+  ((attachment: Attachment, mode: LocalOpenMode) => Promise<void>) | undefined
+>(undefined);
+
+export function revealInFolderLabel(): string {
+  const platform = typeof navigator === "undefined" ? "" : navigator.platform;
+  if (/Mac/i.test(platform)) return t("在访达中显示");
+  if (/Win/i.test(platform)) return t("在资源管理器中显示");
+  return t("在文件夹中显示");
+}
+
+/**
+ * 本机打开 / 在文件夹中显示；没有本机能力时为 undefined。
+ * 程序、脚本这类直接打开会运行代码的，canOpen 为 false，只给「在文件夹中显示」（Server 同样拒绝）
+ */
+export function useLocalOpen(onError: (attachment: Attachment, message: string) => void) {
+  const action = useContext(AttachmentLocalOpenContext);
+  return useMemo(
+    () =>
+      action && {
+        canOpen: (attachment: Attachment) => canOpenWithDefaultApp(attachment.name),
+        run: (attachment: Attachment, mode: LocalOpenMode) => {
+          action(attachment, mode).catch((cause: unknown) =>
+            onError(attachment, cause instanceof Error ? cause.message : String(cause)),
+          );
+        },
+      },
+    [action, onError],
+  );
+}
+
+export function OpenLocallyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+      <path
+        d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function RevealInFolderIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+      <path
+        d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 /** 代码按扩展名高亮：包成一个足够长的代码围栏交给 Markdown 渲染器 */
 function codeFence(name: string, text: string): string {
   const language = /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase() ?? "";
@@ -644,6 +725,9 @@ export function FilePreview({
   }
   const [text, setText] = useState<{ value: string; clipped: boolean }>();
   const [downloadError, setDownloadError] = useState<string>();
+  const localOpen = useLocalOpen(
+    useCallback((_: Attachment, message: string) => setDownloadError(message), []),
+  );
   const closeRef = useRef<HTMLButtonElement>(null);
 
   // 音视频、PDF：按正确的 MIME 重新包一层 blob 再交给播放器 / PDF 查看器（Safari 不认
@@ -814,6 +898,34 @@ export function FilePreview({
         <button type="button" onClick={startDownload}>
           {t("下载")}
         </button>
+        {localOpen?.canOpen(attachment) && (
+          <button
+            type="button"
+            className="file-preview-size"
+            aria-label={t("用本机应用打开")}
+            title={t("用本机应用打开")}
+            onClick={() => {
+              setDownloadError(undefined);
+              localOpen.run(attachment, "open");
+            }}
+          >
+            <OpenLocallyIcon />
+          </button>
+        )}
+        {localOpen && (
+          <button
+            type="button"
+            className="file-preview-size"
+            aria-label={revealInFolderLabel()}
+            title={revealInFolderLabel()}
+            onClick={() => {
+              setDownloadError(undefined);
+              localOpen.run(attachment, "reveal");
+            }}
+          >
+            <RevealInFolderIcon />
+          </button>
+        )}
         {onDock && !docked && (
           <button
             type="button"

@@ -117,6 +117,8 @@ export type LocalAgentsState = {
   sessionCommand(id: string, roomId: string): Promise<string | undefined>;
   /** 在这台电脑的访达 / 资源管理器里选中工作区里的文件（只限本机） */
   revealWorkspaceFile(roomId: string, source: string, path: string): Promise<void>;
+  /** 产物 / 聊天附件：按原文件名放一份副本，用本机应用打开或在访达里选中（只限本机） */
+  openAttachment(roomId: string, attachmentId: string, mode: "open" | "reveal"): Promise<void>;
   remove(id: string): Promise<void>;
   logs(id: string): Promise<string[]>;
   directories(path?: string): Promise<LocalDirectoryListing>;
@@ -496,6 +498,16 @@ export function useLocalAgents(
         method: "POST",
         body: JSON.stringify({ source, path }),
       });
+    },
+    [request],
+  );
+
+  const openAttachment = useCallback(
+    async (roomId: string, attachmentId: string, mode: "open" | "reveal") => {
+      await request(
+        `/api/local/rooms/${encodeURIComponent(roomId)}/attachments/${encodeURIComponent(attachmentId)}/open`,
+        { method: "POST", body: JSON.stringify({ mode }) },
+      );
     },
     [request],
   );
@@ -905,6 +917,7 @@ export function useLocalAgents(
     openTerminal,
     sessionCommand,
     revealWorkspaceFile,
+    openAttachment,
     remove,
     logs,
     directories,

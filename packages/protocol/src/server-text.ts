@@ -812,6 +812,10 @@ export const serverTexts = {
     zh: "这个房间里没有这个附件（可能已撤回）。",
     en: "There's no such attachment in this room (it may have been unsent).",
   },
+  "error.attachment.openBlocked": {
+    zh: "这类文件直接打开可能会运行程序，请改用「在文件夹中显示」，确认后自己打开。",
+    en: "Opening this type of file directly could run a program. Show it in the folder instead and open it yourself if you trust it.",
+  },
   "error.attachment.pendingNotFound": {
     zh: "没有这个待发附件。",
     en: "There's no such attachment waiting to be sent.",

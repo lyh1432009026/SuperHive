@@ -68,3 +68,20 @@ export async function revealInFolder(file: string, platform = process.platform):
   }
   await run("xdg-open", [path.dirname(file)]);
 }
+
+/**
+ * 用系统默认应用打开这个文件（只给本机房主用）：macOS 用 open，Windows 交给资源管理器，Linux 用 xdg-open。
+ * 传进来的都是绝对路径，不会被当成选项；能不能打开（类型白名单）由调用方先判断。
+ */
+export async function openWithDefaultApp(file: string, platform = process.platform): Promise<void> {
+  if (platform === "darwin") {
+    await run("open", [file]);
+    return;
+  }
+  if (platform === "win32") {
+    // 不经 cmd start，免得文件名里的 & ^ 之类被 cmd 解释；explorer 正常也会返回 1，不按退出码判断
+    await run("explorer.exe", [file]).catch(() => undefined);
+    return;
+  }
+  await run("xdg-open", [file]);
+}

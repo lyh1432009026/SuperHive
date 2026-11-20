@@ -1,7 +1,8 @@
-import { serverText, zhText, type ServerText } from "@superhive/protocol";
+import { canOpenWithDefaultApp, serverText, zhText, type ServerText } from "@superhive/protocol";
 import { errorText, hiveErrorBody } from "./texts.js";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { hostname } from "node:os";
+import path from "node:path";
 import { z } from "zod";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
@@ -33,7 +34,8 @@ import type { OwnerDevice } from "./owner-devices.js";
 import { checkLocalRequest, type LocalCheck } from "./local-access.js";
 import { listDirectories } from "./local-directories.js";
 import { renderImMessage, type ImMessage } from "./im/im-texts.js";
-import { openTerminal, revealInFolder } from "./open-terminal.js";
+import { openTerminal, openWithDefaultApp, revealInFolder } from "./open-terminal.js";
+import { placeNamedCopy } from "./attachment-open.js";
 import type { LocalAgentSupervisor } from "./local-agents.js";
 import type { RuntimeCredentialStore } from "./runtime-credentials.js";
 import { registerRuntimeConfigRoutes } from "./runtime-config-routes.js";
@@ -156,6 +158,15 @@ export type LocalRoomActions = {
   workspaceFile?: (roomId: string, source: string, path: string) => Promise<string>;
   /** 在文件管理器里选中文件；测试里替换掉 */
   revealInFolder?: (file: string) => Promise<void>;
+  /** 用系统默认应用打开文件；测试里替换掉 */
+  openWithDefaultApp?: (file: string) => Promise<void>;
+  /** 房间里随消息发出、没撤回的附件；不在这个房间、还没发出或已撤回时抛 HiveError */
+  roomAttachment?: (
+    roomId: string,
+    attachmentId: string,
+  ) => { name: string; filePath: string; size: number; sha256: string };
+  /** 附件按原文件名放副本的目录（<dir>/<roomId>/），本机打开和在访达中显示都用这份 */
+  attachmentFilesDir?: string;
   /** 运行时（Claude Code、Codex）全局配置里的接口地址和密钥 */
   runtimeCredentials?: RuntimeCredentialStore;
   /** 本机装的 Agent CLI：检测版本与一键升级 */
@@ -1026,6 +1037,79 @@ export function registerLocalAgentRoutes(
           return reply.code(500).send({ error: error.message, code: "TERMINAL_FAILED" });
         }
         return fail(reply, error);
+      }
+    },
+  );
+
+  /**
+   * 产物和聊天里的附件：用本机应用打开，或在访达 / 资源管理器里选中（只限本机房主）。
+   * 附件按 sha256 存，先按原文件名放一份副本再打开或选中，看到的是正常文件名。
+   * 程序、脚本这类打开会运行代码的类型只能选中，不直接打开。审计只记谁、哪个房间、哪个附件、做了什么，不记内容。
+   */
+  app.post<{ Params: { roomId: string; attachmentId: string }; Body: { mode?: unknown } }>(
+    "/api/local/rooms/:roomId/attachments/:attachmentId/open",
+    async (request, reply) => {
+      const caller = authorize(request, reply, "local");
+      if (!caller) return reply;
+      const mode = request.body?.mode;
+      if (
+        (mode !== "open" && mode !== "reveal") ||
+        !rooms.roomAttachment ||
+        !rooms.attachmentFilesDir
+      )
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      const { roomId, attachmentId } = request.params;
+      try {
+        const item = rooms.roomAttachment(roomId, attachmentId);
+        // 先按原名判断，免得放了副本才拒绝；放好后再按磁盘上的实际文件名核一次（系统按它决定用什么程序打开）
+        const blocked = (name: string) => mode === "open" && !canOpenWithDefaultApp(name);
+        if (blocked(item.name))
+          throw new HiveError(
+            "ATTACHMENT_OPEN_BLOCKED",
+            serverText("error.attachment.openBlocked"),
+          );
+        const file = await placeNamedCopy(rooms.attachmentFilesDir, roomId, item).catch(
+          (error: NodeJS.ErrnoException) => {
+            // 附件库里的文件已被清理
+            if (error.code === "ENOENT" && error.path === item.filePath)
+              throw new HiveError("ATTACHMENT_GONE", serverText("error.attachment.gone"));
+            throw error;
+          },
+        );
+        if (blocked(path.basename(file)))
+          throw new HiveError(
+            "ATTACHMENT_OPEN_BLOCKED",
+            serverText("error.attachment.openBlocked"),
+          );
+        await (mode === "open"
+          ? (rooms.openWithDefaultApp ?? openWithDefaultApp)(file)
+          : (rooms.revealInFolder ?? revealInFolder)(file));
+        request.log.info(
+          {
+            attachmentFiles: {
+              room: roomId,
+              by: "local-owner",
+              action: mode,
+              attachment: attachmentId,
+            },
+          },
+          "attachment opened on this computer",
+        );
+        return { opened: true, name: path.basename(file) };
+      } catch (error) {
+        if (error instanceof HiveError) {
+          const status =
+            {
+              ATTACHMENT_OPEN_BLOCKED: 400,
+              ATTACHMENT_REVOKED: 410,
+              ATTACHMENT_GONE: 410,
+            }[error.code] ?? 404;
+          return reply.code(status).send(hiveErrorBody(error));
+        }
+        return reply.code(500).send({
+          error: error instanceof Error ? error.message : String(error),
+          code: "OPEN_FAILED",
+        });
       }
     },
   );

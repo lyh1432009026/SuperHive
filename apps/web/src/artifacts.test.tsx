@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Artifact, ArtifactCounts, ArtifactsResponse } from "@superhive/protocol";
 import { utils, write } from "xlsx";
 import { ArtifactsPanel } from "./artifacts";
+import { AttachmentLocalOpenContext } from "./attachments";
 
 let serial = 0;
 function item(name: string, extra: Partial<Artifact> = {}): Artifact {
@@ -322,6 +323,40 @@ describe("ArtifactsPanel", () => {
     expect(document.activeElement?.textContent).toContain("plan.md");
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("本机房主在详情栏和列表行里能用本机应用打开、在文件夹中显示；失败说明原因", async () => {
+    const user = userEvent.setup();
+    store = [item("plan.md"), item("run.sh")];
+    // 没有本机能力：只有下载
+    const { unmount } = render(panel());
+    await screen.findByRole("button", { name: /^plan\.md，/ });
+    expect(screen.queryByRole("button", { name: /用本机应用打开/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /在文件夹中显示/ })).toBeNull();
+    unmount();
+
+    const action = vi.fn(async () => {});
+    render(
+      <AttachmentLocalOpenContext.Provider value={action}>
+        {panel()}
+      </AttachmentLocalOpenContext.Provider>,
+    );
+    await user.click(await screen.findByRole("button", { name: "用本机应用打开 plan.md" }));
+    expect(action).toHaveBeenLastCalledWith(expect.objectContaining({ name: "plan.md" }), "open");
+    // 脚本只能显示，不能直接打开
+    expect(screen.queryByRole("button", { name: "用本机应用打开 run.sh" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "在文件夹中显示：run.sh" }));
+    expect(action).toHaveBeenLastCalledWith(expect.objectContaining({ name: "run.sh" }), "reveal");
+
+    await user.click(screen.getByRole("button", { name: /^plan\.md，/ }));
+    const detail = screen.getByRole("complementary", { name: "plan.md 的详情" });
+    action.mockRejectedValueOnce(new Error("这类文件直接打开可能会运行程序"));
+    await user.click(within(detail).getByRole("button", { name: "用本机应用打开" }));
+    expect(
+      await screen.findByText("plan.md 打开失败：这类文件直接打开可能会运行程序"),
+    ).toBeTruthy();
+    await user.click(within(detail).getByRole("button", { name: "在文件夹中显示" }));
+    expect(action).toHaveBeenLastCalledWith(expect.objectContaining({ name: "plan.md" }), "reveal");
   });
 
   it("Office 文档在详情栏里直接预览，点「预览」打开大窗口", async () => {

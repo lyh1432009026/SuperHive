@@ -1840,5 +1840,6 @@ export * from "./participant-order.js";
 export * from "./invocation-decision.js";
 export * from "./agent-clis.js";
 export * from "./workspace-files.js";
+export * from "./attachment-open.js";
 export * from "./server-text.js";
 export * from "./agent-version.js";

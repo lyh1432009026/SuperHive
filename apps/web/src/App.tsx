@@ -57,7 +57,7 @@ import { GuestAgentDialog, InviteDialog } from "./invite-dialog";
 import { ImDialog } from "./im-dialog";
 import { AgentSettingsDialog, SettingsGlyph } from "./agent-settings-dialog";
 import { RetryModelDialog } from "./model-picker";
-import { FilePreview } from "./attachments";
+import { AttachmentLocalOpenContext, FilePreview } from "./attachments";
 import { listImConnections } from "./im-api";
 import { resolveShareBase } from "./server-url";
 import { getLocalePreference, t, useLocale } from "./i18n";
@@ -515,6 +515,17 @@ export function App({
     setWorkspaceFocus({ source, nonce: Date.now() });
     setWorkspaceOpen(true);
   }, []);
+  // 产物和聊天附件「用本机应用打开」「在访达中显示」：只给页面开在 Server 那台电脑上的本机房主
+  const { enabled: localEnabled, mode: localMode, openAttachment } = local;
+  const openAttachmentLocally = useMemo(
+    () =>
+      localEnabled && localMode === "local"
+        ? (attachment: Attachment, mode: "open" | "reveal") =>
+            openAttachment(currentRoomId, attachment.id, mode)
+        : undefined,
+    [currentRoomId, localEnabled, localMode, openAttachment],
+  );
+
   // 消息、白板里的提交号和任务分支名：能看代码的人才变成链接，点了打开「代码」面板定位过去
   const workspaceRefs = useMemo(
     () =>
@@ -2447,6 +2458,10 @@ export function App({
     </main>
   );
   return (
-    <WorkspaceRefsContext.Provider value={workspaceRefs}>{page}</WorkspaceRefsContext.Provider>
+    <WorkspaceRefsContext.Provider value={workspaceRefs}>
+      <AttachmentLocalOpenContext.Provider value={openAttachmentLocally}>
+        {page}
+      </AttachmentLocalOpenContext.Provider>
+    </WorkspaceRefsContext.Provider>
   );
 }
