@@ -1711,6 +1711,8 @@
   "{0} 中途中断，等你决定继续还是忽略": "{0} was interrupted; decide whether to continue or dismiss",
   "卡住了": "Stuck",
   "做完待验收": "Done, awaiting review",
+  "{0} 天没更新": "No update for {0}d",
+  "超过 1 天没有更新，可能已经没人在做": "No update for over a day; probably no one is working on it anymore",
   "点击跳到聊天里的这段": "Click to jump to this part of the chat",
   "等你处理": "Needs you",
   "在做": "In progress",

@@ -30,7 +30,16 @@ export type ProgressItem = {
   at: string;
   badge?: { label: string; tone: "warning" | "accent" | "success" | "muted" };
   target?: ProgressTarget;
+  /** 「在做」里超过 1 天没更新：多半已经没人在做，标灰、排最后、不计数 */
+  stale?: boolean;
 };
+
+export const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/** 「在做」里还算在做的条数（不含超过 1 天没更新的） */
+export function activeCount(items: readonly ProgressItem[]): number {
+  return items.filter((item) => !item.stale).length;
+}
 
 const HEADLINE_MAX = 60;
 
@@ -112,11 +121,13 @@ export function buildProgress({
   entries,
   invocations,
   messages,
+  now = Date.now(),
 }: {
   roomId: string;
   entries: Iterable<WhiteboardEntry>;
   invocations: Iterable<Invocation>;
   messages: readonly ChatMessage[];
+  now?: number;
 }): Record<ProgressGroup, ProgressItem[]> {
   const groups: Record<ProgressGroup, ProgressItem[]> = { attention: [], doing: [], done: [] };
   for (const invocation of invocations) {
@@ -147,6 +158,7 @@ export function buildProgress({
       at: entry.updatedAt,
       target: entryTarget(entry, messages),
     };
+    const stale = now - Date.parse(entry.updatedAt) > STALE_AFTER_MS;
     switch (entry.slot) {
       // 白板阻塞多半卡在外部或别的 Agent，不一定在等人：留在「在做」里标出来，真要人拍板的 Agent 会提问
       case "blocked":
@@ -154,16 +166,18 @@ export function buildProgress({
           ...base,
           group: "doing",
           badge: { label: t("卡住了"), tone: "warning" },
+          ...(stale ? { stale } : {}),
         });
         break;
       case "in_progress":
-        groups.doing.push({ ...base, group: "doing" });
+        groups.doing.push({ ...base, group: "doing", ...(stale ? { stale } : {}) });
         break;
       case "ready":
         groups.doing.push({
           ...base,
           group: "doing",
           badge: { label: t("做完待验收"), tone: "success" },
+          ...(stale ? { stale } : {}),
         });
         break;
       case "milestone":
@@ -175,9 +189,9 @@ export function buildProgress({
         break;
     }
   }
-  // 等你处理：等得最久的在前；在做、最近完成：最近有动静的在前
+  // 等你处理：等得最久的在前；在做、最近完成：最近有动静的在前，在做里过期的统一排最后
   groups.attention.sort((a, b) => a.at.localeCompare(b.at));
-  groups.doing.sort((a, b) => b.at.localeCompare(a.at));
+  groups.doing.sort((a, b) => Number(!!a.stale) - Number(!!b.stale) || b.at.localeCompare(a.at));
   groups.done.sort((a, b) => b.at.localeCompare(a.at));
   return groups;
 }
@@ -193,6 +207,8 @@ function ProgressRow({
   now: number;
   onLocate: (target: ProgressTarget) => void;
 }) {
+  const staleHint = item.stale ? t("超过 1 天没有更新，可能已经没人在做") : "";
+  const detail = [item.detail, staleHint].filter(Boolean).join("\n\n");
   const body = (
     <>
       <span className="progress-title">{item.title}</span>
@@ -202,25 +218,29 @@ function ProgressRow({
         )}
         <span className="progress-who">{item.who}</span>
         <time dateTime={item.at} title={new Date(item.at).toLocaleString()}>
-          {formatRelativeTime(item.at, now)}
+          {item.stale
+            ? t("{0} 天没更新", {
+                0: Math.max(1, Math.floor((now - Date.parse(item.at)) / 86_400_000)),
+              })
+            : formatRelativeTime(item.at, now)}
         </time>
       </span>
     </>
   );
   const target = item.target;
   return (
-    <li className={`progress-item ${item.group}`}>
+    <li className={`progress-item ${item.group}`} data-stale={item.stale || undefined}>
       {target ? (
         <button
           type="button"
           className="progress-row"
-          title={item.detail ? `${item.detail}\n\n${t("点击跳到聊天里的这段")}` : undefined}
+          title={detail ? `${detail}\n\n${t("点击跳到聊天里的这段")}` : undefined}
           onClick={() => onLocate(target)}
         >
           {body}
         </button>
       ) : (
-        <div className="progress-row" title={item.detail || undefined}>
+        <div className="progress-row" title={detail || undefined}>
           {body}
         </div>
       )}
@@ -254,6 +274,7 @@ export function ProgressPanel({
       {sections.map(({ group, label, empty }) => {
         const items = groups[group];
         const visible = group === "done" && !showAllDone ? items.slice(0, DONE_PREVIEW) : items;
+        const count = activeCount(items);
         const headingId = `progress-${group}`;
         return (
           <section
@@ -265,7 +286,7 @@ export function ProgressPanel({
             <h3 id={headingId}>
               <span className="progress-dot" aria-hidden="true" />
               {label}
-              {items.length > 0 && <span className="progress-count">{items.length}</span>}
+              {count > 0 && <span className="progress-count">{count}</span>}
             </h3>
             {items.length === 0 ? (
               <p className="progress-empty">{empty}</p>

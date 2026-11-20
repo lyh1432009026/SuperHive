@@ -4,7 +4,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage, Invocation, WhiteboardEntry } from "@superhive/protocol";
-import { ProgressPanel, buildProgress, progressHeadline } from "./progress";
+import { ProgressPanel, activeCount, buildProgress, progressHeadline } from "./progress";
 
 const agentId = "00000000-0000-4000-8000-000000000002";
 
@@ -155,6 +155,76 @@ describe("buildProgress", () => {
       { messageId: said.id, messageSeq: 7 },
       undefined,
     ]);
+  });
+});
+
+describe("stale doing items", () => {
+  afterEach(cleanup);
+
+  const now = Date.parse("2026-11-20T12:00:00.000Z");
+  const build = () =>
+    buildProgress({
+      roomId: "build",
+      entries: [
+        entry({ key: "old", summary: "三天前的", updatedAt: "2026-11-17T11:00:00.000Z" }),
+        entry({
+          key: "edge",
+          slot: "blocked",
+          summary: "刚好一天",
+          updatedAt: "2026-11-19T12:00:00.000Z",
+        }),
+        entry({
+          key: "older-ready",
+          slot: "ready",
+          summary: "两天前做完",
+          updatedAt: "2026-11-18T10:00:00.000Z",
+        }),
+        entry({ key: "fresh", summary: "刚登记", updatedAt: "2026-11-20T11:00:00.000Z" }),
+        entry({
+          key: "done",
+          slot: "milestone",
+          summary: "很早完成",
+          updatedAt: "2026-11-10T00:00:00.000Z",
+        }),
+      ],
+      invocations: [],
+      messages: [],
+      now,
+    });
+
+  it("marks doing items older than a day stale, sorts them last and leaves them out of the count", () => {
+    const groups = build();
+    expect(groups.doing.map((item) => [item.title, !!item.stale])).toEqual([
+      ["刚登记", false],
+      ["刚好一天", false],
+      ["两天前做完", true],
+      ["三天前的", true],
+    ]);
+    expect(groups.done[0]!.stale).toBeUndefined();
+    expect(activeCount(groups.doing)).toBe(2);
+  });
+
+  it("greys out stale rows with how long they have been quiet", () => {
+    vi.useFakeTimers({ now, toFake: ["Date"] });
+    try {
+      render(<ProgressPanel groups={build()} onLocate={() => undefined} board={null} />);
+    } finally {
+      vi.useRealTimers();
+    }
+    const doing = screen.getByRole("region", { name: /在做/ });
+    expect(within(doing).getByText("2").className).toBe("progress-count");
+    const stale = within(doing).getByText("三天前的").closest("li")!;
+    expect(stale.dataset.stale).toBe("true");
+    expect(within(stale).getByText("3 天没更新")).toBeTruthy();
+    expect(stale.querySelector<HTMLElement>(".progress-row")!.title).toContain(
+      "超过 1 天没有更新，可能已经没人在做",
+    );
+    expect(within(doing).getByText("两天前做完").closest("li")!.textContent).toContain(
+      "2 天没更新",
+    );
+    const fresh = within(doing).getByText("刚登记").closest("li")!;
+    expect(fresh.dataset.stale).toBeUndefined();
+    expect(fresh.textContent).not.toContain("没更新");
   });
 });
 

@@ -2862,7 +2862,8 @@ describe("App mention autocomplete", () => {
     act(() => {
       socket.serverEvent({
         type: "whiteboard.updated",
-        entry: { ...current, updatedAt: "2026-11-16T00:01:00.000Z" },
+        // 恢复后刚更新过：超过 1 天没更新的「在做」条目不计入标签数字
+        entry: { ...current, updatedAt: new Date().toISOString() },
       });
       socket.serverEvent({ type: "whiteboard.removed", roomId: "general", entryId: deleted.id });
       resolveHistory(jsonResponse({ entries: [restored, deleted] }));

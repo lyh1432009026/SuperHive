@@ -121,6 +121,15 @@ button.progress-row:focus-visible {
   color: var(--text-secondary);
 }
 
+/* 在做里超过 1 天没更新的：整行标灰，多半已经没人在做 */
+.progress-item[data-stale] .progress-title {
+  color: var(--text-tertiary);
+}
+
+.progress-item[data-stale] .progress-badge {
+  opacity: 0.6;
+}
+
 .progress-meta {
   display: flex;
   align-items: center;

@@ -64,7 +64,7 @@ import {
   waitingInvocationForQuestion,
 } from "./invocations";
 import { WhiteboardPanel, upsertWhiteboardEntry } from "./whiteboard";
-import { ProgressPanel, buildProgress, type ProgressTarget } from "./progress";
+import { ProgressPanel, activeCount, buildProgress, type ProgressTarget } from "./progress";
 import { highlightDraft } from "./draft-highlight";
 import type { ComposerHandle, ComposerKeyInfo } from "./rich-composer";
 import { SchedulePanel, isPendingSchedule, upsertSchedule } from "./schedules";
@@ -2114,6 +2114,7 @@ export function App({
       }),
     [currentRoomId, whiteboard, invocations, messages],
   );
+  const doingCount = activeCount(progressGroups.doing);
   const pausedAgentNames = useMemo(
     () => [...new Set(pausedInvocations.map((invocation) => `@${invocation.agentName}`))],
     [pausedInvocations],
@@ -6262,12 +6263,12 @@ export function App({
                     {progressGroups.attention.length}
                   </span>
                 ) : (
-                  progressGroups.doing.length > 0 && (
+                  doingCount > 0 && (
                     <span
                       className="side-tab-count"
-                      aria-label={t("{0} 件在做", { 0: progressGroups.doing.length })}
+                      aria-label={t("{0} 件在做", { 0: doingCount })}
                     >
-                      {progressGroups.doing.length}
+                      {doingCount}
                     </span>
                   )
                 )}
