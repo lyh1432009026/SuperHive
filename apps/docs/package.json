@@ -13,6 +13,7 @@
     "build:deploy": "node scripts/require-site.mjs && astro build && node scripts/verify-build.mjs",
     "preview": "astro preview --host 127.0.0.1",
     "check": "astro check",
+    "screens": "node scripts/screens.mjs",
     "social:image": "node scripts/social-image.mjs",
     "test": "node --test scripts/*.test.mjs",
     "verify": "astro check && node --test scripts/*.test.mjs && astro build && node scripts/verify-build.mjs"

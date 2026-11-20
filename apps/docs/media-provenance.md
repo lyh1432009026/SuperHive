@@ -16,8 +16,10 @@
 
 `public/media/screens/` 是用本地临时 Hive Server（独立数据库、独立 `HOME`、只监听 127.0.0.1、假 Agent 只保持在线不调用模型）加演示数据，以无头 Chrome 按 2 倍像素截取的真实界面，每张都有 `.dark.png` 与 `.light.png` 两份。正文写 `![说明](/media/screens/名字.png)`，构建时由 `scripts/site-config.mjs` 展开成跟随主题切换的两张图，并按一半尺寸显示。
 
-- 人名（林夏、周屿、陈默）、房间、仓库、提交号和任务内容都是演示数据。
-- 截图前把演示目录和本机用户目录替换成 `~`；`clis` 中的 CLI 版本与安装来源来自截图电脑的真实检测，不含 Token、密钥或账号。
+全部由 `pnpm docs:screens`（`scripts/screens.mjs` 与 `scripts/screens/demo-server.mjs`）生成，可随时重截：
+
+- 人名（林夏、周屿、陈默）、房间、仓库、分支、提交和任务内容都是演示数据，写在 `demo-server.mjs` 里。
+- 演示 Server 的 HOME 是临时目录，截图时把它显示成 `~`；`onboard`、`clis` 里的 Agent CLI 是临时 HOME 里只会打印版本号的假命令，版本号和「有新版」也是写死的演示数据，不读截图电脑上的真实安装，不联网查询。
 - 只做裁切与 PNG 调色板压缩，不改画界面。截图只证明界面样子，不证明真实模型任务或远程连接已经实测。
 
 ## 原创示意图

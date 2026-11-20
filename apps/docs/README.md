@@ -12,6 +12,17 @@ Monorepo 中的独立应用 `@superhive/docs`，使用 Astro + Starlight 构建�
 
 品牌图标使用主项目 `HiveLogo` 的双层六边形与中心点，不另绘制文档专用图标。页头和分享图复用 `src/assets/hive-mark.svg`；页头图标随文档明暗主题继承正文色。浏览器图标与 `apps/web/public/favicon.svg` 保持一致，沿用主项目针对小尺寸的线宽及系统明暗适配。`scripts/branding.test.mjs` 核对主项目图形、favicon 与分享图引用，防止后续出现另一套品牌图标；这些检查只在源码验收时读取主项目，不引入运行时依赖。
 
+## 界面配图
+
+`public/media/screens/` 里的真实界面截图用一条命令重截（界面改了就重跑）：
+
+```bash
+pnpm docs:screens                      # 全部重截，明暗两套
+pnpm docs:screens --only overview      # 只截某几张，名字见 --help
+```
+
+脚本 `scripts/screens.mjs` 先构建网页，再用 `scripts/screens/demo-server.mjs` 在临时目录里起一个演示 Server：独立 HOME、独立数据库和演示仓库，只监听 127.0.0.1，不连 IM、不拉起真实 Agent、不联网。演示成员经真实协议上线、发消息、提问、上报执行过程，白板和任务目录在启动前写好；随后用独立的无头 Chrome 按 2 倍像素截取、转成 8 位调色板 PNG，结束后删除临时目录。改截图范围或演示数据就改这两个文件；新增配图在 `SHOTS` 里加一项。
+
 ## 本地预览
 
 在仓库根目录，使用 Node.js 22.12+、pnpm 10：

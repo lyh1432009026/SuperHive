@@ -94,7 +94,7 @@ export function actionScript(action) {
 }
 
 /** 注入每个页面的辅助函数：轮询等元素出现再点，最多 10 秒 */
-const HELPERS = `window.__shot = {
+export const HELPERS = `window.__shot = {
   async find(selector, match) {
     const deadline = Date.now() + 10000;
     for (;;) {
@@ -153,7 +153,7 @@ export function findChrome(explicit = process.env.CHROME_PATH) {
 }
 
 /** 起一个独立的无头 Chrome，连上它的 DevTools；close() 关掉进程并删掉临时 profile */
-async function launchChrome(executable) {
+export async function launchChrome(executable) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "hive-shot-"));
   const child = spawn(
     executable,
