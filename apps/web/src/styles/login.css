@@ -20,7 +20,7 @@
 
 .login-card {
   width: min(1180px, 100%);
-  min-height: min(720px, calc(100dvh - 64px));
+  min-height: min(800px, calc(100dvh - 64px));
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(380px, 440px);
   overflow: hidden;
@@ -758,6 +758,48 @@
   justify-content: center;
 }
 
+/* 表单上方的品牌标：宽屏右栏只有一张表单，补一个视觉锚点；窄屏顶部已有品牌行，不重复 */
+.login-form-mark {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 20px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-sidebar);
+  box-shadow: 0 0 0 1px var(--border-light);
+}
+
+.login-form-mark .hive-logo {
+  width: 26px;
+  height: 26px;
+}
+
+.login-form-mark .hive-logo svg {
+  width: 26px;
+  height: 26px;
+}
+
+/* 进去之后第一步做什么：一行就够，不抢表单 */
+.login-next {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 20px;
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  background: var(--bg-sidebar);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+
+.login-next .icon {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--text-tertiary);
+}
+
 .login-form-heading h2 {
   color: var(--text);
   font-size: 26px;
@@ -939,6 +981,17 @@
   color: var(--text-secondary);
 }
 
+/*
+ * 宽屏：演示区不按内容撑高（contain: size），只占左栏剩下的空间。否则消息一条条出来时
+ * 演示窗口从矮长到高，把整张卡片一起撑高，右边的表单也跟着跳。
+ */
+@media (min-width: 901px) {
+  .login-intro .showcase {
+    contain: size;
+    min-height: 300px;
+  }
+}
+
 /* 中等宽度：演示窗口和要点收紧 */
 @media (max-width: 1100px) {
   .login-intro {
@@ -971,6 +1024,10 @@
 
   .login-form-panel {
     padding: 32px 24px 24px;
+  }
+
+  .login-form-mark {
+    display: none;
   }
 
   .login-shell:has(.login-intro) {

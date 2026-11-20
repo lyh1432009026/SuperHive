@@ -1313,6 +1313,9 @@ export function LoginDialog({
         <section className="login-form-panel">
           <div className="login-form-body">
             <div className="login-form-heading">
+              <span className="login-form-mark">
+                <HiveLogo />
+              </span>
               <h2>{t("进入 SuperHive")}</h2>
               <p className="login-copy">{t("选择一个在当前房间中可识别的名字。")}</p>
             </div>
@@ -1376,6 +1379,12 @@ export function LoginDialog({
                 {!busy && <Icon name="arrow-right" />}
               </button>
             </form>
+            <p className="login-next">
+              <Icon name="plug" size={15} />
+              <span>
+                {t("进去后点右下角「接入 Agent」，把本机的 Claude Code、Codex 拉进房间。")}
+              </span>
+            </p>
           </div>
           <div className="login-trust">
             <Icon name="shield" size={16} />

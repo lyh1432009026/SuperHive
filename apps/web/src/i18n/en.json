@@ -651,6 +651,7 @@
   "这条消息较早，不在最近加载的记录里。": "This message is too old to be in the loaded history.",
   "这次调用当前无法重试：它可能已在进行中，或触发消息已被撤回。": "This task can't be retried right now: it may already be running, or its message was unsent.",
   "进入 SuperHive": "Enter SuperHive",
+  "进去后点右下角「接入 Agent」，把本机的 Claude Code、Codex 拉进房间。": "Once inside, click Connect Agent at the bottom right to bring Claude Code or Codex on this computer into the room.",
   "进入聊天室": "Enter the room",
   "进行中": "Running",
   "进行中 · {0}": "Running · {0}",
