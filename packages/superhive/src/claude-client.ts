@@ -327,8 +327,13 @@ export class ClaudeCodeResponder implements AgentResponder {
         );
       }
       // An interrupted/invalid stream may follow tool side effects. Never blindly replay it.
+      // 带上 Claude Code 最后写出的报错，否则人只看得到「中途退出」不知道为什么
+      const said =
+        payload?.is_error && payload.result?.trim()
+          ? redactTrace(payload.result.replace(/\s+/g, " ").trim()).slice(0, 240)
+          : "";
       throw new AgentExecutionUncertainError(
-        "Claude Code 执行中断，结果未知；请先核对已执行操作。",
+        said ? `Claude Code 中途报错退出：${said}。` : "Claude Code 中途退出，没有给出原因。",
       );
     } finally {
       mcp?.cleanup();

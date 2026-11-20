@@ -289,12 +289,21 @@ describe("isUpstreamFailure", () => {
       "rate limit exceeded: token rate limit",
       "API Error: 400 重试渠道均失败（共 4 次尝试）",
       "stream disconnected before completion",
+      // 网关限流时回 403、还写「Failed to authenticate」，原因写在后面（云机浏览器房间的真实输出）
+      "Failed to authenticate. API Error: 403 重试渠道均失败（共 7 次尝试）: 该渠道已达到请求速率限制，请稍后重试 (request id: 20261120151200000000000000000000) | 重试渠道均失败（共 1 次尝试）: 555420: The deployment request could not be completed.",
+      "API Error: 401 Too Many Requests",
     ]) {
       expect(isUpstreamFailure(text), text).toBe(true);
     }
     for (const text of [
       "insufficient_quota: 429 You exceeded your current quota",
       "API Error: 401 invalid api key",
+      // 单纯的鉴权失败：没写限流或渠道失败
+      "Failed to authenticate. API Error: 403 Forbidden",
+      "API Error: 401 Unauthorized",
+      // 限流字样也挡不住额度用完、key 无效
+      "API Error: 403 rate limit: invalid api key",
+      "insufficient_quota: 403 重试渠道均失败",
       "line 512 failed",
       "command timed out after 30s",
     ]) {

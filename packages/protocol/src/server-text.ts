@@ -585,8 +585,8 @@ export const serverTexts = {
   },
   "bridge.noReply": { zh: "无需回复", en: "No reply needed" },
   "bridge.uncertain": {
-    zh: "{reason} 已禁止自动重放；请先核对已执行操作再决定是否重试。",
-    en: "{reason} It won't be retried automatically; check what was done before deciding whether to retry.",
+    zh: "这一轮没做完就停了：{reason} 停下前可能已经执行过工具（改文件、跑命令等），所以没有自动重跑。点「继续」会接着原会话，先核对已做的再往下做；不需要了点「忽略」。",
+    en: "This turn stopped before finishing: {reason} It may already have run tools (edited files, run commands), so it wasn't rerun automatically. Continue picks up the same session, checks what was done, then carries on; Dismiss if it's no longer needed.",
   },
   "bridge.offline": {
     zh: "Agent 已下线，本轮被中断；可在界面中重试",
@@ -597,8 +597,8 @@ export const serverTexts = {
     en: "Failed {attempts} times in a row: {reason}",
   },
   "bridge.upstreamFailed": {
-    zh: "上游模型服务出错：{reason}。{why}；点「继续」会接着原会话从中断处往下做。",
-    en: "The model service had an error: {reason}. {why}. Continue picks up the same session where it stopped.",
+    zh: "上游模型服务出错：{reason}。{why}；点「继续」会接着原会话从中断处往下做，不需要了点「忽略」。",
+    en: "The model service had an error: {reason}. {why}. Continue picks up the same session where it stopped; Dismiss if it's no longer needed.",
   },
   "bridge.upstreamMutated": {
     zh: "这一轮已经做过改动，不自动重跑",

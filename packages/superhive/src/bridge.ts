@@ -70,7 +70,14 @@ type PreparedPrompt = {
  * 交给接着做的那一轮：上一轮做过哪些可能有改动的步骤（Bridge 自己记下的事实，不靠模型回忆），
  * 哪一步可能没做完、哪些是撤不回的对外操作。规则只决定提醒什么，不决定成败
  */
-export function stepsNote(
+export /** 原因拼进文案中间：没有句末标点的补一个句号，免得和后一句粘在一起 */
+function sentence(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return "没有给出原因。";
+  return /[。！？.!?]$/.test(trimmed) ? trimmed : `${trimmed}。`;
+}
+
+function stepsNote(
   steps: ReadonlyArray<{ summary: string; done: boolean; irreversible?: boolean }>,
   cwd?: string,
 ): string {
@@ -1892,7 +1899,7 @@ export class AgentBridge {
       withUsage(active.messages, {
         status: "uncertain",
         // 带上 Runtime 给的具体原因（API 限流、流中断、停止未确认……）
-        ...said(bridgeText("bridge.uncertain", { reason: error.message.slice(0, 380) })),
+        ...said(bridgeText("bridge.uncertain", { reason: sentence(error.message.slice(0, 380)) })),
       });
       return;
     }

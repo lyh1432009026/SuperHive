@@ -463,7 +463,46 @@ describe("ClaudeCodeResponder", () => {
     expect(error.message).toMatch(/429/);
     expect(error.threadId).toBe("session-429");
 
-    // 没有结果、或结果不是上游出错：仍按「执行中断，结果未知」处理，不能盲目重放
+    // 网关限流却回 403 + Failed to authenticate（真实输出）：同样按上游出错，能点「继续」
+    const gateway = new ClaudeCodeResponder({
+      command: "claude",
+      cwd: "/workspace",
+      hive,
+      runner: (_command, _args, options) => {
+        options.onStdout?.(
+          `${JSON.stringify({ type: "result", subtype: "success", is_error: true, result: "Failed to authenticate. API Error: 403 重试渠道均失败（共 7 次尝试）: 该渠道已达到请求速率限制，请稍后重试 (request id: 20261120151200000000000000000000) | 重试渠道均失败（共 1 次尝试）: 555420: The deployment request could not be completed.", session_id: "session-403" })}\n`,
+        );
+        return Promise.reject(new Error("运行进程异常退出（1）。"));
+      },
+    });
+    const throttled = (await gateway
+      .reply({ instructions: "rules", prompt: "context" })
+      .catch((cause: unknown) => cause)) as AgentUpstreamError;
+    expect(throttled).toBeInstanceOf(AgentUpstreamError);
+    expect(throttled.kind).toBe("transient");
+    expect(throttled.threadId).toBe("session-403");
+
+    // 结果是别的报错：仍按「结果未知」处理，但把 Claude Code 的原话带上，人才知道为什么停
+    const other = new ClaudeCodeResponder({
+      command: "claude",
+      cwd: "/workspace",
+      hive,
+      runner: (_command, _args, options) => {
+        options.onStdout?.(
+          `${JSON.stringify({ type: "result", subtype: "success", is_error: true, result: "API Error: 401 invalid api key" })}\n`,
+        );
+        return Promise.reject(new Error("运行进程异常退出（1）。"));
+      },
+    });
+    const unknown = await other
+      .reply({ instructions: "rules", prompt: "context" })
+      .catch((cause: unknown) => cause);
+    expect(unknown).toBeInstanceOf(AgentExecutionUncertainError);
+    expect((unknown as Error).message).toBe(
+      "Claude Code 中途报错退出：API Error: 401 invalid api key。",
+    );
+
+    // 没有结果：仍按「执行中断，结果未知」处理，不能盲目重放
     const broken = new ClaudeCodeResponder({
       command: "claude",
       cwd: "/workspace",

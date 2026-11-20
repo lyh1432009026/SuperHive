@@ -38,11 +38,12 @@ export const BRIDGE_TEXTS = {
     "这一轮在 Agent 这边早已结束，没有在跑的回合；当初的结果仍未知，请先核对再决定是否重试。",
   "bridge.stoppedNoReply": "本轮已结束，已停止的触发消息未发送回复",
   "bridge.noReply": "无需回复",
-  "bridge.uncertain": "{reason} 已禁止自动重放；请先核对已执行操作再决定是否重试。",
+  "bridge.uncertain":
+    "这一轮没做完就停了：{reason} 停下前可能已经执行过工具（改文件、跑命令等），所以没有自动重跑。点「继续」会接着原会话，先核对已做的再往下做；不需要了点「忽略」。",
   "bridge.offline": "Agent 已下线，本轮被中断；可在界面中重试",
   "bridge.failedRepeatedly": "连续失败 {attempts} 次：{reason}",
   "bridge.upstreamFailed":
-    "上游模型服务出错：{reason}。{why}；点「继续」会接着原会话从中断处往下做。",
+    "上游模型服务出错：{reason}。{why}；点「继续」会接着原会话从中断处往下做，不需要了点「忽略」。",
   "bridge.upstreamMutated": "这一轮已经做过改动，不自动重跑",
   "bridge.upstreamExhausted": "已自动继续 {count} 次仍未成功",
   "bridge.sessionRetrying": "会话已失效（{reason}），已开新会话重试",

@@ -127,10 +127,6 @@ export class AgentUpstreamError extends Error {
 }
 
 /**
- * 看起来是上游模型服务暂时不可用（限流、过载、5xx、连接中断），等一会儿再试可能就好；
- * 额度用完、鉴权失败这类等多久都不会好的不算。只认明确的写法，不按任意数字或「超时」字样匹配。
- */
-/**
  * 连不上模型服务：断网、电脑合盖睡眠、DNS 解析失败、连接被重置。请求没送到模型，
  * 运行时（如 Claude Code）是在两步之间发请求失败的，已经完成的工具步骤都记在会话里
  */
@@ -140,16 +136,26 @@ export function isNetworkFailure(text: string): boolean {
   );
 }
 
+/**
+ * 网关明确说是限流、渠道全挂了。有的网关这时也回 401/403，甚至写「Failed to authenticate」，
+ * 但原因写在后面（如「403 重试渠道均失败…已达到请求速率限制」），按上游出错算
+ */
+function isGatewayThrottled(text: string): boolean {
+  return /重试渠道均失败|速率限制|限流|rate[ _-]?limit|too many requests/i.test(text);
+}
+
+/**
+ * 看起来是上游模型服务暂时不可用（限流、过载、5xx、连接中断），等一会儿再试可能就好；
+ * 额度用完、鉴权失败这类等多久都不会好的不算。只认明确的写法，不按任意数字或「超时」字样匹配。
+ */
 export function isUpstreamFailure(text: string): boolean {
-  if (
-    /insufficient_quota|quota exceeded|billing|credit balance|invalid api key|unauthori[sz]ed|\b401\b|\b403\b/i.test(
-      text,
-    )
-  ) {
+  if (/insufficient_quota|quota exceeded|billing|credit balance|invalid api key/i.test(text)) {
     return false;
   }
-  if (isNetworkFailure(text)) return true;
-  return /API Error:?\s*(?:429|5\d\d)\b|(?:status|statusCode|status_code|HTTP)[\s:=]*(?:429|5\d\d)\b|rate[ _-]?limit|too many requests|overloaded|service unavailable|bad gateway|gateway time-?out|ECONNRESET|ETIMEDOUT|socket hang up|stream (?:error|disconnected)|限流|重试渠道均失败|服务繁忙/i.test(
+  // 单纯的 401/403 是鉴权问题；网关限流时写明了原因的除外
+  if (/unauthori[sz]ed|\b401\b|\b403\b/i.test(text) && !isGatewayThrottled(text)) return false;
+  if (isNetworkFailure(text) || isGatewayThrottled(text)) return true;
+  return /API Error:?\s*(?:429|5\d\d)\b|(?:status|statusCode|status_code|HTTP)[\s:=]*(?:429|5\d\d)\b|overloaded|service unavailable|bad gateway|gateway time-?out|ECONNRESET|ETIMEDOUT|socket hang up|stream (?:error|disconnected)|服务繁忙/i.test(
     text,
   );
 }
@@ -188,6 +194,8 @@ export function isModelUnavailable(text: string): boolean {
   ) {
     return false;
   }
+  // 网关说限流了：等一会儿就好，不用换模型（渠道失败的说明里常顺带提到模型或部署不可用）
+  if (/速率限制|限流|rate[ _-]?limit|too many requests/i.test(text)) return false;
   return /model_not_found|not_found_error[\s\S]{0,80}\bmodel\b|model[^.]{0,40}(?:does not exist|not found|not supported|is not available|unavailable|deprecated|has been (?:deprecated|retired|removed))|unknown model|invalid model|no such model|issue with the selected model|unrecognized_model|模型不存在|模型已下线/i.test(
     text,
   );

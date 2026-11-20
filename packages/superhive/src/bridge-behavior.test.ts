@@ -2754,7 +2754,7 @@ describe("AgentBridge", () => {
     await waitUntil(() => responder.calls.length === 1);
     responder.fail(new AgentExecutionUncertainError());
     await waitUntil(() => room.statuses(mention.id).includes("uncertain"));
-    expect(room.reports.at(-1)?.detail).toContain("已禁止自动重放");
+    expect(room.reports.at(-1)?.detail).toContain("没有自动重跑");
     expect((await store.load())?.processedMessageIds).toContain(mention.id);
     room.handlers.onMention(mention, mention.seq, false);
     await flush();

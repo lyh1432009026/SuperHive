@@ -65,6 +65,14 @@ describe("isModelUnavailable", () => {
       expect(isUpstreamFailure(text), text).toBe(false);
     }
   });
+
+  it("treats a gateway rate limit as an upstream failure even when it says 403 and mentions the deployment", () => {
+    // 云机浏览器房间的真实输出：网关限流，却回 403 + Failed to authenticate，后面还提到部署不可用
+    const text =
+      "Failed to authenticate. API Error: 403 重试渠道均失败（共 7 次尝试）: 该渠道已达到请求速率限制，请稍后重试 (request id: 20261120151200000000000000000000) | 重试渠道均失败（共 1 次尝试）: 555420: The deployment request could not be completed. The deployment model is not available right now.";
+    expect(isModelUnavailable(text)).toBe(false);
+    expect(isUpstreamFailure(text)).toBe(true);
+  });
 });
 
 describe("isNetworkFailure", () => {
