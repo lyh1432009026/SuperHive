@@ -4095,53 +4095,52 @@ export function App({
             const tasks = roomTaskCounts.get(room.id) ?? { attention: 0, inFlight: 0 };
             const unseenDone = attention.unseenByRoom.get(room.id) ?? 0;
             if (room.archivedAt) return null;
-            if (tasks.attention > 0) {
-              return (
-                <span
-                  className="room-task attention"
-                  role="img"
-                  title={t("{0} 个任务需要处理", { 0: tasks.attention })}
-                  aria-label={t("# {0}：{1} 个任务需要处理", {
-                    0: room.name,
-                    1: tasks.attention,
-                  })}
-                >
-                  {tasks.attention}
-                </span>
-              );
-            }
-            if (unseenDone > 0) {
-              return (
-                <span
-                  className="room-task done"
-                  role="img"
-                  title={t("{0} 个任务做完了，你还没看", { 0: unseenDone })}
-                  aria-label={t("# {0}：{1} 个任务做完了，还没看", {
-                    0: room.name,
-                    1: unseenDone,
-                  })}
-                >
-                  ✓{unseenDone > 1 && unseenDone}
-                </span>
-              );
-            }
-            if (tasks.inFlight > 0) {
-              return (
-                <span
-                  className="room-task running"
-                  role="img"
-                  title={t("{0} 个任务进行中", { 0: tasks.inFlight })}
-                  aria-label={t("# {0}：{1} 个任务进行中", {
-                    0: room.name,
-                    1: tasks.inFlight,
-                  })}
-                >
-                  <span className="room-task-spinner" aria-hidden="true" />
-                  {tasks.inFlight > 1 && tasks.inFlight}
-                </span>
-              );
-            }
-            return null;
+            // 有任务在跑就一直转圈；失败、等人回答的计数或做完未看的 ✓ 排在它旁边，不把转圈挤掉
+            return (
+              <>
+                {tasks.inFlight > 0 && (
+                  <span
+                    className="room-task running"
+                    role="img"
+                    title={t("{0} 个任务进行中", { 0: tasks.inFlight })}
+                    aria-label={t("# {0}：{1} 个任务进行中", {
+                      0: room.name,
+                      1: tasks.inFlight,
+                    })}
+                  >
+                    <span className="room-task-spinner" aria-hidden="true" />
+                    {tasks.inFlight > 1 && tasks.inFlight}
+                  </span>
+                )}
+                {tasks.attention > 0 ? (
+                  <span
+                    className="room-task attention"
+                    role="img"
+                    title={t("{0} 个任务需要处理", { 0: tasks.attention })}
+                    aria-label={t("# {0}：{1} 个任务需要处理", {
+                      0: room.name,
+                      1: tasks.attention,
+                    })}
+                  >
+                    {tasks.attention}
+                  </span>
+                ) : (
+                  unseenDone > 0 && (
+                    <span
+                      className="room-task done"
+                      role="img"
+                      title={t("{0} 个任务做完了，你还没看", { 0: unseenDone })}
+                      aria-label={t("# {0}：{1} 个任务做完了，还没看", {
+                        0: room.name,
+                        1: unseenDone,
+                      })}
+                    >
+                      ✓{unseenDone > 1 && unseenDone}
+                    </span>
+                  )
+                )}
+              </>
+            );
           })()}
           {room.id !== currentRoomId &&
             !room.archivedAt &&

@@ -3421,6 +3421,45 @@ describe("App mention autocomplete", () => {
     expect(within(tab).queryByText("1")).toBeNull();
   });
 
+  it("keeps the room spinner while another task in the room failed", async () => {
+    localStorage.setItem("superhive.username", "Alice");
+    const at = new Date().toISOString();
+    const task = (id: string, status: Invocation["status"]) =>
+      ({
+        id,
+        roomId: "frontend",
+        messageId: "00000000-0000-4000-8000-000000000201",
+        agentId: "00000000-0000-4000-8000-000000000105",
+        agentName: "frontend-agent",
+        requesterName: "Alice",
+        requesterType: "human",
+        status,
+        attempts: 1,
+        createdAt: at,
+        updatedAt: at,
+      }) as Invocation;
+    crossRoom.invocations = [
+      task("00000000-0000-4000-8000-000000000311", "running"),
+      task("00000000-0000-4000-8000-000000000312", "failed"),
+    ];
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self: participant("00000000-0000-4000-8000-000000000001", "Alice", "human"),
+        participants: [],
+        messages: [],
+        latestSeq: 0,
+      }),
+    );
+    // 失败的计数和转圈并排：房间里还有 Agent 在干活，不能因为一条失败就看不出来
+    expect(await screen.findByRole("img", { name: "# frontend：1 个任务需要处理" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "# frontend：1 个任务进行中" })).toBeTruthy();
+  });
+
   it("reminds me across rooms when my task needs me or finishes, and jumps to it", async () => {
     const user = userEvent.setup();
     localStorage.setItem("superhive.username", "Alice");
