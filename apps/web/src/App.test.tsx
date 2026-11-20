@@ -2707,15 +2707,15 @@ describe("App mention autocomplete", () => {
     expect(tab.getAttribute("aria-selected")).toBe("false");
     await user.click(tab);
     expect(tab.getAttribute("aria-selected")).toBe("true");
-    // 阻塞算「等你处理」，标签上的数字只数这一组
-    expect(tab.textContent).toBe("进展1");
+    // 白板阻塞留在「在做」里标「卡住了」；没有要人处理的事，标签数字显示在做的条数
+    expect(tab.textContent).toBe("进展2");
     const progress = within(panel).getByRole("tabpanel");
     expect(
       within(progress)
         .getAllByRole("heading")
         .slice(0, 3)
         .map((heading) => heading.textContent),
-    ).toEqual(["等你处理1", "在做1", "最近完成"]);
+    ).toEqual(["等你处理", "在做2", "最近完成"]);
     expect(within(progress).getByText("做完待验收")).toBeTruthy();
     expect(within(progress).getByText("卡住了")).toBeTruthy();
     // 任务目录登记只在原文里
@@ -2759,7 +2759,7 @@ describe("App mention autocomplete", () => {
     expect(whiteboardApi.requests).toEqual([
       { action: "archive", entries: [{ id: ready.id, updatedAt: ready.updatedAt }] },
     ]);
-    expect(tab.textContent).toBe("进展1");
+    expect(tab.textContent).toBe("进展2");
     await user.click(within(board).getByRole("button", { name: "历史归档" }));
     await waitFor(() => expect(within(board).getByText(ready.summary)).toBeTruthy());
     expect(within(board).queryByText(blockedEntry.summary)).toBeNull();

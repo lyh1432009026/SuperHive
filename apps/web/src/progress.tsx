@@ -148,10 +148,11 @@ export function buildProgress({
       target: entryTarget(entry, messages),
     };
     switch (entry.slot) {
+      // 白板阻塞多半卡在外部或别的 Agent，不一定在等人：留在「在做」里标出来，真要人拍板的 Agent 会提问
       case "blocked":
-        groups.attention.push({
+        groups.doing.push({
           ...base,
-          group: "attention",
+          group: "doing",
           badge: { label: t("卡住了"), tone: "warning" },
         });
         break;
