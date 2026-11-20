@@ -57,7 +57,9 @@ function worktreeChips(item: WorktreeStatus): Chip[] {
       label: t("分支被切换为 {0}", { 0: item.branchSwitched.current }),
       tone: "warning",
     });
-  else chips.push(item.merged ? { label: t("已合入"), tone: "passed" } : { label: t("未合入") });
+  // 有没提交的改动时，提交虽然都在目标分支里，目录里的活还没交：不写「已合入」免得以为做完了
+  else if (!(item.merged && (item.dirty || item.untracked)))
+    chips.push(item.merged ? { label: t("已合入"), tone: "passed" } : { label: t("未合入") });
   if (item.dirty || item.untracked) chips.push({ label: t("有未提交改动"), tone: "warning" });
   if (item.ignored) chips.push({ label: t("有挡住清理的文件"), tone: "warning" });
   if (item.activeInvocationIds.length > 0) chips.push({ label: t("有任务在用") });
@@ -93,7 +95,8 @@ export function switcherRows(
     missing: false,
     removable: false,
   };
-  const rank = (item: WorktreeStatus) => (item.missing ? 2 : item.merged ? 1 : 0);
+  const rank = (item: WorktreeStatus) =>
+    item.missing ? 2 : item.merged && !item.dirty && !item.untracked ? 1 : 0;
   const rows = worktrees.map((item) => {
     const activeAt = sources.get(item.worktree.id)?.activeAt;
     return {

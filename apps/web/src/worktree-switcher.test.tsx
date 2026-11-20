@@ -90,9 +90,11 @@ describe("switcherRows", () => {
   });
 
   it("labels merge state, uncommitted changes, blocking files and cleanup", () => {
-    const [, dirty, switched, merged] = switcherRows(
+    const [, dirty, mergedDirty, switched, merged] = switcherRows(
       [
         status("dirty", { dirty: true, ignored: true, activeInvocationIds: ["x"] }),
+        // 还没提交过（或提交都已合入）但目录里有改动：活还没交，不写「已合入」，排在未合入一档
+        status("merged-dirty", { merged: true, untracked: true }),
         status("switched", { branchSwitched: { registered: "feat/switched", current: "hack" } }),
         status("merged", { merged: true, removable: true }),
       ],
@@ -105,6 +107,7 @@ describe("switcherRows", () => {
       "有挡住清理的文件",
       "有任务在用",
     ]);
+    expect(mergedDirty!.chips.map((chip) => chip.label)).toEqual(["有未提交改动"]);
     // 换了分支就没法判断登记的分支合没合入，不写合入状态
     expect(switched!.chips.map((chip) => chip.label)).toEqual(["分支被切换为 hack"]);
     expect(merged!.chips.map((chip) => chip.label)).toEqual(["已合入", "可清理"]);
