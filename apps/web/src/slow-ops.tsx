@@ -310,7 +310,7 @@ function GaugeGlyph() {
 
 type Anchor = { top: number; right: number };
 
-/** 面板和提示都挂在「性能」按钮下方、右边对齐；窗口变化时跟着走 */
+/** 面板和提示都挂在「变慢」按钮下方、右边对齐；窗口变化时跟着走 */
 function useAnchor(ref: RefObject<HTMLElement | null>, active: boolean): Anchor | undefined {
   const [anchor, setAnchor] = useState<Anchor>();
   useLayoutEffect(() => {
@@ -350,8 +350,9 @@ function toastTitle(toast: SlowOpsToast): string {
 }
 
 /**
- * 顶栏右上角的「性能」：有没看过的慢操作时用警示色亮起并带数量；点开是最近慢操作的弹层，
- * 可以标为已读。特别慢的一条会在按钮下方弹一次轻提示，点它打开弹层。只在本机房主页面显示。
+ * 顶栏右上角的「变慢」提醒：平时不占位置，只有出现没看过的慢操作时才冒出来（警示色带数量），
+ * 点开是最近慢操作的弹层，标为已读、关掉后就收起。特别慢的一条会在按钮下方弹一次轻提示。
+ * 想翻历史从设置里的「最近慢操作」打开。只在本机房主页面显示。
  */
 export function SlowOpsIndicator({ state }: { state: SlowOpsState }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -386,8 +387,9 @@ export function SlowOpsIndicator({ state }: { state: SlowOpsState }) {
     return () => window.clearTimeout(timer);
   }, [toast, toastHeld, dismissToast]);
 
-  if (!state.enabled) return null;
-  const label = unread ? t("性能：{0} 条未读慢操作", { 0: unread }) : t("性能：最近慢操作");
+  // 没有要看的就不出现：大多数时候 Hive 不慢，常驻一个按钮只是占地方
+  if (!state.enabled || (!unread && !open && !toast)) return null;
+  const label = unread ? t("有 {0} 次操作变慢，点开查看", { 0: unread }) : t("最近慢操作");
 
   return (
     <>
@@ -402,7 +404,7 @@ export function SlowOpsIndicator({ state }: { state: SlowOpsState }) {
         onClick={() => setOpen(!open)}
       >
         <GaugeGlyph />
-        <span className="perf-toggle-label">{t("性能")}</span>
+        <span className="perf-toggle-label">{t("变慢")}</span>
         {unread > 0 && (
           <span className="header-count perf-count" aria-hidden="true">
             {unread > 99 ? "99+" : unread}
@@ -522,7 +524,7 @@ export function SlowOpsSettingsEntry({
           <h4>{t("最近慢操作")}</h4>
           <p>
             {t(
-              "Server 上的任务目录锁、git 命令、重查询和请求超过阈值时，顶栏右上角的「性能」会亮起；特别慢的会弹一次提示。",
+              "Server 上的任务目录锁、git 命令、重查询和请求超过阈值时，顶栏右上角会出现「变慢」提醒，看过就收起；特别慢的会弹一次提示。",
             )}
           </p>
         </div>

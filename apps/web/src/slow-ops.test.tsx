@@ -72,7 +72,7 @@ describe("slow operation alerts", () => {
       }),
       op({ name: "git fetch", durationMs: 4_200, failed: true }),
     ]);
-    const button = screen.getByRole("button", { name: "性能：2 条未读慢操作" });
+    const button = screen.getByRole("button", { name: "有 2 次操作变慢，点开查看" });
     expect(button.className).toContain("has-unread");
     expect(button.getAttribute("aria-expanded")).toBe("false");
     // 没点开之前不出现列表
@@ -95,26 +95,28 @@ describe("slow operation alerts", () => {
     expect(document.activeElement?.id).toBe("slow-ops-popover-title");
 
     fireEvent.click(screen.getByRole("button", { name: "标为已读" }));
-    expect(screen.getByRole("button", { name: "性能：最近慢操作" }).className).not.toContain(
+    // 弹层开着时按钮还在，只是不再亮
+    expect(screen.getByRole("button", { name: "最近慢操作" }).className).not.toContain(
       "has-unread",
     );
     expect(screen.getByRole("button", { name: "标为已读" })).toHaveProperty("disabled", true);
     expect(localStorage.getItem("superhive.slow-ops-read-at")).toBeTruthy();
     expect(document.querySelectorAll(".slow-ops li.unread")).toHaveLength(0);
 
-    // Esc 关掉，焦点回到按钮
+    // Esc 关掉；都看过了，按钮跟着收起，不在顶栏常驻
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "性能：最近慢操作" }));
+    expect(screen.queryByRole("button", { name: /变慢|最近慢操作/ })).toBeNull();
   });
 
   it("counts pushed operations as unread, and only those newer than the last read mark", async () => {
     const old = op({ at: new Date(Date.now() - 60_000).toISOString() });
     localStorage.setItem("superhive.slow-ops-read-at", old.at);
     renderLoaded([old]);
-    expect(screen.getByRole("button", { name: "性能：最近慢操作" })).toBeTruthy();
+    // 只有看过的：顶栏不出现
+    expect(screen.queryByRole("button", { name: /变慢|最近慢操作/ })).toBeNull();
     act(() => latest!.receive(op({ name: "git log" })));
-    expect(screen.getByRole("button", { name: "性能：1 条未读慢操作" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "有 1 次操作变慢，点开查看" })).toBeTruthy();
     // 同一条推两次（重连后拉全集）不重复计
     act(() => latest!.receive(latest!.operations[0]!));
     expect(latest!.operations).toHaveLength(2);
@@ -197,7 +199,7 @@ describe("slow operation alerts", () => {
 
   it("stays hidden until the server sends a snapshot, which only the local owner gets", () => {
     render(<Harness />);
-    expect(screen.queryByRole("button", { name: /性能/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /变慢|最近慢操作/ })).toBeNull();
     // 推来的单条不会让它出现：先得有全集
     act(() => latest!.receive(op({ alert: true, durationMs: 20_000 })));
     expect(latest!.enabled).toBe(false);
