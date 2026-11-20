@@ -59,15 +59,33 @@ describe("resolveWebSocketUrl", () => {
     },
   );
 
-  it("preserves the advertised production endpoint and path", () => {
+  it("keeps the advertised production path when it is on the page's own host", () => {
     expect(
       resolveWebSocketUrl({
-        serverBase: "https://web.example.com",
+        serverBase: "https://hive.example.com",
         development: false,
         advertisedUrl: "wss://hive.example.com/custom/ws",
       }),
     ).toBe("wss://hive.example.com/custom/ws");
   });
+
+  it.each([
+    // Windows 上本机用 localhost 打开，Server 公布的是局域网 IP：连公布地址会被 CSP 拦掉
+    ["http://127.0.0.1:8787", "ws://127.0.0.1:8787/ws"],
+    ["http://localhost:8787", "ws://localhost:8787/ws"],
+    ["https://hive.example.com/team", "wss://hive.example.com/team/ws"],
+  ])(
+    "uses the page's own endpoint %s in production when the advertised host differs",
+    (serverBase, expected) => {
+      expect(
+        resolveWebSocketUrl({
+          serverBase,
+          development: false,
+          advertisedUrl: "ws://10.253.210.139:8787/ws",
+        }),
+      ).toBe(expected);
+    },
+  );
 });
 
 describe("resolveShareBase", () => {

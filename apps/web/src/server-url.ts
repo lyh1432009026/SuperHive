@@ -10,14 +10,26 @@ export function resolveServerBase(input: {
   return input.origin;
 }
 
-/** Dev HTTP and WebSocket must use the same reachable endpoint, not a startup-time LAN IP. */
+/**
+ * WebSocket 和 HTTP 走同一个地址：页面能从 serverBase 加载出来，说明这个地址浏览器连得上。
+ * Server 公布的 wsUrl 是启动时选的局域网地址，可能和浏览器打开页面用的不一样（本机用 localhost
+ * 打开、公布的是 10.x）；这时连公布的地址会被 Server 的 CSP（connect-src 只放行当前 host）拦掉，
+ * 房间永远连不上。只有公布地址和 serverBase 是同一个 host 时才用它（保留反向代理下自定义的路径）。
+ */
 export function resolveWebSocketUrl(input: {
   serverBase: string;
   development: boolean;
   advertisedUrl: string;
 }): string {
-  if (!input.development) return input.advertisedUrl;
-  return `${input.serverBase.replace(/\/$/, "").replace(/^http/, "ws")}/ws`;
+  const base = input.serverBase.replace(/\/$/, "");
+  const sameEndpoint = `${base.replace(/^http/, "ws")}/ws`;
+  if (input.development) return sameEndpoint;
+  try {
+    if (new URL(input.advertisedUrl).host === new URL(base).host) return input.advertisedUrl;
+  } catch {
+    // 公布的地址解析不了就用同源
+  }
+  return sameEndpoint;
 }
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
