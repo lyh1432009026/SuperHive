@@ -243,6 +243,35 @@ describe("ArtifactsPanel", () => {
     expect(screen.queryByRole("dialog", { name: /shot-/ })).toBeNull();
   });
 
+  it("moves the selection with the arrow keys after clicking an item, without opening the viewer", async () => {
+    const user = userEvent.setup();
+    store = [item("a.png"), item("b.png"), item("c.png"), item("one.md"), item("two.md")];
+    render(panel());
+    // 网格：点一下选中，→ ← 换着看，详情栏跟着变
+    const first = await screen.findByRole("button", { name: /查看图片 a\.png/ });
+    await user.click(first);
+    expect(screen.getByRole("complementary", { name: "a.png 的详情" })).toBeTruthy();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("complementary", { name: "b.png 的详情" })).toBeTruthy();
+    expect(document.activeElement?.getAttribute("aria-pressed")).toBe("true");
+    await user.keyboard("{ArrowRight}{ArrowLeft}");
+    expect(screen.getByRole("complementary", { name: "b.png 的详情" })).toBeTruthy();
+    // 只换选中，不打开看图器
+    expect(screen.queryByRole("dialog", { name: "b.png" })).toBeNull();
+    // 表格：↓ ↑ 上下一行，到头就停
+    await user.click(screen.getByRole("button", { name: /^one\.md，/ }));
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("complementary", { name: "two.md 的详情" })).toBeTruthy();
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("complementary", { name: "two.md 的详情" })).toBeTruthy();
+    await user.keyboard("{ArrowUp}");
+    expect(screen.getByRole("complementary", { name: "one.md 的详情" })).toBeTruthy();
+    // 搜索框里的方向键照常移动光标，不换选中
+    await user.click(screen.getByRole("searchbox", { name: "按文件名搜索产物" }));
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("complementary", { name: "one.md 的详情" })).toBeTruthy();
+  });
+
   it("switches images between grid and list, remembering the choice", async () => {
     const user = userEvent.setup();
     store = [item("chart.png"), item("report.md")];

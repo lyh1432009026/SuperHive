@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
@@ -706,6 +707,60 @@ export function ArtifactsPanel({
     setSelected({ artifactId: artifact.id, itemId: artifact.id });
   };
 
+  /**
+   * 选中一项之后用方向键换着看（和 Finder、文件管理器一样）：← → 前后一项；网格里 ↑ ↓ 跳到上下一行
+   * 同一列附近的那张，表格里 ↑ ↓ 上下一行。只换选中、详情栏跟着变，不打开看图器；再按 Enter 或空格打开。
+   * 焦点在输入框、详情栏（Office 预览自己也用方向键翻页）里时不管。
+   */
+  const moveSelection = (event: ReactKeyboardEvent<HTMLElement>): boolean => {
+    const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -1, ArrowDown: 1 }[event.key];
+    if (!step || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
+    const main = mainRef.current;
+    const target = event.target as HTMLElement;
+    if (!main?.contains(target) || target.closest("input, textarea, select, [contenteditable]"))
+      return false;
+    const items = [...main.querySelectorAll<HTMLElement>("[data-artifact-nav]")];
+    const from =
+      target.closest<HTMLElement>("[data-artifact-nav]") ??
+      items.find((item) => item.dataset.artifactNav === selected?.artifactId);
+    if (!from) return false;
+    const index = items.indexOf(from);
+    let next: HTMLElement | undefined;
+    const vertical = event.key === "ArrowUp" || event.key === "ArrowDown";
+    const grid = from.closest(".artifact-grid");
+    if (vertical && grid) {
+      // 网格按实际排版找：上/下一行里横向离得最近的那张
+      const box = from.getBoundingClientRect();
+      const center = box.left + box.width / 2;
+      const rows = items
+        .filter((item) => item.closest(".artifact-grid") === grid)
+        .map((item) => ({ item, box: item.getBoundingClientRect() }))
+        .filter(({ box: other }) =>
+          step > 0 ? other.top >= box.bottom - 1 : other.bottom <= box.top + 1,
+        );
+      const rowTop =
+        step > 0
+          ? Math.min(...rows.map(({ box: other }) => other.top))
+          : Math.max(...rows.map(({ box: other }) => other.top));
+      next = rows
+        .filter(({ box: other }) => Math.abs(other.top - rowTop) < 1)
+        .sort(
+          (a, b) =>
+            Math.abs(a.box.left + a.box.width / 2 - center) -
+            Math.abs(b.box.left + b.box.width / 2 - center),
+        )[0]?.item;
+    } else {
+      next = items[index + step];
+    }
+    event.preventDefault();
+    if (!next) return true;
+    const id = next.dataset.artifactNav;
+    if (id) setSelected({ artifactId: id, itemId: id });
+    next.focus({ preventScroll: true });
+    next.scrollIntoView?.({ block: "nearest" });
+    return true;
+  };
+
   /** 关详情栏，焦点回到选中的那一项（不在列表里了就回到面板），键盘接着能用 */
   const closeDetail = () => {
     const main = mainRef.current;
@@ -789,6 +844,7 @@ export function ArtifactsPanel({
         <button
           type="button"
           className={`artifact-tile${isSelected ? " selected" : ""}`}
+          data-artifact-nav={item.id}
           aria-pressed={isSelected}
           onClick={() => (isSelected ? onOpen() : activate(item))}
           onDoubleClick={onOpen}
@@ -850,6 +906,7 @@ export function ArtifactsPanel({
                 <button
                   type="button"
                   className="artifact-open"
+                  data-artifact-nav={artifact.id}
                   aria-pressed={isSelected}
                   aria-label={t("{0}，{1}", { 0: artifact.name, 1: describe(artifact, now) })}
                   title={artifact.name}
@@ -1088,6 +1145,7 @@ export function ArtifactsPanel({
           } as CSSProperties
         }
         onKeyDown={(event) => {
+          if (!event.defaultPrevented && moveSelection(event)) return;
           // Esc 先关详情栏，再按一次才关面板
           if (event.key === "Escape" && selected && !event.defaultPrevented) {
             event.preventDefault();
