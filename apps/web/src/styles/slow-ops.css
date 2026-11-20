@@ -1,4 +1,4 @@
-/* 最近慢操作：顶栏「性能」按钮、弹层、轻提示，以及「这台电脑」设置页里的入口 */
+/* 最近慢操作：只在「这台电脑」设置页里，点「查看」展开列表 */
 .slow-ops-heading {
   display: flex;
   gap: 12px;
@@ -49,11 +49,6 @@
 .slow-op-kind.lock {
   background: var(--warning-soft);
   color: var(--warning);
-}
-
-/* 未读：左边一道细的警示色，不改边框，免得整片都是黄的 */
-.slow-ops li.unread {
-  box-shadow: inset 2px 0 0 var(--warning);
 }
 
 .slow-ops li.failed .slow-op-kind {
@@ -111,150 +106,15 @@
   font-weight: var(--weight-medium);
 }
 
-/* 顶栏「性能」：平时是普通的灰色图标；有未读时图标和数量用警示色 */
-.perf-toggle.has-unread {
-  color: var(--warning);
-}
-
-.perf-toggle.has-unread .perf-count {
-  background: var(--warning-soft);
-  color: var(--warning);
-  font-weight: var(--weight-semibold);
-}
-
-.slow-ops-popover {
-  position: fixed;
-  z-index: 1100;
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 8px;
-  width: min(460px, calc(100vw - 16px));
-  max-height: min(560px, calc(100vh - 80px));
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-elevated);
-  box-shadow: var(--shadow-popover);
-  animation: slow-ops-in 120ms ease-out;
-}
-
-.slow-ops-popover-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.slow-ops-popover-header h2 {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin: 0;
-  font-size: var(--text-base);
-  font-weight: var(--weight-semibold);
-  outline: none;
-}
-
-.slow-ops-unread {
-  color: var(--warning);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-medium);
-}
-
-.slow-ops-popover-actions {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 4px;
-}
-
-.slow-ops-popover-actions button {
-  padding: 3px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--bg-main);
-  color: var(--text);
-  font-size: var(--text-xs);
-}
-
-.slow-ops-popover-actions button:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-
-.slow-ops-popover-actions button:disabled {
-  opacity: 0.5;
-}
-
-.slow-ops-popover-actions .slow-ops-popover-close {
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border-color: transparent;
-  background: transparent;
-  color: var(--text-tertiary);
-  font-size: 16px;
-  line-height: 1;
-}
-
-.slow-ops-note,
-.slow-ops-empty {
-  margin: 0;
+.slow-ops-note {
+  margin: 8px 0 0;
   color: var(--text-tertiary);
   font-size: var(--text-xs);
   line-height: 1.5;
 }
 
-.slow-ops-note.error {
-  color: var(--danger);
-}
-
-.slow-ops-empty {
-  padding: 18px 0;
-  text-align: center;
-}
-
-.slow-ops-popover .slow-ops {
-  max-height: none;
-  min-height: 0;
-  margin: 0;
-}
-
-/* 特别慢时的轻提示：挂在「性能」按钮下方，左边一道警示色；和「需要处理」的提示同一层，不盖住弹窗 */
-.slow-ops-toast {
-  position: fixed;
-  z-index: 60;
-  width: min(360px, calc(100vw - 16px));
-}
-
-.slow-ops-toast .attention-toast-icon {
-  background: var(--warning-soft);
-  color: var(--warning);
-}
-
-.slow-ops-toast .attention-toast-icon .icon {
-  width: 14px;
-  height: 14px;
-}
-
-@keyframes slow-ops-in {
-  from {
-    opacity: 0;
-  }
-}
-
-/* 窄屏：弹层铺满左右；没有未读时收起按钮，给顶栏腾地方（设置页里还有入口） */
+/* 窄屏：耗时换到下一行 */
 @media (max-width: 720px) {
-  .perf-toggle:not(.has-unread):not(.active) {
-    display: none;
-  }
-
-  .slow-ops-popover,
-  .slow-ops-toast {
-    right: 8px !important;
-    left: 8px;
-    width: auto;
-  }
-
   .slow-ops li {
     flex-wrap: wrap;
   }
@@ -266,11 +126,5 @@
   .slow-op-time {
     justify-items: start;
     margin-left: 50px;
-  }
-}
-
-@media (max-width: 1100px) {
-  .perf-toggle-label {
-    display: none;
   }
 }

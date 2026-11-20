@@ -1,22 +1,10 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type RefObject,
-} from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useMemo, useState } from "react";
 import type { SlowOperation, SlowOperationsResponse } from "@superhive/protocol";
 import { t } from "./i18n";
 import "./styles/slow-ops.css";
 
-/** 同名操作在这么长时间内连着出现，列表里合成一行、提示不重复弹 */
+/** 同名操作在这么长时间内连着出现，列表里合成一行 */
 export const SLOW_OPS_MERGE_WINDOW_MS = 60_000;
-/** 提示多久后自己收起（鼠标停在上面或键盘焦点在里面时不收） */
-const TOAST_DURATION_MS = 10_000;
-const READ_STORAGE_KEY = "superhive.slow-ops-read-at";
 
 /** 毫秒数给人看：不到 1 秒按毫秒，否则按秒保留一位 */
 export function formatDuration(ms: number): string {
@@ -97,34 +85,16 @@ export function groupSlowOps(
   return groups;
 }
 
-export type SlowOpsToast = { key: string; operation: SlowOperation; count: number };
-
 export type SlowOpsState = {
   /** 收到过全集才算可用：只有这台电脑上的房主页面会收到 */
   enabled: boolean;
   operations: SlowOperation[];
   settings: Omit<SlowOperationsResponse, "operations"> | undefined;
-  /** 上次「标为已读」时最新一条的时间；没标过是 undefined */
-  readAt: string | undefined;
-  unread: number;
-  open: boolean;
-  toast: SlowOpsToast | undefined;
   /** WebSocket 连上（含重连）时的全集 */
   receiveSnapshot(snapshot: SlowOperationsResponse): void;
   /** WebSocket 推来的新一条 */
   receive(operation: SlowOperation): void;
-  markRead(): void;
-  setOpen(open: boolean): void;
-  dismissToast(): void;
 };
-
-function loadReadAt(): string | undefined {
-  try {
-    return localStorage.getItem(READ_STORAGE_KEY) ?? undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 function newestFirst(items: Iterable<SlowOperation>, capacity: number): SlowOperation[] {
   const byId = new Map<string, SlowOperation>();
@@ -134,18 +104,12 @@ function newestFirst(items: Iterable<SlowOperation>, capacity: number): SlowOper
 
 /**
  * 本机房主页面上的慢操作，全靠 WebSocket：连上时服务端给一份全集（receiveSnapshot），
- * 之后逐条推（receive），不轮询。带 alert 的（特别慢、等锁太久）弹一次提示；
- * 同名的在合并窗口内只累计次数，不重复弹。
+ * 之后逐条推（receive），不轮询。只在设置里「最近慢操作」给排查问题的人看：
+ * 多个 Agent 同时跑测试、装依赖时慢操作一多就是上百条，放在顶栏或弹提示只会被当成噪音。
  */
 export function useSlowOps(): SlowOpsState {
   const [operations, setOperations] = useState<SlowOperation[]>([]);
   const [settings, setSettings] = useState<SlowOpsState["settings"]>();
-  const [readAt, setReadAt] = useState(loadReadAt);
-  const [open, setOpenState] = useState(false);
-  const [toast, setToast] = useState<SlowOpsToast>();
-  const lastAlerted = useRef(new Map<string, number>());
-  const openRef = useRef(open);
-  openRef.current = open;
   const capacity = settings?.capacity ?? 200;
 
   const receiveSnapshot = useCallback(
@@ -158,86 +122,30 @@ export function useSlowOps(): SlowOpsState {
   );
 
   const receive = useCallback(
-    (operation: SlowOperation) => {
-      setOperations((current) => newestFirst([operation, ...current], capacity));
-      if (!operation.alert || openRef.current) return;
-      const key = keyOf(operation);
-      const at = Date.parse(operation.at);
-      const previous = lastAlerted.current.get(key);
-      lastAlerted.current.set(key, at);
-      if (previous !== undefined && at - previous <= SLOW_OPS_MERGE_WINDOW_MS) {
-        // 同一个还在提示：只把次数加上去，换成最新这次
-        setToast((current) =>
-          current?.key === key ? { key, operation, count: current.count + 1 } : current,
-        );
-        return;
-      }
-      setToast({ key, operation, count: 1 });
-    },
+    (operation: SlowOperation) =>
+      setOperations((current) => newestFirst([operation, ...current], capacity)),
     [capacity],
   );
 
-  const markRead = useCallback(() => {
-    const newest = operations[0]?.at;
-    if (!newest) return;
-    setReadAt(newest);
-    try {
-      localStorage.setItem(READ_STORAGE_KEY, newest);
-    } catch {
-      // 存不了只影响刷新后是否还记得已读
-    }
-  }, [operations]);
-
-  const setOpen = useCallback((next: boolean) => {
-    setOpenState(next);
-    if (next) setToast(undefined);
-  }, []);
-  const dismissToast = useCallback(() => setToast(undefined), []);
-
-  const unread = useMemo(() => {
-    const cutoff = readAt ? Date.parse(readAt) : -Infinity;
-    return operations.filter((item) => Date.parse(item.at) > cutoff).length;
-  }, [operations, readAt]);
-
-  return {
-    enabled: settings !== undefined,
-    operations,
-    settings,
-    readAt,
-    unread,
-    open,
-    toast,
-    receiveSnapshot,
-    receive,
-    markRead,
-    setOpen,
-    dismissToast,
-  };
+  return { enabled: settings !== undefined, operations, settings, receiveSnapshot, receive };
 }
 
 /** 慢操作列表：同名的合成一行，耗时按最慢的一次，其余按最近的一次 */
 export function SlowOpsList({
   operations,
-  readAt,
   label,
 }: {
   operations: readonly SlowOperation[];
-  readAt?: string | undefined;
   label: string;
 }) {
   const groups = useMemo(() => groupSlowOps(operations), [operations]);
-  const cutoff = readAt ? Date.parse(readAt) : -Infinity;
   const now = new Date();
   return (
     <ul className="slow-ops" aria-label={label}>
       {groups.map(({ key, latest, slowest, count }) => {
-        const unread = Date.parse(latest.at) > cutoff;
         const failed = latest.failed || slowest.failed;
         return (
-          <li
-            key={`${key} ${latest.id}`}
-            className={[failed ? "failed" : "", unread ? "unread" : ""].filter(Boolean).join(" ")}
-          >
+          <li key={`${key} ${latest.id}`} className={failed ? "failed" : undefined}>
             <span className={`slow-op-kind ${latest.kind}`}>{kindLabel(latest.kind)}</span>
             <span className="slow-op-main">
               <span className="slow-op-name">
@@ -250,7 +158,6 @@ export function SlowOpsList({
                     ×{count}
                   </span>
                 )}
-                {unread && <span className="sr-only">{t("（未读）")}</span>}
               </span>
               <small>
                 {[
@@ -287,236 +194,21 @@ export function SlowOpsList({
   );
 }
 
-function GaugeGlyph() {
-  return (
-    <svg
-      className="icon"
-      viewBox="0 0 24 24"
-      width="16"
-      height="16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M4.5 17.5a8.5 8.5 0 1 1 15 0" />
-      <path d="m12 13 3.5-4" />
-      <circle cx="12" cy="13" r="1.2" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-type Anchor = { top: number; right: number };
-
-/** 面板和提示都挂在「变慢」按钮下方、右边对齐；窗口变化时跟着走 */
-function useAnchor(ref: RefObject<HTMLElement | null>, active: boolean): Anchor | undefined {
-  const [anchor, setAnchor] = useState<Anchor>();
-  useLayoutEffect(() => {
-    if (!active) return;
-    const update = () => {
-      const rect = ref.current?.getBoundingClientRect();
-      if (!rect) return;
-      setAnchor({ top: rect.bottom + 6, right: Math.max(8, window.innerWidth - rect.right) });
-    };
-    update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, [ref, active]);
-  return active ? anchor : undefined;
-}
-
 function thresholdNote(settings: NonNullable<SlowOpsState["settings"]>): string {
-  return t(
-    "记录超过 {0}（请求 {1}）的操作；合计超过 {2} 或等锁超过 {3} 时弹提示。只保存在 Server 内存里，最多 {4} 条，重启后清空。",
-    {
-      0: formatDuration(settings.thresholdMs),
-      1: formatDuration(settings.requestThresholdMs),
-      2: formatDuration(settings.alertMs),
-      3: formatDuration(settings.lockWaitAlertMs),
-      4: settings.capacity,
-    },
-  );
-}
-
-function toastTitle(toast: SlowOpsToast): string {
-  const { operation } = toast;
-  const base =
-    operation.waitMs !== undefined && operation.waitMs >= operation.durationMs
-      ? t("{0} 等锁 {1}", { 0: operation.name, 1: formatDuration(operation.waitMs) })
-      : t("{0} 用了 {1}", { 0: operation.name, 1: formatDuration(totalMs(operation)) });
-  return toast.count > 1 ? `${base} ×${toast.count}` : base;
+  return t("记录超过 {0}（请求 {1}）的操作，只保存在 Server 内存里，最多 {2} 条，重启后清空。", {
+    0: formatDuration(settings.thresholdMs),
+    1: formatDuration(settings.requestThresholdMs),
+    2: settings.capacity,
+  });
 }
 
 /**
- * 顶栏右上角的「变慢」提醒：平时不占位置，只有出现没看过的慢操作时才冒出来（警示色带数量），
- * 点开是最近慢操作的弹层，标为已读、关掉后就收起。特别慢的一条会在按钮下方弹一次轻提示。
- * 想翻历史从设置里的「最近慢操作」打开。只在本机房主页面显示。
+ * 「这台电脑」设置页里的最近慢操作：排查卡顿时打开看，平时不在顶栏露面、也不弹提示。
+ * 页面卡住、Agent 起不来时，看这里能知道是哪个 git 命令、哪把锁、哪个请求在拖。
  */
-export function SlowOpsIndicator({ state }: { state: SlowOpsState }) {
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const headingRef = useRef<HTMLHeadingElement>(null);
-  const { open, setOpen, toast, dismissToast, unread } = state;
-  const panelAnchor = useAnchor(buttonRef, open);
-  const toastAnchor = useAnchor(buttonRef, Boolean(toast) && !open);
-  const [toastHeld, setToastHeld] = useState(false);
-
-  const close = useCallback(() => {
-    setOpen(false);
-    buttonRef.current?.focus({ preventScroll: true });
-  }, [setOpen]);
-
-  useEffect(() => {
-    if (!open) return;
-    headingRef.current?.focus({ preventScroll: true });
-    const onPointer = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (target && (panelRef.current?.contains(target) || buttonRef.current?.contains(target)))
-        return;
-      setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointer, true);
-    return () => document.removeEventListener("pointerdown", onPointer, true);
-  }, [open, setOpen]);
-
-  useEffect(() => {
-    if (!toast || toastHeld) return;
-    const timer = window.setTimeout(dismissToast, TOAST_DURATION_MS);
-    return () => window.clearTimeout(timer);
-  }, [toast, toastHeld, dismissToast]);
-
-  // 没有要看的就不出现：大多数时候 Hive 不慢，常驻一个按钮只是占地方
-  if (!state.enabled || (!unread && !open && !toast)) return null;
-  const label = unread ? t("有 {0} 次操作变慢，点开查看", { 0: unread }) : t("最近慢操作");
-
-  return (
-    <>
-      <button
-        ref={buttonRef}
-        type="button"
-        className={`header-button perf-toggle${unread ? " has-unread" : ""}${open ? " active" : ""}`}
-        aria-label={label}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        title={label}
-        onClick={() => setOpen(!open)}
-      >
-        <GaugeGlyph />
-        <span className="perf-toggle-label">{t("变慢")}</span>
-        {unread > 0 && (
-          <span className="header-count perf-count" aria-hidden="true">
-            {unread > 99 ? "99+" : unread}
-          </span>
-        )}
-      </button>
-      {open &&
-        createPortal(
-          <div
-            ref={panelRef}
-            className="slow-ops-popover"
-            role="dialog"
-            aria-labelledby="slow-ops-popover-title"
-            style={{
-              top: panelAnchor?.top ?? 0,
-              right: panelAnchor?.right ?? 0,
-              visibility: panelAnchor ? "visible" : "hidden",
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== "Escape") return;
-              event.preventDefault();
-              event.stopPropagation();
-              close();
-            }}
-          >
-            <header className="slow-ops-popover-header">
-              <h2 id="slow-ops-popover-title" ref={headingRef} tabIndex={-1}>
-                {t("最近慢操作")}
-                {unread > 0 && (
-                  <span className="slow-ops-unread">{t("{0} 条未读", { 0: unread })}</span>
-                )}
-              </h2>
-              <div className="slow-ops-popover-actions">
-                <button type="button" disabled={unread === 0} onClick={state.markRead}>
-                  {t("标为已读")}
-                </button>
-                <button
-                  type="button"
-                  className="slow-ops-popover-close"
-                  aria-label={t("关闭")}
-                  onClick={close}
-                >
-                  ×
-                </button>
-              </div>
-            </header>
-            {state.settings && <p className="slow-ops-note">{thresholdNote(state.settings)}</p>}
-            {state.operations.length ? (
-              <SlowOpsList
-                operations={state.operations}
-                readAt={state.readAt}
-                label={t("最近慢操作")}
-              />
-            ) : (
-              <p className="slow-ops-empty">{t("最近没有慢操作。")}</p>
-            )}
-          </div>,
-          document.body,
-        )}
-      {toast &&
-        !open &&
-        createPortal(
-          <div
-            className="slow-ops-toast attention-toast"
-            role="status"
-            style={{
-              top: toastAnchor?.top ?? 0,
-              right: toastAnchor?.right ?? 0,
-              visibility: toastAnchor ? "visible" : "hidden",
-            }}
-            onPointerEnter={() => setToastHeld(true)}
-            onPointerLeave={() => setToastHeld(false)}
-            onFocus={() => setToastHeld(true)}
-            onBlur={() => setToastHeld(false)}
-          >
-            <button
-              type="button"
-              className="attention-toast-open"
-              title={t("查看最近慢操作")}
-              onClick={() => setOpen(true)}
-            >
-              <span className="attention-toast-icon" aria-hidden="true">
-                <GaugeGlyph />
-              </span>
-              <span className="attention-toast-text">
-                <strong>{t("Server 有操作特别慢")}</strong>
-                <span>{toastTitle(toast)}</span>
-              </span>
-            </button>
-            <button
-              type="button"
-              className="attention-toast-close"
-              aria-label={t("关闭提醒")}
-              onClick={dismissToast}
-            >
-              ×
-            </button>
-          </div>,
-          document.body,
-        )}
-    </>
-  );
-}
-
-/** 「这台电脑」设置页：只留一个入口，打开顶栏的弹层 */
-export function SlowOpsSettingsEntry({
-  state,
-  onOpen,
-}: {
-  state: SlowOpsState;
-  onOpen: () => void;
-}) {
+export function SlowOpsSettingsEntry({ state }: { state: SlowOpsState }) {
+  const [open, setOpen] = useState(false);
+  const count = state.operations.length;
   return (
     <div className="settings-group">
       <div className="settings-section-heading slow-ops-heading">
@@ -524,14 +216,26 @@ export function SlowOpsSettingsEntry({
           <h4>{t("最近慢操作")}</h4>
           <p>
             {t(
-              "Server 上的任务目录锁、git 命令、重查询和请求超过阈值时，顶栏右上角会出现「变慢」提醒，看过就收起；特别慢的会弹一次提示。",
+              "Server 上的任务目录锁、git 命令、重查询和请求超过阈值时记在这里，页面卡顿、Agent 起不来时用来排查。",
             )}
           </p>
         </div>
-        <button type="button" className="settings-action" onClick={onOpen}>
-          {state.unread ? t("查看（{0} 条未读）", { 0: state.unread }) : t("查看")}
+        <button
+          type="button"
+          className="settings-action"
+          aria-expanded={open}
+          disabled={count === 0}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {count === 0 ? t("没有记录") : open ? t("收起") : t("查看（{0} 条）", { 0: count })}
         </button>
       </div>
+      {open && count > 0 && (
+        <>
+          {state.settings && <p className="slow-ops-note">{thresholdNote(state.settings)}</p>}
+          <SlowOpsList operations={state.operations} label={t("最近慢操作")} />
+        </>
+      )}
     </div>
   );
 }

@@ -15,7 +15,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { WorktreePanel } from "./worktree-panel";
-import { SlowOpsIndicator, SlowOpsSettingsEntry, useSlowOps } from "./slow-ops";
+import { SlowOpsSettingsEntry, useSlowOps } from "./slow-ops";
 import {
   WorkspaceGlyph,
   WorkspacePanel,
@@ -4916,7 +4916,6 @@ export function App({
               </span>
             </div>
             <div className="chat-header-actions">
-              <SlowOpsIndicator state={slowOpsState} />
               <button
                 type="button"
                 className="header-button new-topic"
@@ -7497,16 +7496,7 @@ export function App({
                     <LocalAgentUpdatesGroup local={local} />
                     <KeepAwakeSettingsGroup local={local} />
                     <OwnerDevicesGroup local={local} />
-                    {slowOpsState.enabled && (
-                      <SlowOpsSettingsEntry
-                        state={slowOpsState}
-                        onOpen={() => {
-                          closeSettings();
-                          // 等设置弹窗收起、焦点归位后再打开，焦点落进慢操作弹层
-                          window.requestAnimationFrame(() => slowOpsState.setOpen(true));
-                        }}
-                      />
-                    )}
+                    {slowOpsState.enabled && <SlowOpsSettingsEntry state={slowOpsState} />}
                   </section>
                 )}
                 {settingsTab === "runtimes" && local.mode === "local" && (
