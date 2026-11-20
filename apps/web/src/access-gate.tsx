@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { serverError } from "./server-text";
-import { App, serverBase } from "./App";
+import { App } from "./App";
+import { serverBase } from "./server-base";
 import {
   GUEST_TOKEN_KEY,
   OWNER_TOKEN_KEY,

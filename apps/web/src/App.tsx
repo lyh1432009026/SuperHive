@@ -9,14 +9,10 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
-  type ReactNode,
 } from "react";
-import { flushSync } from "react-dom";
-import { WorktreePanel } from "./worktree-panel";
 import { BranchGlyph, WorktreeSwitcher } from "./worktree-switcher";
-import { SlowOpsSettingsEntry, useSlowOps } from "./slow-ops";
+import { useSlowOps } from "./slow-ops";
 import {
   WorkspaceGlyph,
   WorkspacePanel,
@@ -29,8 +25,6 @@ import type {
   Attachment,
   ChatMessage,
   Invocation,
-  KeepAwakeSettings,
-  KeepAwakeState,
   LocalAgent,
   MessagesResponse,
   MetaResponse,
@@ -65,11 +59,11 @@ import {
   upsertInvocation,
   waitingInvocationForQuestion,
 } from "./invocations";
-import { WhiteboardPanel, upsertWhiteboardEntry } from "./whiteboard";
-import { ProgressPanel, activeCount, buildProgress, type ProgressTarget } from "./progress";
+import { upsertWhiteboardEntry } from "./whiteboard";
+import { activeCount, buildProgress, type ProgressTarget } from "./progress";
 import { highlightDraft } from "./draft-highlight";
 import type { ComposerHandle, ComposerKeyInfo } from "./rich-composer";
-import { SchedulePanel, isPendingSchedule, upsertSchedule } from "./schedules";
+import { isPendingSchedule, upsertSchedule } from "./schedules";
 import { ArtifactsPanel, useArtifactCount } from "./artifacts";
 import {
   sortRoomsForSidebar,
@@ -106,18 +100,8 @@ import {
   type ContextMenuItem,
   type ContextMenuState,
 } from "./context-menu";
-import { Select } from "./select";
-import { ConfirmPopover } from "./confirm-popover";
-import { AgentRuntimesPanel } from "./agent-runtimes-panel";
 import { isMachineMessage, machinePreview, splitMentions } from "./machine-message";
-import {
-  AttentionRoomGroup,
-  AttentionToasts,
-  attentionDeliveryOptions,
-  playAttentionTone,
-  useAttention,
-  type AttentionDelivery,
-} from "./attention-alerts";
+import { AttentionToasts, useAttention, type AttentionDelivery } from "./attention-alerts";
 import { attentionLabels, concernsMe, nextAttention } from "./attention";
 import { useFaviconBadge } from "./favicon-badge";
 import {
@@ -127,18 +111,8 @@ import {
   onboardingPending,
   type OnboardingStep,
 } from "./onboarding";
-import {
-  LocalLaunch,
-  providerInfo,
-  useLocalAgents,
-  DirectoryPicker,
-  type LocalAgentsState,
-  type HostApprover,
-  type OwnerDevice,
-} from "./local-agents";
-import { SettingsSwitch } from "./settings-switch";
-import { LocalAgentUpdatesGroup, OutdatedBadge } from "./local-agent-updates";
-import { agentNameFor, type SelectableAgentProvider } from "./agent-name";
+import { useLocalAgents } from "./local-agents";
+import type { SelectableAgentProvider } from "./agent-name";
 import { createFrameClock, easeInOutCubic, easeOutQuint } from "./easing";
 import { ShadowContent } from "./shadow-content";
 import {
@@ -147,6 +121,90 @@ import {
   MESSAGE_LENGTH_WARNING_RATIO,
 } from "./collapsible-message";
 import { buildShareMarkdown, downloadFile, formatShareTimestamp, shareFilename } from "./share";
+import { copyTextToClipboard } from "./clipboard";
+import { QuestionOptions } from "./question-options";
+import type { GuestAccess } from "./access-gate";
+import { GuestAgentDialog, InviteDialog } from "./invite-dialog";
+import { ImDialog } from "./im-dialog";
+import { AgentSettingsDialog, SettingsGlyph } from "./agent-settings-dialog";
+import { RetryModelDialog } from "./model-picker";
+import {
+  ComposerAttachments,
+  FilePreview,
+  MessageAttachments,
+  PaperclipIcon,
+  useAttachmentQueue,
+} from "./attachments";
+import { agentActivity } from "./agent-activity";
+import { IM_CHANNEL_LABELS, listImConnections } from "./im-api";
+import { resolveShareBase, resolveWebSocketUrl } from "./server-url";
+import { getLocale, getLocalePreference, t, useLocale } from "./i18n";
+import { usePanelWidths } from "./panel-resizer";
+import {
+  storedUsernameKey,
+  storedRoomKey,
+  storedAutoSaveDraftKey,
+  storedRichComposerKey,
+  storedTimeFormatKey,
+  storedMessageNotificationsKey,
+  storedNotificationPromptDismissedKey,
+  storedNotificationSoundKey,
+  storedPresenceNotificationsKey,
+  storedThemeKey,
+  storedDensityKey,
+  storedThreadWidthKey,
+  storedMessageSizeKey,
+  storedMembersCollapsedKey,
+  storedRoomsCollapsedKey,
+  storedReduceMotionKey,
+  storedAttentionDeliveryKey,
+  storedAttentionSoundKey,
+  storedAttentionGroupKey,
+  MessageNotificationMode,
+  SendShortcut,
+  SettingsTab,
+  TimeFormat,
+  ThemePreference,
+  InterfaceDensity,
+  ThreadWidth,
+  MessageSize,
+  MobilePanel,
+  SidePanelTab,
+  settingsTabs,
+  storedSendShortcut,
+  storedBoolean,
+  storedChoice,
+  storedMessageNotificationMode,
+  draftStorageKey,
+  readSeqStorageKey,
+} from "./app-storage";
+import { roomIdFromHash, initialRoomId, sortRooms } from "./rooms";
+import {
+  BrowserNotificationPermission,
+  browserNotificationPermission,
+  showBrowserNotification,
+  playNotificationTone,
+} from "./browser-notify";
+import { animateLayout, platformModifierLabel } from "./ui-utils";
+import {
+  AgentAccessMode,
+  AgentSetupStep,
+  participantStatusLabel,
+  agentProviderLabel,
+  agentCommandFor,
+} from "./agent-setup";
+import { PinGlyph, Icon, HiveLogo } from "./app-icons";
+import { AvatarGlyph, avatarHueStyle } from "./avatar";
+import { serverBase } from "./server-base";
+import { mergeMessages, buildTimeline, dateDividerLabel } from "./timeline";
+import { composerMaxHeight, resizeComposer, highlightOffsetX } from "./composer-size";
+import { keepAwakeSummary, HostApprovalsBanner, HostApprovalWaiting } from "./host-settings";
+import { LoginDialog } from "./login-dialog";
+import { RoomDialog } from "./room-dialog";
+import { SettingsDialog } from "./settings-dialog";
+import { AgentSetupDialog } from "./agent-setup-dialog";
+import { SidePanel } from "./side-panel";
+import { RoomSidebar } from "./room-sidebar";
 
 // Markdown 渲染器（react-markdown + highlight.js）体积较大，拆成独立 chunk 且在应用启动时
 // 立即预加载：不阻塞首屏解析，又通常能赶在 WebSocket 快照到达前就绪，避免消息先以纯文本闪现
@@ -171,1237 +229,9 @@ function MessageMarkdown(props: Parameters<MessageMarkdownComponent>[0]) {
 
 /** 自绘滚动动画单帧最多推进的时间：约两帧，主线程卡顿时动画放慢而不是跳跃 */
 const MAX_FRAME_STEP_MS = 32;
-import { copyTextToClipboard } from "./clipboard";
-import { QuestionOptions } from "./question-options";
-import type { GuestAccess } from "./access-gate";
-import {
-  GuestAccessBadge,
-  GuestAgentDialog,
-  GuestMemberActions,
-  InviteDialog,
-} from "./invite-dialog";
-import { ImDialog } from "./im-dialog";
-import { AgentSettingsDialog, SettingsGlyph } from "./agent-settings-dialog";
-import { RetryModelDialog } from "./model-picker";
-import {
-  ComposerAttachments,
-  FilePreview,
-  MessageAttachments,
-  PaperclipIcon,
-  useAttachmentQueue,
-} from "./attachments";
-import { agentActivity } from "./agent-activity";
-import { IM_CHANNEL_LABELS, listImConnections } from "./im-api";
-import { ProviderLogo, providerLogoName } from "./provider-logos";
-import { LoginShowcase } from "./login-showcase";
-import { resolveServerBase, resolveShareBase, resolveWebSocketUrl } from "./server-url";
-import {
-  LOCALE_OPTIONS,
-  getLocale,
-  getLocalePreference,
-  localized,
-  setLocalePreference,
-  t,
-  useLocale,
-} from "./i18n";
-import { PanelResizer, usePanelWidths } from "./panel-resizer";
 
-const storedUsernameKey = "superhive.username";
-const storedRoomKey = "superhive.room";
-const storedSendShortcutKey = "superhive.send-shortcut";
-const storedAutoSaveDraftKey = "superhive.auto-save-draft";
-const storedRichComposerKey = "superhive.rich-composer";
 /** 所见即所得输入框（Tiptap）单独打包，用到时才加载；加载完之前先用纯文本输入框顶着 */
 const RichComposer = lazy(() => import("./rich-composer"));
-const storedTimeFormatKey = "superhive.time-format";
-const storedMessageNotificationsKey = "superhive.notify-messages";
-const storedNotificationPromptDismissedKey = "superhive.notify-prompt-dismissed";
-const storedNotificationSoundKey = "superhive.notification-sound";
-const storedPresenceNotificationsKey = "superhive.notify-agent-presence";
-const storedThemeKey = "superhive.theme";
-const storedDensityKey = "superhive.density";
-const storedThreadWidthKey = "superhive.thread-width";
-const storedMessageSizeKey = "superhive.message-size";
-const storedMembersCollapsedKey = "superhive.members-collapsed";
-const storedRoomsCollapsedKey = "superhive.rooms-collapsed";
-const storedReduceMotionKey = "superhive.reduce-motion";
-const storedAttentionDeliveryKey = "superhive.attention-delivery";
-const storedAttentionSoundKey = "superhive.attention-sound";
-const storedAttentionGroupKey = "superhive.attention-group";
-type AgentAccessMode = "read-only" | "workspace" | "full";
-type AgentSetupStep = 1 | 2 | 3;
-type MessageNotificationMode = "off" | "mentions" | "all";
-type SendShortcut = "modifier-enter" | "enter";
-type SettingsTab = "chat" | "notifications" | "appearance" | "computer" | "runtimes";
-type TimeFormat = "system" | "24h" | "12h";
-type ThemePreference = "system" | "dark" | "light";
-type InterfaceDensity = "comfortable" | "compact";
-/** 消息区宽度：标准约 768px、宽约 1040px（默认）、铺满随窗口（上限约 1600px） */
-type ThreadWidth = "standard" | "wide" | "full";
-type MessageSize = "small" | "standard" | "large";
-type BrowserNotificationPermission = NotificationPermission | "unsupported";
-type MobilePanel = "members" | "rooms";
-type SidePanelTab = "members" | "whiteboard" | "schedules";
-const sidePanelTabs: SidePanelTab[] = ["members", "whiteboard", "schedules"];
-
-/**
- * 侧栏标签一行放不下时（窄面板、英文等较长的译文），未选中的标签只留图标和计数，文字仍供读屏与悬停提示；
- * 按实际宽度判断，不按语言写死，任何语言都不会折行。
- */
-function fitSideTabs(element: HTMLDivElement | null) {
-  if (!element) return;
-  const fit = () => {
-    element.classList.remove("compact");
-    if (element.scrollWidth > element.clientWidth + 1) element.classList.add("compact");
-    // 选中标签底下的滑块：量出选中标签的位置和宽度，切换时由 CSS 过渡滑过去
-    const active = element.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
-    if (!active) return;
-    element.style.setProperty("--tab-indicator-x", `${active.offsetLeft}px`);
-    element.style.setProperty("--tab-indicator-width", `${active.offsetWidth}px`);
-  };
-  fit();
-  // 第一次放好位置之后才开过渡，免得打开页面时滑块从左边滑进来
-  requestAnimationFrame(() => element.classList.add("tab-indicator-ready"));
-  if (typeof ResizeObserver === "undefined" || typeof MutationObserver === "undefined") return;
-  const resize = new ResizeObserver(fit);
-  resize.observe(element);
-  // 切换标签、计数变化都会改变所需宽度
-  const mutation = new MutationObserver((records) => {
-    if (records.some((record) => record.target !== element)) fit();
-  });
-  mutation.observe(element, {
-    subtree: true,
-    childList: true,
-    characterData: true,
-    attributes: true,
-    attributeFilter: ["class", "aria-selected"],
-  });
-  return () => {
-    resize.disconnect();
-    mutation.disconnect();
-  };
-}
-type IconName =
-  | "arrow-down"
-  | "arrow-right"
-  | "arrow-up"
-  | "at"
-  | "activity"
-  | "bell"
-  | "board"
-  | "check"
-  | "clock"
-  | "close"
-  | "copy"
-  | "external"
-  | "files"
-  | "hash"
-  | "logout"
-  | "maximize"
-  | "minimize"
-  | "message"
-  | "more"
-  | "panel-left"
-  | "panel-right"
-  | "plug"
-  | "plus"
-  | "send"
-  | "search"
-  | "settings"
-  | "share"
-  | "shield"
-  | "undo"
-  | "user"
-  | "user-plus"
-  | "users";
-
-const selectableAgentProviders = [
-  "codex",
-  "claude",
-  "copilot",
-  "opencode",
-  "omp",
-  "openclaw",
-] as const;
-
-const agentProviderDescriptions: Record<SelectableAgentProvider, string> = localized(() => ({
-  codex: t("OpenAI 编程 Agent"),
-  claude: "Anthropic CLI",
-  copilot: t("GitHub 编程助手"),
-  openclaw: t("本地自主 Agent"),
-  opencode: t("开源终端 Agent，模型自选"),
-  omp: t("oh-my-pi 终端 Agent"),
-}));
-
-const agentAccessOptions: Array<{
-  id: AgentAccessMode;
-  label: string;
-  description: string;
-}> = localized(() => [
-  {
-    id: "read-only",
-    label: t("只读"),
-    description: t("只能读代码、出方案，不能改文件、跑命令；适合只想让它看看、给建议。"),
-  },
-  {
-    id: "workspace",
-    label: t("工作区"),
-    description: t("推荐。可在指定目录内读写文件、运行命令；越界的操作会被拦下或先问你。"),
-  },
-  {
-    id: "full",
-    label: t("完全访问"),
-    description: t("不设 Hive 沙箱，可执行当前系统用户的所有操作。"),
-  },
-]);
-
-const messageNotificationModes = ["off", "mentions", "all"] as const;
-
-const messageNotificationOptions: Array<{
-  id: MessageNotificationMode;
-  label: string;
-  description: string;
-}> = localized(() => [
-  { id: "off", label: t("关闭通知"), description: t("不弹系统通知，提示音不受影响") },
-  { id: "mentions", label: t("@ 我时通知"), description: t("只有消息里提到我才提醒") },
-  { id: "all", label: t("当前房间任意消息"), description: t("所在房间的每条新消息都提醒") },
-]);
-
-const agentSetupSteps: Array<{ step: AgentSetupStep; label: string }> = localized(() => [
-  { step: 1, label: t("选择 Agent") },
-  { step: 2, label: t("设置权限") },
-  { step: 3, label: t("复制命令") },
-]);
-
-/** "继续"按钮一次追加的 Agent 互相对话轮数 */
-
-const settingsTabs: Array<{ id: SettingsTab; label: string; description: string }> = localized(
-  () => [
-    { id: "chat", label: t("聊天与输入"), description: t("发送、草稿与时间") },
-    { id: "notifications", label: t("通知"), description: t("提及、声音与状态") },
-    { id: "appearance", label: t("外观"), description: t("语言、主题、密度与字号") },
-    { id: "computer", label: t("这台电脑"), description: t("本机 Agent、熄屏后保持在线") },
-    { id: "runtimes", label: t("Agent 运行时"), description: t("CLI 升级与配置") },
-  ],
-);
-
-function storedSendShortcut(): SendShortcut {
-  return localStorage.getItem(storedSendShortcutKey) === "enter" ? "enter" : "modifier-enter";
-}
-
-function storedBoolean(key: string, fallback: boolean): boolean {
-  const value = localStorage.getItem(key);
-  return value === null ? fallback : value === "true";
-}
-
-function storedChoice<T extends string>(key: string, choices: readonly T[], fallback: T): T {
-  const value = localStorage.getItem(key);
-  return choices.includes(value as T) ? (value as T) : fallback;
-}
-
-function storedMessageNotificationMode(): MessageNotificationMode {
-  return storedChoice(storedMessageNotificationsKey, messageNotificationModes, "mentions");
-}
-
-function draftStorageKey(username: string, roomId: string): string {
-  return `superhive.draft.${username.toLocaleLowerCase()}.${roomId}`;
-}
-
-function readSeqStorageKey(roomId: string): string {
-  return `superhive.read-seq.${roomId}`;
-}
-
-const roomIdPattern = /^[A-Za-z0-9_-]{1,64}$/;
-
-function roomIdFromHash(): string | undefined {
-  const value = window.location.hash.replace(/^#/, "");
-  return roomIdPattern.test(value) ? value : undefined;
-}
-
-function initialRoomId(): string {
-  const value = roomIdFromHash() ?? localStorage.getItem(storedRoomKey);
-  return value && roomIdPattern.test(value) ? value : "general";
-}
-
-function sortRooms(rooms: RoomSummary[]): RoomSummary[] {
-  return [...rooms].sort(
-    (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
-  );
-}
-
-function browserNotificationPermission(): BrowserNotificationPermission {
-  return "Notification" in window ? Notification.permission : "unsupported";
-}
-
-function showBrowserNotification(title: string, body: string): void {
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
-  try {
-    new Notification(title, { body, tag: "superhive" });
-  } catch {
-    // Notification support can be restricted by browser or embedding context.
-  }
-}
-
-// AudioContext 是稀缺资源（Chrome 有并发上限），全局复用一个而不是每次提示音都新建
-let sharedToneContext: AudioContext | undefined;
-
-function playNotificationTone(): void {
-  const AudioContextConstructor =
-    (window as typeof window & { webkitAudioContext?: typeof AudioContext }).AudioContext ??
-    (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!AudioContextConstructor) return;
-  try {
-    sharedToneContext ??= new AudioContextConstructor();
-    const context = sharedToneContext;
-    if (context.state === "suspended") void context.resume().catch(() => undefined);
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.type = "sine";
-    oscillator.frequency.value = 620;
-    gain.gain.setValueAtTime(0.0001, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.16);
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start();
-    oscillator.stop(context.currentTime + 0.17);
-    oscillator.addEventListener("ended", () => {
-      oscillator.disconnect();
-      gain.disconnect();
-    });
-  } catch {
-    // Audio playback can be blocked until the page receives a user gesture.
-  }
-}
-
-/**
- * 展开 / 收起侧栏这类布局变化：支持 View Transitions 的浏览器里让侧栏滑入滑出、对话区平滑变宽变窄，
- * 不支持或开了「减少动态效果」时直接切换
- */
-function animateLayout(update: () => void) {
-  const start = (
-    document as Document & {
-      startViewTransition?: (callback: () => void) => unknown;
-    }
-  ).startViewTransition;
-  if (!start || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
-    update();
-    return;
-  }
-  start.call(document, () => flushSync(update));
-}
-
-function platformModifierLabel(): string {
-  return /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent) ? "Cmd" : "Ctrl";
-}
-
-/** git 分支的小图标（房间工作区是仓库时显示当前分支） */
-/** 置顶房间名前的小图钉 */
-function PinGlyph() {
-  return (
-    <svg className="room-item-pin" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
-      <path
-        d="M10.3 1.8 14.2 5.7l-1.4.5-2.6 2.6.3 3.2-1.3 1.3-2.6-2.6L3 14.3l-.9.1-.1-.9 3.6-3.6L3 7.3 4.3 6l3.2.3 2.6-2.6.2-1.9Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
-  const paths: Record<IconName, ReactNode> = {
-    "arrow-down": <path d="M12 5v14m-5-5 5 5 5-5" />,
-    "arrow-right": <path d="M5 12h14m-5-5 5 5-5 5" />,
-    "arrow-up": <path d="M12 19V5m-6 6 6-6 6 6" />,
-    at: (
-      <>
-        <circle cx="12" cy="12" r="3.6" />
-        <path d="M15.6 12v1.4a2.6 2.6 0 0 0 5.2 0V12a8.8 8.8 0 1 0-3.4 7" />
-      </>
-    ),
-    activity: <path d="M3 12h4l2.5-6 5 12 2.5-6H21" />,
-    maximize: <path d="M15 4h5v5M9 20H4v-5M20 4l-6.5 6.5M4 20l6.5-6.5" />,
-    minimize: <path d="M14 10h5.5M14 10V4.5M10 14H4.5M10 14v5.5M14 10l6-6M10 14l-6 6" />,
-    search: (
-      <>
-        <circle cx="11" cy="11" r="6.5" />
-        <path d="m20 20-4.4-4.4" />
-      </>
-    ),
-    board: (
-      <>
-        <rect x="5" y="4" width="14" height="17" rx="2" />
-        <path d="M9 3h6v3H9zM9 11h6M9 15h4" />
-      </>
-    ),
-    check: <path d="m5 12 4 4L19 6" />,
-    clock: (
-      <>
-        <circle cx="12" cy="12" r="8.5" />
-        <path d="M12 7.5V12l3 2" />
-      </>
-    ),
-    close: <path d="m6 6 12 12M18 6 6 18" />,
-    copy: (
-      <>
-        <rect x="8" y="8" width="11" height="11" rx="2" />
-        <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
-      </>
-    ),
-    external: (
-      <path d="M14 5h5v5m0-5-8 8M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
-    ),
-    bell: <path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2H4.5L6 16Zm4 4a2 2 0 0 0 4 0" />,
-    undo: <path d="M9 14 4 9l5-5M4 9h9.5a6.5 6.5 0 0 1 0 13H11" />,
-    hash: <path d="M9 4 7 20M17 4l-2 16M4 9h17M3 15h17" />,
-    logout: <path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4m5-4 3-3-3-3m3 3H9" />,
-    more: <path d="M6 12h.01M12 12h.01M18 12h.01" strokeWidth="2.6" />,
-    "panel-left": (
-      <>
-        <rect x="3.5" y="4.5" width="17" height="15" rx="3" />
-        <path d="M9.5 4.5v15" />
-      </>
-    ),
-    "panel-right": (
-      <>
-        <rect x="3.5" y="4.5" width="17" height="15" rx="3" />
-        <path d="M14.5 4.5v15" />
-      </>
-    ),
-    plug: <path d="M8 3v4m8-4v4M6 7h12v2a6 6 0 0 1-6 6v0a6 6 0 0 1-6-6V7Zm6 8v6" />,
-    plus: <path d="M12 5v14M5 12h14" />,
-    send: <path d="m21 3-7.4 18-3.7-7.9L2 9.4 21 3Zm-11.1 10.1L14 9" />,
-    share: <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M16 6l-4-4-4 4M12 2v13" />,
-    settings: (
-      <>
-        <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 8.96 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3v-4h.08A1.7 1.7 0 0 0 4.6 8.96a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 10 3.08V3h4v.08a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06a1.7 1.7 0 0 0-.34 1.88A1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z" />
-      </>
-    ),
-    shield: <path d="M12 3 5 6v5c0 4.6 2.9 8 7 10 4.1-2 7-5.4 7-10V6l-7-3Zm-3 9 2 2 4-4" />,
-    files: (
-      <>
-        <path d="M8 7V5a2 2 0 0 1 2-2h5l4 4v9a2 2 0 0 1-2 2h-2" />
-        <path d="M14 3v4h4" />
-        <rect x="5" y="9" width="10" height="12" rx="2" />
-      </>
-    ),
-    message: <path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9l-4 3.5V6a1 1 0 0 1 1-1z" />,
-    user: (
-      <>
-        <circle cx="12" cy="8" r="3.5" />
-        <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
-      </>
-    ),
-    "user-plus": (
-      <>
-        <circle cx="10" cy="8" r="3.5" />
-        <path d="M3.5 20a6.5 6.5 0 0 1 13 0M19 8v6m3-3h-6" />
-      </>
-    ),
-    users: (
-      <>
-        <circle cx="9" cy="8" r="3" />
-        <path d="M3.5 19a5.5 5.5 0 0 1 11 0M16 5.5a3 3 0 0 1 0 5.8M16.5 14a5 5 0 0 1 4 5" />
-      </>
-    ),
-  };
-
-  return (
-    <svg
-      className="icon"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {paths[name]}
-    </svg>
-  );
-}
-
-const themeOptions: Array<{ value: ThemePreference; label: string }> = localized(() => [
-  { value: "dark", label: t("深色") },
-  { value: "system", label: t("自动") },
-  { value: "light", label: t("浅色") },
-]);
-
-function ThemeGlyph({ theme }: { theme: ThemePreference }) {
-  if (theme === "dark") {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M20.3 14.6A7.7 7.7 0 0 1 9.4 3.7 8.4 8.4 0 1 0 20.3 14.6Z" />
-      </svg>
-    );
-  }
-  if (theme === "system") {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M20.5 12a8.5 8.5 0 1 1-2.1-5.6M18.7 3.8v3.4h-3.4M12 7.2V12l3 1.8" />
-      </svg>
-    );
-  }
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="3.8" />
-      <path d="M12 2.8v2.1M12 19.1v2.1M4.1 4.1l1.5 1.5M18.4 18.4l1.5 1.5M2.8 12h2.1M19.1 12h2.1M4.1 19.9l1.5-1.5M18.4 5.6l1.5-1.5" />
-    </svg>
-  );
-}
-
-function ThemeSwitcher({
-  value,
-  onChange,
-}: {
-  value: ThemePreference;
-  onChange: (value: ThemePreference) => void;
-}) {
-  const currentLabel = themeOptions.find((option) => option.value === value)?.label ?? t("自动");
-  return (
-    <div
-      className={`theme-switcher ${value}`}
-      role="radiogroup"
-      aria-label={t("颜色主题")}
-      title={t("当前：{0}", { 0: currentLabel })}
-    >
-      <span className="theme-switcher-indicator" aria-hidden="true" />
-      {themeOptions.map((option) => (
-        <button
-          type="button"
-          role="radio"
-          aria-checked={value === option.value}
-          aria-label={option.label}
-          title={option.label}
-          className={value === option.value ? "active" : ""}
-          onClick={() => onChange(option.value)}
-          key={option.value}
-        >
-          <ThemeGlyph theme={option.value} />
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function HiveLogo({ compact = false }: { compact?: boolean }) {
-  return (
-    <span className={`hive-logo ${compact ? "compact" : ""}`} aria-hidden="true">
-      <svg viewBox="0 0 48 48" width="40" height="40" fill="none">
-        <path d="m24 3 18 10.5v21L24 45 6 34.5v-21L24 3Z" />
-        <path d="m24 12 10 6v12l-10 6-10-6V18l10-6Z" />
-        <circle cx="24" cy="24" r="2.75" />
-      </svg>
-    </span>
-  );
-}
-
-function participantStatusLabel(status: Participant["status"]): string {
-  if (status === "online") return t("在线");
-  if (status === "busy") return t("正在处理");
-  return t("离线");
-}
-
-function agentProviderLabel(provider?: string): string {
-  if (provider === "codex") return "Codex";
-  if (provider === "claude") return "Claude Code";
-  if (provider === "copilot") return "GitHub Copilot";
-  if (provider === "openclaw") return "OpenClaw";
-  if (provider === "opencode") return "OpenCode";
-  if (provider === "omp") return "omp";
-  if (provider === "echo") return "Echo";
-  return provider || "Agent";
-}
-
-function agentCommandFor(
-  meta: MetaResponse,
-  provider: SelectableAgentProvider,
-  ownerUsername: string,
-  access: AgentAccessMode,
-  takenNames?: ReadonlySet<string>,
-): string {
-  const agentName = agentNameFor(ownerUsername, provider, takenNames);
-  return (meta.agentCommand ?? "")
-    .replace(" join ", ` join --provider ${provider} `)
-    .replace("--room general ", "")
-    .replace("--name my-agent", `--name ${agentName}`)
-    .concat(` --access ${access}${access === "read-only" ? "" : " --cwd ."}`)
-    .concat(provider === "openclaw" ? " --openclaw-configure-mcp" : "");
-}
-
-function moveRadioSelection(
-  event: ReactKeyboardEvent<HTMLElement>,
-  checkedIndex: number,
-  select: (index: number) => void,
-): void {
-  const delta =
-    event.key === "ArrowDown" || event.key === "ArrowRight"
-      ? 1
-      : event.key === "ArrowUp" || event.key === "ArrowLeft"
-        ? -1
-        : 0;
-  if (!delta) return;
-  event.preventDefault();
-  const radios = event.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]');
-  const next = (checkedIndex + delta + radios.length) % radios.length;
-  select(next);
-  radios[next]?.focus();
-}
-
-export function serverBase(): string {
-  return resolveServerBase({
-    configured: import.meta.env.VITE_HIVE_SERVER as string | undefined,
-    development: import.meta.env.DEV,
-    protocol: window.location.protocol,
-    hostname: window.location.hostname,
-    origin: window.location.origin,
-  });
-}
-
-function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
-  const byId = new Map(current.map((message) => [message.id, message]));
-  for (const message of incoming) byId.set(message.id, message);
-  return [...byId.values()].sort((a, b) => a.seq - b.seq);
-}
-
-const messageGroupWindowMs = 5 * 60_000;
-
-type TimelineEntry = { message: ChatMessage; newDay: boolean; grouped: boolean };
-
-function buildTimeline(messages: ChatMessage[]): TimelineEntry[] {
-  return messages.map((message, index) => {
-    const previous = messages[index - 1];
-    const newDay =
-      !previous ||
-      new Date(previous.createdAt).toDateString() !== new Date(message.createdAt).toDateString();
-    const grouped =
-      !newDay &&
-      previous !== undefined &&
-      previous.senderId === message.senderId &&
-      new Date(message.createdAt).getTime() - new Date(previous.createdAt).getTime() <
-        messageGroupWindowMs;
-    return { message, newDay, grouped };
-  });
-}
-
-function dateDividerLabel(iso: string): string {
-  const date = new Date(iso);
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-  if (date.toDateString() === today.toDateString()) return t("今天");
-  if (date.toDateString() === yesterday.toDateString()) return t("昨天");
-  return date.toLocaleDateString(getLocale(), { year: "numeric", month: "long", day: "numeric" });
-}
-
-function avatarHue(name: string): number {
-  let hash = 0;
-  for (const char of name.toLocaleLowerCase()) {
-    hash = (hash * 31 + char.charCodeAt(0)) % 360;
-  }
-  return hash;
-}
-
-/** 头像内容：Agent 显示厂商标识（未知厂商回退为 "AI"），人类显示名字首字母 */
-function AvatarGlyph({ type, name, provider }: { type: string; name: string; provider?: string }) {
-  if (type !== "agent") return <>{name.slice(0, 1).toUpperCase()}</>;
-  const logo = providerLogoName(provider);
-  return logo ? <ProviderLogo provider={logo} /> : <>AI</>;
-}
-
-function avatarHueStyle(name: string): CSSProperties {
-  return { "--avatar-hue": avatarHue(name) } as CSSProperties;
-}
-
-/**
- * 输入框随内容长高：平时最多约窗口高度的 40%（至少 176px），展开后最多约 70%；
- * 超出才出现滚动条。
- */
-function composerMaxHeight(expanded: boolean): number {
-  const viewport = typeof window === "undefined" ? 800 : window.innerHeight;
-  return Math.round(Math.max(176, viewport * (expanded ? 0.7 : 0.4)));
-}
-
-/** 展开后直接变高（约半屏），不用等写满才看得出变化 */
-function composerMinHeight(expanded: boolean): number {
-  if (!expanded) return 54;
-  const viewport = typeof window === "undefined" ? 800 : window.innerHeight;
-  return Math.round(Math.max(176, viewport * 0.5));
-}
-
-function resizeComposer(textarea: HTMLTextAreaElement, expanded = false): void {
-  const max = composerMaxHeight(expanded);
-  textarea.style.maxHeight = `${max}px`;
-  textarea.style.height = "0px";
-  const nextHeight = Math.min(max, Math.max(composerMinHeight(expanded), textarea.scrollHeight));
-  textarea.style.height = `${nextHeight}px`;
-  textarea.style.overflowY = textarea.scrollHeight > max ? "auto" : "hidden";
-}
-
-/** 侧栏小月亮的悬停说明 */
-function keepAwakeSummary(state: KeepAwakeState): string {
-  if (state.status === "failed") {
-    return t("熄屏后保持在线没有生效：{0}", { 0: state.detail ?? t("原因未知") });
-  }
-  return t("熄屏后保持在线：{0}，正在阻止系统睡眠（屏幕照常熄灭）", {
-    0: state.reasons.join(t("、")),
-  });
-}
-
-const keepAwakeStatusText: Record<KeepAwakeState["status"], string> = localized(() => ({
-  active: t("正在阻止系统睡眠"),
-  idle: t("现在不需要保持（没有符合条件的 IM 连接或任务），电脑会照常睡眠"),
-  battery: t("正在用电池，已暂停保持在线"),
-  disabled: t("已关闭，电脑会照常睡眠"),
-  unsupported: t("当前系统暂不支持，请在系统电源设置里关闭自动睡眠"),
-  failed: t("没有生效"),
-}));
-
-/**
- * 房主在其他设备上：查看直接可用；要启动 Agent、改设置先申请管理权，经飞书或 Server 所在电脑批准。
- * compact 用在接入面板里，只留一行说明和按钮
- */
-export function HostManageNotice({
-  local,
-  compact = false,
-}: {
-  local: LocalAgentsState;
-  compact?: boolean;
-}) {
-  const [error, setError] = useState<string>();
-  if (!local.enabled || local.mode !== "device") return null;
-  const host = local.hostLabel ?? t("Server 所在电脑");
-  if (local.canManage) {
-    if (compact) return null;
-    return (
-      <p className="host-manage-notice granted" role="status">
-        {t(
-          "这台设备已获准管理 {0}，到 {1} 为止。启动的 Agent 和 MCP 可能在没有沙箱的情况下执行命令；只有用完全权限启动时会再逐次确认。",
-          {
-            0: host,
-            1: new Date(local.manageUntil ?? "").toLocaleString(),
-          },
-        )}
-      </p>
-    );
-  }
-  const waiting = local.waitingApproval?.kind === "manage";
-  return (
-    <div className="host-manage-notice" role="status">
-      <p>
-        {waiting
-          ? local.approvalVia === "im"
-            ? t("已发出申请，请在飞书里点「允许」，或到 {0} 上批准。", { 0: host })
-            : t("已发出申请，请到 {0} 上打开 SuperHive 批准。", { 0: host })
-          : t(
-              "你在另一台设备上，可以查看 {0} 上的 Agent 和目录。要启动、停止 Agent 或修改设置，先申请管理权（批准后 12 小时内有效）。获批后启动的 Agent 和 MCP 可能在没有沙箱的情况下执行命令。",
-              { 0: host },
-            )}
-      </p>
-      {!waiting && (
-        <button
-          type="button"
-          className="settings-action"
-          onClick={() => {
-            setError(undefined);
-            local.requestManage().catch((reason: unknown) => {
-              setError(reason instanceof Error ? reason.message : String(reason));
-            });
-          }}
-        >
-          {t("申请管理这台电脑")}
-        </button>
-      )}
-      {error && <p className="settings-note error">{error}</p>}
-    </div>
-  );
-}
-
-/** 本机页面：其他设备发来的申请，直接在这里批准或拒绝 */
-function HostApprovalsBanner({ local }: { local: LocalAgentsState }) {
-  const [error, setError] = useState<string>();
-  if (local.mode !== "local" || local.approvals.length === 0) return null;
-  return (
-    <div className="host-approvals-banner" role="alertdialog" aria-label={t("待批准的申请")}>
-      {local.approvals.map((approval) => (
-        <div key={approval.id} className="host-approval">
-          <p>
-            <strong>{t("需要你批准")}</strong>
-            {approval.summary}
-          </p>
-          <small>{t("不是你本人在操作就拒绝，并在设置 → 已登录设备里全部退出。")}</small>
-          <div className="host-approval-actions">
-            <button
-              type="button"
-              className="primary"
-              onClick={() => local.decideApproval(approval.id, true).catch(fail)}
-            >
-              {t("允许")}
-            </button>
-            <button
-              type="button"
-              className="danger"
-              onClick={() => local.decideApproval(approval.id, false).catch(fail)}
-            >
-              {t("拒绝")}
-            </button>
-          </div>
-        </div>
-      ))}
-      {error && <p className="settings-note error">{error}</p>}
-    </div>
-  );
-  function fail(reason: unknown) {
-    setError(reason instanceof Error ? reason.message : String(reason));
-  }
-}
-
-/** 设备上的单次操作在等批准：提示去哪里确认 */
-function HostApprovalWaiting({ local }: { local: LocalAgentsState }) {
-  const approval = local.waitingApproval;
-  if (local.mode !== "device" || approval?.kind !== "action") return null;
-  const host = local.hostLabel ?? t("Server 所在电脑");
-  return (
-    <div className="host-approvals-banner" role="status">
-      <div className="host-approval">
-        <p>
-          <strong>{t("等你确认")}</strong>
-          {approval.summary}
-        </p>
-        <small>
-          {local.approvalVia === "im"
-            ? t("请在飞书里点「允许」，或到 {0} 上批准；5 分钟内有效。", { 0: host })
-            : t("请到 {0} 上打开 SuperHive 批准；5 分钟内有效。", { 0: host })}
-        </small>
-      </div>
-    </div>
-  );
-}
-
-function KeepAwakeSettingsGroup({ local }: { local: LocalAgentsState }) {
-  const state = local.keepAwake;
-  const [error, setError] = useState<string>();
-  if (!local.enabled || !state) {
-    return (
-      <div className="settings-group">
-        <p className="settings-note">
-          {t(
-            "只有在运行 Hive Server 的这台电脑上打开网页，或用扫码、飞书登录的房主设备，才能查看这些设置。",
-          )}
-        </p>
-      </div>
-    );
-  }
-  const disabled = !state.supported || !local.canManage;
-  const change = (patch: Partial<KeepAwakeSettings>) => {
-    setError(undefined);
-    local.updateKeepAwake(patch).catch((reason: unknown) => {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    });
-  };
-  return (
-    <div className="settings-group">
-      <div className="settings-section-heading">
-        <div>
-          <h4>{t("熄屏后保持在线")}</h4>
-          <p>
-            {t(
-              "屏幕照常熄灭，只是电脑不进入睡眠，飞书消息和 Agent 任务不会中断。只在下面勾选的情况下生效，其他时候照常睡眠。",
-            )}
-          </p>
-        </div>
-      </div>
-      <SettingsSwitch
-        checked={state.whenIm}
-        disabled={disabled}
-        label={t("连着 IM 时保持在线")}
-        description={t("有飞书、微信连接（包括正在重连）时阻止系统睡眠")}
-        onChange={(checked) => change({ whenIm: checked })}
-      />
-      <SettingsSwitch
-        checked={state.whenTasks}
-        disabled={disabled}
-        label={t("Agent 执行任务时保持在线")}
-        description={t("有任务正在执行时阻止系统睡眠，执行完就恢复")}
-        onChange={(checked) => change({ whenTasks: checked })}
-      />
-      <SettingsSwitch
-        checked={state.onBattery}
-        disabled={disabled}
-        label={t("用电池时也保持")}
-        description={t("默认只在接电源时生效；打开后用电池也不睡眠，比较耗电")}
-        onChange={(checked) => change({ onBattery: checked })}
-      />
-      <p className={`keep-awake-status ${state.status}`} role="status">
-        <strong>{keepAwakeStatusText[state.status]}</strong>
-        {state.status === "active" && state.reasons.length
-          ? t("（{0}）", { 0: state.reasons.join(t("、")) })
-          : ""}
-        {state.status === "failed" && state.detail ? t("：{0}", { 0: state.detail }) : ""}
-      </p>
-      <p className="settings-note">
-        {t(
-          "合上笔记本盖子、手动睡眠仍会睡眠（接着电源和外接显示器时合盖除外）；Hive 重启升级的几秒里不保证。",
-        )}
-      </p>
-      {error && <p className="settings-note error">{error}</p>}
-    </div>
-  );
-}
-
-/** 在其他设备上登录：二维码 / 一次性链接、已登录设备、复制总令牌 */
-export function OwnerDevicesGroup({ local }: { local: LocalAgentsState }) {
-  const [devices, setDevices] = useState<OwnerDevice[]>();
-  const [pair, setPair] = useState<{ url: string; expiresAt: string; qrDataUrl: string }>();
-  const [error, setError] = useState<string>();
-  const [copied, setCopied] = useState<string>();
-  const enabled = local.enabled;
-  const { ownerDevices } = local;
-  const refresh = useCallback(() => {
-    ownerDevices().then(setDevices, () => setDevices(undefined));
-  }, [ownerDevices]);
-  useEffect(() => {
-    if (enabled) refresh();
-  }, [enabled, refresh]);
-  // 二维码用过（多了一台设备）或到期就收起
-  useEffect(() => {
-    if (!pair) return;
-    const timer = window.setInterval(() => {
-      if (Date.parse(pair.expiresAt) <= Date.now()) setPair(undefined);
-      refresh();
-    }, 3_000);
-    return () => window.clearInterval(timer);
-  }, [pair, refresh]);
-  if (!enabled) return null;
-  const fail = (reason: unknown) =>
-    setError(reason instanceof Error ? reason.message : String(reason));
-  const copy = (text: string, label: string) => {
-    void copyTextToClipboard(text).then(() => {
-      setCopied(label);
-      window.setTimeout(() => setCopied(undefined), 1_500);
-    }, fail);
-  };
-  return (
-    <div className="settings-group">
-      <div className="settings-section-heading">
-        <div>
-          <h4>{t("在其他设备上登录")}</h4>
-          <p>
-            {t(
-              "手机或另一台电脑扫码（或打开链接）后，直接以房主身份进入，不用填令牌。每台设备单独登录，可以随时退出。飞书卡片上的「在网页查看」也会自动登录。",
-            )}
-          </p>
-        </div>
-      </div>
-      {local.mode === "device" ? null : pair ? (
-        <div className="owner-pair">
-          <img src={pair.qrDataUrl} alt={t("登录二维码")} width={160} height={160} />
-          <div>
-            <p>
-              {t(
-                "用手机相机或飞书扫码，5 分钟内有效，只能用一次。设备要和这台电脑在同一个网络里。",
-              )}
-            </p>
-            <code className="owner-pair-url">{pair.url}</code>
-            <div className="owner-pair-actions">
-              <button type="button" onClick={() => copy(pair.url, "link")}>
-                {copied === "link" ? t("已复制") : t("复制链接")}
-              </button>
-              <button type="button" onClick={() => setPair(undefined)}>
-                {t("收起")}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <button
-          type="button"
-          className="settings-action"
-          onClick={() => {
-            setError(undefined);
-            local.pairOwnerDevice().then(setPair, fail);
-          }}
-        >
-          {t("显示登录二维码")}
-        </button>
-      )}
-      <h4 className="owner-devices-heading">{t("已登录的设备")}</h4>
-      {devices?.length ? (
-        <ul className="owner-devices">
-          {devices.map((device) => (
-            <li key={device.id}>
-              <span>
-                <strong>
-                  {device.name}
-                  {device.id === local.deviceId ? t("（这台）") : ""}
-                </strong>
-                <small>
-                  {t("{0}登录 · 最近活跃 {1}", {
-                    0: device.source === "im" ? t("经飞书卡片") : t("扫码"),
-                    1: new Date(device.lastSeenAt).toLocaleString(),
-                  })}
-                </small>
-              </span>
-              {(device.id === local.deviceId || local.canManage) && (
-                <button
-                  type="button"
-                  onClick={() => local.revokeOwnerDevice(device.id).then(refresh, fail)}
-                >
-                  {t("退出登录")}
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="settings-note">{t("还没有其他设备登录。")}</p>
-      )}
-      {local.canManage &&
-        (devices?.filter((device) => device.id !== local.deviceId).length ?? 0) > 0 && (
-          <button
-            type="button"
-            className="settings-action danger"
-            onClick={() => {
-              if (!window.confirm(t("退出其他所有已登录的设备？手机丢了或怀疑被盗用时用。")))
-                return;
-              local.revokeAllOwnerDevices().then(refresh, fail);
-            }}
-          >
-            {local.mode === "device" ? t("退出其他所有设备") : t("全部退出")}
-          </button>
-        )}
-      {local.mode === "local" && <HostApproversGroup local={local} onError={fail} />}
-      {local.mode === "local" && (
-        <details className="owner-token-details">
-          <summary>{t("房主接入令牌（高级）")}</summary>
-          <p className="settings-note">
-            {t(
-              "这是房主的总钥匙，有完整权限，只在接入远程 Agent 或扫码不方便时使用，不要发给别人。",
-            )}
-          </p>
-          <button
-            type="button"
-            className="settings-action"
-            onClick={() => local.ownerToken().then((token) => copy(token, "token"), fail)}
-          >
-            {copied === "token" ? t("已复制") : t("复制令牌")}
-          </button>
-        </details>
-      )}
-      {error && <p className="settings-note error">{error}</p>}
-    </div>
-  );
-}
-
-/** 本机：哪些 IM 账号可以在卡片上批准其他设备管理这台电脑 */
-function HostApproversGroup({
-  local,
-  onError,
-}: {
-  local: LocalAgentsState;
-  onError: (reason: unknown) => void;
-}) {
-  const [approvers, setApprovers] = useState<HostApprover[]>();
-  const { hostApprovers } = local;
-  useEffect(() => {
-    hostApprovers().then(setApprovers, () => setApprovers(undefined));
-  }, [hostApprovers]);
-  if (!approvers?.length) return null;
-  return (
-    <>
-      <h4 className="owner-devices-heading">{t("在 IM 里批准")}</h4>
-      <p className="settings-note">
-        {t(
-          "其他设备申请管理这台电脑（启动 Agent、改设置）时，把批准卡推到这些账号。在这台电脑上扫码连接的会自动勾上。",
-        )}
-      </p>
-      {approvers.map((approver) => (
-        <SettingsSwitch
-          key={approver.connectionId}
-          checked={approver.allowed}
-          label={approver.label}
-          description={
-            approver.channel === "feishu"
-              ? t("飞书")
-              : t("微信（不支持卡片，申请只能在这台电脑上批准）")
-          }
-          onChange={(checked) =>
-            local.setHostApprover(approver.connectionId, checked).then(setApprovers, onError)
-          }
-        />
-      ))}
-    </>
-  );
-}
-
-/** 点了「进入」之后如果还停在登录页（进入失败、被拦回来），过这么久按钮恢复可点 */
-const LOGIN_BUSY_RESET_MS = 4_000;
-
-export function LoginDialog({
-  reduceMotion,
-  onJoin,
-}: {
-  reduceMotion: boolean;
-  onJoin: (username: string) => void;
-}) {
-  const [username, setUsername] = useState(localStorage.getItem(storedUsernameKey) ?? "");
-  const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    const input = inputRef.current;
-    if (!input) return;
-    input.focus({ preventScroll: true });
-    // 记住的名字整段选中，直接回车进入，想换名字也能直接打
-    input.select();
-  }, []);
-  useEffect(() => {
-    if (!busy) return;
-    const timer = window.setTimeout(() => setBusy(false), LOGIN_BUSY_RESET_MS);
-    return () => window.clearTimeout(timer);
-  }, [busy]);
-  return (
-    <div className="login-shell">
-      <main className="login-card">
-        <section className="login-intro">
-          <div className="login-brand">
-            <HiveLogo />
-            <strong>SuperHive</strong>
-          </div>
-          <div className="login-thesis">
-            <h1>
-              {t("让人类与 Agent，")}
-              <span>{t("沿着同一条思路工作。")}</span>
-            </h1>
-            <p>{t("把消息、协作者与本地 Agent 放进一个实时工作区，所有人都看见同一份上下文。")}</p>
-          </div>
-          <LoginShowcase still={reduceMotion} />
-          <ul className="login-points" aria-label={t("SuperHive 能做什么")}>
-            <li>
-              <Icon name="at" size={15} />
-              <span>{t("@ 一下，Agent 就接活")}</span>
-            </li>
-            <li>
-              <Icon name="activity" size={15} />
-              <span>{t("进度、提问、交付都在对话里")}</span>
-            </li>
-            <li>
-              <Icon name="files" size={15} />
-              <span>{t("交付附带文件和提交")}</span>
-            </li>
-          </ul>
-        </section>
-
-        <section className="login-form-panel">
-          <div className="login-form-body">
-            <div className="login-form-heading">
-              <span className="login-form-mark">
-                <HiveLogo />
-              </span>
-              <h2>{t("进入 SuperHive")}</h2>
-              <p className="login-copy">{t("选择一个在当前房间中可识别的名字。")}</p>
-            </div>
-            <form
-              noValidate
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (busy) return;
-                const input = inputRef.current;
-                const clean = username.trim();
-                if (!clean) {
-                  setError(t("先输入一个名字。"));
-                  input?.focus();
-                  return;
-                }
-                if (input?.validity.patternMismatch) {
-                  setError(t("只能用中英文、数字、点、下划线与连字符。"));
-                  input.focus();
-                  return;
-                }
-                setBusy(true);
-                try {
-                  onJoin(clean);
-                } catch {
-                  setBusy(false);
-                  setError(t("没能进入，请再试一次。"));
-                }
-              }}
-            >
-              <label htmlFor="username">{t("你的用户名")}</label>
-              <div className={`login-field ${error ? "invalid" : ""}`}>
-                <Icon name="user" size={17} />
-                <input
-                  ref={inputRef}
-                  id="username"
-                  name="username"
-                  value={username}
-                  onChange={(event) => {
-                    setUsername(event.target.value);
-                    setError(undefined);
-                  }}
-                  maxLength={32}
-                  pattern="[A-Za-z0-9_.\-\u4e00-\u9fff]+"
-                  placeholder={t("例如 rongding…")}
-                  autoComplete="username"
-                  spellCheck={false}
-                  aria-invalid={error ? true : undefined}
-                  aria-describedby="username-hint"
-                />
-              </div>
-              <p
-                id="username-hint"
-                className={`fine-print ${error ? "error" : ""}`}
-                role={error ? "alert" : undefined}
-              >
-                {error ?? t("支持中英文、数字、点、下划线与连字符。")}
-              </p>
-              <button type="submit" disabled={busy} aria-busy={busy || undefined}>
-                {busy && <span className="login-spinner" aria-hidden="true" />}
-                <span>{busy ? t("正在进入…") : t("进入聊天室")}</span>
-                {!busy && <Icon name="arrow-right" />}
-              </button>
-            </form>
-            <p className="login-next">
-              <Icon name="plug" size={15} />
-              <span>
-                {t("进去后点右下角「接入 Agent」，把本机的 Claude Code、Codex 拉进房间。")}
-              </span>
-            </p>
-          </div>
-          <div className="login-trust">
-            <Icon name="shield" size={16} />
-            <span>{t("仅在局域网内共享，Agent 权限留在本机。")}</span>
-          </div>
-        </section>
-      </main>
-    </div>
-  );
-}
-
-/** 纯文本输入框背后的高亮层与输入框排版一致：在它里面找到第 offset 个字符，量出它在屏幕上的横坐标 */
-function highlightOffsetX(layer: HTMLElement | null, offset: number): number | undefined {
-  if (!layer) return undefined;
-  const walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT);
-  let remaining = offset;
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const length = node.textContent?.length ?? 0;
-    if (remaining <= length) {
-      const range = document.createRange();
-      range.setStart(node, remaining);
-      range.setEnd(node, Math.min(remaining + 1, length));
-      // jsdom 等环境没有排版信息，量不到就让面板照旧靠左
-      if (typeof range.getBoundingClientRect !== "function") return undefined;
-      const rect = range.getBoundingClientRect();
-      return rect.width || rect.left ? rect.left : undefined;
-    }
-    remaining -= length;
-  }
-  return undefined;
-}
 
 export function App({
   guest,
@@ -4671,248 +3501,43 @@ export function App({
           } as CSSProperties
         }
       >
-        <aside
-          className={`rooms-panel panel ${mobilePanel === "rooms" ? "mobile-open" : ""}`}
-          aria-label={t("房间列表")}
-        >
-          <PanelResizer panel="rooms" width={panelWidths.rooms} onResize={resizePanel} />
-          <div className="sidebar-header">
-            <div className="brand">
-              <HiveLogo compact />
-              <strong>SuperHive</strong>
-            </div>
-            <div
-              className={`connection ${connectionState}`}
-              role="status"
-              aria-live="polite"
-              title={
-                connectionState === "online"
-                  ? t("Hive 已在线")
-                  : connectionState === "connecting"
-                    ? t("正在连接")
-                    : t("连接已中断")
-              }
-            >
-              <span aria-hidden="true" />
-              <span className="connection-label">
-                {connectionState === "online"
-                  ? t("Hive 已在线")
-                  : connectionState === "connecting"
-                    ? t("正在连接")
-                    : t("连接已中断")}
-              </span>
-            </div>
-            <button
-              ref={roomsCloseRef}
-              className="panel-close"
-              type="button"
-              aria-label={t("关闭房间列表")}
-              onClick={() => closeMobilePanel()}
-            >
-              <Icon name="close" />
-            </button>
-          </div>
-          <nav className="sidebar-actions" aria-label={t("快捷操作")}>
-            {isOwner && (
-              <button
-                className="sidebar-action room-create"
-                type="button"
-                aria-label={t("新建房间")}
-                aria-haspopup="dialog"
-                onClick={(event) => openRoomDialog({ mode: "create" }, event.currentTarget)}
-              >
-                <Icon name="plus" size={16} />
-                <span>{t("新建房间")}</span>
-              </button>
-            )}
-            <button
-              type="button"
-              className="sidebar-action"
-              aria-label={t("搜索消息")}
-              aria-haspopup="dialog"
-              onClick={(event) => openActivity("search", event.currentTarget)}
-            >
-              <Icon name="search" size={16} />
-              <span>{t("搜索")}</span>
-              <kbd className="sidebar-shortcut" aria-hidden="true">
-                {modifierKeyLabel === "Cmd" ? "⌘K" : "Ctrl K"}
-              </kbd>
-            </button>
-            <button
-              type="button"
-              className="sidebar-action"
-              aria-label={
-                unreadMentionCount > 0
-                  ? t("提及我，{0} 条未读", { 0: unreadMentionCount })
-                  : t("提及我")
-              }
-              aria-haspopup="dialog"
-              onClick={(event) => openActivity("mentions", event.currentTarget)}
-            >
-              <Icon name="at" size={16} />
-              <span>{t("提及我")}</span>
-              {unreadMentionCount > 0 && (
-                <span className="sidebar-badge accent" aria-hidden="true">
-                  {unreadMentionCount > 99 ? "99+" : unreadMentionCount}
-                </span>
-              )}
-            </button>
-            <button
-              type="button"
-              className="sidebar-action"
-              aria-label={t("Agent 任务{0}{1}", {
-                0: taskCounts.inFlight ? t("，{0} 个进行中", { 0: taskCounts.inFlight }) : "",
-                1: taskCounts.attention ? t("，{0} 个需要处理", { 0: taskCounts.attention }) : "",
-              })}
-              aria-haspopup="dialog"
-              onClick={(event) => openActivity("tasks", event.currentTarget)}
-            >
-              <Icon name="activity" size={16} />
-              <span>{t("Agent 任务")}</span>
-              {taskCounts.inFlight > 0 && (
-                <span className="sidebar-badge running" aria-hidden="true">
-                  {taskCounts.inFlight}
-                </span>
-              )}
-              {taskCounts.attention > 0 && (
-                <span className="sidebar-badge warning" aria-hidden="true">
-                  {taskCounts.attention}
-                </span>
-              )}
-            </button>
-            {isOwner && (
-              <button
-                type="button"
-                className="sidebar-action"
-                aria-haspopup="dialog"
-                title={t("扫码接入飞书或微信，在手机上给房间发消息")}
-                onClick={() => setImDialogOpen(true)}
-              >
-                <Icon name="message" size={16} />
-                <span>{t("连接 IM")}</span>
-              </button>
-            )}
-          </nav>
-          {attentionGroup && (
-            <AttentionRoomGroup
-              items={attention.items}
-              roomName={roomNameOf}
-              onOpen={attention.open}
-            />
-          )}
-          <div className="sidebar-section-label">
-            <span>{t("房间列表")}</span>
-            <span className="panel-meta">{activeRoomCount}</span>
-          </div>
-          {/* 置顶区和其余房间一起滚动：置顶多了也不会把下面挤得只剩一小块 */}
-          <div className="room-scroll" ref={roomReorder.scrollRef}>
-            {sidebarRooms.pinned.length > 0 && (
-              <div
-                className={`room-list pinned ${roomReorder.dragging ? "reordering" : ""}`}
-                ref={roomReorder.listRef}
-                role="group"
-                aria-label={t("已置顶")}
-              >
-                {sidebarRooms.pinned.map((room, index) => renderRoomItem(room, index, true))}
-              </div>
-            )}
-            <div
-              className="room-list"
-              onPointerEnter={freezeRoomList}
-              onPointerLeave={(event) => thawRoomList(event.currentTarget)}
-              onFocus={freezeRoomList}
-              onBlur={(event) => {
-                const list = event.currentTarget;
-                // 焦点还在列表里（用 Tab 换到下一个房间）就继续保持
-                if (!list.contains(event.relatedTarget as Node | null)) {
-                  window.setTimeout(() => thawRoomList(list));
-                }
-              }}
-            >
-              {sidebarRooms.others.map((room, index) => renderRoomItem(room, index, false))}
-            </div>
-          </div>
-          <button
-            type="button"
-            className="room-archived-toggle"
-            onClick={() => setShowArchivedRooms((current) => !current)}
-          >
-            {showArchivedRooms ? t("隐藏已归档房间") : t("显示已归档房间")}
-          </button>
-          <div
-            className="sidebar-user"
-            ref={userMenuRef}
-            onMouseEnter={() => {
-              // 鼠标设备悬停头像即展开菜单；触屏仍通过点击切换
-              if (!window.matchMedia?.("(hover: hover)").matches) return;
-              window.clearTimeout(userMenuHoverTimer.current);
-              setUserMenuOpen(true);
-            }}
-            onMouseLeave={() => {
-              if (!window.matchMedia?.("(hover: hover)").matches) return;
-              window.clearTimeout(userMenuHoverTimer.current);
-              userMenuHoverTimer.current = window.setTimeout(() => setUserMenuOpen(false), 180);
-            }}
-          >
-            {userMenuOpen && (
-              <div className="user-menu" role="menu" aria-label={t("用户菜单")}>
-                <div className="user-menu-theme">
-                  <span>{t("主题")}</span>
-                  <ThemeSwitcher
-                    value={themePreference}
-                    onChange={(value) => {
-                      setThemePreference(value);
-                      localStorage.setItem(storedThemeKey, value);
-                    }}
-                  />
-                </div>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setUserMenuOpen(false);
-                    setMobilePanel(undefined);
-                    setSettingsOpen(true);
-                  }}
-                >
-                  <Icon name="settings" size={15} />
-                  <span>{t("设置")}</span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="user-menu-logout"
-                  onClick={() => {
-                    setUserMenuOpen(false);
-                    localStorage.removeItem(storedUsernameKey);
-                    setUsername("");
-                  }}
-                >
-                  <Icon name="logout" size={15} />
-                  <span>{t("退出")}</span>
-                </button>
-              </div>
-            )}
-            <button
-              ref={settingsTriggerRef}
-              type="button"
-              className="sidebar-user-chip"
-              aria-label={t("用户菜单")}
-              aria-haspopup="menu"
-              aria-expanded={userMenuOpen}
-              onClick={() => setUserMenuOpen((current) => !current)}
-            >
-              <span className="identity-avatar" style={avatarHueStyle(username)} aria-hidden="true">
-                {username.slice(0, 1).toUpperCase()}
-              </span>
-              <span className="identity-copy">
-                <strong>{username}</strong>
-                <small>{t("当前身份")}</small>
-              </span>
-              <Icon name="more" size={16} />
-            </button>
-          </div>
-        </aside>
+        <RoomSidebar
+          activeRoomCount={activeRoomCount}
+          attention={attention}
+          attentionGroup={attentionGroup}
+          closeMobilePanel={closeMobilePanel}
+          connectionState={connectionState}
+          freezeRoomList={freezeRoomList}
+          isOwner={isOwner}
+          mobilePanel={mobilePanel}
+          modifierKeyLabel={modifierKeyLabel}
+          openActivity={openActivity}
+          openRoomDialog={openRoomDialog}
+          panelWidths={panelWidths}
+          renderRoomItem={renderRoomItem}
+          resizePanel={resizePanel}
+          roomNameOf={roomNameOf}
+          roomReorder={roomReorder}
+          roomsCloseRef={roomsCloseRef}
+          setImDialogOpen={setImDialogOpen}
+          setMobilePanel={setMobilePanel}
+          setSettingsOpen={setSettingsOpen}
+          setShowArchivedRooms={setShowArchivedRooms}
+          setThemePreference={setThemePreference}
+          setUserMenuOpen={setUserMenuOpen}
+          setUsername={setUsername}
+          settingsTriggerRef={settingsTriggerRef}
+          showArchivedRooms={showArchivedRooms}
+          sidebarRooms={sidebarRooms}
+          taskCounts={taskCounts}
+          thawRoomList={thawRoomList}
+          themePreference={themePreference}
+          unreadMentionCount={unreadMentionCount}
+          userMenuHoverTimer={userMenuHoverTimer}
+          userMenuOpen={userMenuOpen}
+          userMenuRef={userMenuRef}
+          username={username}
+        />
 
         <section className="chat-panel panel" id="main-content" tabIndex={-1}>
           <header className="chat-header">
@@ -6317,410 +4942,53 @@ export function App({
           />
         )}
 
-        <aside
-          className={`members-panel panel ${mobilePanel === "members" ? "mobile-open" : ""}`}
-          aria-label={t("成员列表")}
-        >
-          {previewDocked && dockedPreview ? (
-            <>
-              <PanelResizer panel="preview" width={panelWidths.preview} onResize={resizePanel} />
-              <FilePreview
-                key={dockedPreview.attachment.id}
-                attachment={dockedPreview.attachment}
-                base={base}
-                token={authToken}
-                docked
-                onClose={closeDockedPreview}
-                onUndock={() =>
-                  setDockedPreview((current) => current && { ...current, popped: true })
-                }
-                notice={dockedNewerNotice}
-              />
-            </>
-          ) : (
-            <>
-              <PanelResizer panel="members" width={panelWidths.members} onResize={resizePanel} />
-              <div className="panel-heading side-panel-heading">
-                <div
-                  className="side-tabs"
-                  role="tablist"
-                  aria-label={t("侧栏视图")}
-                  ref={fitSideTabs}
-                  onKeyDown={(event) => {
-                    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-                    event.preventDefault();
-                    const index = sidePanelTabs.indexOf(sidePanelTab);
-                    const next: SidePanelTab =
-                      event.key === "Home"
-                        ? sidePanelTabs[0]!
-                        : event.key === "End"
-                          ? sidePanelTabs.at(-1)!
-                          : sidePanelTabs[
-                              (index +
-                                (event.key === "ArrowLeft" ? -1 : 1) +
-                                sidePanelTabs.length) %
-                                sidePanelTabs.length
-                            ]!;
-                    setSidePanelTab(next);
-                    event.currentTarget
-                      .querySelector<HTMLButtonElement>(`#side-tab-${next}`)
-                      ?.focus();
-                  }}
-                >
-                  <button
-                    type="button"
-                    role="tab"
-                    id="side-tab-members"
-                    title={t("成员")}
-                    aria-selected={sidePanelTab === "members"}
-                    aria-controls="side-panel-members"
-                    tabIndex={sidePanelTab === "members" ? 0 : -1}
-                    className={sidePanelTab === "members" ? "active" : ""}
-                    onClick={() => setSidePanelTab("members")}
-                  >
-                    <Icon name="users" size={15} />
-                    <span className="side-tab-label">{t("成员")}</span>
-                    <span
-                      className="side-tab-count"
-                      aria-label={t("{0} 位在线", { 0: online.length })}
-                    >
-                      {online.length}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    id="side-tab-whiteboard"
-                    title={t("进展")}
-                    aria-selected={sidePanelTab === "whiteboard"}
-                    aria-controls="side-panel-whiteboard"
-                    tabIndex={sidePanelTab === "whiteboard" ? 0 : -1}
-                    className={sidePanelTab === "whiteboard" ? "active" : ""}
-                    onClick={() => setSidePanelTab("whiteboard")}
-                  >
-                    <Icon name="board" size={15} />
-                    <span className="side-tab-label">{t("进展")}</span>
-                    {progressGroups.attention.length > 0 ? (
-                      <span
-                        className="side-tab-count warning"
-                        aria-label={t("{0} 件等你处理", { 0: progressGroups.attention.length })}
-                      >
-                        {progressGroups.attention.length}
-                      </span>
-                    ) : (
-                      doingCount > 0 && (
-                        <span
-                          className="side-tab-count"
-                          aria-label={t("{0} 件在做", { 0: doingCount })}
-                        >
-                          {doingCount}
-                        </span>
-                      )
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    id="side-tab-schedules"
-                    title={t("定时")}
-                    aria-selected={sidePanelTab === "schedules"}
-                    aria-controls="side-panel-schedules"
-                    tabIndex={sidePanelTab === "schedules" ? 0 : -1}
-                    className={sidePanelTab === "schedules" ? "active" : ""}
-                    onClick={() => setSidePanelTab("schedules")}
-                  >
-                    <Icon name="clock" size={15} />
-                    <span className="side-tab-label">{t("定时")}</span>
-                    {pendingScheduleCount > 0 && (
-                      <span
-                        className="side-tab-count"
-                        aria-label={t("{0} 个待执行", { 0: pendingScheduleCount })}
-                      >
-                        {pendingScheduleCount}
-                      </span>
-                    )}
-                  </button>
-                </div>
-                <button
-                  ref={membersCloseRef}
-                  className="panel-close"
-                  type="button"
-                  aria-label={t("关闭成员列表")}
-                  onClick={() => closeMobilePanel()}
-                >
-                  <Icon name="close" />
-                </button>
-              </div>
-              {sidePanelTab === "schedules" ? (
-                <div
-                  className="whiteboard-scroll"
-                  role="tabpanel"
-                  id="side-panel-schedules"
-                  aria-labelledby="side-tab-schedules"
-                  tabIndex={0}
-                >
-                  <SchedulePanel
-                    schedules={schedules}
-                    invocations={invocations}
-                    onlineAgents={onlineAgentNames}
-                    onCancel={cancelSchedule}
-                    onJump={jumpToMessage}
-                  />
-                </div>
-              ) : sidePanelTab === "whiteboard" ? (
-                <div
-                  className="whiteboard-scroll"
-                  role="tabpanel"
-                  id="side-panel-whiteboard"
-                  aria-labelledby="side-tab-whiteboard"
-                  tabIndex={0}
-                >
-                  <ProgressPanel
-                    key={currentRoomId}
-                    groups={progressGroups}
-                    onLocate={locateProgress}
-                    board={
-                      <WhiteboardPanel
-                        entries={whiteboard}
-                        canManage={isOwner}
-                        onRemove={removeWhiteboardEntry}
-                        onArchive={changeWhiteboardArchive}
-                        loadHistory={loadWhiteboardHistory}
-                        historyEpoch={whiteboardEpochRef.current}
-                      />
-                    }
-                  />
-                </div>
-              ) : (
-                <>
-                  <div
-                    className="member-list"
-                    role="tabpanel"
-                    id="side-panel-members"
-                    aria-labelledby="side-tab-members"
-                  >
-                    {online.map((participant) => (
-                      <div
-                        key={participant.id}
-                        className="member-row"
-                        onContextMenu={(event) => openMemberMenu(event, participant)}
-                      >
-                        {/* 用 div 承载点击：访客行里还要嵌入「⋯」按钮，button 不能嵌套 button */}
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          className="member"
-                          onClick={() => {
-                            closeMobilePanel(false);
-                            appendMention(participant.username);
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.target !== event.currentTarget) return;
-                            if (event.key !== "Enter" && event.key !== " ") return;
-                            event.preventDefault();
-                            closeMobilePanel(false);
-                            appendMention(participant.username);
-                          }}
-                        >
-                          <span
-                            className={`avatar ${participant.type}`}
-                            style={
-                              participant.type === "human"
-                                ? avatarHueStyle(participant.username)
-                                : undefined
-                            }
-                            aria-hidden="true"
-                          >
-                            <AvatarGlyph
-                              type={participant.type}
-                              name={participant.username}
-                              provider={participant.provider}
-                            />
-                          </span>
-                          <span className="member-copy">
-                            <strong>
-                              {participant.username}
-                              {isLeadAgent(participant) && (
-                                <span
-                                  className="member-lead-badge"
-                                  title={t("主 Agent：没有 @ 任何人的消息由它接话、调度其他 Agent")}
-                                >
-                                  {t("主")}
-                                </span>
-                              )}
-                              <OutdatedBadge participant={participant} />
-                              {participant.type === "agent" &&
-                                localAgentNames.has(participant.username.toLocaleLowerCase()) && (
-                                  <>
-                                    <span
-                                      className="member-local-badge"
-                                      title={
-                                        local.mode === "device"
-                                          ? t("由 {0} 上的 Hive Server 启动", {
-                                              0: local.hostLabel ?? t("Server 所在电脑"),
-                                            })
-                                          : t("由本机 Hive Server 启动")
-                                      }
-                                    >
-                                      {local.mode === "device" ? t("主机") : t("本机")}
-                                    </span>
-                                    {agentSettingsButton(participant.username)}
-                                  </>
-                                )}
-                              {isOwner && authToken && participant.access && (
-                                <GuestMemberActions
-                                  participant={participant}
-                                  base={base}
-                                  adminToken={authToken}
-                                  now={accessNow}
-                                  onError={setError}
-                                />
-                              )}
-                            </strong>
-                            <small>
-                              {participant.access ? (
-                                <>
-                                  {participant.type === "agent"
-                                    ? `${agentProviderLabel(participant.provider)} · `
-                                    : ""}
-                                  <GuestAccessBadge participant={participant} now={accessNow} />
-                                </>
-                              ) : participant.type === "agent" ? (
-                                `${agentProviderLabel(participant.provider)} · ${participant.persona || t("通用协作 Agent")}`
-                              ) : (
-                                "Human"
-                              )}
-                            </small>
-                          </span>
-                          <span
-                            className={`status-dot ${participant.status}`}
-                            title={participantStatusLabel(participant.status)}
-                            aria-label={participantStatusLabel(participant.status)}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                    {offline.length > 0 && (
-                      <p className="offline-label">{t("离线 · {0}", { 0: offline.length })}</p>
-                    )}
-                    {offline.map((participant) => (
-                      <div
-                        key={participant.id}
-                        className="member-row"
-                        onContextMenu={(event) => openMemberMenu(event, participant)}
-                      >
-                        <div className="member muted">
-                          <span
-                            className={`avatar ${participant.type}`}
-                            style={
-                              participant.type === "human"
-                                ? avatarHueStyle(participant.username)
-                                : undefined
-                            }
-                            aria-hidden="true"
-                          >
-                            <AvatarGlyph
-                              type={participant.type}
-                              name={participant.username}
-                              provider={participant.provider}
-                            />
-                          </span>
-                          <span className="member-copy">
-                            <strong>
-                              {participant.username}
-                              {isLeadAgent(participant) && (
-                                <span
-                                  className="member-lead-badge"
-                                  title={t("主 Agent：没有 @ 任何人的消息由它接话、调度其他 Agent")}
-                                >
-                                  {t("主")}
-                                </span>
-                              )}
-                              {participant.type === "agent" &&
-                                agentSettingsButton(participant.username)}
-                              {isOwner && authToken && participant.access && (
-                                <GuestMemberActions
-                                  participant={participant}
-                                  base={base}
-                                  adminToken={authToken}
-                                  now={accessNow}
-                                  onError={setError}
-                                />
-                              )}
-                            </strong>
-                            <small>
-                              {participant.access ? (
-                                <>
-                                  {participant.type === "agent"
-                                    ? `${agentProviderLabel(participant.provider)} · `
-                                    : ""}
-                                  <GuestAccessBadge participant={participant} now={accessNow} />
-                                </>
-                              ) : participant.type === "agent" ? (
-                                t("{0} · 离线", { 0: agentProviderLabel(participant.provider) })
-                              ) : (
-                                t("Human · 离线")
-                              )}
-                            </small>
-                          </span>
-                          <span className="status-dot offline" aria-label={t("离线")} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  {/* 成员栏底部只留一行：邀请成员、接入 Agent 并排，说明放到悬停提示里 */}
-                  <div className="member-invite" role="group" aria-label={t("添加成员")}>
-                    {isOwner ? (
-                      <button
-                        type="button"
-                        className="member-invite-action"
-                        aria-haspopup="dialog"
-                        title={t("生成限时链接，到期后自动失效")}
-                        onClick={() => setInviteDialogOpen(true)}
-                      >
-                        <Icon name="user-plus" size={16} />
-                        <span>
-                          <strong>{t("邀请成员")}</strong>
-                        </span>
-                      </button>
-                    ) : (
-                      guest && (
-                        <button
-                          type="button"
-                          className="member-invite-action"
-                          aria-haspopup="dialog"
-                          title={t("只能进本房间，和你同时到期")}
-                          onClick={() => setGuestAgentDialogOpen(true)}
-                        >
-                          <Icon name="plug" size={16} />
-                          <span>
-                            <strong>{t("带入我的 Agent")}</strong>
-                          </span>
-                        </button>
-                      )
-                    )}
-                    {isOwner && (
-                      <button
-                        type="button"
-                        className="member-invite-action sidebar-agent-entry"
-                        aria-label={t("接入 Agent")}
-                        aria-haspopup="dialog"
-                        aria-expanded={agentDialogOpen}
-                        title={t("选择运行时并复制接入命令")}
-                        onClick={(event) => openAgentDialog(event.currentTarget)}
-                      >
-                        <Icon name="plug" size={16} />
-                        <span>
-                          <strong>{t("接入 Agent")}</strong>
-                        </span>
-                      </button>
-                    )}
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </aside>
+        <SidePanel
+          accessNow={accessNow}
+          agentDialogOpen={agentDialogOpen}
+          agentSettingsButton={agentSettingsButton}
+          appendMention={appendMention}
+          authToken={authToken}
+          base={base}
+          cancelSchedule={cancelSchedule}
+          changeWhiteboardArchive={changeWhiteboardArchive}
+          closeDockedPreview={closeDockedPreview}
+          closeMobilePanel={closeMobilePanel}
+          currentRoomId={currentRoomId}
+          dockedNewerNotice={dockedNewerNotice}
+          dockedPreview={dockedPreview}
+          doingCount={doingCount}
+          guest={guest}
+          invocations={invocations}
+          isLeadAgent={isLeadAgent}
+          isOwner={isOwner}
+          jumpToMessage={jumpToMessage}
+          loadWhiteboardHistory={loadWhiteboardHistory}
+          local={local}
+          localAgentNames={localAgentNames}
+          locateProgress={locateProgress}
+          membersCloseRef={membersCloseRef}
+          mobilePanel={mobilePanel}
+          offline={offline}
+          online={online}
+          onlineAgentNames={onlineAgentNames}
+          openAgentDialog={openAgentDialog}
+          openMemberMenu={openMemberMenu}
+          panelWidths={panelWidths}
+          pendingScheduleCount={pendingScheduleCount}
+          previewDocked={previewDocked}
+          progressGroups={progressGroups}
+          removeWhiteboardEntry={removeWhiteboardEntry}
+          resizePanel={resizePanel}
+          schedules={schedules}
+          setDockedPreview={setDockedPreview}
+          setError={setError}
+          setGuestAgentDialogOpen={setGuestAgentDialogOpen}
+          setInviteDialogOpen={setInviteDialogOpen}
+          setSidePanelTab={setSidePanelTab}
+          sidePanelTab={sidePanelTab}
+          whiteboard={whiteboard}
+          whiteboardEpochRef={whiteboardEpochRef}
+        />
       </section>
       {dockedPreview?.popped && (
         <FilePreview
@@ -6872,1262 +5140,125 @@ export function App({
       )}
 
       {agentDialogOpen && (
-        <div className="agent-dialog-layer">
-          <button
-            className="agent-dialog-scrim"
-            type="button"
-            aria-label={t("关闭 Agent 接入弹窗")}
-            onClick={closeAgentDialog}
-          />
-          <div
-            ref={agentDialogRef}
-            className="agent-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="agent-dialog-title"
-            aria-describedby="agent-dialog-description"
-          >
-            <header className="agent-dialog-header">
-              <div>
-                <h2 id="agent-dialog-title">{t("把 Agent 接入 Hive")}</h2>
-                <p id="agent-dialog-description">
-                  {local.enabled
-                    ? local.mode === "device"
-                      ? t(
-                          "三步完成：选择 Agent、设置权限，然后一键在 {0} 上启动（也可以复制命令）。",
-                          { 0: local.hostLabel ?? t("Server 所在电脑") },
-                        )
-                      : t(
-                          "三步完成：选择 Agent、设置本机权限，然后一键在本机启动（也可以复制命令）。",
-                        )
-                    : t("三步完成：选择 Agent、设置本机权限，然后把命令复制到终端运行。")}
-                </p>
-              </div>
-              <button
-                ref={agentDialogCloseRef}
-                className="agent-dialog-close"
-                type="button"
-                aria-label={t("关闭")}
-                onClick={closeAgentDialog}
-              >
-                <Icon name="close" />
-              </button>
-            </header>
-
-            <ol className="agent-steps" aria-label={t("接入步骤")}>
-              {agentSetupSteps.map(({ step, label: baseLabel }) => {
-                const label = step === 3 && local.enabled ? t("启动 Agent") : baseLabel;
-                const state =
-                  step === agentStep ? "current" : step < agentStep ? "done" : "upcoming";
-                return (
-                  <li
-                    key={step}
-                    className={state}
-                    aria-current={state === "current" ? "step" : undefined}
-                  >
-                    {state === "done" ? (
-                      <button
-                        type="button"
-                        aria-label={t("返回第 {0} 步：{1}", { 0: step, 1: label })}
-                        onClick={() => goToAgentStep(step)}
-                      >
-                        <span className="agent-step-index" aria-hidden="true">
-                          <Icon name="check" size={12} />
-                        </span>
-                        <span>{label}</span>
-                      </button>
-                    ) : (
-                      <span>
-                        <span className="agent-step-index" aria-hidden="true">
-                          {step}
-                        </span>
-                        <span>{label}</span>
-                      </span>
-                    )}
-                  </li>
-                );
-              })}
-            </ol>
-
-            <div className="agent-dialog-body">
-              <div className="agent-step-heading">
-                <h3 id="agent-step-title" ref={agentStepHeadingRef} tabIndex={-1}>
-                  {agentStep === 1
-                    ? t("选择要接入的 Agent")
-                    : agentStep === 2
-                      ? t("允许 {0} 在本机做什么？", { 0: agentProviderLabel(agentProvider) })
-                      : local.enabled
-                        ? local.mode === "device"
-                          ? t("在 {0} 上启动", { 0: local.hostLabel ?? t("Server 所在电脑") })
-                          : t("在本机启动")
-                        : t("复制命令，到终端运行")}
-                </h3>
-                {agentStep === 1 && (
-                  <p>{t("选好后点「下一步」；接入命令会按所选 Agent 的运行环境自动调整。")}</p>
-                )}
-                {agentStep === 2 && (
-                  <p>
-                    {t("权限只在 Agent 所在电脑生效，Hive Server 始终只转发消息。默认工作区档。")}
-                  </p>
-                )}
-                {agentStep === 3 && (
-                  <p>
-                    {t("将以")}{" "}
-                    <code>{agentNameFor(username, agentProvider, takenAgentNames)}</code>{" "}
-                    {t("身份加入 · 权限：")}
-                    <strong className={`agent-access-label ${agentAccess}`}>
-                      {agentAccessOptions.find((option) => option.id === agentAccess)?.label}
-                    </strong>
-                  </p>
-                )}
-              </div>
-
-              {agentStep === 1 && (
-                <div
-                  className="provider-selector"
-                  role="radiogroup"
-                  aria-labelledby="agent-step-title"
-                  onKeyDown={(event) =>
-                    moveRadioSelection(
-                      event,
-                      selectableAgentProviders.indexOf(agentProvider),
-                      (index) => {
-                        setAgentProvider(selectableAgentProviders[index]!);
-                        setAgentProviderChosen(true);
-                      },
-                    )
-                  }
-                >
-                  {selectableAgentProviders.map((provider) => (
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={agentProviderChosen && agentProvider === provider}
-                      tabIndex={
-                        agentProvider === provider ||
-                        (!agentProviderChosen && provider === selectableAgentProviders[0])
-                          ? 0
-                          : -1
-                      }
-                      className={[
-                        agentProviderChosen && agentProvider === provider ? "active" : "",
-                        providerInfo(local, provider)?.installed === false ? "unavailable" : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" ")}
-                      // 只选中，不自动跳步：选好后由人点「下一步」，可以先比较、改主意
-                      onClick={() => {
-                        setAgentProvider(provider);
-                        setAgentProviderChosen(true);
-                      }}
-                      key={provider}
-                    >
-                      <span className="provider-monogram" aria-hidden="true">
-                        <ProviderLogo provider={provider} />
-                      </span>
-                      <span className="provider-copy">
-                        <strong>{agentProviderLabel(provider)}</strong>
-                        <small>
-                          {(() => {
-                            const info = providerInfo(local, provider);
-                            if (!info) return agentProviderDescriptions[provider];
-                            return info.installed
-                              ? `${agentProviderDescriptions[provider]}${info.version ? ` · ${info.version}` : ""}`
-                              : t("本机未安装");
-                          })()}
-                        </small>
-                      </span>
-                      <span className="provider-check" aria-hidden="true">
-                        <Icon name="check" size={15} />
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {agentStep === 1 && local.mode === "local" && (
-                <button
-                  type="button"
-                  className="agent-runtime-link"
-                  onClick={() =>
-                    openRuntimeSettings(agentProviderChosen ? agentProvider : undefined)
-                  }
-                >
-                  {agentProviderChosen
-                    ? providerInfo(local, agentProvider)?.installed === false
-                      ? t("去安装 {0} →", { 0: agentProviderLabel(agentProvider) })
-                      : t("升级或调整 {0} 的配置（接口地址、密钥、模型等）→", {
-                          0: agentProviderLabel(agentProvider),
-                        })
-                    : t("安装、升级 Agent 或调整它们的配置 →")}
-                </button>
-              )}
-
-              {agentStep === 2 && (
-                <>
-                  <div>
-                    <div
-                      className="access-selector"
-                      role="radiogroup"
-                      aria-labelledby="agent-step-title"
-                      onKeyDown={(event) =>
-                        moveRadioSelection(
-                          event,
-                          agentAccessOptions.findIndex((option) => option.id === agentAccess),
-                          (index) => chooseAgentAccess(agentAccessOptions[index]!.id),
-                        )
-                      }
-                    >
-                      {agentAccessOptions.map((option) => (
-                        <button
-                          type="button"
-                          role="radio"
-                          ref={option.id === "full" ? fullAccessOptionRef : undefined}
-                          aria-checked={agentAccess === option.id}
-                          aria-expanded={
-                            option.id === "full" ? fullAccessConfirmationOpen : undefined
-                          }
-                          tabIndex={agentAccess === option.id ? 0 : -1}
-                          className={`${option.id} ${agentAccess === option.id ? "active" : ""}`}
-                          // 只选中，不自动跳步；完全访问要先在选项旁的气泡里确认风险
-                          onClick={() => chooseAgentAccess(option.id)}
-                          key={option.id}
-                        >
-                          <span className="access-indicator" aria-hidden="true">
-                            <i />
-                          </span>
-                          <strong>{option.label}</strong>
-                          <small>{option.description}</small>
-                        </button>
-                      ))}
-                    </div>
-                    {fullAccessConfirmationOpen && agentAccess !== "full" && (
-                      <ConfirmPopover
-                        ariaLabel={t("确认开启完全访问")}
-                        title={t("确认移除本机安全边界？")}
-                        message={t(
-                          "{0} 将可以执行当前系统用户有权进行的操作；房间消息可能触发文件、命令或网络操作。",
-                          { 0: agentProviderLabel(agentProvider) },
-                        )}
-                        confirmLabel={t("我了解风险，开启完全访问")}
-                        cancelLabel={t("取消")}
-                        anchorRef={fullAccessOptionRef}
-                        danger
-                        onConfirm={confirmFullAccess}
-                        onCancel={closeFullAccessConfirmation}
-                      />
-                    )}
-                  </div>
-                  {agentProvider === "openclaw" && (
-                    <p className="openclaw-access-note">
-                      {t(
-                        "OpenClaw 的实际权限还需在其 Agent / Gateway 中设置；Hive 不会自动改写全局策略。",
-                      )}
-                    </p>
-                  )}
-                  {agentProvider === "omp" && agentAccess === "workspace" && (
-                    <p className="openclaw-access-note">
-                      {t(
-                        "omp 不会把文件写入限制在当前目录内；需要目录隔离时请选择 OpenCode、Codex 或 Claude Code。",
-                      )}
-                    </p>
-                  )}
-                </>
-              )}
-
-              {agentStep === 3 &&
-                (() => {
-                  // 复制命令这一整段：本机模式下折叠为"或复制命令"，否则直接展示
-                  const commandSection = (
-                    <>
-                      <div className="command">
-                        <div className="command-heading">
-                          <span className="terminal-dots" aria-hidden="true">
-                            <i />
-                            <i />
-                            <i />
-                          </span>
-                          <small>{t("终端")}</small>
-                        </div>
-                        <code>{selectedAgentCommand}</code>
-                        <button type="button" disabled={!meta} onClick={() => void copyCommand()}>
-                          <Icon name={commandCopied ? "check" : "copy"} size={16} />
-                          <span>{commandCopied ? t("已复制到剪贴板") : t("复制命令")}</span>
-                        </button>
-                      </div>
-                      {copyError && (
-                        <p className="command-copy-error" role="alert">
-                          {copyError}
-                        </p>
-                      )}
-                      {meta?.agentCommand && !meta.agentCommand.startsWith("npx") && (
-                        <p className="command-dev-note">
-                          {t(
-                            "开发模式命令：请在 superhive 仓库根目录的终端运行，使用的是当前仓库代码， 而非已发布的 npm 包。",
-                          )}
-                        </p>
-                      )}
-                      <ol className="agent-next-steps" aria-label={t("接入后的操作")}>
-                        <li>
-                          {t(
-                            "在 {0} 所在电脑的终端运行这条命令，Agent 会加入所有房间并保持每个房间的独立上下文。",
-                            { 0: agentProviderLabel(agentProvider) },
-                          )}
-                        </li>
-                        <li>
-                          {t("在消息中输入")}{" "}
-                          <code>@{agentNameFor(username, agentProvider, takenAgentNames)}</code>{" "}
-                          {t("即可让它响应；没被 @ 时它只会旁听。")}
-                        </li>
-                        <li>
-                          {t("终端按")} <kbd>Ctrl + C</kbd>{" "}
-                          {t("即可让它离线。只想加入单个房间可在命令后追加")}{" "}
-                          <code>{t("--room 房间ID")}</code>
-                          {t("。")}
-                        </li>
-                      </ol>
-                    </>
-                  );
-                  return local.enabled ? (
-                    <>
-                      <HostManageNotice local={local} compact />
-                      <LocalLaunch
-                        local={local}
-                        provider={agentProvider}
-                        access={agentAccess}
-                        defaultName={agentNameFor(username, agentProvider, takenAgentNames)}
-                        takenNames={takenAgentNames}
-                        providerLabel={agentProviderLabel(agentProvider)}
-                        onLaunched={() => setAgentConnected(true)}
-                      >
-                        {commandSection}
-                      </LocalLaunch>
-                    </>
-                  ) : (
-                    commandSection
-                  );
-                })()}
-            </div>
-
-            <footer className="agent-dialog-footer">
-              {agentStep === 3 && (
-                <div className="agent-dialog-links">
-                  <details className="connection-details">
-                    <summary>{t("查看连接信息")}</summary>
-                    <dl>
-                      <div>
-                        <dt>{t("服务地址")}</dt>
-                        <dd>
-                          <code>{meta?.httpUrl ?? base}</code>
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Hive MCP</dt>
-                        <dd>
-                          <code>{meta?.mcpUrl ?? `${base}/mcp`}</code>
-                        </dd>
-                      </div>
-                    </dl>
-                  </details>
-                  <a
-                    className="agent-doc"
-                    href={`${base}/agent.md`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {t("行为与安全规则")} <Icon name="external" size={15} />
-                  </a>
-                </div>
-              )}
-              <div className="agent-dialog-nav">
-                {agentStep > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => goToAgentStep((agentStep - 1) as AgentSetupStep)}
-                  >
-                    {t("上一步")}
-                  </button>
-                )}
-                {agentStep < 3 ? (
-                  <button
-                    type="button"
-                    className="primary"
-                    disabled={agentStep === 1 && !agentProviderChosen}
-                    title={
-                      agentStep === 1 && !agentProviderChosen ? t("先选一个 Agent") : undefined
-                    }
-                    onClick={() => goToAgentStep((agentStep + 1) as AgentSetupStep)}
-                  >
-                    <span>{t("下一步")}</span>
-                    <Icon name="arrow-right" size={16} />
-                  </button>
-                ) : (
-                  agentConnected && (
-                    <button type="button" className="primary" onClick={closeAgentDialog}>
-                      {t("完成")}
-                    </button>
-                  )
-                )}
-              </div>
-            </footer>
-          </div>
-        </div>
+        <AgentSetupDialog
+          agentAccess={agentAccess}
+          agentConnected={agentConnected}
+          agentDialogCloseRef={agentDialogCloseRef}
+          agentDialogRef={agentDialogRef}
+          agentProvider={agentProvider}
+          agentProviderChosen={agentProviderChosen}
+          agentStep={agentStep}
+          agentStepHeadingRef={agentStepHeadingRef}
+          base={base}
+          chooseAgentAccess={chooseAgentAccess}
+          closeAgentDialog={closeAgentDialog}
+          closeFullAccessConfirmation={closeFullAccessConfirmation}
+          commandCopied={commandCopied}
+          confirmFullAccess={confirmFullAccess}
+          copyCommand={copyCommand}
+          copyError={copyError}
+          fullAccessConfirmationOpen={fullAccessConfirmationOpen}
+          fullAccessOptionRef={fullAccessOptionRef}
+          goToAgentStep={goToAgentStep}
+          local={local}
+          meta={meta}
+          openRuntimeSettings={openRuntimeSettings}
+          selectedAgentCommand={selectedAgentCommand}
+          setAgentConnected={setAgentConnected}
+          setAgentProvider={setAgentProvider}
+          setAgentProviderChosen={setAgentProviderChosen}
+          takenAgentNames={takenAgentNames}
+          username={username}
+        />
       )}
 
       {settingsOpen && (
-        <div className="settings-dialog-layer">
-          <button
-            className="settings-dialog-scrim"
-            type="button"
-            aria-label={t("关闭设置")}
-            onClick={closeSettings}
-          />
-          <div
-            ref={settingsDialogRef}
-            className="settings-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="settings-dialog-title"
-          >
-            <header className="settings-dialog-header">
-              <div>
-                <h2 id="settings-dialog-title">{t("偏好设置")}</h2>
-              </div>
-              <button
-                ref={settingsCloseRef}
-                type="button"
-                aria-label={t("关闭设置")}
-                onClick={closeSettings}
-              >
-                <Icon name="close" />
-              </button>
-            </header>
-            <div className="settings-dialog-layout">
-              <nav className="settings-tabs" aria-label={t("设置分类")} role="tablist">
-                {visibleSettingsTabs.map((tab, index) => (
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={settingsTab === tab.id}
-                    aria-controls={`settings-panel-${tab.id}`}
-                    tabIndex={settingsTab === tab.id ? 0 : -1}
-                    className={settingsTab === tab.id ? "active" : ""}
-                    onClick={() => setSettingsTab(tab.id)}
-                    onKeyDown={(event) => {
-                      if (
-                        !["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(event.key)
-                      ) {
-                        return;
-                      }
-                      event.preventDefault();
-                      const direction =
-                        event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : -1;
-                      const nextIndex =
-                        (index + direction + visibleSettingsTabs.length) %
-                        visibleSettingsTabs.length;
-                      setSettingsTab(visibleSettingsTabs[nextIndex]!.id);
-                      window.requestAnimationFrame(() => {
-                        const tabs =
-                          settingsDialogRef.current?.querySelectorAll<HTMLButtonElement>(
-                            '[role="tab"]',
-                          );
-                        tabs?.[nextIndex]?.focus();
-                      });
-                    }}
-                    key={tab.id}
-                  >
-                    <strong>
-                      {tab.id === "computer" && local.mode === "device"
-                        ? t("Server 所在电脑")
-                        : tab.label}
-                    </strong>
-                    <small>{tab.description}</small>
-                  </button>
-                ))}
-              </nav>
-
-              <div className="settings-dialog-content">
-                {settingsTab === "chat" && (
-                  <section id="settings-panel-chat" role="tabpanel" aria-label={t("聊天与输入")}>
-                    <div className="settings-panel-heading">
-                      <h3>{t("聊天与输入")}</h3>
-                      <p>{t("控制消息如何编辑、发送和显示。")}</p>
-                    </div>
-
-                    <div className="settings-group">
-                      <div className="settings-section-heading">
-                        <div>
-                          <h4>{t("发送消息")}</h4>
-                          <p>{t("选择在输入框中发送消息的快捷键。")}</p>
-                        </div>
-                      </div>
-                      <div
-                        className="shortcut-selector"
-                        role="radiogroup"
-                        aria-label={t("发送快捷键")}
-                      >
-                        <button
-                          type="button"
-                          role="radio"
-                          aria-checked={sendShortcut === "modifier-enter"}
-                          className={sendShortcut === "modifier-enter" ? "active" : ""}
-                          onClick={() => {
-                            setSendShortcut("modifier-enter");
-                            localStorage.setItem(storedSendShortcutKey, "modifier-enter");
-                          }}
-                        >
-                          <span>
-                            <strong>{t("组合键发送")}</strong>
-                            <small>{t("推荐，Enter 可以安心换行")}</small>
-                          </span>
-                          <KeyCombo keys={["Mod", "Enter"]} />
-                          <i aria-hidden="true">
-                            <Icon name="check" size={14} />
-                          </i>
-                        </button>
-                        <button
-                          type="button"
-                          role="radio"
-                          aria-checked={sendShortcut === "enter"}
-                          className={sendShortcut === "enter" ? "active" : ""}
-                          onClick={() => {
-                            setSendShortcut("enter");
-                            localStorage.setItem(storedSendShortcutKey, "enter");
-                          }}
-                        >
-                          <span>
-                            <strong>{t("Enter 发送")}</strong>
-                            <small>
-                              {t("{0} 换行")
-                                .split(/(\{0\})/)
-                                .map((part, index) =>
-                                  part === "{0}" ? (
-                                    <KeyCombo key={index} keys={["Shift", "Enter"]} />
-                                  ) : (
-                                    part
-                                  ),
-                                )}
-                            </small>
-                          </span>
-                          <KeyCombo keys={["Enter"]} />
-                          <i aria-hidden="true">
-                            <Icon name="check" size={14} />
-                          </i>
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="settings-group divided">
-                      <SettingsSwitch
-                        checked={autoSaveDraft}
-                        label={t("自动保存草稿")}
-                        description={t("刷新或重新打开页面后恢复未发送内容")}
-                        onChange={(checked) => {
-                          setAutoSaveDraft(checked);
-                          localStorage.setItem(storedAutoSaveDraftKey, String(checked));
-                          if (!checked && username) {
-                            localStorage.removeItem(draftStorageKey(username, currentRoomId));
-                          } else if (checked && username && draft) {
-                            localStorage.setItem(draftStorageKey(username, currentRoomId), draft);
-                          }
-                        }}
-                      />
-                      <SettingsSwitch
-                        checked={richComposer}
-                        label={t("输入框直接显示格式")}
-                        description={t(
-                          "像飞书一样边写边显示标题、列表、加粗、代码；关掉则是纯文本 Markdown，可手动预览",
-                        )}
-                        onChange={(checked) => {
-                          setRichComposer(checked);
-                          setComposerPreview(false);
-                          localStorage.setItem(storedRichComposerKey, String(checked));
-                        }}
-                      />
-                      <div className="settings-inline-row">
-                        <span>
-                          <strong>{t("时间格式")}</strong>
-                          <small>{t("消息时间戳的显示方式")}</small>
-                        </span>
-                        <div
-                          className="compact-choice"
-                          role="radiogroup"
-                          aria-label={t("时间格式")}
-                        >
-                          {(["system", "24h", "12h"] as const).map((value) => (
-                            <button
-                              type="button"
-                              role="radio"
-                              aria-checked={timeFormat === value}
-                              className={timeFormat === value ? "active" : ""}
-                              onClick={() => {
-                                setTimeFormat(value);
-                                localStorage.setItem(storedTimeFormatKey, value);
-                              }}
-                              key={value}
-                            >
-                              {value === "system"
-                                ? t("系统")
-                                : value === "24h"
-                                  ? t("24 小时")
-                                  : t("12 小时")}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </section>
-                )}
-
-                {settingsTab === "notifications" && (
-                  <section id="settings-panel-notifications" role="tabpanel" aria-label={t("通知")}>
-                    <div className="settings-panel-heading">
-                      <h3>{t("通知")}</h3>
-                      <p>{t("只在你需要关注时发出清晰信号。")}</p>
-                    </div>
-                    {notificationPermission !== "granted" &&
-                      notificationPermission !== "default" && (
-                        <div className="notification-permission-note" role="status">
-                          <Icon name="shield" size={16} />
-                          <span>
-                            {notificationPermission === "unsupported"
-                              ? t("当前浏览器不支持系统通知。")
-                              : t("系统通知已被浏览器阻止，请在站点权限中重新允许。")}
-                          </span>
-                        </div>
-                      )}
-                    {notificationPermission === "default" && messageNotifications !== "off" && (
-                      <div className="notification-permission-note" role="status">
-                        <Icon name="bell" size={16} />
-                        <span>{t("浏览器尚未授权通知，当前选项要等授权后才会生效。")}</span>
-                        <button type="button" onClick={() => void ensureNotificationPermission()}>
-                          {t("立即授权")}
-                        </button>
-                      </div>
-                    )}
-                    <div className="settings-group">
-                      <div className="settings-section-heading">
-                        <div>
-                          <h4>{t("消息通知")}</h4>
-                          <p>{t("页面不在前台时，通过系统通知提醒我。")}</p>
-                        </div>
-                      </div>
-                      <div
-                        className="shortcut-selector notification-modes"
-                        role="radiogroup"
-                        aria-label={t("消息通知")}
-                      >
-                        {messageNotificationOptions.map((option) => (
-                          <button
-                            type="button"
-                            role="radio"
-                            aria-checked={messageNotifications === option.id}
-                            disabled={
-                              notificationPermission === "unsupported" && option.id !== "off"
-                            }
-                            className={messageNotifications === option.id ? "active" : ""}
-                            onClick={() => void updateMessageNotifications(option.id)}
-                            key={option.id}
-                          >
-                            <span>
-                              <strong>{option.label}</strong>
-                              <small>{option.description}</small>
-                            </span>
-                            <i aria-hidden="true">
-                              <Icon name="check" size={14} />
-                            </i>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="settings-group divided">
-                      <div className="settings-section-heading">
-                        <div>
-                          <h4>{t("任务提醒")}</h4>
-                          <p>
-                            {t(
-                              "你发起的任务等你回答、失败、结果未知或做完了，以及等你放行的任务，不管在哪个房间都提醒；正看着那个房间时不打扰。",
-                            )}
-                          </p>
-                        </div>
-                      </div>
-                      <div
-                        className="shortcut-selector notification-modes"
-                        role="radiogroup"
-                        aria-label={t("任务提醒")}
-                      >
-                        {attentionDeliveryOptions.map((option) => (
-                          <button
-                            type="button"
-                            role="radio"
-                            aria-checked={attentionDelivery === option.id}
-                            className={attentionDelivery === option.id ? "active" : ""}
-                            onClick={() => void updateAttentionDelivery(option.id)}
-                            key={option.id}
-                          >
-                            <span>
-                              <strong>{option.label}</strong>
-                              <small>{option.description}</small>
-                            </span>
-                            <i aria-hidden="true">
-                              <Icon name="check" size={14} />
-                            </i>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="settings-group divided settings-switch-list">
-                      <SettingsSwitch
-                        checked={attentionSound}
-                        disabled={attentionDelivery === "off"}
-                        label={t("任务提醒提示音")}
-                        description={t("需要你处理时响两声，做完时响一声")}
-                        onChange={(checked) => {
-                          setAttentionSound(checked);
-                          localStorage.setItem(storedAttentionSoundKey, String(checked));
-                          if (checked) playAttentionTone("question");
-                        }}
-                      />
-                      <SettingsSwitch
-                        checked={attentionGroup}
-                        label={t("侧栏显示「需要你处理」")}
-                        description={t(
-                          "在房间列表上方列出待处理的任务，点一下直接跳过去；不影响房间顺序",
-                        )}
-                        onChange={(checked) => {
-                          setAttentionGroup(checked);
-                          localStorage.setItem(storedAttentionGroupKey, String(checked));
-                        }}
-                      />
-                      <SettingsSwitch
-                        checked={notificationSound}
-                        label={t("新消息提示音")}
-                        description={t("收到其他成员的新消息时播放轻提示音")}
-                        onChange={(checked) => {
-                          setNotificationSound(checked);
-                          localStorage.setItem(storedNotificationSoundKey, String(checked));
-                          if (checked) playNotificationTone();
-                        }}
-                      />
-                      <SettingsSwitch
-                        checked={presenceNotifications}
-                        disabled={notificationPermission === "unsupported"}
-                        label={t("Agent 上下线")}
-                        description={t("页面不在前台时，提醒 Agent 离线或重新上线")}
-                        onChange={(checked) => void updatePresenceNotifications(checked)}
-                      />
-                    </div>
-                    <p className="settings-local-note">
-                      {t("浏览器通知只在页面不处于前台时显示；提示音设置独立生效。")}
-                    </p>
-                  </section>
-                )}
-
-                {settingsTab === "computer" && (
-                  <section id="settings-panel-computer" role="tabpanel" aria-label={t("这台电脑")}>
-                    <div className="settings-panel-heading">
-                      <h3>
-                        {local.mode === "device"
-                          ? t("Server 所在电脑（{0}）", { 0: local.hostLabel ?? "" })
-                          : t("这台电脑")}
-                      </h3>
-                      <p>
-                        {local.mode === "device"
-                          ? t("运行 Hive Server 的那台电脑的设置，对所有房间生效。")
-                          : t("运行 Hive Server 的这台电脑的设置，对所有房间生效。")}
-                      </p>
-                    </div>
-                    <HostManageNotice local={local} />
-                    <LocalAgentUpdatesGroup local={local} />
-                    <KeepAwakeSettingsGroup local={local} />
-                    <OwnerDevicesGroup local={local} />
-                    {slowOpsState.enabled && <SlowOpsSettingsEntry state={slowOpsState} />}
-                  </section>
-                )}
-                {settingsTab === "runtimes" && local.mode === "local" && (
-                  <AgentRuntimesPanel local={local} focusTool={runtimesFocus} />
-                )}
-                {settingsTab === "appearance" && (
-                  <section id="settings-panel-appearance" role="tabpanel" aria-label={t("外观")}>
-                    <div className="settings-panel-heading">
-                      <h3>{t("外观")}</h3>
-                      <p>{t("调整界面气氛与信息密度，不影响其他成员。")}</p>
-                    </div>
-
-                    <div className="settings-group">
-                      <div className="settings-section-heading">
-                        <div>
-                          <h4>{t("界面主题")}</h4>
-                          <p>{t("系统主题变化时可以自动跟随。")}</p>
-                        </div>
-                      </div>
-                      <div
-                        className="visual-choice-grid"
-                        role="radiogroup"
-                        aria-label={t("界面主题")}
-                      >
-                        {(["system", "dark", "light"] as const).map((value) => (
-                          <button
-                            type="button"
-                            role="radio"
-                            aria-checked={themePreference === value}
-                            className={`${value} ${themePreference === value ? "active" : ""}`}
-                            onClick={() => {
-                              setThemePreference(value);
-                              localStorage.setItem(storedThemeKey, value);
-                            }}
-                            key={value}
-                          >
-                            <i aria-hidden="true">
-                              <span />
-                            </i>
-                            <strong>
-                              {value === "system"
-                                ? t("跟随系统")
-                                : value === "dark"
-                                  ? t("深色")
-                                  : t("浅色")}
-                            </strong>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="settings-group divided settings-switch-list">
-                      <div className="settings-inline-row">
-                        <span>
-                          <strong>{t("界面语言")}</strong>
-                          <small>{t("只影响你自己看到的界面，聊天内容不翻译")}</small>
-                        </span>
-                        <div
-                          className="compact-choice"
-                          role="radiogroup"
-                          aria-label={t("界面语言")}
-                        >
-                          {LOCALE_OPTIONS.map((option) => (
-                            <button
-                              type="button"
-                              role="radio"
-                              aria-checked={localePreference === option.value}
-                              className={localePreference === option.value ? "active" : ""}
-                              onClick={() => setLocalePreference(option.value)}
-                              key={option.value}
-                            >
-                              {option.value === "system" ? t(option.label) : option.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="settings-inline-row">
-                        <span>
-                          <strong>{t("界面密度")}</strong>
-                          <small>{t("控制成员和消息之间的留白")}</small>
-                        </span>
-                        <div
-                          className="compact-choice"
-                          role="radiogroup"
-                          aria-label={t("界面密度")}
-                        >
-                          {(["comfortable", "compact"] as const).map((value) => (
-                            <button
-                              type="button"
-                              role="radio"
-                              aria-checked={interfaceDensity === value}
-                              className={interfaceDensity === value ? "active" : ""}
-                              onClick={() => {
-                                setInterfaceDensity(value);
-                                localStorage.setItem(storedDensityKey, value);
-                              }}
-                              key={value}
-                            >
-                              {value === "comfortable" ? t("舒适") : t("紧凑")}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="settings-inline-row">
-                        <span>
-                          <strong>{t("消息区宽度")}</strong>
-                          <small>{t("宽屏下消息和输入框能用多宽；手机上不受影响")}</small>
-                        </span>
-                        <div
-                          className="compact-choice"
-                          role="radiogroup"
-                          aria-label={t("消息区宽度")}
-                        >
-                          {(["standard", "wide", "full"] as const).map((value) => (
-                            <button
-                              type="button"
-                              role="radio"
-                              aria-checked={threadWidth === value}
-                              className={threadWidth === value ? "active" : ""}
-                              onClick={() => {
-                                setThreadWidth(value);
-                                localStorage.setItem(storedThreadWidthKey, value);
-                              }}
-                              key={value}
-                            >
-                              {value === "standard"
-                                ? t("标准宽度")
-                                : value === "wide"
-                                  ? t("加宽")
-                                  : t("铺满")}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="settings-inline-row">
-                        <span>
-                          <strong>{t("消息字号")}</strong>
-                          <small>{t("只调整消息正文和输入文字")}</small>
-                        </span>
-                        <div
-                          className="compact-choice"
-                          role="radiogroup"
-                          aria-label={t("消息字号")}
-                        >
-                          {(["small", "standard", "large"] as const).map((value) => (
-                            <button
-                              type="button"
-                              role="radio"
-                              aria-checked={messageSize === value}
-                              className={messageSize === value ? "active" : ""}
-                              onClick={() => {
-                                setMessageSize(value);
-                                localStorage.setItem(storedMessageSizeKey, value);
-                              }}
-                              key={value}
-                            >
-                              {value === "small"
-                                ? t("小")
-                                : value === "standard"
-                                  ? t("标准")
-                                  : t("大")}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <SettingsSwitch
-                        checked={reduceMotion}
-                        label={t("减少动态效果")}
-                        description={t("关闭浮层、状态和界面的过渡动画")}
-                        onChange={(checked) => {
-                          setReduceMotion(checked);
-                          localStorage.setItem(storedReduceMotionKey, String(checked));
-                        }}
-                      />
-                    </div>
-                  </section>
-                )}
-
-                <p className="settings-local-note settings-persistence-note">
-                  {t("所有偏好即时生效，并且只保存在当前浏览器中。")}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
+        <SettingsDialog
+          attentionDelivery={attentionDelivery}
+          attentionGroup={attentionGroup}
+          attentionSound={attentionSound}
+          autoSaveDraft={autoSaveDraft}
+          closeSettings={closeSettings}
+          currentRoomId={currentRoomId}
+          draft={draft}
+          ensureNotificationPermission={ensureNotificationPermission}
+          interfaceDensity={interfaceDensity}
+          local={local}
+          localePreference={localePreference}
+          messageNotifications={messageNotifications}
+          messageSize={messageSize}
+          notificationPermission={notificationPermission}
+          notificationSound={notificationSound}
+          presenceNotifications={presenceNotifications}
+          reduceMotion={reduceMotion}
+          richComposer={richComposer}
+          runtimesFocus={runtimesFocus}
+          sendShortcut={sendShortcut}
+          setAttentionGroup={setAttentionGroup}
+          setAttentionSound={setAttentionSound}
+          setAutoSaveDraft={setAutoSaveDraft}
+          setComposerPreview={setComposerPreview}
+          setInterfaceDensity={setInterfaceDensity}
+          setMessageSize={setMessageSize}
+          setNotificationSound={setNotificationSound}
+          setReduceMotion={setReduceMotion}
+          setRichComposer={setRichComposer}
+          setSendShortcut={setSendShortcut}
+          setSettingsTab={setSettingsTab}
+          setThemePreference={setThemePreference}
+          setThreadWidth={setThreadWidth}
+          setTimeFormat={setTimeFormat}
+          settingsCloseRef={settingsCloseRef}
+          settingsDialogRef={settingsDialogRef}
+          settingsTab={settingsTab}
+          slowOpsState={slowOpsState}
+          themePreference={themePreference}
+          threadWidth={threadWidth}
+          timeFormat={timeFormat}
+          updateAttentionDelivery={updateAttentionDelivery}
+          updateMessageNotifications={updateMessageNotifications}
+          updatePresenceNotifications={updatePresenceNotifications}
+          username={username}
+          visibleSettingsTabs={visibleSettingsTabs}
+        />
       )}
 
       {roomDialog && (
-        <div className="room-dialog-layer">
-          <button
-            className="room-dialog-scrim"
-            type="button"
-            aria-label={t("关闭房间弹窗")}
-            onClick={closeRoomDialog}
-          />
-          <div
-            ref={roomDialogRef}
-            className="room-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="room-dialog-title"
-          >
-            <header className="room-dialog-header">
-              <div>
-                <h2 id="room-dialog-title">
-                  {roomDialog.mode === "create"
-                    ? t("新建房间")
-                    : t("房间设置 · # {0}", { 0: roomDialog.room.id })}
-                </h2>
-              </div>
-              <button
-                ref={roomDialogCloseRef}
-                type="button"
-                aria-label={t("关闭")}
-                onClick={closeRoomDialog}
-              >
-                <Icon name="close" />
-              </button>
-            </header>
-            <form
-              className="room-dialog-body"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (roomDialog.mode === "create") void submitCreateRoom();
-                else void submitRenameRoom(roomDialog.room);
-              }}
-            >
-              {roomDialog.mode === "create" && (
-                <label className="room-field">
-                  <span>{t("房间 ID")}</span>
-                  <input
-                    value={roomDialogId}
-                    onChange={(event) => setRoomDialogId(event.target.value)}
-                    maxLength={64}
-                    placeholder={t("例如 frontend")}
-                    spellCheck={false}
-                    autoComplete="off"
-                  />
-                  <small>
-                    {t("仅字母、数字、下划线与连字符；创建后不可修改，Agent 用它加入。")}
-                  </small>
-                </label>
-              )}
-              <label className="room-field">
-                <span>
-                  {t("显示名称{0}", { 0: roomDialog.mode === "create" ? t("（可选）") : "" })}
-                </span>
-                <input
-                  value={roomDialogName}
-                  onChange={(event) => setRoomDialogName(event.target.value)}
-                  maxLength={64}
-                  placeholder={roomDialog.mode === "create" ? t("默认与房间 ID 相同") : ""}
-                />
-                <small>{t("仅影响界面展示，可随时修改。")}</small>
-              </label>
-              {isOwner && (
-                <label className="room-field">
-                  <span>{t("工作区（可选）")}</span>
-                  <div className="local-launch-cwd-row">
-                    <input
-                      value={roomDialogWorkspace}
-                      onChange={(event) => setRoomDialogWorkspace(event.target.value)}
-                      maxLength={4096}
-                      placeholder={t("例如 ~/Coding/my-project，留空用各 Agent 自己的目录")}
-                      spellCheck={false}
-                      autoComplete="off"
-                    />
-                    {local.enabled && (
-                      <button
-                        type="button"
-                        aria-expanded={roomWorkspacePicking}
-                        onClick={() => setRoomWorkspacePicking((current) => !current)}
-                      >
-                        {t("选择…")}
-                      </button>
-                    )}
-                  </div>
-                  <small>
-                    {local.mode === "device"
-                      ? t(
-                          "Server 所在电脑（{0}）上的目录。在网页上启动的本机 Agent 会在这个房间改到这里工作；用命令行手动接入的 Agent 只跟随它启动目录及其上一级（或 --allow-root 追加的目录）。修改后 Agent 等手上的任务做完再切换，并开始新会话。",
-                          { 0: local.hostLabel ?? "" },
-                        )
-                      : t(
-                          "这台电脑上的目录。在网页上启动的本机 Agent 会在这个房间改到这里工作；用命令行手动接入的 Agent 只跟随它启动目录及其上一级（或 --allow-root 追加的目录）。修改后 Agent 等手上的任务做完再切换，并开始新会话。",
-                        )}
-                  </small>
-                </label>
-              )}
-              {isOwner && roomDialog.mode === "manage" && (
-                <div className="room-field room-field-check">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={roomDialogGuestFiles}
-                      aria-describedby="room-guest-files-hint"
-                      onChange={(event) => setRoomDialogGuestFiles(event.target.checked)}
-                    />
-                    {t("允许访客查看工作区文件与改动")}
-                  </label>
-                  <small id="room-guest-files-hint">
-                    {t(
-                      "只读：访客能浏览文件、看 git 变更与提交，不能修改；疑似密钥文件（.env、私钥等）的内容始终只有房主能看。默认关闭。",
-                    )}
-                  </small>
-                </div>
-              )}
-              {isOwner && roomDialog.mode === "manage" && (
-                <label className="room-field">
-                  <span>{t("主 Agent（可选）")}</span>
-                  <Select
-                    value={roomDialogLead}
-                    onChange={setRoomDialogLead}
-                    options={[
-                      { value: "", label: t("不设置") },
-                      ...(roomDialogLead &&
-                      !leadCandidates(roomDialog.room).includes(roomDialogLead)
-                        ? [{ value: roomDialogLead, label: roomDialogLead }]
-                        : []),
-                      ...leadCandidates(roomDialog.room).map((name) => ({
-                        value: name,
-                        label: name,
-                        icon: (
-                          <span className="avatar agent select-avatar" aria-hidden="true">
-                            <AvatarGlyph
-                              type="agent"
-                              name={name}
-                              provider={agentProviderByName.get(name.toLocaleLowerCase())}
-                            />
-                          </span>
-                        ),
-                      })),
-                    ]}
-                  />
-                  {roomDialogLead &&
-                    roomDialog.room.id === currentRoomId &&
-                    !leadCandidates(roomDialog.room).includes(roomDialogLead) && (
-                      <small className="room-field-warning" role="alert">
-                        {t("主 Agent {0} 已不在这个房间，不带 @ 的消息现在没人接，请重新选择。", {
-                          0: roomDialogLead,
-                        })}
-                      </small>
-                    )}
-                  <small>
-                    {roomDialog.room.id === currentRoomId
-                      ? t(
-                          "人发的、没有 @ 任何人的消息交给它接话，由它决定自己做还是用 hive_invoke 分派给其他 Agent；带 @ 的消息照常只发给被 @ 的成员。",
-                        )
-                      : t("进入这个房间后才能从它的 Agent 里选择。")}
-                  </small>
-                </label>
-              )}
-              {isOwner && roomWorkspacePicking && local.enabled && (
-                <DirectoryPicker
-                  load={local.directories}
-                  value={roomDialogWorkspace}
-                  onPick={(picked) => {
-                    setRoomDialogWorkspace(picked);
-                    setRoomWorkspacePicking(false);
-                  }}
-                  onClose={() => setRoomWorkspacePicking(false)}
-                />
-              )}
-              {isOwner &&
-                local.enabled &&
-                roomDialog.mode === "manage" &&
-                roomDialog.room.workspace && (
-                  <WorktreePanel key={roomDialog.room.id} roomId={roomDialog.room.id} api={local} />
-                )}
-              {roomDialogError && (
-                <p className="room-dialog-error" role="alert">
-                  {roomDialogError}
-                </p>
-              )}
-              {roomDialog.mode === "manage" &&
-                archiveConfirmOpen &&
-                !roomDialog.room.archivedAt && (
-                  <div className="room-archive-confirmation" role="alert">
-                    <div>
-                      <strong>{t("确认归档该房间？")}</strong>
-                      <p>{t("归档后成员无法再加入，历史消息保留；随时可以恢复。")}</p>
-                    </div>
-                    <div className="room-archive-actions">
-                      <button type="button" onClick={() => setArchiveConfirmOpen(false)}>
-                        {t("取消")}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={roomDialogBusy}
-                        onClick={() => void setRoomArchived(roomDialog.room, true)}
-                      >
-                        {t("确认归档")}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              {roomDialog.mode === "manage" && clearConfirmOpen && (
-                <div className="room-archive-confirmation" role="alert">
-                  <div>
-                    <strong>{t("确认清空 # {0}？", { 0: roomDialog.room.name })}</strong>
-                    <p>
-                      {t(
-                        "将删除这个房间的全部消息和 Agent 调用记录，无法恢复；房间里的 Agent 会从新会话开始。",
-                      )}
-                    </p>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={clearWhiteboard}
-                        disabled={roomDialogBusy}
-                        onChange={(event) => setClearWhiteboard(event.target.checked)}
-                      />
-                      {t("同时归档当前白板（历史可恢复）")}
-                    </label>
-                    <p>
-                      {clearWhiteboard
-                        ? t(
-                            "进行中和阻塞的事项也会一起归档；仍占用工作区的事项会阻止清空，请先清理对应 worktree。",
-                          )
-                        : t("仅清空聊天与调用记录，保留白板，不解除工作区占用。")}
-                    </p>
-                  </div>
-                  <div className="room-archive-actions">
-                    <button type="button" onClick={() => setClearConfirmOpen(false)}>
-                      {t("取消")}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={roomDialogBusy}
-                      onClick={() => void clearRoom(roomDialog.room)}
-                    >
-                      {t("确认清空")}
-                    </button>
-                  </div>
-                </div>
-              )}
-              <footer className="room-dialog-footer">
-                {roomDialog.mode === "manage" && local.enabled && !roomDialog.room.archivedAt && (
-                  <button
-                    type="button"
-                    className="room-archive"
-                    disabled={roomDialogBusy || !local.canManage}
-                    title={
-                      local.canManage
-                        ? t("仅房主可用，不可恢复")
-                        : t("这台设备只能查看。要清空，先申请管理权。")
-                    }
-                    onClick={() => {
-                      setArchiveConfirmOpen(false);
-                      setClearWhiteboard(true);
-                      setClearConfirmOpen(true);
-                    }}
-                  >
-                    {t("清空房间")}
-                  </button>
-                )}
-                {roomDialog.mode === "manage" &&
-                  (roomDialog.room.archivedAt ? (
-                    <button
-                      type="button"
-                      className="room-restore"
-                      disabled={roomDialogBusy}
-                      onClick={() => void setRoomArchived(roomDialog.room, false)}
-                    >
-                      {t("恢复房间")}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="room-archive"
-                      disabled={roomDialogBusy || roomDialog.room.id === "general"}
-                      title={roomDialog.room.id === "general" ? t("默认房间不能归档") : undefined}
-                      onClick={() => {
-                        setClearConfirmOpen(false);
-                        setArchiveConfirmOpen(true);
-                      }}
-                    >
-                      {t("归档房间")}
-                    </button>
-                  ))}
-                <button type="submit" disabled={roomDialogBusy}>
-                  {roomDialog.mode === "create" ? t("创建房间") : t("保存")}
-                </button>
-              </footer>
-            </form>
-          </div>
-        </div>
+        <RoomDialog
+          agentProviderByName={agentProviderByName}
+          archiveConfirmOpen={archiveConfirmOpen}
+          clearConfirmOpen={clearConfirmOpen}
+          clearRoom={clearRoom}
+          clearWhiteboard={clearWhiteboard}
+          closeRoomDialog={closeRoomDialog}
+          currentRoomId={currentRoomId}
+          isOwner={isOwner}
+          leadCandidates={leadCandidates}
+          local={local}
+          roomDialog={roomDialog}
+          roomDialogBusy={roomDialogBusy}
+          roomDialogCloseRef={roomDialogCloseRef}
+          roomDialogError={roomDialogError}
+          roomDialogGuestFiles={roomDialogGuestFiles}
+          roomDialogId={roomDialogId}
+          roomDialogLead={roomDialogLead}
+          roomDialogName={roomDialogName}
+          roomDialogRef={roomDialogRef}
+          roomDialogWorkspace={roomDialogWorkspace}
+          roomWorkspacePicking={roomWorkspacePicking}
+          setArchiveConfirmOpen={setArchiveConfirmOpen}
+          setClearConfirmOpen={setClearConfirmOpen}
+          setClearWhiteboard={setClearWhiteboard}
+          setRoomArchived={setRoomArchived}
+          setRoomDialogGuestFiles={setRoomDialogGuestFiles}
+          setRoomDialogId={setRoomDialogId}
+          setRoomDialogLead={setRoomDialogLead}
+          setRoomDialogName={setRoomDialogName}
+          setRoomDialogWorkspace={setRoomDialogWorkspace}
+          setRoomWorkspacePicking={setRoomWorkspacePicking}
+          submitCreateRoom={submitCreateRoom}
+          submitRenameRoom={submitRenameRoom}
+        />
       )}
       <AttentionToasts
         toasts={attention.toasts}

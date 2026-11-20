@@ -1,0 +1,464 @@
+import type { MetaResponse } from "@superhive/protocol";
+import { t } from "./i18n";
+import { Icon } from "./app-icons";
+import {
+  agentSetupSteps,
+  agentProviderLabel,
+  agentAccessOptions,
+  selectableAgentProviders,
+  agentProviderDescriptions,
+  AgentSetupStep,
+  type AgentAccessMode,
+} from "./agent-setup";
+import { agentNameFor, type SelectableAgentProvider } from "./agent-name";
+import { moveRadioSelection } from "./ui-utils";
+import { providerInfo, LocalLaunch, type LocalAgentsState } from "./local-agents";
+import { ProviderLogo } from "./provider-logos";
+import { ConfirmPopover } from "./confirm-popover";
+import { HostManageNotice } from "./host-settings";
+import type { RefObject, Dispatch, SetStateAction } from "react";
+
+/** 接入 Agent 弹窗：选 Agent、设置权限、复制命令 */
+export function AgentSetupDialog({
+  agentAccess,
+  agentConnected,
+  agentDialogCloseRef,
+  agentDialogRef,
+  agentProvider,
+  agentProviderChosen,
+  agentStep,
+  agentStepHeadingRef,
+  base,
+  chooseAgentAccess,
+  closeAgentDialog,
+  closeFullAccessConfirmation,
+  commandCopied,
+  confirmFullAccess,
+  copyCommand,
+  copyError,
+  fullAccessConfirmationOpen,
+  fullAccessOptionRef,
+  goToAgentStep,
+  local,
+  meta,
+  openRuntimeSettings,
+  selectedAgentCommand,
+  setAgentConnected,
+  setAgentProvider,
+  setAgentProviderChosen,
+  takenAgentNames,
+  username,
+}: {
+  agentAccess: AgentAccessMode;
+  agentConnected: boolean;
+  agentDialogCloseRef: RefObject<HTMLButtonElement | null>;
+  agentDialogRef: RefObject<HTMLDivElement | null>;
+  agentProvider: SelectableAgentProvider;
+  agentProviderChosen: boolean;
+  agentStep: AgentSetupStep;
+  agentStepHeadingRef: RefObject<HTMLHeadingElement | null>;
+  base: string;
+  chooseAgentAccess: (access: AgentAccessMode) => void;
+  closeAgentDialog: () => void;
+  closeFullAccessConfirmation: () => void;
+  commandCopied: boolean;
+  confirmFullAccess: () => void;
+  copyCommand: () => Promise<void>;
+  copyError: string | undefined;
+  fullAccessConfirmationOpen: boolean;
+  fullAccessOptionRef: RefObject<HTMLButtonElement | null>;
+  goToAgentStep: (step: AgentSetupStep) => void;
+  local: LocalAgentsState;
+  meta: MetaResponse | undefined;
+  openRuntimeSettings: (provider: SelectableAgentProvider | undefined) => void;
+  selectedAgentCommand: string;
+  setAgentConnected: Dispatch<SetStateAction<boolean>>;
+  setAgentProvider: Dispatch<SetStateAction<SelectableAgentProvider>>;
+  setAgentProviderChosen: Dispatch<SetStateAction<boolean>>;
+  takenAgentNames: Set<string>;
+  username: string;
+}) {
+  return (
+    <div className="agent-dialog-layer">
+      <button
+        className="agent-dialog-scrim"
+        type="button"
+        aria-label={t("关闭 Agent 接入弹窗")}
+        onClick={closeAgentDialog}
+      />
+      <div
+        ref={agentDialogRef}
+        className="agent-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="agent-dialog-title"
+        aria-describedby="agent-dialog-description"
+      >
+        <header className="agent-dialog-header">
+          <div>
+            <h2 id="agent-dialog-title">{t("把 Agent 接入 Hive")}</h2>
+            <p id="agent-dialog-description">
+              {local.enabled
+                ? local.mode === "device"
+                  ? t("三步完成：选择 Agent、设置权限，然后一键在 {0} 上启动（也可以复制命令）。", {
+                      0: local.hostLabel ?? t("Server 所在电脑"),
+                    })
+                  : t("三步完成：选择 Agent、设置本机权限，然后一键在本机启动（也可以复制命令）。")
+                : t("三步完成：选择 Agent、设置本机权限，然后把命令复制到终端运行。")}
+            </p>
+          </div>
+          <button
+            ref={agentDialogCloseRef}
+            className="agent-dialog-close"
+            type="button"
+            aria-label={t("关闭")}
+            onClick={closeAgentDialog}
+          >
+            <Icon name="close" />
+          </button>
+        </header>
+
+        <ol className="agent-steps" aria-label={t("接入步骤")}>
+          {agentSetupSteps.map(({ step, label: baseLabel }) => {
+            const label = step === 3 && local.enabled ? t("启动 Agent") : baseLabel;
+            const state = step === agentStep ? "current" : step < agentStep ? "done" : "upcoming";
+            return (
+              <li
+                key={step}
+                className={state}
+                aria-current={state === "current" ? "step" : undefined}
+              >
+                {state === "done" ? (
+                  <button
+                    type="button"
+                    aria-label={t("返回第 {0} 步：{1}", { 0: step, 1: label })}
+                    onClick={() => goToAgentStep(step)}
+                  >
+                    <span className="agent-step-index" aria-hidden="true">
+                      <Icon name="check" size={12} />
+                    </span>
+                    <span>{label}</span>
+                  </button>
+                ) : (
+                  <span>
+                    <span className="agent-step-index" aria-hidden="true">
+                      {step}
+                    </span>
+                    <span>{label}</span>
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+
+        <div className="agent-dialog-body">
+          <div className="agent-step-heading">
+            <h3 id="agent-step-title" ref={agentStepHeadingRef} tabIndex={-1}>
+              {agentStep === 1
+                ? t("选择要接入的 Agent")
+                : agentStep === 2
+                  ? t("允许 {0} 在本机做什么？", { 0: agentProviderLabel(agentProvider) })
+                  : local.enabled
+                    ? local.mode === "device"
+                      ? t("在 {0} 上启动", { 0: local.hostLabel ?? t("Server 所在电脑") })
+                      : t("在本机启动")
+                    : t("复制命令，到终端运行")}
+            </h3>
+            {agentStep === 1 && (
+              <p>{t("选好后点「下一步」；接入命令会按所选 Agent 的运行环境自动调整。")}</p>
+            )}
+            {agentStep === 2 && (
+              <p>{t("权限只在 Agent 所在电脑生效，Hive Server 始终只转发消息。默认工作区档。")}</p>
+            )}
+            {agentStep === 3 && (
+              <p>
+                {t("将以")} <code>{agentNameFor(username, agentProvider, takenAgentNames)}</code>{" "}
+                {t("身份加入 · 权限：")}
+                <strong className={`agent-access-label ${agentAccess}`}>
+                  {agentAccessOptions.find((option) => option.id === agentAccess)?.label}
+                </strong>
+              </p>
+            )}
+          </div>
+
+          {agentStep === 1 && (
+            <div
+              className="provider-selector"
+              role="radiogroup"
+              aria-labelledby="agent-step-title"
+              onKeyDown={(event) =>
+                moveRadioSelection(
+                  event,
+                  selectableAgentProviders.indexOf(agentProvider),
+                  (index) => {
+                    setAgentProvider(selectableAgentProviders[index]!);
+                    setAgentProviderChosen(true);
+                  },
+                )
+              }
+            >
+              {selectableAgentProviders.map((provider) => (
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={agentProviderChosen && agentProvider === provider}
+                  tabIndex={
+                    agentProvider === provider ||
+                    (!agentProviderChosen && provider === selectableAgentProviders[0])
+                      ? 0
+                      : -1
+                  }
+                  className={[
+                    agentProviderChosen && agentProvider === provider ? "active" : "",
+                    providerInfo(local, provider)?.installed === false ? "unavailable" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  // 只选中，不自动跳步：选好后由人点「下一步」，可以先比较、改主意
+                  onClick={() => {
+                    setAgentProvider(provider);
+                    setAgentProviderChosen(true);
+                  }}
+                  key={provider}
+                >
+                  <span className="provider-monogram" aria-hidden="true">
+                    <ProviderLogo provider={provider} />
+                  </span>
+                  <span className="provider-copy">
+                    <strong>{agentProviderLabel(provider)}</strong>
+                    <small>
+                      {(() => {
+                        const info = providerInfo(local, provider);
+                        if (!info) return agentProviderDescriptions[provider];
+                        return info.installed
+                          ? `${agentProviderDescriptions[provider]}${info.version ? ` · ${info.version}` : ""}`
+                          : t("本机未安装");
+                      })()}
+                    </small>
+                  </span>
+                  <span className="provider-check" aria-hidden="true">
+                    <Icon name="check" size={15} />
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {agentStep === 1 && local.mode === "local" && (
+            <button
+              type="button"
+              className="agent-runtime-link"
+              onClick={() => openRuntimeSettings(agentProviderChosen ? agentProvider : undefined)}
+            >
+              {agentProviderChosen
+                ? providerInfo(local, agentProvider)?.installed === false
+                  ? t("去安装 {0} →", { 0: agentProviderLabel(agentProvider) })
+                  : t("升级或调整 {0} 的配置（接口地址、密钥、模型等）→", {
+                      0: agentProviderLabel(agentProvider),
+                    })
+                : t("安装、升级 Agent 或调整它们的配置 →")}
+            </button>
+          )}
+
+          {agentStep === 2 && (
+            <>
+              <div>
+                <div
+                  className="access-selector"
+                  role="radiogroup"
+                  aria-labelledby="agent-step-title"
+                  onKeyDown={(event) =>
+                    moveRadioSelection(
+                      event,
+                      agentAccessOptions.findIndex((option) => option.id === agentAccess),
+                      (index) => chooseAgentAccess(agentAccessOptions[index]!.id),
+                    )
+                  }
+                >
+                  {agentAccessOptions.map((option) => (
+                    <button
+                      type="button"
+                      role="radio"
+                      ref={option.id === "full" ? fullAccessOptionRef : undefined}
+                      aria-checked={agentAccess === option.id}
+                      aria-expanded={option.id === "full" ? fullAccessConfirmationOpen : undefined}
+                      tabIndex={agentAccess === option.id ? 0 : -1}
+                      className={`${option.id} ${agentAccess === option.id ? "active" : ""}`}
+                      // 只选中，不自动跳步；完全访问要先在选项旁的气泡里确认风险
+                      onClick={() => chooseAgentAccess(option.id)}
+                      key={option.id}
+                    >
+                      <span className="access-indicator" aria-hidden="true">
+                        <i />
+                      </span>
+                      <strong>{option.label}</strong>
+                      <small>{option.description}</small>
+                    </button>
+                  ))}
+                </div>
+                {fullAccessConfirmationOpen && agentAccess !== "full" && (
+                  <ConfirmPopover
+                    ariaLabel={t("确认开启完全访问")}
+                    title={t("确认移除本机安全边界？")}
+                    message={t(
+                      "{0} 将可以执行当前系统用户有权进行的操作；房间消息可能触发文件、命令或网络操作。",
+                      { 0: agentProviderLabel(agentProvider) },
+                    )}
+                    confirmLabel={t("我了解风险，开启完全访问")}
+                    cancelLabel={t("取消")}
+                    anchorRef={fullAccessOptionRef}
+                    danger
+                    onConfirm={confirmFullAccess}
+                    onCancel={closeFullAccessConfirmation}
+                  />
+                )}
+              </div>
+              {agentProvider === "openclaw" && (
+                <p className="openclaw-access-note">
+                  {t(
+                    "OpenClaw 的实际权限还需在其 Agent / Gateway 中设置；Hive 不会自动改写全局策略。",
+                  )}
+                </p>
+              )}
+              {agentProvider === "omp" && agentAccess === "workspace" && (
+                <p className="openclaw-access-note">
+                  {t(
+                    "omp 不会把文件写入限制在当前目录内；需要目录隔离时请选择 OpenCode、Codex 或 Claude Code。",
+                  )}
+                </p>
+              )}
+            </>
+          )}
+
+          {agentStep === 3 &&
+            (() => {
+              // 复制命令这一整段：本机模式下折叠为"或复制命令"，否则直接展示
+              const commandSection = (
+                <>
+                  <div className="command">
+                    <div className="command-heading">
+                      <span className="terminal-dots" aria-hidden="true">
+                        <i />
+                        <i />
+                        <i />
+                      </span>
+                      <small>{t("终端")}</small>
+                    </div>
+                    <code>{selectedAgentCommand}</code>
+                    <button type="button" disabled={!meta} onClick={() => void copyCommand()}>
+                      <Icon name={commandCopied ? "check" : "copy"} size={16} />
+                      <span>{commandCopied ? t("已复制到剪贴板") : t("复制命令")}</span>
+                    </button>
+                  </div>
+                  {copyError && (
+                    <p className="command-copy-error" role="alert">
+                      {copyError}
+                    </p>
+                  )}
+                  {meta?.agentCommand && !meta.agentCommand.startsWith("npx") && (
+                    <p className="command-dev-note">
+                      {t(
+                        "开发模式命令：请在 superhive 仓库根目录的终端运行，使用的是当前仓库代码， 而非已发布的 npm 包。",
+                      )}
+                    </p>
+                  )}
+                  <ol className="agent-next-steps" aria-label={t("接入后的操作")}>
+                    <li>
+                      {t(
+                        "在 {0} 所在电脑的终端运行这条命令，Agent 会加入所有房间并保持每个房间的独立上下文。",
+                        { 0: agentProviderLabel(agentProvider) },
+                      )}
+                    </li>
+                    <li>
+                      {t("在消息中输入")}{" "}
+                      <code>@{agentNameFor(username, agentProvider, takenAgentNames)}</code>{" "}
+                      {t("即可让它响应；没被 @ 时它只会旁听。")}
+                    </li>
+                    <li>
+                      {t("终端按")} <kbd>Ctrl + C</kbd>{" "}
+                      {t("即可让它离线。只想加入单个房间可在命令后追加")}{" "}
+                      <code>{t("--room 房间ID")}</code>
+                      {t("。")}
+                    </li>
+                  </ol>
+                </>
+              );
+              return local.enabled ? (
+                <>
+                  <HostManageNotice local={local} compact />
+                  <LocalLaunch
+                    local={local}
+                    provider={agentProvider}
+                    access={agentAccess}
+                    defaultName={agentNameFor(username, agentProvider, takenAgentNames)}
+                    takenNames={takenAgentNames}
+                    providerLabel={agentProviderLabel(agentProvider)}
+                    onLaunched={() => setAgentConnected(true)}
+                  >
+                    {commandSection}
+                  </LocalLaunch>
+                </>
+              ) : (
+                commandSection
+              );
+            })()}
+        </div>
+
+        <footer className="agent-dialog-footer">
+          {agentStep === 3 && (
+            <div className="agent-dialog-links">
+              <details className="connection-details">
+                <summary>{t("查看连接信息")}</summary>
+                <dl>
+                  <div>
+                    <dt>{t("服务地址")}</dt>
+                    <dd>
+                      <code>{meta?.httpUrl ?? base}</code>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Hive MCP</dt>
+                    <dd>
+                      <code>{meta?.mcpUrl ?? `${base}/mcp`}</code>
+                    </dd>
+                  </div>
+                </dl>
+              </details>
+              <a className="agent-doc" href={`${base}/agent.md`} target="_blank" rel="noreferrer">
+                {t("行为与安全规则")} <Icon name="external" size={15} />
+              </a>
+            </div>
+          )}
+          <div className="agent-dialog-nav">
+            {agentStep > 1 && (
+              <button
+                type="button"
+                onClick={() => goToAgentStep((agentStep - 1) as AgentSetupStep)}
+              >
+                {t("上一步")}
+              </button>
+            )}
+            {agentStep < 3 ? (
+              <button
+                type="button"
+                className="primary"
+                disabled={agentStep === 1 && !agentProviderChosen}
+                title={agentStep === 1 && !agentProviderChosen ? t("先选一个 Agent") : undefined}
+                onClick={() => goToAgentStep((agentStep + 1) as AgentSetupStep)}
+              >
+                <span>{t("下一步")}</span>
+                <Icon name="arrow-right" size={16} />
+              </button>
+            ) : (
+              agentConnected && (
+                <button type="button" className="primary" onClick={closeAgentDialog}>
+                  {t("完成")}
+                </button>
+              )
+            )}
+          </div>
+        </footer>
+      </div>
+    </div>
+  );
+}

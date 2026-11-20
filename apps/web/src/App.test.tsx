@@ -12,7 +12,8 @@ import type {
   ServerEvent,
   WhiteboardEntry,
 } from "@superhive/protocol";
-import { App, LoginDialog } from "./App";
+import { App } from "./App";
+import { LoginDialog } from "./login-dialog";
 import type { GuestAccess } from "./access-gate";
 import { setLocalePreference } from "./i18n";
 

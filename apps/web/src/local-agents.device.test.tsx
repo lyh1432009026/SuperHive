@@ -3,7 +3,7 @@
 import { act, cleanup, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LocalAgent } from "@superhive/protocol";
-import { HostManageNotice, OwnerDevicesGroup } from "./App";
+import { HostManageNotice, OwnerDevicesGroup } from "./host-settings";
 import { AgentSettingsDialog } from "./agent-settings-dialog";
 import { useLocalAgents, type LocalAgentsState } from "./local-agents";
 

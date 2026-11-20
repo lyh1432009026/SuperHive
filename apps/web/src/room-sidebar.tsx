@@ -1,0 +1,334 @@
+import { t } from "./i18n";
+import { PanelResizer, type ResizablePanel } from "./panel-resizer";
+import { HiveLogo, Icon, ThemeSwitcher } from "./app-icons";
+import { AttentionRoomGroup, type useAttention } from "./attention-alerts";
+import {
+  storedThemeKey,
+  storedUsernameKey,
+  type MobilePanel,
+  type ThemePreference,
+} from "./app-storage";
+import { avatarHueStyle } from "./avatar";
+import type { RefObject, Dispatch, SetStateAction, ReactNode } from "react";
+import type { RoomSummary } from "@superhive/protocol";
+import type { ActivityView } from "./activity";
+import type { useRoomReorder } from "./room-reorder";
+
+/** 左侧栏：房间列表、需要处理的事项与当前用户 */
+export function RoomSidebar({
+  activeRoomCount,
+  attention,
+  attentionGroup,
+  closeMobilePanel,
+  connectionState,
+  freezeRoomList,
+  isOwner,
+  mobilePanel,
+  modifierKeyLabel,
+  openActivity,
+  openRoomDialog,
+  panelWidths,
+  renderRoomItem,
+  resizePanel,
+  roomNameOf,
+  roomReorder,
+  roomsCloseRef,
+  setImDialogOpen,
+  setMobilePanel,
+  setSettingsOpen,
+  setShowArchivedRooms,
+  setThemePreference,
+  setUserMenuOpen,
+  setUsername,
+  settingsTriggerRef,
+  showArchivedRooms,
+  sidebarRooms,
+  taskCounts,
+  thawRoomList,
+  themePreference,
+  unreadMentionCount,
+  userMenuHoverTimer,
+  userMenuOpen,
+  userMenuRef,
+  username,
+}: {
+  activeRoomCount: number;
+  attention: ReturnType<typeof useAttention>;
+  attentionGroup: boolean;
+  closeMobilePanel: (restoreFocus?: boolean) => void;
+  connectionState: "connecting" | "online" | "offline";
+  freezeRoomList: () => void;
+  isOwner: boolean;
+  mobilePanel: MobilePanel | undefined;
+  modifierKeyLabel: string;
+  openActivity: (view: ActivityView, trigger?: HTMLElement | null) => void;
+  openRoomDialog: (
+    dialog: { mode: "create" } | { mode: "manage"; room: RoomSummary },
+    trigger: HTMLButtonElement,
+  ) => void;
+  panelWidths: { rooms: number; members: number; preview: number };
+  renderRoomItem: (room: RoomSummary, index: number, pinned: boolean) => ReactNode;
+  resizePanel: (panel: ResizablePanel, width: number) => void;
+  roomNameOf: (roomId: string) => string;
+  roomReorder: ReturnType<typeof useRoomReorder>;
+  roomsCloseRef: RefObject<HTMLButtonElement | null>;
+  setImDialogOpen: Dispatch<SetStateAction<boolean>>;
+  setMobilePanel: Dispatch<SetStateAction<MobilePanel | undefined>>;
+  setSettingsOpen: Dispatch<SetStateAction<boolean>>;
+  setShowArchivedRooms: Dispatch<SetStateAction<boolean>>;
+  setThemePreference: Dispatch<SetStateAction<ThemePreference>>;
+  setUserMenuOpen: Dispatch<SetStateAction<boolean>>;
+  setUsername: Dispatch<SetStateAction<string>>;
+  settingsTriggerRef: RefObject<HTMLButtonElement | null>;
+  showArchivedRooms: boolean;
+  sidebarRooms: { pinned: RoomSummary[]; others: RoomSummary[] };
+  taskCounts: { attention: number; inFlight: number };
+  thawRoomList: (element: HTMLElement) => void;
+  themePreference: ThemePreference;
+  unreadMentionCount: number;
+  userMenuHoverTimer: RefObject<number | undefined>;
+  userMenuOpen: boolean;
+  userMenuRef: RefObject<HTMLDivElement | null>;
+  username: string;
+}) {
+  return (
+    <aside
+      className={`rooms-panel panel ${mobilePanel === "rooms" ? "mobile-open" : ""}`}
+      aria-label={t("房间列表")}
+    >
+      <PanelResizer panel="rooms" width={panelWidths.rooms} onResize={resizePanel} />
+      <div className="sidebar-header">
+        <div className="brand">
+          <HiveLogo compact />
+          <strong>SuperHive</strong>
+        </div>
+        <div
+          className={`connection ${connectionState}`}
+          role="status"
+          aria-live="polite"
+          title={
+            connectionState === "online"
+              ? t("Hive 已在线")
+              : connectionState === "connecting"
+                ? t("正在连接")
+                : t("连接已中断")
+          }
+        >
+          <span aria-hidden="true" />
+          <span className="connection-label">
+            {connectionState === "online"
+              ? t("Hive 已在线")
+              : connectionState === "connecting"
+                ? t("正在连接")
+                : t("连接已中断")}
+          </span>
+        </div>
+        <button
+          ref={roomsCloseRef}
+          className="panel-close"
+          type="button"
+          aria-label={t("关闭房间列表")}
+          onClick={() => closeMobilePanel()}
+        >
+          <Icon name="close" />
+        </button>
+      </div>
+      <nav className="sidebar-actions" aria-label={t("快捷操作")}>
+        {isOwner && (
+          <button
+            className="sidebar-action room-create"
+            type="button"
+            aria-label={t("新建房间")}
+            aria-haspopup="dialog"
+            onClick={(event) => openRoomDialog({ mode: "create" }, event.currentTarget)}
+          >
+            <Icon name="plus" size={16} />
+            <span>{t("新建房间")}</span>
+          </button>
+        )}
+        <button
+          type="button"
+          className="sidebar-action"
+          aria-label={t("搜索消息")}
+          aria-haspopup="dialog"
+          onClick={(event) => openActivity("search", event.currentTarget)}
+        >
+          <Icon name="search" size={16} />
+          <span>{t("搜索")}</span>
+          <kbd className="sidebar-shortcut" aria-hidden="true">
+            {modifierKeyLabel === "Cmd" ? "⌘K" : "Ctrl K"}
+          </kbd>
+        </button>
+        <button
+          type="button"
+          className="sidebar-action"
+          aria-label={
+            unreadMentionCount > 0
+              ? t("提及我，{0} 条未读", { 0: unreadMentionCount })
+              : t("提及我")
+          }
+          aria-haspopup="dialog"
+          onClick={(event) => openActivity("mentions", event.currentTarget)}
+        >
+          <Icon name="at" size={16} />
+          <span>{t("提及我")}</span>
+          {unreadMentionCount > 0 && (
+            <span className="sidebar-badge accent" aria-hidden="true">
+              {unreadMentionCount > 99 ? "99+" : unreadMentionCount}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          className="sidebar-action"
+          aria-label={t("Agent 任务{0}{1}", {
+            0: taskCounts.inFlight ? t("，{0} 个进行中", { 0: taskCounts.inFlight }) : "",
+            1: taskCounts.attention ? t("，{0} 个需要处理", { 0: taskCounts.attention }) : "",
+          })}
+          aria-haspopup="dialog"
+          onClick={(event) => openActivity("tasks", event.currentTarget)}
+        >
+          <Icon name="activity" size={16} />
+          <span>{t("Agent 任务")}</span>
+          {taskCounts.inFlight > 0 && (
+            <span className="sidebar-badge running" aria-hidden="true">
+              {taskCounts.inFlight}
+            </span>
+          )}
+          {taskCounts.attention > 0 && (
+            <span className="sidebar-badge warning" aria-hidden="true">
+              {taskCounts.attention}
+            </span>
+          )}
+        </button>
+        {isOwner && (
+          <button
+            type="button"
+            className="sidebar-action"
+            aria-haspopup="dialog"
+            title={t("扫码接入飞书或微信，在手机上给房间发消息")}
+            onClick={() => setImDialogOpen(true)}
+          >
+            <Icon name="message" size={16} />
+            <span>{t("连接 IM")}</span>
+          </button>
+        )}
+      </nav>
+      {attentionGroup && (
+        <AttentionRoomGroup items={attention.items} roomName={roomNameOf} onOpen={attention.open} />
+      )}
+      <div className="sidebar-section-label">
+        <span>{t("房间列表")}</span>
+        <span className="panel-meta">{activeRoomCount}</span>
+      </div>
+      {/* 置顶区和其余房间一起滚动：置顶多了也不会把下面挤得只剩一小块 */}
+      <div className="room-scroll" ref={roomReorder.scrollRef}>
+        {sidebarRooms.pinned.length > 0 && (
+          <div
+            className={`room-list pinned ${roomReorder.dragging ? "reordering" : ""}`}
+            ref={roomReorder.listRef}
+            role="group"
+            aria-label={t("已置顶")}
+          >
+            {sidebarRooms.pinned.map((room, index) => renderRoomItem(room, index, true))}
+          </div>
+        )}
+        <div
+          className="room-list"
+          onPointerEnter={freezeRoomList}
+          onPointerLeave={(event) => thawRoomList(event.currentTarget)}
+          onFocus={freezeRoomList}
+          onBlur={(event) => {
+            const list = event.currentTarget;
+            // 焦点还在列表里（用 Tab 换到下一个房间）就继续保持
+            if (!list.contains(event.relatedTarget as Node | null)) {
+              window.setTimeout(() => thawRoomList(list));
+            }
+          }}
+        >
+          {sidebarRooms.others.map((room, index) => renderRoomItem(room, index, false))}
+        </div>
+      </div>
+      <button
+        type="button"
+        className="room-archived-toggle"
+        onClick={() => setShowArchivedRooms((current) => !current)}
+      >
+        {showArchivedRooms ? t("隐藏已归档房间") : t("显示已归档房间")}
+      </button>
+      <div
+        className="sidebar-user"
+        ref={userMenuRef}
+        onMouseEnter={() => {
+          // 鼠标设备悬停头像即展开菜单；触屏仍通过点击切换
+          if (!window.matchMedia?.("(hover: hover)").matches) return;
+          window.clearTimeout(userMenuHoverTimer.current);
+          setUserMenuOpen(true);
+        }}
+        onMouseLeave={() => {
+          if (!window.matchMedia?.("(hover: hover)").matches) return;
+          window.clearTimeout(userMenuHoverTimer.current);
+          userMenuHoverTimer.current = window.setTimeout(() => setUserMenuOpen(false), 180);
+        }}
+      >
+        {userMenuOpen && (
+          <div className="user-menu" role="menu" aria-label={t("用户菜单")}>
+            <div className="user-menu-theme">
+              <span>{t("主题")}</span>
+              <ThemeSwitcher
+                value={themePreference}
+                onChange={(value) => {
+                  setThemePreference(value);
+                  localStorage.setItem(storedThemeKey, value);
+                }}
+              />
+            </div>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setUserMenuOpen(false);
+                setMobilePanel(undefined);
+                setSettingsOpen(true);
+              }}
+            >
+              <Icon name="settings" size={15} />
+              <span>{t("设置")}</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="user-menu-logout"
+              onClick={() => {
+                setUserMenuOpen(false);
+                localStorage.removeItem(storedUsernameKey);
+                setUsername("");
+              }}
+            >
+              <Icon name="logout" size={15} />
+              <span>{t("退出")}</span>
+            </button>
+          </div>
+        )}
+        <button
+          ref={settingsTriggerRef}
+          type="button"
+          className="sidebar-user-chip"
+          aria-label={t("用户菜单")}
+          aria-haspopup="menu"
+          aria-expanded={userMenuOpen}
+          onClick={() => setUserMenuOpen((current) => !current)}
+        >
+          <span className="identity-avatar" style={avatarHueStyle(username)} aria-hidden="true">
+            {username.slice(0, 1).toUpperCase()}
+          </span>
+          <span className="identity-copy">
+            <strong>{username}</strong>
+            <small>{t("当前身份")}</small>
+          </span>
+          <Icon name="more" size={16} />
+        </button>
+      </div>
+    </aside>
+  );
+}

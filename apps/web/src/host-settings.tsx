@@ -1,0 +1,402 @@
+import { useCallback, useEffect, useState } from "react";
+import type { KeepAwakeSettings, KeepAwakeState } from "@superhive/protocol";
+import type { LocalAgentsState, HostApprover, OwnerDevice } from "./local-agents";
+import { SettingsSwitch } from "./settings-switch";
+import { copyTextToClipboard } from "./clipboard";
+import { localized, t } from "./i18n";
+
+/** 侧栏小月亮的悬停说明 */
+export function keepAwakeSummary(state: KeepAwakeState): string {
+  if (state.status === "failed") {
+    return t("熄屏后保持在线没有生效：{0}", { 0: state.detail ?? t("原因未知") });
+  }
+  return t("熄屏后保持在线：{0}，正在阻止系统睡眠（屏幕照常熄灭）", {
+    0: state.reasons.join(t("、")),
+  });
+}
+
+export const keepAwakeStatusText: Record<KeepAwakeState["status"], string> = localized(() => ({
+  active: t("正在阻止系统睡眠"),
+  idle: t("现在不需要保持（没有符合条件的 IM 连接或任务），电脑会照常睡眠"),
+  battery: t("正在用电池，已暂停保持在线"),
+  disabled: t("已关闭，电脑会照常睡眠"),
+  unsupported: t("当前系统暂不支持，请在系统电源设置里关闭自动睡眠"),
+  failed: t("没有生效"),
+}));
+
+/**
+ * 房主在其他设备上：查看直接可用；要启动 Agent、改设置先申请管理权，经飞书或 Server 所在电脑批准。
+ * compact 用在接入面板里，只留一行说明和按钮
+ */
+export function HostManageNotice({
+  local,
+  compact = false,
+}: {
+  local: LocalAgentsState;
+  compact?: boolean;
+}) {
+  const [error, setError] = useState<string>();
+  if (!local.enabled || local.mode !== "device") return null;
+  const host = local.hostLabel ?? t("Server 所在电脑");
+  if (local.canManage) {
+    if (compact) return null;
+    return (
+      <p className="host-manage-notice granted" role="status">
+        {t(
+          "这台设备已获准管理 {0}，到 {1} 为止。启动的 Agent 和 MCP 可能在没有沙箱的情况下执行命令；只有用完全权限启动时会再逐次确认。",
+          {
+            0: host,
+            1: new Date(local.manageUntil ?? "").toLocaleString(),
+          },
+        )}
+      </p>
+    );
+  }
+  const waiting = local.waitingApproval?.kind === "manage";
+  return (
+    <div className="host-manage-notice" role="status">
+      <p>
+        {waiting
+          ? local.approvalVia === "im"
+            ? t("已发出申请，请在飞书里点「允许」，或到 {0} 上批准。", { 0: host })
+            : t("已发出申请，请到 {0} 上打开 SuperHive 批准。", { 0: host })
+          : t(
+              "你在另一台设备上，可以查看 {0} 上的 Agent 和目录。要启动、停止 Agent 或修改设置，先申请管理权（批准后 12 小时内有效）。获批后启动的 Agent 和 MCP 可能在没有沙箱的情况下执行命令。",
+              { 0: host },
+            )}
+      </p>
+      {!waiting && (
+        <button
+          type="button"
+          className="settings-action"
+          onClick={() => {
+            setError(undefined);
+            local.requestManage().catch((reason: unknown) => {
+              setError(reason instanceof Error ? reason.message : String(reason));
+            });
+          }}
+        >
+          {t("申请管理这台电脑")}
+        </button>
+      )}
+      {error && <p className="settings-note error">{error}</p>}
+    </div>
+  );
+}
+
+/** 本机页面：其他设备发来的申请，直接在这里批准或拒绝 */
+export function HostApprovalsBanner({ local }: { local: LocalAgentsState }) {
+  const [error, setError] = useState<string>();
+  if (local.mode !== "local" || local.approvals.length === 0) return null;
+  return (
+    <div className="host-approvals-banner" role="alertdialog" aria-label={t("待批准的申请")}>
+      {local.approvals.map((approval) => (
+        <div key={approval.id} className="host-approval">
+          <p>
+            <strong>{t("需要你批准")}</strong>
+            {approval.summary}
+          </p>
+          <small>{t("不是你本人在操作就拒绝，并在设置 → 已登录设备里全部退出。")}</small>
+          <div className="host-approval-actions">
+            <button
+              type="button"
+              className="primary"
+              onClick={() => local.decideApproval(approval.id, true).catch(fail)}
+            >
+              {t("允许")}
+            </button>
+            <button
+              type="button"
+              className="danger"
+              onClick={() => local.decideApproval(approval.id, false).catch(fail)}
+            >
+              {t("拒绝")}
+            </button>
+          </div>
+        </div>
+      ))}
+      {error && <p className="settings-note error">{error}</p>}
+    </div>
+  );
+  function fail(reason: unknown) {
+    setError(reason instanceof Error ? reason.message : String(reason));
+  }
+}
+
+/** 设备上的单次操作在等批准：提示去哪里确认 */
+export function HostApprovalWaiting({ local }: { local: LocalAgentsState }) {
+  const approval = local.waitingApproval;
+  if (local.mode !== "device" || approval?.kind !== "action") return null;
+  const host = local.hostLabel ?? t("Server 所在电脑");
+  return (
+    <div className="host-approvals-banner" role="status">
+      <div className="host-approval">
+        <p>
+          <strong>{t("等你确认")}</strong>
+          {approval.summary}
+        </p>
+        <small>
+          {local.approvalVia === "im"
+            ? t("请在飞书里点「允许」，或到 {0} 上批准；5 分钟内有效。", { 0: host })
+            : t("请到 {0} 上打开 SuperHive 批准；5 分钟内有效。", { 0: host })}
+        </small>
+      </div>
+    </div>
+  );
+}
+
+export function KeepAwakeSettingsGroup({ local }: { local: LocalAgentsState }) {
+  const state = local.keepAwake;
+  const [error, setError] = useState<string>();
+  if (!local.enabled || !state) {
+    return (
+      <div className="settings-group">
+        <p className="settings-note">
+          {t(
+            "只有在运行 Hive Server 的这台电脑上打开网页，或用扫码、飞书登录的房主设备，才能查看这些设置。",
+          )}
+        </p>
+      </div>
+    );
+  }
+  const disabled = !state.supported || !local.canManage;
+  const change = (patch: Partial<KeepAwakeSettings>) => {
+    setError(undefined);
+    local.updateKeepAwake(patch).catch((reason: unknown) => {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    });
+  };
+  return (
+    <div className="settings-group">
+      <div className="settings-section-heading">
+        <div>
+          <h4>{t("熄屏后保持在线")}</h4>
+          <p>
+            {t(
+              "屏幕照常熄灭，只是电脑不进入睡眠，飞书消息和 Agent 任务不会中断。只在下面勾选的情况下生效，其他时候照常睡眠。",
+            )}
+          </p>
+        </div>
+      </div>
+      <SettingsSwitch
+        checked={state.whenIm}
+        disabled={disabled}
+        label={t("连着 IM 时保持在线")}
+        description={t("有飞书、微信连接（包括正在重连）时阻止系统睡眠")}
+        onChange={(checked) => change({ whenIm: checked })}
+      />
+      <SettingsSwitch
+        checked={state.whenTasks}
+        disabled={disabled}
+        label={t("Agent 执行任务时保持在线")}
+        description={t("有任务正在执行时阻止系统睡眠，执行完就恢复")}
+        onChange={(checked) => change({ whenTasks: checked })}
+      />
+      <SettingsSwitch
+        checked={state.onBattery}
+        disabled={disabled}
+        label={t("用电池时也保持")}
+        description={t("默认只在接电源时生效；打开后用电池也不睡眠，比较耗电")}
+        onChange={(checked) => change({ onBattery: checked })}
+      />
+      <p className={`keep-awake-status ${state.status}`} role="status">
+        <strong>{keepAwakeStatusText[state.status]}</strong>
+        {state.status === "active" && state.reasons.length
+          ? t("（{0}）", { 0: state.reasons.join(t("、")) })
+          : ""}
+        {state.status === "failed" && state.detail ? t("：{0}", { 0: state.detail }) : ""}
+      </p>
+      <p className="settings-note">
+        {t(
+          "合上笔记本盖子、手动睡眠仍会睡眠（接着电源和外接显示器时合盖除外）；Hive 重启升级的几秒里不保证。",
+        )}
+      </p>
+      {error && <p className="settings-note error">{error}</p>}
+    </div>
+  );
+}
+
+/** 在其他设备上登录：二维码 / 一次性链接、已登录设备、复制总令牌 */
+export function OwnerDevicesGroup({ local }: { local: LocalAgentsState }) {
+  const [devices, setDevices] = useState<OwnerDevice[]>();
+  const [pair, setPair] = useState<{ url: string; expiresAt: string; qrDataUrl: string }>();
+  const [error, setError] = useState<string>();
+  const [copied, setCopied] = useState<string>();
+  const enabled = local.enabled;
+  const { ownerDevices } = local;
+  const refresh = useCallback(() => {
+    ownerDevices().then(setDevices, () => setDevices(undefined));
+  }, [ownerDevices]);
+  useEffect(() => {
+    if (enabled) refresh();
+  }, [enabled, refresh]);
+  // 二维码用过（多了一台设备）或到期就收起
+  useEffect(() => {
+    if (!pair) return;
+    const timer = window.setInterval(() => {
+      if (Date.parse(pair.expiresAt) <= Date.now()) setPair(undefined);
+      refresh();
+    }, 3_000);
+    return () => window.clearInterval(timer);
+  }, [pair, refresh]);
+  if (!enabled) return null;
+  const fail = (reason: unknown) =>
+    setError(reason instanceof Error ? reason.message : String(reason));
+  const copy = (text: string, label: string) => {
+    void copyTextToClipboard(text).then(() => {
+      setCopied(label);
+      window.setTimeout(() => setCopied(undefined), 1_500);
+    }, fail);
+  };
+  return (
+    <div className="settings-group">
+      <div className="settings-section-heading">
+        <div>
+          <h4>{t("在其他设备上登录")}</h4>
+          <p>
+            {t(
+              "手机或另一台电脑扫码（或打开链接）后，直接以房主身份进入，不用填令牌。每台设备单独登录，可以随时退出。飞书卡片上的「在网页查看」也会自动登录。",
+            )}
+          </p>
+        </div>
+      </div>
+      {local.mode === "device" ? null : pair ? (
+        <div className="owner-pair">
+          <img src={pair.qrDataUrl} alt={t("登录二维码")} width={160} height={160} />
+          <div>
+            <p>
+              {t(
+                "用手机相机或飞书扫码，5 分钟内有效，只能用一次。设备要和这台电脑在同一个网络里。",
+              )}
+            </p>
+            <code className="owner-pair-url">{pair.url}</code>
+            <div className="owner-pair-actions">
+              <button type="button" onClick={() => copy(pair.url, "link")}>
+                {copied === "link" ? t("已复制") : t("复制链接")}
+              </button>
+              <button type="button" onClick={() => setPair(undefined)}>
+                {t("收起")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="settings-action"
+          onClick={() => {
+            setError(undefined);
+            local.pairOwnerDevice().then(setPair, fail);
+          }}
+        >
+          {t("显示登录二维码")}
+        </button>
+      )}
+      <h4 className="owner-devices-heading">{t("已登录的设备")}</h4>
+      {devices?.length ? (
+        <ul className="owner-devices">
+          {devices.map((device) => (
+            <li key={device.id}>
+              <span>
+                <strong>
+                  {device.name}
+                  {device.id === local.deviceId ? t("（这台）") : ""}
+                </strong>
+                <small>
+                  {t("{0}登录 · 最近活跃 {1}", {
+                    0: device.source === "im" ? t("经飞书卡片") : t("扫码"),
+                    1: new Date(device.lastSeenAt).toLocaleString(),
+                  })}
+                </small>
+              </span>
+              {(device.id === local.deviceId || local.canManage) && (
+                <button
+                  type="button"
+                  onClick={() => local.revokeOwnerDevice(device.id).then(refresh, fail)}
+                >
+                  {t("退出登录")}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="settings-note">{t("还没有其他设备登录。")}</p>
+      )}
+      {local.canManage &&
+        (devices?.filter((device) => device.id !== local.deviceId).length ?? 0) > 0 && (
+          <button
+            type="button"
+            className="settings-action danger"
+            onClick={() => {
+              if (!window.confirm(t("退出其他所有已登录的设备？手机丢了或怀疑被盗用时用。")))
+                return;
+              local.revokeAllOwnerDevices().then(refresh, fail);
+            }}
+          >
+            {local.mode === "device" ? t("退出其他所有设备") : t("全部退出")}
+          </button>
+        )}
+      {local.mode === "local" && <HostApproversGroup local={local} onError={fail} />}
+      {local.mode === "local" && (
+        <details className="owner-token-details">
+          <summary>{t("房主接入令牌（高级）")}</summary>
+          <p className="settings-note">
+            {t(
+              "这是房主的总钥匙，有完整权限，只在接入远程 Agent 或扫码不方便时使用，不要发给别人。",
+            )}
+          </p>
+          <button
+            type="button"
+            className="settings-action"
+            onClick={() => local.ownerToken().then((token) => copy(token, "token"), fail)}
+          >
+            {copied === "token" ? t("已复制") : t("复制令牌")}
+          </button>
+        </details>
+      )}
+      {error && <p className="settings-note error">{error}</p>}
+    </div>
+  );
+}
+
+/** 本机：哪些 IM 账号可以在卡片上批准其他设备管理这台电脑 */
+export function HostApproversGroup({
+  local,
+  onError,
+}: {
+  local: LocalAgentsState;
+  onError: (reason: unknown) => void;
+}) {
+  const [approvers, setApprovers] = useState<HostApprover[]>();
+  const { hostApprovers } = local;
+  useEffect(() => {
+    hostApprovers().then(setApprovers, () => setApprovers(undefined));
+  }, [hostApprovers]);
+  if (!approvers?.length) return null;
+  return (
+    <>
+      <h4 className="owner-devices-heading">{t("在 IM 里批准")}</h4>
+      <p className="settings-note">
+        {t(
+          "其他设备申请管理这台电脑（启动 Agent、改设置）时，把批准卡推到这些账号。在这台电脑上扫码连接的会自动勾上。",
+        )}
+      </p>
+      {approvers.map((approver) => (
+        <SettingsSwitch
+          key={approver.connectionId}
+          checked={approver.allowed}
+          label={approver.label}
+          description={
+            approver.channel === "feishu"
+              ? t("飞书")
+              : t("微信（不支持卡片，申请只能在这台电脑上批准）")
+          }
+          onChange={(checked) =>
+            local.setHostApprover(approver.connectionId, checked).then(setApprovers, onError)
+          }
+        />
+      ))}
+    </>
+  );
+}

@@ -2,7 +2,7 @@ import "./storage-migration";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { AccessGate } from "./access-gate";
-import { serverBase } from "./App";
+import { serverBase } from "./server-base";
 import { DevStatusBanner } from "./dev-status-banner";
 import { SandboxBadge } from "./sandbox-badge";
 import "./styles.css";
