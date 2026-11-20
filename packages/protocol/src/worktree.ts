@@ -58,7 +58,10 @@ export const worktreeStatusSchema = z.object({
   worktree: managedWorktreeSchema,
   dirty: z.boolean(),
   untracked: z.boolean(),
+  /** 有挡住清理的忽略文件。依赖目录和构建产物能重新生成，不算 */
   ignored: z.boolean(),
+  /** 挡住清理的忽略文件（目录以 / 结尾），最多列前 20 条 */
+  ignoredFiles: z.array(z.string()).optional(),
   merged: z.boolean(),
   mergeMethod: z.enum(["ancestor", "patches", "squash"]).optional(),
   activeInvocationIds: z.array(z.string()),

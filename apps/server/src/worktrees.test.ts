@@ -13,7 +13,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ManagedWorktree, Participant } from "@superhive/protocol";
 import { HiveDatabase } from "./database.js";
-import { WorktreeManager, worktreeGit, worktreeRepository } from "./worktrees.js";
+import { WorktreeManager, blockingIgnored, worktreeGit, worktreeRepository } from "./worktrees.js";
 
 /** 选中的任务目录的 id（没选中、或没沿用上次的目录时为 undefined） */
 const idOf = (value: unknown) => (value as { id?: string } | undefined)?.id;
@@ -996,6 +996,80 @@ describe("managed worktrees", () => {
     expect(ready.some((entry) => entry.key === "released")).toBe(true);
   });
 
+  describe("cleanup of regenerable ignored files", () => {
+    async function project() {
+      writeFileSync(
+        path.join(repo, ".gitignore"),
+        "ignored\nnode_modules\ndist/\n*.tsbuildinfo\n.env\n",
+      );
+      mkdirSync(path.join(repo, "packages", "lib"), { recursive: true });
+      writeFileSync(path.join(repo, "packages", "lib", "package.json"), "{}\n");
+      await git(repo, "add", ".");
+      await git(repo, "commit", "-m", "workspace");
+      // 主目录装好的依赖：任务目录的软链指向这里，清理后必须原样还在
+      mkdirSync(path.join(repo, "node_modules", "left-pad"), { recursive: true });
+      writeFileSync(path.join(repo, "node_modules", "left-pad", "index.js"), "primary\n");
+    }
+    const primaryDependency = () => path.join(repo, "node_modules", "left-pad", "index.js");
+
+    it("removes a merged checkout whose node_modules links to the primary checkout, keeping the primary's dependencies", async () => {
+      await project();
+      const { worktree } = await create();
+      // 根目录整个软链到主目录；workspace 包下是真实目录，里面的条目软链到主目录（linked 模式）
+      symlinkSync(path.join(repo, "node_modules"), path.join(worktree.path, "node_modules"));
+      mkdirSync(path.join(worktree.path, "packages", "lib", "node_modules"));
+      symlinkSync(
+        path.join(repo, "node_modules", "left-pad"),
+        path.join(worktree.path, "packages", "lib", "node_modules", "left-pad"),
+      );
+      mkdirSync(path.join(worktree.path, "packages", "lib", "dist"));
+      writeFileSync(path.join(worktree.path, "packages", "lib", "dist", "index.js"), "built\n");
+      writeFileSync(path.join(worktree.path, "packages", "lib", "tsconfig.tsbuildinfo"), "{}\n");
+      const listed = (await manager.list(repo))[0];
+      expect(listed).toMatchObject({ ignored: false, removable: true });
+      expect(listed?.ignoredFiles).toBeUndefined();
+      await manager.remove(repo, { path: worktree.path });
+      expect(existsSync(worktree.path)).toBe(false);
+      expect(existsSync(primaryDependency())).toBe(true);
+      expect(await git(repo, "status", "--porcelain")).toBe("");
+    });
+
+    it("removes real node_modules directories at any depth together with the checkout", async () => {
+      await project();
+      const { worktree } = await create();
+      for (const directory of ["node_modules/left-pad", "packages/lib/node_modules/.bin"]) {
+        mkdirSync(path.join(worktree.path, directory), { recursive: true });
+        writeFileSync(path.join(worktree.path, directory, "file"), "installed\n");
+      }
+      expect((await manager.list(repo))[0]).toMatchObject({ ignored: false, removable: true });
+      await manager.remove(repo, { path: worktree.path });
+      expect(existsSync(worktree.path)).toBe(false);
+      expect(existsSync(primaryDependency())).toBe(true);
+    });
+
+    it("keeps protecting .env and other ignored files and lists exactly what blocks removal", async () => {
+      await project();
+      const { worktree } = await create();
+      symlinkSync(path.join(repo, "node_modules"), path.join(worktree.path, "node_modules"));
+      mkdirSync(path.join(worktree.path, "dist"));
+      writeFileSync(path.join(worktree.path, "dist", "index.js"), "built\n");
+      writeFileSync(path.join(worktree.path, ".env"), "TOKEN=secret\n");
+      mkdirSync(path.join(worktree.path, "packages", "lib", "ignored"));
+      writeFileSync(path.join(worktree.path, "packages", "lib", "ignored", "notes"), "local\n");
+      expect((await manager.list(repo))[0]).toMatchObject({
+        ignored: true,
+        ignoredFiles: [".env", "packages/lib/ignored/"],
+        removable: false,
+      });
+      await expect(manager.remove(repo, { path: worktree.path })).rejects.toMatchObject({
+        code: "WORKTREE_UNSAFE",
+      });
+      expect(existsSync(path.join(worktree.path, ".env"))).toBe(true);
+      expect(existsSync(path.join(worktree.path, "node_modules"))).toBe(true);
+      expect(existsSync(primaryDependency())).toBe(true);
+    });
+  });
+
   describe("dependencies", () => {
     async function nodeProject() {
       writeFileSync(path.join(repo, ".gitignore"), "ignored\nnode_modules\n");
@@ -1070,7 +1144,7 @@ describe("managed worktrees", () => {
       expect(existsSync(path.join(worktree.path, "node_modules", "left-pad"))).toBe(true);
     });
 
-    it("keeps protecting node_modules that Hive did not install", async () => {
+    it("does not protect node_modules the agent installed itself either", async () => {
       await nodeProject();
       manager = new WorktreeManager({
         database,
@@ -1083,7 +1157,7 @@ describe("managed worktrees", () => {
       expect(dependencies?.message).toContain("已有 node_modules");
       mkdirSync(path.join(worktree.path, "node_modules"));
       writeFileSync(path.join(worktree.path, "node_modules", "data"), "x");
-      expect((await manager.list(repo))[0]).toMatchObject({ ignored: true, removable: false });
+      expect((await manager.list(repo))[0]).toMatchObject({ ignored: false, removable: true });
     });
 
     it("returns while still installing, blocks cleanup until done and survives a restart", async () => {
@@ -1152,5 +1226,26 @@ describe("managed worktrees", () => {
       expect(third.dependencies).toBeUndefined();
       expect(unset.dependencies(third.worktree.id)).toBeUndefined();
     });
+  });
+});
+
+describe("blockingIgnored", () => {
+  it("skips dependencies, build output and directories that only contain them", () => {
+    expect(
+      blockingIgnored([
+        "node_modules",
+        "apps/web/node_modules/",
+        "apps/web/dist/",
+        "apps/web/tsconfig.tsbuildinfo",
+        "apps/docs/.astro/",
+        "coverage/",
+        "tools/",
+        "tools/a/",
+        "tools/a/node_modules/",
+        ".env",
+        "output/",
+        "apps/server/.env.local",
+      ]),
+    ).toEqual([".env", "output/", "apps/server/.env.local"]);
   });
 });

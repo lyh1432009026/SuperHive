@@ -115,6 +115,13 @@
   color: var(--warning);
 }
 
+.worktree-ignored {
+  color: var(--warning);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
 .worktree-toolbar {
   justify-content: flex-start;
 }

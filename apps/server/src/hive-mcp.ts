@@ -813,7 +813,7 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
     {
       title: "List managed worktrees",
       description:
-        "列出本房间仓库里 Hive 登记的 worktree：改动、未跟踪/忽略文件、合入情况、任务占用、依赖准备结果（dependencies）和能否安全清理。手工创建的目录不会接管。仅本机房主 Agent 可用。",
+        "列出本房间仓库里 Hive 登记的 worktree：改动、未跟踪文件、挡住清理的忽略文件（ignoredFiles；node_modules 和 dist 等构建产物能重新生成，不算）、合入情况、任务占用、依赖准备结果（dependencies）和能否安全清理。手工创建的目录不会接管。仅本机房主 Agent 可用。",
       annotations: { readOnlyHint: true },
       inputSchema: {},
     },
@@ -831,7 +831,7 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
     {
       title: "Remove a managed worktree safely",
       description:
-        "只清理 Hive 登记、已合入、无改动/未跟踪/忽略文件且没有任务占用的 worktree；无 force。默认用 branch -d 尝试删分支，不成功则保留并说明。只能在房主授权清理的本机任务里调用，不要每次回复都清理。",
+        "只清理 Hive 登记、已合入、无改动/未跟踪文件/挡住清理的忽略文件且没有任务占用的 worktree；无 force。node_modules 和构建产物随目录一起删，软链只删链接本身。默认用 branch -d 尝试删分支，不成功则保留并说明。只能在房主授权清理的本机任务里调用，不要每次回复都清理。",
       inputSchema: removeWorktreeRequestSchema.shape,
     },
     async (input) => {

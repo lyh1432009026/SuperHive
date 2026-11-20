@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1080" height="670" viewBox="0 0 1080 670" role="img" aria-labelledby="worktree-title worktree-desc">
   <title id="worktree-title">托管 Worktree 任务线与安全清理示意图</title>
-  <desc id="worktree-desc">非实际界面截图。房主授权的可写本机 Agent 登记任务线，正常结束准备回合，Bridge 在精确 cwd 创建新会话再继续实现。review 合入后，还要检查已合入、无改动、无未跟踪和忽略文件、无任务占用，再通过受检查的入口清理。拒绝清理时保留，不强删。</desc>
+  <desc id="worktree-desc">非实际界面截图。房主授权的可写本机 Agent 登记任务线，正常结束准备回合，Bridge 在精确 cwd 创建新会话再继续实现。review 合入后，还要检查已合入、无改动、无未跟踪文件和挡住清理的忽略文件、无任务占用，再通过受检查的入口清理。拒绝清理时保留，不强删。</desc>
   <defs>
     <marker id="worktree-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 Z" fill="#8f8f8f" />
@@ -44,7 +44,7 @@
 
     <rect x="50" y="390" width="980" height="85" rx="16" fill="#f3f3f3" />
     <text x="74" y="426" font-size="22" font-weight="700" fill="#0d0d0d">安全检查：已合入 + 干净 + 无未跟踪／忽略文件 + 无任务占用 + 已授权</text>
-    <text x="74" y="456" font-size="18" fill="#5d5d5d">核对登记身份与当前提交；node_modules、.env 等忽略文件也会阻止删除。</text>
+    <text x="74" y="456" font-size="18" fill="#5d5d5d">核对登记身份与当前提交；.env 等忽略文件会阻止删除，node_modules 和构建产物不会。</text>
     <g fill="none" stroke="#8f8f8f" stroke-width="2.5" marker-end="url(#worktree-arrow)">
       <path d="M 540 475 V 497 H 283 V 520" />
       <path d="M 540 497 H 797 V 520" />

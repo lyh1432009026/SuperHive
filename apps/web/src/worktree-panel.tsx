@@ -215,7 +215,7 @@ export function WorktreePanel({ roomId, api }: { roomId: string; api: WorktreeAp
                     </span>
                   )}
                   <span>{item.dirty || item.untracked ? t("有未提交文件") : t("工作区干净")}</span>
-                  {item.ignored && <span>{t("有忽略文件，需先自行处理")}</span>}
+                  {item.ignored && <span className="warning">{t("有忽略文件，需先自行处理")}</span>}
                   {item.dependencies && item.dependencies.state !== "skipped" && (
                     <span
                       className={item.dependencies.state === "failed" ? "warning" : ""}
@@ -227,6 +227,11 @@ export function WorktreePanel({ roomId, api }: { roomId: string; api: WorktreeAp
                   {item.activeInvocationIds.length > 0 && <span>{t("有任务占用")}</span>}
                   {item.removable && <span className="passed">{t("可清理")}</span>}
                 </div>
+                {item.ignoredFiles && item.ignoredFiles.length > 0 && (
+                  <small className="worktree-ignored">
+                    {t("挡住清理的忽略文件：{0}", { 0: item.ignoredFiles.join(t("、")) })}
+                  </small>
+                )}
                 {item.error && !item.branchSwitched && <small role="alert">{item.error}</small>}
               </div>
             </label>
@@ -342,7 +347,9 @@ export function WorktreePanel({ roomId, api }: { roomId: string; api: WorktreeAp
           <span>
             <strong>{t("自动清理已合入的 worktree")}</strong>
             <small>
-              {t("默认关闭；只回收已登记、干净且无任务占用的目录。忽略文件也会阻止删除。")}
+              {t(
+                "默认关闭；只回收已登记、干净且无任务占用的目录。node_modules 和构建产物随目录一起删，其他忽略文件会阻止删除。",
+              )}
             </small>
           </span>
         </label>

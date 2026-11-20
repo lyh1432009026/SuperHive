@@ -48,6 +48,20 @@ const api = (canManage = true) => ({
 });
 
 describe("WorktreePanel", () => {
+  it("lists the ignored files that block cleanup", async () => {
+    const client = api();
+    client.worktrees.mockResolvedValue({
+      worktrees: [
+        { ...row("env", false), dirty: false, ignored: true, ignoredFiles: [".env", "output/"] },
+      ],
+      autoCleanup: false,
+      cleanupBatch: null,
+    });
+    render(<WorktreePanel roomId="general" api={client} />);
+    expect((await screen.findByText("有忽略文件，需先自行处理")).className).toBe("warning");
+    expect(screen.getByText("挡住清理的忽略文件：.env、output/")).toBeTruthy();
+  });
+
   it("shows how each task line's dependencies were prepared", async () => {
     const client = api();
     const startedAt = new Date().toISOString();

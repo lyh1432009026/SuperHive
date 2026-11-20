@@ -259,6 +259,32 @@ const STATUS_CONCURRENCY = 4;
 /** 合入判断按（分支提交, 目标提交）缓存：两边都没动结论就不会变，上限防止无限增长 */
 const MERGE_CACHE_LIMIT = 1_000;
 
+/** 列出的挡住清理的忽略文件最多几条：够人看清是什么，不把整个目录树塞进状态 */
+const IGNORED_FILES_LIMIT = 20;
+
+/**
+ * 能重新生成、清理时不用保护的忽略文件：任意层级的依赖目录（真实目录或软链，pnpm workspace
+ * 各包下的也算）和构建产物。.env、本地配置等其余被忽略的文件照旧挡住清理。
+ */
+const DISPOSABLE_DIRECTORIES = new Set(["node_modules", "dist", "coverage", ".astro"]);
+
+function disposableIgnored(entry: string): boolean {
+  const parts = entry.replace(/\/$/, "").split("/");
+  return parts.some((part) => DISPOSABLE_DIRECTORIES.has(part)) || entry.endsWith(".tsbuildinfo");
+}
+
+/**
+ * `git ls-files --ignored --directory` 的输出里挡住清理的那些。只装着忽略文件的未跟踪目录会
+ * 连同里面的条目一起列出（`apps/`、`apps/a/node_modules/`），这种外层目录只是容器，不单独算。
+ */
+export function blockingIgnored(entries: string[]): string[] {
+  return entries.filter(
+    (entry) =>
+      !disposableIgnored(entry) &&
+      !(entry.endsWith("/") && entries.some((other) => other !== entry && other.startsWith(entry))),
+  );
+}
+
 function dependencyMessage(outcome: DependencyOutcome, durationMs: number) {
   const reason = serverText(
     `worktree.deps.reason.${outcome.reason ?? "error"}` as "worktree.deps.reason.error",
@@ -611,12 +637,6 @@ export class WorktreeManager {
         "INSERT INTO managed_worktree_dependencies (worktree_id, record) VALUES (?, ?) ON CONFLICT(worktree_id) DO UPDATE SET record = excluded.record",
       )
       .run(id, JSON.stringify(record));
-  }
-
-  /** Hive 自己装的依赖能按锁文件重新装出来，清理时不算要保护的忽略文件；目录里原有的不算 */
-  private regenerableDependencies(id: string): boolean {
-    const record = this.dependencies(id);
-    return Boolean(record && record.state !== "skipped" && !this.dependencyJobs.has(id));
   }
 
   /**
@@ -1481,26 +1501,28 @@ export class WorktreeManager {
       await this.identity(record);
       const { dirty, untracked } = await this.changes(record.path);
       // --directory：整个被忽略的目录只列一行，node_modules 里成千上万个文件不用逐个列出
-      const regenerable = this.regenerableDependencies(record.id);
-      const ignored = (
-        await git(record.path, [
-          "ls-files",
-          "--others",
-          "--ignored",
-          "--exclude-standard",
-          "--directory",
-          "-z",
-        ])
-      )
-        .split("\0")
-        .filter(Boolean)
-        .some((entry) => !(regenerable && entry.split("/").includes("node_modules")));
+      const ignoredFiles = blockingIgnored(
+        (
+          await git(record.path, [
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+            "-z",
+          ])
+        )
+          .split("\0")
+          .filter(Boolean),
+      );
+      const ignored = ignoredFiles.length > 0;
       const merged = await this.merged(record);
       return {
         worktree: record,
         dirty,
         untracked,
         ignored,
+        ...(ignored ? { ignoredFiles: ignoredFiles.slice(0, IGNORED_FILES_LIMIT) } : {}),
         headCommit: await commit(record.repo, `refs/heads/${record.branch}`),
         ...merged,
         activeInvocationIds,
