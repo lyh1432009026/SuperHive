@@ -14,7 +14,7 @@ export const navigation = [
       { label: "权限与审批", slug: "guides/permissions" },
       { label: "房间与成员", slug: "guides/rooms" },
       { label: "消息与附件", slug: "guides/messaging" },
-      { label: "委派、白板与提问", slug: "guides/collaboration" },
+      { label: "委派、进展与提问", slug: "guides/collaboration" },
       { label: "任务状态与恢复", slug: "guides/tasks" },
       { label: "独立任务工作区", slug: "guides/worktrees" },
       { label: "飞书与微信", slug: "guides/im" },
