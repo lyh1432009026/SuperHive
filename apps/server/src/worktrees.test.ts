@@ -415,6 +415,88 @@ describe("managed worktrees", () => {
     await expect(manager.runtimeWorkspace(repo, agent, "Alice", initial)).rejects.toThrow();
   });
 
+  it("skips a half-removed focus directory and finishes removing it on the next scan", async () => {
+    const audit = vi.fn();
+    const notify = vi.fn();
+    manager = new WorktreeManager({
+      database,
+      activeInvocations: () => active,
+      audit,
+      onCleanup: notify,
+    });
+    const initial = randomUUID();
+    const { worktree } = await manager.create(repo, agent, "Alice", [initial], {
+      slug: "interrupted",
+    });
+    // #4274：清理时 git 被中途杀掉，已跟踪的文件删了一半，记录停在 error
+    rmSync(path.join(worktree.path, "first.txt"));
+    database
+      .connection()
+      .prepare("UPDATE managed_worktrees SET record = ? WHERE id = ?")
+      .run(JSON.stringify({ ...worktree, phase: "error" }), worktree.id);
+
+    // 绑定在它上面的任务照旧失败；只是沿用上次目录的新任务跳过它，并带回原因
+    await expect(manager.runtimeWorkspace(repo, agent, "Alice", initial)).rejects.toMatchObject({
+      code: "WORKTREE_UNSAFE",
+    });
+    expect(await manager.runtimeWorkspace(repo, agent, "Alice", randomUUID())).toEqual({
+      focusDropped: {
+        worktreeId: worktree.id,
+        path: worktree.path,
+        branch: worktree.branch,
+        reason: expect.stringContaining("上次建立或清理没有完成"),
+      },
+    });
+    expect(await manager.runtimeWorkspace(repo, agent, "Alice", randomUUID())).toBeUndefined();
+
+    // 被删掉的已跟踪文件不算改动；改了、新加的文件照旧挡住清理
+    expect((await manager.list(repo))[0]).toMatchObject({ dirty: false, removable: true });
+    writeFileSync(path.join(worktree.path, "second.txt"), "edited\n");
+    // list 有 15 秒缓存，这里看实时状态
+    expect(await manager.status(manager.allRecords()[0]!)).toMatchObject({
+      dirty: true,
+      removable: false,
+    });
+    await manager.scan();
+    expect(existsSync(path.join(worktree.path, "second.txt"))).toBe(true);
+    await git(worktree.path, "restore", "second.txt");
+    writeFileSync(path.join(worktree.path, "new.txt"), "private\n");
+    await manager.scan();
+    expect(existsSync(path.join(worktree.path, "new.txt"))).toBe(true);
+    rmSync(path.join(worktree.path, "new.txt"));
+    active = [randomUUID()];
+    await manager.scan();
+    expect(existsSync(worktree.path)).toBe(true);
+    active = [];
+
+    // 下一次扫描直接接着删完，不再等房主确认（没有新的清理提醒）
+    await manager.scan();
+    expect(existsSync(worktree.path)).toBe(false);
+    expect(manager.allRecords()).toEqual([]);
+    expect(await git(repo, "branch", "--list", worktree.branch)).toBe("");
+    expect(notify).not.toHaveBeenCalled();
+    expect(audit).toHaveBeenCalledWith(
+      expect.stringContaining(`上次没清理完的任务目录 ${worktree.path} 已接着清理掉`),
+      { roomId: "general", agentName: "agent-a", worktreeId: worktree.id },
+    );
+  });
+
+  it("leaves a half-created directory that isn't merged alone", async () => {
+    const { worktree } = await create();
+    await change(worktree);
+    rmSync(path.join(worktree.path, "second.txt"));
+    database
+      .connection()
+      .prepare("UPDATE managed_worktrees SET record = ? WHERE id = ?")
+      .run(JSON.stringify({ ...worktree, phase: "error" }), worktree.id);
+    expect((await manager.list(repo))[0]).toMatchObject({ dirty: false, removable: false });
+    await manager.scan();
+    expect(existsSync(worktree.path)).toBe(true);
+    await expect(manager.remove(repo, { path: worktree.path })).rejects.toMatchObject({
+      code: "WORKTREE_UNSAFE",
+    });
+  });
+
   it("keeps a vanished registration while another invocation is still active", async () => {
     const { worktree } = await create();
     await git(repo, "worktree", "remove", worktree.path);

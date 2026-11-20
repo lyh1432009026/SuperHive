@@ -309,6 +309,14 @@ function dependencyMessage(outcome: DependencyOutcome, durationMs: number) {
   }
 }
 
+/**
+ * 上次建立或清理半途而废（git 被杀、Server 重启）的目录。只在写锁里或 status 判断时用：
+ * 写锁外看到的 creating/removing 可能正在进行，所以这里只认 removing 和 error
+ */
+function unfinished(record: ManagedWorktree): boolean {
+  return record.phase === "removing" || record.phase === "error";
+}
+
 export class WorktreeManager {
   /** 写操作（建、删、选目录绑定任务）按仓库串行；只读的状态查询不进这个队列 */
   private readonly queues = new Map<string, Promise<unknown>>();
@@ -326,6 +334,8 @@ export class WorktreeManager {
   private closed = false;
   /** 正在准备依赖的任务线：装的时候目录在变，不算可清理 */
   private readonly dependencyJobs = new Map<string, Promise<WorktreeDependencies>>();
+  /** 接着清理没做完的目录时上次失败的原因，同样的原因不重复记审计日志 */
+  private readonly resumeFailures = new Map<string, string>();
   private installing = 0;
   private readonly installQueue: Array<() => void> = [];
   private readonly stopInstalls = new AbortController();
@@ -537,6 +547,10 @@ export class WorktreeManager {
       )
         this.options.onMerged?.(record, status.headCommit, !status.dirty && !status.untracked);
       if (!status.removable || !status.headCommit) continue;
+      if (unfinished(record)) {
+        await this.resumeRemoval(record, status.headCommit);
+        continue;
+      }
       const notice = this.options.database
         .connection()
         .prepare("SELECT head_commit FROM managed_worktree_notices WHERE worktree_id = ?")
@@ -619,6 +633,38 @@ export class WorktreeManager {
       batch.state = "completed";
       this.saveBatch(batch);
       this.options.onCleanup?.(batch);
+    }
+  }
+
+  /**
+   * 接着清理上次没做完的目录（#4274：清理时 git 被中途杀掉，目录停在删了一半）。已合入、
+   * 只缺了已跟踪的文件、没有任务在用才会走到这里，删掉不会丢东西，不再等房主确认；
+   * 结果写进审计日志，失败就留着，下次扫描再试
+   */
+  private async resumeRemoval(record: ManagedWorktree, headCommit: string): Promise<void> {
+    try {
+      await this.remove(record.repo, { path: record.path, expectedCommit: headCommit });
+      this.options.audit?.(zhText(serverText("worktree.removalResumed", { path: record.path })), {
+        roomId: record.roomId,
+        agentName: record.agentName,
+        worktreeId: record.id,
+      });
+    } catch (error) {
+      // 扫描期间已被别的清理删掉的，不用再提
+      if (error instanceof HiveError && error.code === "WORKTREE_UNREGISTERED") return;
+      const reason = error instanceof Error ? error.message : String(error);
+      // 每次扫描都会重试，同样的原因只记一次
+      if (this.resumeFailures.get(record.id) === reason) return;
+      this.resumeFailures.set(record.id, reason);
+      this.options.audit?.(
+        zhText(
+          serverText("worktree.removalResumeFailed", {
+            path: record.path,
+            reason,
+          }),
+        ),
+        { roomId: record.roomId, agentName: record.agentName, worktreeId: record.id },
+      );
     }
   }
 
@@ -1051,11 +1097,16 @@ export class WorktreeManager {
             );
           missing.add(record);
         } else {
-          if (record.phase !== "ready")
-            throw new HiveError(
+          if (record.phase !== "ready") {
+            const error = new HiveError(
               "WORKTREE_UNSAFE",
-              serverText("error.worktree.unsafe", { path: record.path }),
+              serverText("error.worktree.unfinished", { path: record.path }),
             );
+            // 和换了分支一样：上次建或清理没做完的目录，只是被默认沿用时去掉这个选择，回默认目录开工
+            if (!occupants.get(record)!.every((id) => viaFocus.has(id))) throw error;
+            stale.set(record, error.message);
+            continue;
+          }
           try {
             await this.identity(record);
           } catch (error) {
@@ -1499,7 +1550,7 @@ export class WorktreeManager {
           removable: activeInvocationIds.length === 0,
         };
       await this.identity(record);
-      const { dirty, untracked } = await this.changes(record.path);
+      const { dirty, untracked } = await this.changes(record.path, unfinished(record));
       // --directory：整个被忽略的目录只列一行，node_modules 里成千上万个文件不用逐个列出
       const ignoredFiles = blockingIgnored(
         (
@@ -1547,14 +1598,23 @@ export class WorktreeManager {
     }
   }
 
-  private async changes(directory: string): Promise<{ dirty: boolean; untracked: boolean }> {
+  /**
+   * leftoverDeletions：上次建立或清理半途而废的目录里，已跟踪文件被删掉是 git 删到一半留下的，
+   * 内容都还在分支提交里，不算改动；改了、新加的文件照旧算
+   */
+  private async changes(
+    directory: string,
+    leftoverDeletions = false,
+  ): Promise<{ dirty: boolean; untracked: boolean }> {
     const entries = (
       await git(directory, ["status", "--porcelain=v1", "-z", "--untracked-files=all"])
     )
       .split("\0")
       .filter(Boolean);
     return {
-      dirty: entries.some((entry) => !entry.startsWith("?? ")),
+      dirty: entries.some(
+        (entry) => !entry.startsWith("?? ") && !(leftoverDeletions && /^[ D]{2} /.test(entry)),
+      ),
       untracked: entries.some((entry) => entry.startsWith("?? ")),
     };
   }
@@ -1826,6 +1886,7 @@ export class WorktreeManager {
             "WORKTREE_UNSAFE",
             serverText("error.worktree.unsafe", { path: record.path }),
           );
+        const resuming = unfinished(record);
         record.phase = "removing";
         this.save(record);
         try {
@@ -1839,7 +1900,14 @@ export class WorktreeManager {
               serverText("error.worktree.unsafe", { path: record.path }),
             );
           }
-          await git(record.repo, ["worktree", "remove", "--", record.path]);
+          // 上次没删完的目录里缺的文件会被 git 当成改动而拒绝；上面已确认只缺了已跟踪的文件，可以强制删
+          await git(record.repo, [
+            "worktree",
+            "remove",
+            ...(resuming ? ["--force"] : []),
+            "--",
+            record.path,
+          ]);
         } catch (error) {
           record.phase = "error";
           this.save(record);

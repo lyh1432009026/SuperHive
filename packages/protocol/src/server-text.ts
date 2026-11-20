@@ -188,6 +188,18 @@ export const serverTexts = {
     zh: "{agent} 上次用的任务目录 {path} 不能再用（{reason}），这次的任务没有沿用它。",
     en: "{agent}'s last task workspace {path} can no longer be used ({reason}); this task did not reuse it.",
   },
+  "error.worktree.unfinished": {
+    zh: "任务目录 {path} 上次建立或清理没有完成：不能在里面开工。已合入且只缺了被删的文件时，后台扫描会自动接着清理；否则请房主在 Worktree 列表里核对。",
+    en: "Task workspace {path} was left half-created or half-removed, so no work can start in it. If it is merged and only deleted files are missing, the background scan finishes the removal; otherwise the owner needs to check it in the Worktree list.",
+  },
+  "worktree.removalResumed": {
+    zh: "上次没清理完的任务目录 {path} 已接着清理掉。",
+    en: "Finished removing task workspace {path}, which a previous cleanup left half-removed.",
+  },
+  "worktree.removalResumeFailed": {
+    zh: "上次没清理完的任务目录 {path} 这次还是没删掉（{reason}），下次扫描再试。",
+    en: "Still couldn't finish removing the half-removed task workspace {path} ({reason}); will retry on the next scan.",
+  },
   "error.worktree.unsafe": {
     zh: "工作区不能清理：有改动、未跟踪/忽略文件、尚未合入或仍有任务占用。{path}",
     en: "Cannot remove this worktree: changes, untracked/ignored files, unmerged work or active tasks remain. {path}",
