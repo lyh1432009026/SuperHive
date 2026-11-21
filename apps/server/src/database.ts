@@ -1305,7 +1305,9 @@ export class HiveDatabase {
       if (!parent || parent.roomId !== sender.roomId) {
         throw new HiveError("PARENT_NOT_FOUND", serverText("error.message.parentMissing"));
       }
-      if (parent.senderId === sender.id) {
+      // hive_room_post 替房主转来的派活以接活 Agent 同名成员的身份发出（每个房间各是一个成员、各有会话），
+      // 接活的就是这条消息的发送者本人：它的回复要能挂上去，否则活干完了话发不出来
+      if (parent.senderId === sender.id && parent.text?.key !== "roomPost.forwarded") {
         throw new HiveError("SELF_RESPONSE", serverText("error.message.selfResponse"));
       }
       if (parent.hopCount >= LIMITS.maxHopCount + this.turnAllowance(sender.roomId)) {

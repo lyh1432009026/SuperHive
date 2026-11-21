@@ -849,6 +849,18 @@ describe("hive_room_create", () => {
     )) as Extract<ServerEvent, { type: "agent.mentioned" }>;
     expect(woken.message.senderName).toBe("helper");
     expect(woken.message.text?.key).toBe("roomPost.forwarded");
+    // 那边的 helper 做完要能回复这条：发送者虽然是它自己，但这是替房主转来的派活，不算自己回复自己
+    self.send({ type: "invocation.report", messageId: woken.message.id, status: "running" });
+    self.send({
+      type: "message.send",
+      clientMessageId: "side-done",
+      content: "需求做完了",
+      parentMessageId: woken.message.id,
+    });
+    const replied = (await self.next(
+      (event) => event.type === "message.created" && event.message.content === "需求做完了",
+    )) as Extract<ServerEvent, { type: "message.created" }>;
+    expect(replied.message.parentMessageId).toBe(woken.message.id);
 
     expect(
       (await call(client, "hive_room_post", { room: "general", content: "@helper x" })).isError,
