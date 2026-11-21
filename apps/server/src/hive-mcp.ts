@@ -153,6 +153,23 @@ export type HiveMcpContext = {
     offset: number;
     maxBytes: number;
   }) => Promise<AttachmentReadResult>;
+  /** 工具执行时抛了不是 HiveError 的异常（我们自己的 bug）：交给故障单归档 */
+  reportError?: (error: unknown, tool: string) => void;
+  /** 修故障单的 Agent 回报结果；没启用故障单时不提供，工具也不注册 */
+  reportIncident?: (input: IncidentToolReport) => Promise<Record<string, unknown>>;
+  /** Agent 提议加一条协作规则，房主批准后生效 */
+  proposeRule?: (input: { text: string; reason: string }) => Record<string, unknown>;
+};
+
+export type IncidentToolReport = {
+  incidentId: string;
+  status: "fixed" | "failed";
+  commit?: string | undefined;
+  branch?: string | undefined;
+  symptom?: string | undefined;
+  cause?: string | undefined;
+  fix?: string | undefined;
+  reason?: string | undefined;
 };
 
 export type AttachmentReadResult =
@@ -189,7 +206,10 @@ function toolResult(value: Record<string, unknown>, inbox?: InboxDigest) {
   };
 }
 
-function toolError(error: unknown) {
+/** Agent 传错了参数：是调用方的问题，不归档成故障单 */
+class ToolInputError extends Error {}
+
+function baseToolError(error: unknown) {
   return {
     isError: true,
     content: [
@@ -203,6 +223,11 @@ function toolError(error: unknown) {
 
 export function createHiveMcpServer(context: HiveMcpContext): McpServer {
   const server = new McpServer({ name: "superhive", version: "0.2.0" });
+  let currentTool = "";
+  const toolError = (error: unknown) => {
+    if (!(error instanceof ToolInputError)) context.reportError?.(error, currentTool);
+    return baseToolError(error);
+  };
   // 每个工具调用记耗时（/mcp 请求被接管，HTTP 层记不到）；也作为里面锁和 git 调用的来源
   const register = server.registerTool.bind(server) as (...args: unknown[]) => unknown;
   (server as unknown as { registerTool: unknown }).registerTool = (
@@ -214,11 +239,18 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
       name,
       config,
       UNTIMED_TOOLS.has(name)
-        ? handler
-        : (...args: unknown[]) =>
-            slowOps.track(`MCP ${name}`, { roomId: context.roomId, kind: "request" }, async () =>
-              handler(...args),
-            ),
+        ? (...args: unknown[]) => {
+            currentTool = name;
+            return handler(...args);
+          }
+        : (...args: unknown[]) => {
+            currentTool = name;
+            return slowOps.track(
+              `MCP ${name}`,
+              { roomId: context.roomId, kind: "request" },
+              async () => handler(...args),
+            );
+          },
     );
 
   server.registerTool(
@@ -267,7 +299,7 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
       try {
         if (messageId !== undefined) {
           if (afterSeq !== undefined || limit !== undefined) {
-            throw new Error(
+            throw new ToolInputError(
               "补读模式 messageId/offset/maxChars 不能与列表模式 afterSeq/limit 混用。",
             );
           }
@@ -278,7 +310,7 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
           );
         }
         if (offset !== undefined || maxChars !== undefined) {
-          throw new Error(
+          throw new ToolInputError(
             "offset/maxChars 需要同时提供 messageId；列表模式请使用 afterSeq/limit。",
           );
         }
@@ -898,6 +930,67 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
       }
     },
   );
+
+  if (context.reportIncident) {
+    const reportIncident = context.reportIncident;
+    server.registerTool(
+      "hive_incident_report",
+      {
+        title: "Report on an incident you were assigned",
+        description:
+          "回报派给你修的故障单（派活消息里有故障单 ID）。修好了报 fixed：commit 是任务线上已提交的修复（提交信息末尾带「Incident: 短号」），再写清症状、原因、修法，这三条会进经验库，以后派活时附给别的 Agent；报完再用 hive_invoke 交 review，不要自己合入 main。修不了、或判断不是代码问题，报 failed 并在 reason 里写清原因。修复不能动权限、协作规则、门禁、审计和故障单系统本身的代码，动了会直接升级给房主。",
+        inputSchema: {
+          incidentId: z.string().uuid().describe("故障单 ID（派活消息末尾）"),
+          status: z.enum(["fixed", "failed"]),
+          commit: z
+            .string()
+            .regex(/^[0-9a-fA-F]{7,40}$/)
+            .optional()
+            .describe("fixed 时必填：修复的提交号"),
+          branch: z.string().max(200).optional().describe("修复所在的分支"),
+          symptom: z.string().min(1).max(1000).optional().describe("fixed 时必填：什么症状"),
+          cause: z.string().min(1).max(1000).optional().describe("fixed 时必填：根本原因"),
+          fix: z.string().min(1).max(1000).optional().describe("fixed 时必填：怎么修的"),
+          reason: z.string().min(1).max(1000).optional().describe("failed 时必填：为什么没修成"),
+        },
+      },
+      async (input) => {
+        try {
+          return toolResult(await reportIncident(input), context.takeInbox());
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+  }
+
+  if (context.proposeRule) {
+    const proposeRule = context.proposeRule;
+    server.registerTool(
+      "hive_rule_propose",
+      {
+        title: "Propose a collaboration rule",
+        description:
+          "提议加一条协作规则或提示词（例如这次出的问题让你发现某个做法容易出错）。只是提议：房主在网页上批准后才加进所有 Agent 的规则，新会话生效；不要用它绕开现有规则，也不要重复提已有的规则。text 写规则原文（一两句、可直接照做），reason 写哪次出的问题、这条能防住什么。",
+        inputSchema: {
+          text: z.string().trim().min(5).max(1000).describe("规则原文"),
+          reason: z
+            .string()
+            .trim()
+            .min(5)
+            .max(1000)
+            .describe("为什么要加：哪次出的问题、能防住什么"),
+        },
+      },
+      async ({ text, reason }) => {
+        try {
+          return toolResult(proposeRule({ text, reason }), context.takeInbox());
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+  }
 
   return server;
 }

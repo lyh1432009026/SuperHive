@@ -1577,6 +1577,84 @@ export const serverTexts = {
     en: "Feishu didn't return a file_key for the uploaded file",
   },
   "error.im.fileTooLarge": { zh: "文件超过 20 MiB", en: "The file is larger than 20 MiB" },
+
+  /* ---------- 故障单 ---------- */
+  "incident.dispatch": {
+    zh: "@{agent} 🩺 故障单 {short}：{title}（Hive 代 {requester} 自动派修，第 {attempt} 次）\n来源：{source}；共出现 {count} 次，首次 {firstSeen}，最近 {lastSeen}；在跑的代码 {commit}\n最近一次的现场：\n{scene}\n请按这个流程修：\n1. 用 hive_worktree_create 建任务线（slug 用 incident-{short}）；\n2. 先写一个能复现的失败测试，确认它在修之前确实失败；\n3. 再改代码，跑全量测试和 lint；\n4. 提交信息末尾加一行「Incident: {short}」；\n5. 用 hive_incident_report 报 fixed（带提交号、分支，以及症状、原因、修法），再用 hive_invoke 交{reviewer} review；不要自己合入 main，合入由 review 方和人决定；\n6. 修不了、或判断不是代码问题，用 hive_incident_report 报 failed 并写清原因。\n不许改这些（权限、协作规则、门禁、审计、故障单系统本身）：{protected}；确实要改就用 hive_ask_human 找人。{lessons}\n（故障单 ID：{id}）",
+    en: "@{agent} 🩺 Incident {short}: {title} (auto-assigned by Hive for {requester}, attempt {attempt})\nSource: {source}; seen {count} times, first {firstSeen}, latest {lastSeen}; running code {commit}\nLatest occurrence:\n{scene}\nFix it this way:\n1. Create a task line with hive_worktree_create (slug incident-{short}).\n2. First write a failing test that reproduces it, and confirm it fails before the fix.\n3. Then change the code and run the full test suite and lint.\n4. End the commit message with the line \"Incident: {short}\".\n5. Report fixed with hive_incident_report (commit, branch, symptom, cause, fix), then hand it to{reviewer} for review with hive_invoke. Don't merge into main yourself; the reviewer and a person decide.\n6. If you can't fix it, or it isn't a code problem, report failed with hive_incident_report and say why.\nDon't change these (permissions, collaboration rules, gates, audit, the incident system itself): {protected}. If you really must, ask a person with hive_ask_human.{lessons}\n(Incident ID: {id})",
+  },
+  "incident.reviewer": { zh: " {reviewer}", en: " {reviewer}" },
+  "incident.reviewerAny": { zh: "负责 review 的 Agent", en: " the agent that does reviews" },
+  "incident.lessons": {
+    zh: "\n以前修过的类似问题（经验库，供参考，不一定适用）：\n{lessons}",
+    en: "\nSimilar problems fixed before (from the lessons log; for reference, may not apply):\n{lessons}",
+  },
+  "incident.source.invocation": { zh: "Agent 调用失败", en: "Agent turn failed" },
+  "incident.source.server": { zh: "Server 抛异常", en: "Server exception" },
+  "incident.source.protocol": { zh: "协议校验失败", en: "Protocol validation failed" },
+  "incident.source.web": { zh: "网页报错", en: "Web page error" },
+  "incident.recurred": {
+    zh: "@{requester} 🩺 故障单 {short} 修好后又出现了：{title}（共 {count} 次；Hive 代 {agent} 发出）\n修复提交 {commit} 已在跑的代码里，同一种错误还在出，已重新打开。可以考虑回滚这个提交；Hive 不会自动回滚。",
+    en: "@{requester} 🩺 Incident {short} came back after the fix: {title} ({count} times in total; sent by Hive for {agent})\nFix commit {commit} is in the running code but the same error is still happening, so it's been reopened. Consider reverting that commit; Hive won't revert it automatically.",
+  },
+  "incident.escalated": {
+    zh: "@{requester} 🩺 故障单 {short} 需要你处理：{title}（共 {count} 次；Hive 代 {agent} 发出）\n{reason}。自动修复已停下，在「这台电脑 → 故障单」里看现场，决定重新派修、忽略或手动处理。",
+    en: "@{requester} 🩺 Incident {short} needs you: {title} ({count} times in total; sent by Hive for {agent})\n{reason}. Automatic fixing has stopped. See the details under This computer → Incidents and choose to reassign, ignore, or handle it yourself.",
+  },
+  "incident.note.recurred": {
+    zh: "修复 {commit} 合入后又出现",
+    en: "Came back after fix {commit} was merged",
+  },
+  "incident.note.escalatedAttempts": {
+    zh: "已经修失败 {count} 次",
+    en: { one: "Fixing failed {count} time", other: "Fixing failed {count} times" },
+  },
+  "incident.note.escalatedProtected": {
+    zh: "修复动了不许自动改的代码：{files}",
+    en: "The fix changed code that automatic fixes may not touch: {files}",
+  },
+  "incident.note.failed": { zh: "这次没修成：{reason}", en: "This attempt failed: {reason}" },
+  "error.incident.notFound": { zh: "没有这张故障单。", en: "That incident wasn't found." },
+  "error.incident.notAssigned": {
+    zh: "这张故障单现在没有派给你修，不能回报。",
+    en: "This incident isn't currently assigned to you, so you can't report on it.",
+  },
+  "error.incident.commitUnknown": {
+    zh: "在 Server 的仓库里找不到这个提交；先提交到任务线的分支上，再用完整或至少 7 位的提交号回报。",
+    en: "That commit isn't in the server's repository. Commit to your task branch first, then report with the full hash or at least 7 characters.",
+  },
+  "error.incident.notDispatchable": {
+    zh: "现在不能派修：{reason}",
+    en: "Can't assign this now: {reason}",
+  },
+  "error.incident.memberMissing": {
+    zh: "派修设置里的人或 Agent 不在这个房间，先在「这台电脑 → 故障单」里改设置。",
+    en: "The person or agent in the incident settings isn't in that room. Update the settings under This computer → Incidents first.",
+  },
+  "error.incident.fieldRequired": {
+    zh: "缺少 {name}。",
+    en: "{name} is required.",
+  },
+  "error.incident.disabled": {
+    zh: "故障单没有启用。",
+    en: "Incidents aren't enabled.",
+  },
+  "error.incident.rateLimited": {
+    zh: "报错上报太频繁，稍后再试。",
+    en: "Too many error reports. Try again later.",
+  },
+  "error.ruleProposal.notFound": {
+    zh: "没有这条规则提议。",
+    en: "That rule proposal wasn't found.",
+  },
+  "error.ruleProposal.decided": {
+    zh: "这条提议已经处理过了。",
+    en: "That proposal has already been handled.",
+  },
+  "error.ruleProposal.full": {
+    zh: "待批准的规则提议已经有 20 条，等房主处理后再提。",
+    en: "There are already 20 rule proposals waiting for the owner. Wait until they're handled.",
+  },
 } as const satisfies Record<string, Entry>;
 
 export type ServerTextKey = keyof typeof serverTexts;

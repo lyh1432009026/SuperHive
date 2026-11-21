@@ -1,0 +1,219 @@
+/* 故障单：只在「这台电脑」设置页里，点「查看」展开 */
+.incident-attention {
+  display: inline-block;
+  min-width: 18px;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  vertical-align: 1px;
+}
+
+.incidents {
+  display: grid;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.incidents h5 {
+  margin: 0 0 6px;
+  font-size: var(--text-sm);
+}
+
+.incident-settings {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+}
+
+.incident-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.incident-settings-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-sm);
+}
+
+.incident-settings-grid input,
+.incident-settings-grid select {
+  min-width: 0;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-main);
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+
+.incident-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.incident-settings-actions .settings-action {
+  margin-top: 0;
+}
+
+.incident-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.incident-list > li {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+}
+
+.incident-list > li.escalated {
+  border-color: var(--danger);
+}
+
+.incident-list small {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.incident-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.incident-head strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.incident-status {
+  flex: 0 0 auto;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.incident-status.escalated {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.incident-status.fixing,
+.incident-status.fix_submitted {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.incident-status.resolved {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.incident-count {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.incident-note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.incident-list details summary,
+.incident-more > summary {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.incident-more > summary {
+  font-size: var(--text-sm);
+}
+
+.incident-more > .incident-list {
+  margin-top: 6px;
+}
+
+.incident-sample,
+.incident-lesson dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 10px;
+  margin: 6px 0 0;
+  font-size: var(--text-xs);
+}
+
+.incident-sample dt,
+.incident-lesson dt {
+  color: var(--text-secondary);
+}
+
+.incident-sample dd,
+.incident-lesson dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.incident-sample pre {
+  max-height: 200px;
+  margin: 0;
+  overflow: auto;
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+
+.incident-dispatches {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  font-size: var(--text-xs);
+}
+
+.incident-proposal p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.incident-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.incident-actions button {
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-main);
+  color: var(--text);
+  font-size: var(--text-xs);
+}
+
+.incident-actions button:hover {
+  background: var(--bg-subtle);
+}

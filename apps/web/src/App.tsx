@@ -9,6 +9,7 @@ import {
 } from "react";
 import { BranchGlyph } from "./worktree-switcher";
 import { useSlowOps } from "./slow-ops";
+import { installErrorReporter } from "./error-report";
 import { WorkspacePanel, workspaceApi, type WorkspaceFocus } from "./workspace-panel";
 import { RefResolver, WorkspaceRefsContext, type RefTarget } from "./workspace-refs";
 import type {
@@ -378,6 +379,17 @@ export function App({
   // 最近慢操作：服务端只给这台电脑上的房主页面发（连上时 slow-op.snapshot，之后逐条 slow-op.recorded）
   const slowOpsState = useSlowOps();
   slowOpsRef.current = slowOpsState;
+  // 故障单：服务端只给这台电脑上的房主页面推「需要你处理」的数字，详情打开设置再拉
+  const [incidentAttention, setIncidentAttention] = useState<number>();
+  // 房主页面上的报错交给 Server 归档成故障单
+  useEffect(() => {
+    if (!isOwner || !authToken) return;
+    return installErrorReporter({
+      base,
+      token: authToken,
+      roomId: () => currentRoomIdRef.current,
+    });
+  }, [base, authToken, isOwner]);
   // 「Agent 运行时」只给页面开在 Server 所在电脑上的本机房主
   const visibleSettingsTabs = settingsTabs.filter(
     (tab) => tab.id !== "runtimes" || local.mode === "local",
@@ -1092,6 +1104,7 @@ export function App({
     setPendingAnswers,
     notificationPreferencesRef,
     slowOpsRef,
+    setIncidentAttention,
     attentionRef,
     globalEventsRef,
   });
@@ -2389,6 +2402,8 @@ export function App({
           settingsDialogRef={settingsDialogRef}
           settingsTab={settingsTab}
           slowOpsState={slowOpsState}
+          incidentAttention={incidentAttention}
+          rooms={rooms}
           themePreference={themePreference}
           threadWidth={threadWidth}
           timeFormat={timeFormat}

@@ -23,6 +23,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   LIMITS,
   clientEventSchema,
+  clientErrorReportSchema,
   parseMentions,
   createRoomRequestSchema,
   updateRoomRequestSchema,
@@ -74,10 +75,20 @@ import {
   TERMINAL_INVOCATION_STATUSES,
   type CreateMessageInput,
 } from "./database.js";
-import { createHiveMcpServer, type AttachmentReadResult, type InboxDigest } from "./hive-mcp.js";
+import {
+  createHiveMcpServer,
+  type AttachmentReadResult,
+  type InboxDigest,
+  type IncidentToolReport,
+} from "./hive-mcp.js";
 import { readMessageContent } from "./message-content.js";
 import { gitBranch } from "./git-branch.js";
-import { WorktreeManager, worktreeRepository, type DependencySettings } from "./worktrees.js";
+import {
+  WorktreeManager,
+  worktreeGit,
+  worktreeRepository,
+  type DependencySettings,
+} from "./worktrees.js";
 import { registerWorkspaceFileRoutes } from "./workspace-files-routes.js";
 import { readOnlyGit, resolveInside } from "./workspace-files.js";
 import {
@@ -103,6 +114,14 @@ import {
 import { AttachmentStore, publicAttachment, type StoredAttachment } from "./attachment-store.js";
 import { listRoomArtifacts } from "./room-artifacts.js";
 import { slowOps, slowOpsSettingsFromEnv, type SlowOpsSettings } from "./slow-ops.js";
+import {
+  classifyClientError,
+  classifyInvocation,
+  classifyProtocolError,
+  classifyServerError,
+} from "./incidents.js";
+import { IncidentStore } from "./incident-store.js";
+import { IncidentDesk, type IncidentGit } from "./incident-desk.js";
 import { ImHub } from "./im/im-hub.js";
 import { ImStore } from "./im/im-store.js";
 import { SecretBox } from "./im/secret-box.js";
@@ -192,6 +211,11 @@ export type BuildAppOptions = {
   handoverFile?: string;
   /** 慢操作阈值与保留条数；省略时读 HIVE_SLOW_OP_MS 等环境变量，再缺省用默认值 */
   slowOps?: Partial<SlowOpsSettings>;
+  /**
+   * 故障单派修用的源码仓库（Server 自己的代码所在的 git 仓库）：读在跑的提交、核对修复有没有合入。
+   * 省略时用这份源码所在的仓库（不是从源码跑的就没有）；false 关闭，这时只归类计数、不派修。
+   */
+  incidentRepo?: string | false;
   localAgents?: Omit<
     LocalAgentSupervisorOptions,
     | "database"
@@ -285,6 +309,110 @@ function consumeHandover(file: string | undefined): boolean {
   }
 }
 
+/** hive_incident_report 里按 status 必填的字段 */
+function requiredField(value: string | undefined, name: string): string {
+  if (!value?.trim()) {
+    throw new HiveError("INVALID_INPUT", serverText("error.incident.fieldRequired", { name }));
+  }
+  return value.trim();
+}
+
+/** 这份 Server 源码所在的 git 仓库根目录；从打包产物跑（npx）时没有 */
+function sourceRepository(): string | undefined {
+  if (!import.meta.dirname.endsWith(`${path.sep}src`)) return undefined;
+  const root = path.resolve(import.meta.dirname, "../../..");
+  return existsSync(path.join(root, ".git")) ? root : undefined;
+}
+
+async function currentCommit(repo: string): Promise<string | undefined> {
+  try {
+    const result = await worktreeGit(repo, ["rev-parse", "HEAD"]);
+    const commit = result.stdout.trim();
+    return result.code === 0 && /^[0-9a-f]{40}$/.test(commit) ? commit : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 故障单核对修复用的 git 查询；没有源码仓库时都答「不知道」 */
+function incidentGit(repo: string | undefined, running: string | undefined): IncidentGit {
+  return {
+    async containsFix({ commit, shortId }) {
+      if (!repo || !running) return undefined;
+      try {
+        if (commit && /^[0-9a-fA-F]{7,40}$/.test(commit)) {
+          const ancestor = await worktreeGit(repo, [
+            "merge-base",
+            "--is-ancestor",
+            commit,
+            running,
+          ]);
+          if (ancestor.code === 0) return true;
+        }
+        // 变基、压缩后提交号变了：按提交信息里的「Incident: 短号」找
+        const found = await worktreeGit(repo, [
+          "log",
+          running,
+          "-n",
+          "1",
+          "--format=%H",
+          "-F",
+          `--grep=Incident: ${shortId}`,
+        ]);
+        return found.code === 0 ? found.stdout.trim().length > 0 : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    async changedFiles(commit) {
+      if (!repo || !running || !/^[0-9a-fA-F]{7,40}$/.test(commit)) return undefined;
+      try {
+        const resolved = await worktreeGit(repo, [
+          "rev-parse",
+          "--verify",
+          "--quiet",
+          `${commit}^{commit}`,
+        ]);
+        if (resolved.code !== 0) return undefined;
+        const full = resolved.stdout.trim();
+        // 和主分支比：在跑的代码可能比主分支旧，拿它比会把别人后来合入的改动也算到这个修复头上
+        let mainline = running;
+        for (const branch of ["main", "master"]) {
+          const tip = await worktreeGit(repo, [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            `refs/heads/${branch}`,
+          ]);
+          if (tip.code === 0) {
+            mainline = tip.stdout.trim();
+            break;
+          }
+        }
+        const base = await worktreeGit(repo, ["merge-base", mainline, full]);
+        if (base.code !== 0) return undefined;
+        const diff = await worktreeGit(repo, [
+          "diff",
+          "--name-status",
+          "--no-renames",
+          "-z",
+          base.stdout.trim(),
+          full,
+        ]);
+        if (diff.code !== 0) return undefined;
+        const parts = diff.stdout.split("\0").filter(Boolean);
+        const changes: Array<{ status: string; file: string }> = [];
+        for (let index = 0; index + 1 < parts.length; index += 2) {
+          changes.push({ status: parts[index]!, file: parts[index + 1]! });
+        }
+        return changes;
+      } catch {
+        return undefined;
+      }
+    },
+  };
+}
+
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
   const sandbox = options.sandbox === true;
   const app = Fastify({
@@ -317,9 +445,40 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     });
     done(null, payload);
   });
+  // 我们自己代码抛的异常（5xx，不是给人看的 HiveError）记进故障单；4xx 是请求本身的问题
+  app.addHook("onError", (request, _reply, error, done) => {
+    // onError 时回复的状态码还没按错误设好，看错误自己带的状态码
+    if ((error.statusCode ?? 500) >= 500 && !error.validation) {
+      const roomId = (request.params as { roomId?: unknown } | undefined)?.roomId;
+      recordServerError(
+        error,
+        `${request.method} ${request.routeOptions.url ?? "(unmatched)"}`,
+        typeof roomId === "string" ? roomId : undefined,
+      );
+    }
+    done();
+  });
   const database = new HiveDatabase(options.databasePath ?? "./data/hive.sqlite");
   const joinToken = database.getOrCreateToken(options.token ?? process.env.HIVE_TOKEN);
   const access = new AccessStore(database.connection());
+  const incidentRepo =
+    sandbox || options.incidentRepo === false
+      ? undefined
+      : (options.incidentRepo ?? sourceRepository());
+  const runningCommit = incidentRepo ? await currentCommit(incidentRepo) : undefined;
+  const incidentDesk = new IncidentDesk({
+    store: new IncidentStore(database.connection(), () => clock()),
+    readSetting: (key) => database.getSetting(key),
+    writeSetting: (key, value) => database.setSetting(key, value),
+    now: () => clock(),
+    runningCommit,
+    git: incidentGit(incidentRepo, runningCommit),
+    dispatch: (input) => dispatchIncident(input),
+    notify: (input) => notifyIncident(input),
+    getInvocation: (id) => database.getInvocation(id),
+    changed: () => pushIncidentAttention(),
+    log: app.log,
+  });
   const imStore = new ImStore(database.connection(), SecretBox.open(options.imKeyPath));
   const ownerDevices = new OwnerDevices(database.connection(), {
     secret: (() => {
@@ -821,6 +980,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       : {}),
     ...(options.agentClis && !sandbox ? { agentClis: options.agentClis } : {}),
     slowOps: () => slowOps.list(),
+    incidents: {
+      snapshot: () => incidentDesk.snapshot(),
+      updateSettings: (patch) => incidentDesk.updateSettings(patch),
+      act: (id, action) => incidentDesk.act(id, action),
+      decide: (id, decision, by) => incidentDesk.decide(id, decision, by),
+    },
     keepAwake: {
       state: () => keepAwake?.state(),
       update: (patch) => keepAwake?.update(patch),
@@ -1186,7 +1351,98 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       const schedule = database.scheduleForInvocation(invocation.id);
       if (schedule) setImmediate(() => reportSchedule(schedule.id));
     }
+    // 失败或结果未知：归类后记进故障单（同一次只记一次）
+    if (invocation.status === "failed" || invocation.status === "timed_out") {
+      setImmediate(() => {
+        const occurrence = classifyInvocation(invocation, {
+          provider: database.getParticipant(invocation.agentId)?.provider,
+          codeVersion: runningCommit,
+        });
+        if (occurrence) recordIncident(occurrence);
+      });
+    }
     return invocation;
+  }
+
+  /** 记一次故障：出错只写日志，不能让归档本身影响正在处理的请求 */
+  function recordIncident(occurrence: Parameters<IncidentDesk["record"]>[0]): void {
+    try {
+      incidentDesk.record(occurrence);
+    } catch (error) {
+      app.log.warn({ err: error }, "incident record failed");
+    }
+  }
+
+  /** 我们自己代码抛的异常（不是给人看的 HiveError）记进故障单 */
+  function recordServerError(error: unknown, route: string, roomId?: string): void {
+    if (error instanceof HiveError) return;
+    recordIncident(
+      classifyServerError(error, {
+        route,
+        ...(roomId ? { roomId } : {}),
+        codeVersion: runningCommit,
+      }),
+    );
+  }
+
+  /** 以设置里的「派活人」名义在房间里 @ 修的 Agent；返回派出的调用 */
+  function dispatchIncident(input: {
+    roomId: string;
+    requester: string;
+    agent: string;
+    text: ServerText;
+    clientMessageId: string;
+  }): { invocationId: string; messageId: string } {
+    const requester = database.findParticipant(input.roomId, input.requester);
+    const agent = database.findParticipant(input.roomId, input.agent);
+    if (requester?.type !== "human" || agent?.type !== "agent") {
+      throw new HiveError("INCIDENT_MEMBER_MISSING", serverText("error.incident.memberMissing"));
+    }
+    const { message } = createAndDispatchMessage(requester, {
+      content: zhText(input.text),
+      text: input.text,
+      clientMessageId: input.clientMessageId,
+    });
+    const invocation = database.getInvocationFor(message.id, agent.id);
+    if (!invocation) {
+      throw new HiveError("INCIDENT_MEMBER_MISSING", serverText("error.incident.memberMissing"));
+    }
+    return { invocationId: invocation.id, messageId: message.id };
+  }
+
+  /** 代修的 Agent 提醒人（修好后又出现、升级给人）：@ 的是人，不唤醒任何 Agent */
+  function notifyIncident(input: {
+    roomId: string;
+    agent: string;
+    text: ServerText;
+    clientMessageId: string;
+  }): void {
+    const agent = database.findParticipant(input.roomId, input.agent);
+    if (agent?.type !== "agent") return;
+    createAndDispatchMessage(
+      agent,
+      {
+        content: zhText(input.text),
+        text: input.text,
+        clientMessageId: input.clientMessageId,
+        kind: "receipt",
+      },
+      { receipt: true },
+    );
+  }
+
+  /** 需要房主处理的故障单和规则提议数，推给这台电脑上的房主页面 */
+  function incidentAttention(): number {
+    return incidentDesk.attention();
+  }
+
+  function pushIncidentAttention(): void {
+    const attention = incidentAttention();
+    for (const connection of connections) {
+      if (isLocalOwner(connection)) {
+        send(connection.socket, { type: "incidents.changed", attention });
+      }
+    }
   }
 
   /** 正被委派方 hive_wait 的子任务 ID 及等待者数量 */
@@ -3288,6 +3544,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const sweptAt = Date.now();
     if (sweptAt - lastSweepAt > sleepGapMs) staleGraceUntil = sweptAt + 2 * 60_000;
     lastSweepAt = sweptAt;
+    void incidentDesk.sweep().catch((error: unknown) => {
+      app.log.warn({ err: error }, "incident sweep failed");
+    });
     // 服务重启前没来得及发出、或因限流暂时失败的回执，在这里补发
     for (const invocation of database.listPendingContinuations())
       deliverContinuation(invocation.id);
@@ -3900,8 +4159,42 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     pid: process.pid,
     ...(options.instanceId ? { instanceId: options.instanceId } : {}),
   }));
+  /**
+   * 网页把自己的报错交上来归档成故障单。只收房主的（访客的页面可能发来任何东西），
+   * 每分钟最多 30 条，防止某个报错在渲染循环里刷屏。
+   */
+  const clientErrorTimes: number[] = [];
+  app.post<{ Body: unknown }>("/api/client-errors", async (request, reply) => {
+    if (!adminOnly(request, reply)) return reply;
+    const body = clientErrorReportSchema.safeParse(request.body);
+    if (!body.success)
+      return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+    const now = clock();
+    while (clientErrorTimes.length > 0 && now - clientErrorTimes[0]! > 60_000) {
+      clientErrorTimes.shift();
+    }
+    if (clientErrorTimes.length >= 30) {
+      return reply.code(429).send({ ...errorText(serverText("error.incident.rateLimited")) });
+    }
+    clientErrorTimes.push(now);
+    const roomId = z
+      .string()
+      .regex(/^[A-Za-z0-9_-]+$/)
+      .max(64)
+      .safeParse(request.headers["x-hive-room"]);
+    recordIncident(
+      classifyClientError(body.data, {
+        ...(roomId.success ? { roomId: roomId.data } : {}),
+        codeVersion: runningCommit,
+      }),
+    );
+    return reply.code(204).send();
+  });
+
   app.get("/agent.md", async (_request, reply) => {
-    return reply.type("text/markdown; charset=utf-8").send(AGENT_INSTRUCTIONS);
+    return reply
+      .type("text/markdown; charset=utf-8")
+      .send(AGENT_INSTRUCTIONS + incidentDesk.rulesAddendum());
   });
   /**
    * 共享 join token 等同房主权限，只交给 Server 所在电脑上的页面（或已持有它的请求）；
@@ -4866,6 +5159,54 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       formatScheduleTime,
       wait: (input) => waitForInvocation(participant, input),
       readAttachment: (input) => readAttachmentForAgent(participant, input),
+      reportError: (error, tool) =>
+        recordServerError(error, `MCP ${tool || "?"}`, participant.roomId),
+      // 访客带入的 Agent 不参与修 Server 代码、也不能给所有 Agent 提规则
+      ...(guestSessionOf(participant)
+        ? {}
+        : {
+            reportIncident: async (input: IncidentToolReport) => {
+              const caller = { roomId: participant.roomId, agentName: participant.username };
+              const result =
+                input.status === "failed"
+                  ? await incidentDesk.report(caller, input.incidentId, {
+                      status: "failed",
+                      reason: requiredField(input.reason, "reason"),
+                    })
+                  : await incidentDesk.report(caller, input.incidentId, {
+                      status: "fixed",
+                      commit: requiredField(input.commit, "commit"),
+                      branch: input.branch,
+                      symptom: requiredField(input.symptom, "symptom"),
+                      cause: requiredField(input.cause, "cause"),
+                      fix: requiredField(input.fix, "fix"),
+                    });
+              return {
+                incidentId: result.incident.id,
+                status: result.incident.status,
+                ...(result.protectedFiles
+                  ? {
+                      protectedFiles: result.protectedFiles,
+                      next: "修复动了不许自动改的代码，已升级给房主；不要继续交 review，等人决定。",
+                    }
+                  : {}),
+                ...(result.modifiedTests
+                  ? {
+                      modifiedTests: result.modifiedTests,
+                      next: "已记下；你改了已有测试，交 review 时说明为什么要改。",
+                    }
+                  : {}),
+              };
+            },
+            proposeRule: (input: { text: string; reason: string }) => {
+              const proposal = incidentDesk.propose(
+                { roomId: participant.roomId, agentName: participant.username },
+                input.text,
+                input.reason,
+              );
+              return { proposalId: proposal.id, status: proposal.status };
+            },
+          }),
     });
     const transport = new StreamableHTTPServerTransport();
     try {
@@ -5365,6 +5706,24 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         const messageTooLong = parsed.error.issues.some(
           (issue) => issue.code === "too_big" && issue.path.join(".") === "content",
         );
+        // 已接入的 Agent 发来格式不对的事件：Bridge 与 Server 对不上，是我们的问题。
+        // 人的页面、未接入的连接发来的可能是任何东西，不归档
+        const sender = connection.participant;
+        if (sender?.type === "agent" && !messageTooLong) {
+          const type = (json as { type?: unknown } | null)?.type;
+          recordIncident(
+            classifyProtocolError(
+              typeof type === "string" ? type : undefined,
+              parsed.error.issues,
+              {
+                roomId: sender.roomId,
+                agentName: sender.username,
+                provider: sender.provider,
+                codeVersion: runningCommit,
+              },
+            ),
+          );
+        }
         send(socket, {
           type: "error",
           code: messageTooLong ? "MESSAGE_TOO_LONG" : "INVALID_EVENT",
@@ -5502,8 +5861,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             features: ["trace", "approval", "session"],
           });
           // 这台电脑上的房主：先给慢操作全集，补上断开期间漏掉的推送；沙箱里也一样
-          if (isLocalOwner(connection))
+          if (isLocalOwner(connection)) {
             send(socket, { type: "slow-op.snapshot", ...slowOps.list() });
+            send(socket, { type: "incidents.changed", attention: incidentAttention() });
+          }
           // 房主（或允许看过程的访客）刚打开或重连：把正在执行的调用的过程补上
           if (canSeeTrace(connection, event.roomId)) {
             for (const [invocationId, trace] of traces) {
@@ -5707,6 +6068,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           }
         } catch (error) {
           const hiveError = error instanceof HiveError ? error : undefined;
+          recordServerError(error, `ws ${event.type}`, participant.roomId);
           send(socket, {
             type: "error",
             code: hiveError?.code ?? "REQUEST_FAILED",
@@ -5891,6 +6253,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   app.decorate("attachmentStore", attachments);
   app.decorate("runSchedules", runSchedules);
   app.decorate("hiveDatabase", database);
+  app.decorate("incidentDesk", incidentDesk);
   /**
    * 关闭前先让本机 Agent 正常下线：要趁 WebSocket 还连着（Windows 上靠它通知 Agent 退出），
    * app.close() 时连接已经被关掉了。换代交接时不下线，由 onClose 交给下一个 Server。

@@ -118,6 +118,8 @@ export class ClaudeCodeResponder implements AgentResponder {
       "hive_schedule_cancel",
       "hive_room_create",
       "hive_room_post",
+      "hive_incident_report",
+      "hive_rule_propose",
     ]
       .map((tool) => `mcp__hive__${tool}`)
       .join(",");

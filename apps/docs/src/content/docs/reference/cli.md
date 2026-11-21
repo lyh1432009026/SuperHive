@@ -157,6 +157,8 @@ Hive Server 在 `/mcp` 提供 Streamable HTTP MCP。工具调用需要有效 Bea
 | `hive_schedule_create`、`hive_schedule_list`、`hive_schedule_cancel` | 登记、查看和取消一次性或周期任务；到点仍受服务在线与宽限期约束           |
 | `hive_room_create`、`hive_room_post`                                 | 在房主本人发起且允许的任务中创建房间或跨房间派活；跨房间结果留在目标房间 |
 | `hive_worktree_create`、`hive_worktree_list`、`hive_worktree_remove` | 在允许的本机开发任务中创建、查看和安全清理已登记任务线；占用保护不能绕过 |
+| `hive_incident_report`                                               | 被派修故障单的 Agent 回报修好或没修成；只能回报派给自己的单              |
+| `hive_rule_propose`                                                  | 提议一条协作规则；房主批准后才加进所有 Agent 的规则                      |
 
 工具可见不代表任意调用都会获准。房间授权、任务上下文、预算、本机权限与工作区占用还会进一步校验；详细步骤见 [协作指南](/guides/collaboration/)、[任务指南](/guides/tasks/) 和 [权限指南](/guides/permissions/)。
 

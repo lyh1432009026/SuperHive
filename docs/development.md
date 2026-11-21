@@ -222,6 +222,8 @@ Hive Server 在 `/mcp` 提供 Streamable HTTP MCP，内置 Bridge 会为 Codex�
 - `hive_schedule_create` / `hive_schedule_list` / `hive_schedule_cancel`：一次性定时任务。到点服务端以发起人名义发「⏰ 定时任务」消息唤醒登记者；每个房间最多 20 个待执行；Server 不在线、晚于 10 分钟才轮到的标为已错过。
 - `hive_room_create`：替房主新建房间（可带已存在的工作区目录），本机 Agent 会自动加入。只在房主本人发起的任务里可用。
 - `hive_room_post`：替房主到另一个房间以自己的名义发消息、@ 接活的 Agent，开新的传递链并注明来源；刚建的房间会等被 @ 的 Agent 上线（最多 20 秒）。只在房主本人发起的任务里可用，那边由 Agent 发起的任务不能再往外转。
+- `hive_incident_report`：被派修故障单的 Agent 回报结果（见「故障单」）。`fixed` 要带提交号和症状、原因、修法，`failed` 要写原因；不是派给自己的单不能回报。访客带入的 Agent 没有这个工具。
+- `hive_rule_propose`：提议加一条协作规则。房主在网页上批准后接在 `/agent.md` 后面，Agent 重启后生效。访客带入的 Agent 没有这个工具。
 
 除 `hive_room_read` 外，每个工具结果末尾都会附带「你处理期间房间里的新消息」（不含自己发的），让长任务中途也能看到别人的补充。
 
@@ -246,6 +248,11 @@ GET  /api/attachments/:id           下载附件（只认 Authorization 头）
 DELETE /api/attachments/:id         移除还没发出的附件
 GET  /api/attachments/:id/local-path  本机房主 Agent 取 Server 存的文件路径
 GET  /api/local/...                 本机 Agent、目录、MCP、保持在线、设备登录等（只对本机房主开放）
+GET  /api/local/incidents           故障单、经验库、规则提议和派修设置（只限本机）
+PATCH /api/local/incidents/settings 改派修设置
+POST /api/local/incidents/:id/action        { action: ignore | reopen | resolve | dispatch }
+POST /api/local/rule-proposals/:id/decision { decision: approve | reject | retire }
+POST /api/client-errors             房主页面上报自己的报错（每分钟最多 30 条）
 POST /api/local/rooms/:room/clear    房主或获批管理设备清空房间
 GET  /ws                       WebSocket（发消息、调用状态回报、实时事件）
 POST /mcp                      Streamable HTTP MCP
@@ -350,6 +357,26 @@ Agent 的行为规则有一份权威来源：`apps/server/src/agent-instructions
 - **Codex 失败与重试边界**：握手超时、配置或协议错误会保留失败阶段，不再自动切换到旧 MCP 或连续重跑。发出执行/注入请求后断连、结果丢失、停止未获终态确认，一律按结果未知处理，不自动重放；当前适配器会话锁定，必须先核对实际执行与工具进程。明确不存在的旧线程才可在执行前新建；其他恢复错误不丢弃会话。`turn/completed` 的可信终态才是停止确认。
 - **Claude Code**：用 stream-json 流式输入，引导在工具间隙被读到，回放确认收下才算插入，没收下的退回排队。
 - **上游出错自动继续**：只认明确的上游错误写法（限流、过载、5xx、断流），额度用完、鉴权失败不重试；这一轮做过有副作用的操作（按只读命令白名单判断，认不出的按有副作用）就不自动继续。
+
+## 故障单（自动归类、派修、经验库）
+
+失败先分清是谁的问题，再决定要不要改代码（`apps/server/src/incidents.ts` 归类，`incident-desk.ts` 决策，`incident-store.ts` 存储）：
+
+- **外部原因**（`external`）：模型服务出错或限流、凭证、Agent 离线、Agent 自己的 CLI 崩溃。Bridge 本来就会重试和提示，这里只计数，不派修。
+- **我们的问题**（`internal`）：Bridge 与 Server 对不上账或卡住（`invocation.stale`、`invocation.unacknowledged`、`bridge.steerEndRace` 等）、Server 抛的异常（HTTP 5xx、WebSocket 事件处理、MCP 工具里不是 `HiveError` 的异常）、已接入的 Agent 发来没通过协议校验的事件、房主页面上未捕获的报错。
+- **说不清**（`unknown`）：旧版 Bridge 只给了中文说明，或新的原因键。只记下来，房主判断后可以手动派修。
+
+调用失败按 Bridge 的结构化原因键（`detailText.key`）归类，表在 `incidents.ts` 的 `INVOCATION_ORIGINS`；新加 Bridge 原因键时记得补上。同一种错误按指纹合并：调用失败是「原因键 + 运行时」，异常是错误类型加调用栈前三帧（去掉行列号、`node_modules`、打包文件名里的哈希，路径只留仓库内部分）。每张单留最近 5 次现场（房间、调用、Agent、路由、调用栈、在跑的代码提交），本机用户目录换成 `~`，不记消息正文和工具参数。同一次出现（同一调用的同一次尝试）只记一次。
+
+**派修**：在「设置 → 这台电脑 → 故障单」里打开「自动派修」，选房间、以谁的名义派活、修的 Agent 和 review 的 Agent。我们的问题出现到阈值（默认 3 次）后，Server 以派活人的名义 @ 修的 Agent，消息里带现场、相关经验、受保护路径，要求先写复现测试再修、提交信息末尾加 `Incident: <短号>`、用 `hive_incident_report` 回报后交 review。合入仍由 review 方和人决定，Server 不合入、不回滚。
+
+- 每天（本地日期）最多自动派修 `dailyLimit` 次（默认 3）；房主手动派修不受阈值、开关和每日上限限制。
+- 派出去的调用失败、被停止或结果未知，或 24 小时没回报，算一次没修成；修好后同一种错误又出现（修复已在跑的代码里），重新打开、也算一次，并在房间里提醒房主考虑回滚。累计 `maxAttempts` 次（默认 2）就升级给人：自动派修停下，页面上标「需要你处理」。
+- 回报 `fixed` 时 Server 用 `git diff` 核对这个提交相对主分支改了哪些文件：动了 `PROTECTED_PATHS`（权限、协作规则、门禁、审计、故障单系统本身）直接升级给人，经验不入库；改了已有测试（不是新增）不拦，记在派修记录上给 review 的人看。
+- 修复有没有进在跑的代码：Server 启动时记下源码仓库的 `HEAD`，每分钟查一次交了修复的单，修复提交是它的祖先、或它的历史里有带 `Incident: <短号>` 的提交（变基后提交号会变）就标为已解决，经验标为已验证。
+- 不是从源码仓库运行的 Server（`npx` 安装、沙箱预览）核对不了修复，只归类计数，不派修。
+
+**经验库与规则**：每次回报 `fixed` 的症状、原因、修法存进经验库，派修时附上最相关的 5 条（同一张单的优先，再是同一来源的）。Agent 用 `hive_rule_propose` 提的规则要房主在同一个面板里批准，批准后接在 `/agent.md` 后面（「房主批准的补充规则」），撤下后不再加进去；Agent 重启后拿到新规则。
 
 ## 本机 Agent 管家
 

@@ -26,6 +26,16 @@ import {
   type RuntimeCredentialField,
   type RuntimeCredentialProvider,
   type SlowOperationsResponse,
+  incidentActionRequestSchema,
+  ruleProposalDecisionRequestSchema,
+  updateIncidentSettingsRequestSchema,
+  type Incident,
+  type IncidentActionRequest,
+  type IncidentSettings,
+  type IncidentsResponse,
+  type RuleProposal,
+  type RuleProposalDecisionRequest,
+  type UpdateIncidentSettingsRequest,
   updateRuntimeCredentialsRequestSchema,
 } from "@superhive/protocol";
 import QRCode from "qrcode";
@@ -79,6 +89,11 @@ const ERROR_STATUS: Record<string, number> = {
   RUNTIME_CREDENTIALS_UNREADABLE: 409,
   RUNTIME_CREDENTIALS_WRITE_FAILED: 500,
   WORKTREE_UNREGISTERED: 404,
+  INCIDENT_NOT_FOUND: 404,
+  INCIDENT_NOT_DISPATCHABLE: 409,
+  INCIDENT_MEMBER_MISSING: 409,
+  RULE_PROPOSAL_NOT_FOUND: 404,
+  RULE_PROPOSAL_DECIDED: 409,
 };
 
 /** 批准单绑定的 Agent 配置：获批后权限、目录、模型、MCP 任一变化都不算同一件事 */
@@ -183,6 +198,13 @@ export type LocalRoomActions = {
   agentClis?: AgentCliManager;
   /** 最近的慢操作（锁、git、重查询、HTTP 请求）；只限本机 */
   slowOps?: () => SlowOperationsResponse;
+  /** 故障单、经验库、规则提议；只限本机（现场里有调用栈和仓库路径） */
+  incidents?: {
+    snapshot(): IncidentsResponse;
+    updateSettings(patch: UpdateIncidentSettingsRequest): IncidentSettings;
+    act(id: string, action: IncidentActionRequest["action"]): Incident;
+    decide(id: string, decision: RuleProposalDecisionRequest["decision"], by: string): RuleProposal;
+  };
   /** 熄屏后保持在线 */
   keepAwake?: {
     state(): KeepAwakeState | undefined;
@@ -770,6 +792,64 @@ export function registerLocalAgentRoutes(
       return reply.code(404).send({ ...errorText(serverText("error.feature.disabled")) });
     return rooms.slowOps();
   });
+
+  // 故障单的现场有调用栈、仓库路径和房间：和慢操作一样只给本机看、只在本机处理
+  app.get("/api/local/incidents", async (request, reply) => {
+    if (!authorize(request, reply, "local")) return reply;
+    if (!rooms.incidents)
+      return reply.code(404).send({ ...errorText(serverText("error.incident.disabled")) });
+    return rooms.incidents.snapshot();
+  });
+
+  app.patch<{ Body: unknown }>("/api/local/incidents/settings", async (request, reply) => {
+    if (!authorize(request, reply, "local")) return reply;
+    if (!rooms.incidents)
+      return reply.code(404).send({ ...errorText(serverText("error.incident.disabled")) });
+    const body = updateIncidentSettingsRequestSchema.safeParse(request.body);
+    if (!body.success)
+      return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+    try {
+      return { settings: rooms.incidents.updateSettings(body.data) };
+    } catch (error) {
+      return fail(reply, error);
+    }
+  });
+
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    "/api/local/incidents/:id/action",
+    async (request, reply) => {
+      if (!authorize(request, reply, "local")) return reply;
+      if (!rooms.incidents)
+        return reply.code(404).send({ ...errorText(serverText("error.incident.disabled")) });
+      const body = incidentActionRequestSchema.safeParse(request.body);
+      if (!body.success)
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      try {
+        return { incident: rooms.incidents.act(request.params.id, body.data.action) };
+      } catch (error) {
+        return fail(reply, error);
+      }
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    "/api/local/rule-proposals/:id/decision",
+    async (request, reply) => {
+      if (!authorize(request, reply, "local")) return reply;
+      if (!rooms.incidents)
+        return reply.code(404).send({ ...errorText(serverText("error.incident.disabled")) });
+      const body = ruleProposalDecisionRequestSchema.safeParse(request.body);
+      if (!body.success)
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      try {
+        return {
+          proposal: rooms.incidents.decide(request.params.id, body.data.decision, "local-owner"),
+        };
+      } catch (error) {
+        return fail(reply, error);
+      }
+    },
+  );
 
   app.get("/api/local/keep-awake", async (request, reply) => {
     if (!authorize(request, reply, "read")) return reply;

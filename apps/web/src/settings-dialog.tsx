@@ -35,6 +35,7 @@ import { playNotificationTone, type BrowserNotificationPermission } from "./brow
 import { HostManageNotice, KeepAwakeSettingsGroup, OwnerDevicesGroup } from "./host-settings";
 import { LocalAgentUpdatesGroup } from "./local-agent-updates";
 import { SlowOpsSettingsEntry, type SlowOpsState } from "./slow-ops";
+import { IncidentsSettingsEntry } from "./incidents-panel";
 import { AgentRuntimesPanel } from "./agent-runtimes-panel";
 import type { RefObject, Dispatch, SetStateAction } from "react";
 import type { LocalAgentsState } from "./local-agents";
@@ -80,6 +81,8 @@ export function SettingsDialog({
   settingsDialogRef,
   settingsTab,
   slowOpsState,
+  incidentAttention,
+  rooms,
   themePreference,
   threadWidth,
   timeFormat,
@@ -127,6 +130,8 @@ export function SettingsDialog({
   settingsDialogRef: RefObject<HTMLDivElement | null>;
   settingsTab: SettingsTab;
   slowOpsState: SlowOpsState;
+  incidentAttention: number | undefined;
+  rooms: ReadonlyArray<{ id: string; name: string }>;
   themePreference: ThemePreference;
   threadWidth: ThreadWidth;
   timeFormat: TimeFormat;
@@ -490,6 +495,13 @@ export function SettingsDialog({
                 <KeepAwakeSettingsGroup local={local} />
                 <OwnerDevicesGroup local={local} />
                 {slowOpsState.enabled && <SlowOpsSettingsEntry state={slowOpsState} />}
+                <IncidentsSettingsEntry
+                  local={local}
+                  attention={incidentAttention}
+                  rooms={rooms}
+                  currentRoomId={currentRoomId}
+                  username={username}
+                />
               </section>
             )}
             {settingsTab === "runtimes" && local.mode === "local" && (

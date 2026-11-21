@@ -976,6 +976,14 @@ export const slowOperationRecordedEventSchema = z.object({
   type: z.literal("slow-op.recorded"),
   operation: slowOperationSchema,
 });
+/**
+ * 故障单有变化：只推给这台电脑上的房主页面。attention=升级给人的故障单 + 待批准的规则提议，
+ * 页面据此在设置入口上标数字；详情打开面板时再拉 /api/local/incidents。
+ */
+export const incidentsChangedEventSchema = z.object({
+  type: z.literal("incidents.changed"),
+  attention: z.number().int().min(0),
+});
 export type SlowOperation = z.infer<typeof slowOperationSchema>;
 export type SlowOperationsResponse = z.infer<typeof slowOperationsResponseSchema>;
 export type SlowOperationRecordedEvent = z.infer<typeof slowOperationRecordedEventSchema>;
@@ -1001,6 +1009,7 @@ export const serverEventSchema = z.discriminatedUnion("type", [
   roomActivityEventSchema,
   slowOperationSnapshotEventSchema,
   slowOperationRecordedEventSchema,
+  incidentsChangedEventSchema,
   serverErrorEventSchema,
 ]);
 
@@ -1846,3 +1855,4 @@ export * from "./workspace-files.js";
 export * from "./attachment-open.js";
 export * from "./server-text.js";
 export * from "./agent-version.js";
+export * from "./incidents.js";

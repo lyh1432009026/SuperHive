@@ -62,6 +62,7 @@ export function useRoomConnection({
   setPendingAnswers,
   notificationPreferencesRef,
   slowOpsRef,
+  setIncidentAttention,
   attentionRef,
   globalEventsRef,
 }: {
@@ -90,6 +91,8 @@ export function useRoomConnection({
     presenceNotifications: boolean;
   }>;
   slowOpsRef: RefObject<ReturnType<typeof useSlowOps> | undefined>;
+  /** 需要房主处理的故障单和规则提议数（只推给这台电脑上的房主页面） */
+  setIncidentAttention: (attention: number) => void;
   attentionRef: RefObject<ReturnType<typeof useAttention> | undefined>;
   globalEventsRef: RefObject<GlobalEvents>;
 }) {
@@ -251,6 +254,8 @@ export function useRoomConnection({
           slowOpsRef.current?.receiveSnapshot(event);
         } else if (event.type === "slow-op.recorded") {
           slowOpsRef.current?.receive(event.operation);
+        } else if (event.type === "incidents.changed") {
+          setIncidentAttention(event.attention);
         } else if (event.type === "worktree.cleanup") {
           worktreeNoticeVersion.current++;
           setWorktreeNotices((current) => {

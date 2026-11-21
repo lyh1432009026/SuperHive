@@ -164,7 +164,7 @@ The Server exposes `/health`, `/api/meta`, `/agent.md`, room/message REST endpoi
 `/ws`, and Streamable HTTP MCP at `/mcp`. MCP calls require a Bearer token and an online Agent
 identity. Built-in tools include `hive_room_read`, `hive_members_list`, `hive_message_send`,
 `hive_invoke`, `hive_wait`, `hive_ask_human`, `hive_board_read`, `hive_board_update`,
-`hive_attachment_read`, `hive_schedule_*`, `hive_room_create` and `hive_room_post`.
+`hive_attachment_read`, `hive_schedule_*`, `hive_room_create`, `hive_room_post`, `hive_incident_report` and `hive_rule_propose`.
 
 Full documentation (Chinese): [usage](https://github.com/wangrongding/SuperHive/blob/main/docs/usage.md),
 [development](https://github.com/wangrongding/SuperHive/blob/main/docs/development.md).

@@ -1,0 +1,293 @@
+import { homedir } from "node:os";
+import path from "node:path";
+import {
+  zhText,
+  type ClientErrorReport,
+  type IncidentOrigin,
+  type IncidentSample,
+  type IncidentSource,
+  type Invocation,
+  type ServerText,
+  type WireServerText,
+} from "@superhive/protocol";
+
+/**
+ * 失败归类：先判断是谁的问题，再按指纹合并。
+ * 归类只看 Bridge 和 Server 自己写的结构化文案键、错误类型和调用栈，不看消息正文。
+ */
+
+/** 一次失败归类后的结果，交给 IncidentStore.record 合并计数 */
+export type IncidentOccurrence = {
+  origin: IncidentOrigin;
+  source: IncidentSource;
+  fingerprint: string;
+  title: string;
+  sample: IncidentSample;
+  /** 同一次出现只记一次（断线重发、重复上报）；省略时每次都记 */
+  ref?: string;
+};
+
+/**
+ * 调用失败的说明键 → 是谁的问题。不在表里的（旧版 Bridge 只给中文、或新加的键）一律算 unknown，
+ * 只记下来给人看，不会被自动派修。
+ */
+const INVOCATION_ORIGINS: Readonly<Record<string, IncidentOrigin>> = {
+  // 模型服务、网络、凭证、Agent 自己的 CLI：Bridge 已经重试过，我们改代码也修不好
+  "bridge.upstreamFailed": "external",
+  "bridge.upstreamExhausted": "external",
+  "bridge.modelFailed": "external",
+  "bridge.sessionInvalid": "external",
+  "bridge.sessionRetried": "external",
+  "bridge.transientFailed": "external",
+  "bridge.offline": "external",
+  "bridge.crashedMidTurn": "external",
+  "bridge.crashedAfterResume": "external",
+  "bridge.crashedRuntimeAlive": "external",
+  "bridge.crashedIrreversible": "external",
+  "bridge.unsafe": "external",
+  // Bridge 与 Server 对不上账、状态卡住：是我们协调逻辑的问题
+  "bridge.reconnectedGone": "internal",
+  "bridge.alreadyEnded": "internal",
+  "bridge.cancelNotPersisted": "internal",
+  "bridge.steerUnconfirmed": "internal",
+  "bridge.steerCancelRace": "internal",
+  "bridge.steerEndRace": "internal",
+  "bridge.worktreeBusy": "internal",
+  "bridge.worktreeCheckBeforeContinue": "internal",
+  "invocation.stale": "internal",
+  "invocation.unacknowledged": "internal",
+  "invocation.stopUnconfirmed": "internal",
+};
+
+/** 不算故障：按设计就是这样（人停止、撤回、超出补拉范围等） */
+const NOT_INCIDENTS = new Set([
+  "bridge.beyondCatchUp",
+  "bridge.cancelledBeforeRun",
+  "bridge.stoppedWhileWaiting",
+  "bridge.crashResumeStopped",
+  "bridge.queuedRemoved",
+  "bridge.worktreeCleaned",
+  "invocation.recalledStopUnconfirmed",
+  "invocation.recalledStopped",
+]);
+
+export function invocationOrigin(key: string | undefined): IncidentOrigin | undefined {
+  if (key && NOT_INCIDENTS.has(key)) return undefined;
+  return (key && INVOCATION_ORIGINS[key]) || "unknown";
+}
+
+/**
+ * 一轮失败或结果未知 → 一次出现；不是失败、或按设计如此的返回 undefined。
+ * 指纹按说明键 + 运行时：同一种卡住在 Claude 和 Codex 上往往是两处代码。
+ */
+export function classifyInvocation(
+  invocation: Invocation,
+  context: { provider?: string | undefined; codeVersion?: string | undefined },
+): IncidentOccurrence | undefined {
+  if (invocation.status !== "failed" && invocation.status !== "timed_out") return undefined;
+  // 人收起、被取代的不算；撤回并停止的也不算
+  if (invocation.resolution) return undefined;
+  const key = invocation.detailText?.key;
+  const origin = invocationOrigin(key);
+  if (!origin) return undefined;
+  const detail = invocation.detailText
+    ? zhText(invocation.detailText as ServerText)
+    : invocation.detail;
+  const provider = context.provider ?? "agent";
+  return {
+    origin,
+    source: "invocation",
+    fingerprint: `invocation:${key ?? `status:${invocation.status}`}:${provider}`,
+    title: `${provider} · ${oneLine(firstClause(normalizeMessage(detail ?? invocation.status)), 160)}`,
+    ref: `invocation:${invocation.id}:${invocation.attempts}:${invocation.status}:${key ?? ""}`,
+    sample: compact({
+      at: invocation.finishedAt ?? invocation.updatedAt,
+      roomId: invocation.roomId,
+      invocationId: invocation.id,
+      messageId: invocation.messageId,
+      agentName: invocation.agentName,
+      provider: context.provider,
+      detail: detail ? redact(detail).slice(0, 1000) : undefined,
+      detailText: invocation.detailText as WireServerText | undefined,
+      codeVersion: context.codeVersion,
+    }),
+  };
+}
+
+/** Server 自己抛的异常（HTTP 5xx、WebSocket 事件处理出错、未捕获的拒绝） */
+export function classifyServerError(
+  error: unknown,
+  context: { route?: string; roomId?: string; codeVersion?: string | undefined },
+): IncidentOccurrence {
+  const { name, message, stack } = errorParts(error);
+  const frames = stackFrames(stack);
+  return {
+    origin: "internal",
+    source: "server",
+    fingerprint: `server:${name}:${frames.slice(0, 3).join("|") || normalizeMessage(message)}`,
+    title: oneLine(`${name}: ${normalizeMessage(message)}`, 200),
+    sample: compact({
+      at: new Date().toISOString(),
+      route: context.route,
+      roomId: context.roomId,
+      detail: redact(message).slice(0, 1000),
+      stack: stack ? redact(stack).split("\n").slice(0, 12).join("\n").slice(0, 4000) : undefined,
+      codeVersion: context.codeVersion,
+    }),
+  };
+}
+
+/**
+ * Agent 发来的事件没通过协议校验：通常是 Bridge 和 Server 版本对不上，或某一边改了格式。
+ * 只按事件类型和出错字段归类，不记事件内容。
+ */
+export function classifyProtocolError(
+  eventType: string | undefined,
+  issues: ReadonlyArray<{ code: string; path: ReadonlyArray<string | number> }>,
+  context: {
+    roomId?: string | undefined;
+    agentName?: string | undefined;
+    provider?: string | undefined;
+    codeVersion?: string | undefined;
+  },
+): IncidentOccurrence {
+  const fields = [
+    ...new Set(
+      issues.map(
+        (issue) =>
+          `${issue.path.map((part) => (typeof part === "number" ? "[]" : part)).join(".")}:${issue.code}`,
+      ),
+    ),
+  ]
+    .sort()
+    .slice(0, 5);
+  const type = eventType?.slice(0, 60) ?? "?";
+  return {
+    origin: "internal",
+    source: "protocol",
+    fingerprint: `protocol:${type}:${fields.join(",")}`,
+    title: oneLine(`${type} · ${fields.join(", ") || "invalid"}`, 200),
+    sample: compact({
+      at: new Date().toISOString(),
+      route: type,
+      roomId: context.roomId,
+      agentName: context.agentName,
+      provider: context.provider,
+      detail: fields.join(", "),
+      codeVersion: context.codeVersion,
+    }),
+  };
+}
+
+/** 网页上报的报错：打包后的文件名带内容哈希，去掉后同一处代码在不同版本里指纹不变 */
+export function classifyClientError(
+  report: ClientErrorReport,
+  context: { roomId?: string | undefined; codeVersion?: string | undefined },
+): IncidentOccurrence {
+  const name =
+    report.name?.trim() || (report.kind === "unhandledrejection" ? "Rejection" : "Error");
+  const message = normalizeMessage(report.message);
+  const frames = stackFrames(report.stack);
+  return {
+    origin: "internal",
+    source: "web",
+    fingerprint: `web:${report.kind}:${name}:${frames[0] ?? message}`,
+    title: oneLine(`${name}: ${message}`, 200),
+    sample: compact({
+      at: new Date().toISOString(),
+      roomId: context.roomId,
+      detail: redact(report.message).slice(0, 1000),
+      stack: report.stack
+        ? redact(report.stack).split("\n").slice(0, 12).join("\n").slice(0, 4000)
+        : undefined,
+      url: report.url ? pageUrl(report.url) : undefined,
+      userAgent: report.userAgent?.slice(0, 300),
+      codeVersion: context.codeVersion,
+    }),
+  };
+}
+
+function errorParts(error: unknown): { name: string; message: string; stack?: string } {
+  if (error instanceof Error) {
+    return {
+      name: error.name || "Error",
+      message: error.message || String(error),
+      ...(error.stack ? { stack: error.stack } : {}),
+    };
+  }
+  return { name: "NonError", message: String(error) };
+}
+
+/**
+ * 调用栈的前几帧，去掉行列号、node_modules 和 Node 内部帧，路径只留仓库内的相对部分：
+ * 同一处代码改了几行、或换了台电脑跑，指纹不变。
+ */
+export function stackFrames(stack: string | undefined): string[] {
+  if (!stack) return [];
+  const frames: string[] = [];
+  for (const raw of stack.split("\n").slice(1)) {
+    const line = raw.trim();
+    // V8：at fn (file:line:col) 或 at file:line:col；Firefox/Safari：fn@file:line:col
+    const v8 = /^at (?:async )?(?:(.+?) \()?(.+?)(?::\d+)?(?::\d+)?\)?$/.exec(line);
+    const gecko = /^(.*?)@(.+?)(?::\d+)?(?::\d+)?$/.exec(line);
+    const match = v8 ?? gecko;
+    if (!match) continue;
+    const fn = (match[1] ?? "").trim() || "<anonymous>";
+    const file = match[2] ?? "";
+    if (/node_modules|^node:|^internal\/|^native$|<anonymous>$/.test(file)) continue;
+    frames.push(`${fn}@${sourceFile(file)}`);
+    if (frames.length >= 5) break;
+  }
+  return frames;
+}
+
+/** 文件路径只留仓库内的部分（apps/…、packages/…），打包文件去掉内容哈希和查询串 */
+function sourceFile(file: string): string {
+  const clean = file.replace(/^file:\/\//, "").replace(/[?#].*$/, "");
+  const inRepo = /(?:^|[\\/])((?:apps|packages)[\\/].+)$/.exec(clean);
+  const base = inRepo ? inRepo[1]!.replaceAll("\\", "/") : path.posix.basename(clean);
+  return base.replace(/-[A-Za-z0-9_]{6,}(\.m?js)$/, "$1");
+}
+
+/** 报错里会变的部分换成占位：同一种错误不会因为 ID、数字、路径不同被拆成很多条 */
+export function normalizeMessage(message: string): string {
+  return redact(message)
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<id>")
+    .replace(/\b[0-9a-f]{12,}\b/gi, "<hex>")
+    .replace(/(?:~|\/[\w.-]+)(?:\/[\w.@+-]+){1,}/g, "<path>")
+    .replace(/[A-Za-z]:\\[^\s"'`]+/g, "<path>")
+    .replace(/\d+(?:\.\d+)?/g, "<n>")
+    .trim();
+}
+
+/** 去掉本机用户目录，不让用户名、私有路径进故障单 */
+export function redact(text: string): string {
+  const home = homedir();
+  return home && home.length > 1 ? text.replaceAll(home, "~") : text;
+}
+
+function pageUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`.slice(0, 500);
+  } catch {
+    return url.replace(/[?#].*$/, "").slice(0, 500);
+  }
+}
+
+/** 调用说明往往是一整段（原因 + 怎么处理）：标题只取第一句 */
+function firstClause(text: string): string {
+  const clause = text.split(/[。；：:;]/)[0]?.trim();
+  return clause || text;
+}
+
+function oneLine(text: string, max: number): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+}
+
+function compact<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== undefined && item !== ""),
+  ) as T;
+}

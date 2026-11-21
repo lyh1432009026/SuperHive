@@ -6,6 +6,10 @@ import type {
   AgentCliJob,
   AgentCliTool,
   CreateLocalAgentRequest,
+  Incident,
+  IncidentActionRequest,
+  IncidentSettings,
+  IncidentsResponse,
   KeepAwakeSettings,
   KeepAwakeState,
   LocalAgent,
@@ -17,11 +21,14 @@ import type {
   LocalProviderInfo,
   LocalSessionResponse,
   RoomClearOptions,
+  RuleProposal,
+  RuleProposalDecisionRequest,
   RuntimeCredentialField,
   RuntimeCredentialProvider,
   RuntimeConfig,
   RuntimeCredentials,
   RuntimeMcpServerInput,
+  UpdateIncidentSettingsRequest,
   UpdateRuntimeCredentialsRequest,
   WorktreeDiscardPreview,
   WorktreeStatus,
@@ -150,6 +157,14 @@ export type LocalAgentsState = {
   /** 熄屏后保持在线：这台电脑的设置与实际状态（不是本机房主时为 undefined） */
   keepAwake: KeepAwakeState | undefined;
   updateKeepAwake(patch: Partial<KeepAwakeSettings>): Promise<void>;
+  /** 本机：故障单、经验库、规则提议与派修设置 */
+  incidents(): Promise<IncidentsResponse>;
+  updateIncidentSettings(patch: UpdateIncidentSettingsRequest): Promise<IncidentSettings>;
+  incidentAction(id: string, action: IncidentActionRequest["action"]): Promise<Incident>;
+  decideRuleProposal(
+    id: string,
+    decision: RuleProposalDecisionRequest["decision"],
+  ): Promise<RuleProposal>;
   /** 房主在其他设备上的登录 */
   ownerDevices(): Promise<OwnerDevice[]>;
   revokeOwnerDevice(id: string): Promise<void>;
@@ -664,6 +679,43 @@ export function useLocalAgents(
     [request],
   );
 
+  /* ---------- 故障单（只限本机） ---------- */
+
+  const incidents = useCallback(async () => {
+    const response = await request("/api/local/incidents");
+    return (await response.json()) as IncidentsResponse;
+  }, [request]);
+  const updateIncidentSettings = useCallback(
+    async (patch: UpdateIncidentSettingsRequest) => {
+      const response = await request("/api/local/incidents/settings", {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      return ((await response.json()) as { settings: IncidentSettings }).settings;
+    },
+    [request],
+  );
+  const incidentAction = useCallback(
+    async (id: string, action: IncidentActionRequest["action"]) => {
+      const response = await request(`/api/local/incidents/${encodeURIComponent(id)}/action`, {
+        method: "POST",
+        body: JSON.stringify({ action }),
+      });
+      return ((await response.json()) as { incident: Incident }).incident;
+    },
+    [request],
+  );
+  const decideRuleProposal = useCallback(
+    async (id: string, decision: RuleProposalDecisionRequest["decision"]) => {
+      const response = await request(
+        `/api/local/rule-proposals/${encodeURIComponent(id)}/decision`,
+        { method: "POST", body: JSON.stringify({ decision }) },
+      );
+      return ((await response.json()) as { proposal: RuleProposal }).proposal;
+    },
+    [request],
+  );
+
   const ownerDevices = useCallback(async () => {
     const response = await request("/api/local/owner-devices");
     return ((await response.json()) as { devices: OwnerDevice[] }).devices;
@@ -923,6 +975,10 @@ export function useLocalAgents(
     agentCliJob,
     keepAwake,
     updateKeepAwake,
+    incidents,
+    updateIncidentSettings,
+    incidentAction,
+    decideRuleProposal,
     ownerDevices,
     revokeOwnerDevice,
     pairOwnerDevice,
