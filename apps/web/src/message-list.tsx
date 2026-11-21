@@ -535,7 +535,7 @@ function MessageItem({
         message.deletedAt ? "deleted" : ""
       } ${highlightedMessageId === message.id ? "highlighted" : ""} ${
         message.kind === "question" ? "question" : ""
-      } ${message.kind === "progress" ? "progress" : ""} ${isMachine(message) ? "machine" : ""}`}
+      } ${message.kind === "progress" ? "progress-update" : ""} ${isMachine(message) ? "machine" : ""}`}
       data-message-id={message.id}
       style={message.senderType === "human" ? avatarHueStyle(message.senderName) : undefined}
       onClick={

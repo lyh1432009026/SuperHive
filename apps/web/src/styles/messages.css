@@ -1075,11 +1075,11 @@ label.question-option:hover {
   font-weight: var(--weight-medium);
 }
 
-.message.progress .message-content > .message-progress-tag {
+.message.progress-update .message-content > .message-progress-tag {
   margin-bottom: 4px;
 }
 
-.message.progress .message-body {
+.message.progress-update .message-body {
   color: var(--text-secondary);
   font-size: 0.95em;
 }
