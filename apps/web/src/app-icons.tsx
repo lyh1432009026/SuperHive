@@ -3,6 +3,7 @@ import { localized, t } from "./i18n";
 import { ThemePreference } from "./app-storage";
 
 export type IconName =
+  | "alert"
   | "arrow-down"
   | "arrow-right"
   | "arrow-up"
@@ -51,6 +52,7 @@ export function PinGlyph() {
 
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
+    alert: <path d="M12 4 2.8 19.5h18.4L12 4Zm0 6v4.5m0 2.6v.1" />,
     "arrow-down": <path d="M12 5v14m-5-5 5 5 5-5" />,
     "arrow-right": <path d="M5 12h14m-5-5 5 5-5 5" />,
     "arrow-up": <path d="M12 19V5m-6 6 6-6 6 6" />,

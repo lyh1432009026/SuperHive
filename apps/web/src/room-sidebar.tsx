@@ -12,6 +12,7 @@ import { avatarHueStyle } from "./avatar";
 import type { RefObject, Dispatch, SetStateAction, ReactNode } from "react";
 import type { RoomSummary } from "@superhive/protocol";
 import type { ActivityView } from "./activity";
+import type { IncidentAttentionItem } from "./incidents-panel";
 import type { useRoomReorder } from "./room-reorder";
 
 /** 左侧栏：房间列表、需要处理的事项与当前用户 */
@@ -22,6 +23,8 @@ export function RoomSidebar({
   closeMobilePanel,
   connectionState,
   freezeRoomList,
+  incidentAttention,
+  incidentEntry,
   isOwner,
   mobilePanel,
   modifierKeyLabel,
@@ -58,6 +61,11 @@ export function RoomSidebar({
   closeMobilePanel: (restoreFocus?: boolean) => void;
   connectionState: "connecting" | "online" | "offline";
   freezeRoomList: () => void;
+  /** 升级给人的故障单和待批准的规则提议，排在「需要你处理」里任务的后面 */
+  incidentAttention: readonly IncidentAttentionItem[];
+  /** 左侧「故障」入口：只给这台电脑上的房主；count 是还没人管的故障单和规则提议 */
+  incidentEntry:
+    { count: number; open: (trigger?: HTMLElement, focusId?: string) => void } | undefined;
   isOwner: boolean;
   mobilePanel: MobilePanel | undefined;
   modifierKeyLabel: string;
@@ -201,6 +209,28 @@ export function RoomSidebar({
             </span>
           )}
         </button>
+        {incidentEntry && (
+          <button
+            type="button"
+            className="sidebar-action"
+            aria-label={
+              incidentEntry.count > 0
+                ? t("故障，{0} 条待处理", { 0: incidentEntry.count })
+                : t("故障")
+            }
+            aria-haspopup="dialog"
+            title={t("故障单和慢操作")}
+            onClick={(event) => incidentEntry.open(event.currentTarget)}
+          >
+            <Icon name="alert" size={16} />
+            <span>{t("故障")}</span>
+            {incidentEntry.count > 0 && (
+              <span className="sidebar-badge warning" aria-hidden="true">
+                {incidentEntry.count > 99 ? "99+" : incidentEntry.count}
+              </span>
+            )}
+          </button>
+        )}
         {isOwner && (
           <button
             type="button"
@@ -215,7 +245,13 @@ export function RoomSidebar({
         )}
       </nav>
       {attentionGroup && (
-        <AttentionRoomGroup items={attention.items} roomName={roomNameOf} onOpen={attention.open} />
+        <AttentionRoomGroup
+          items={attention.items}
+          incidents={incidentAttention}
+          roomName={roomNameOf}
+          onOpen={attention.open}
+          onOpenIncident={(item) => incidentEntry?.open(undefined, item.id)}
+        />
       )}
       <div className="sidebar-section-label">
         <span>{t("房间列表")}</span>

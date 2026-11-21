@@ -10,6 +10,7 @@ import {
   type AttentionKind,
 } from "./attention";
 import { localized, t } from "./i18n";
+import type { IncidentAttentionItem } from "./incidents-panel";
 import "./styles/attention.css";
 
 /**
@@ -418,23 +419,32 @@ function AttentionToastItem({
   );
 }
 
-/** 侧栏「需要处理」分组：按最急的排在前面，手动拖好的房间顺序不受影响 */
+/**
+ * 侧栏「需要处理」分组：按最急的排在前面，手动拖好的房间顺序不受影响。
+ * 本机房主还会看到升级给人的故障单和待批准的规则提议，排在任务后面。
+ */
 export function AttentionRoomGroup({
   items,
+  incidents = [],
   roomName,
   onOpen,
+  onOpenIncident,
 }: {
   items: readonly AttentionItem[];
+  incidents?: readonly IncidentAttentionItem[];
   roomName: (roomId: string) => string;
   onOpen: (invocation: Invocation) => void;
+  onOpenIncident?: (item: IncidentAttentionItem) => void;
 }) {
-  if (items.length === 0) return null;
+  const total = items.length + incidents.length;
+  if (total === 0) return null;
   const shown = items.slice(0, 5);
+  const shownIncidents = incidents.slice(0, Math.max(0, 5 - shown.length));
   return (
     <section className="attention-group" aria-label={t("需要你处理")}>
       <div className="attention-group-heading">
         <span>{t("需要你处理")}</span>
-        <span className="panel-meta">{items.length}</span>
+        <span className="panel-meta">{total}</span>
       </div>
       <ul>
         {shown.map((item) => (
@@ -452,9 +462,26 @@ export function AttentionRoomGroup({
             </button>
           </li>
         ))}
+        {shownIncidents.map((item) => (
+          <li key={item.id}>
+            <button
+              type="button"
+              className={`attention-row ${item.kind === "incident" ? "escalated-incident" : "rule-proposal"}`}
+              title={item.title}
+              onClick={() => onOpenIncident?.(item)}
+            >
+              <span className="attention-kind">
+                {item.kind === "incident" ? t("故障单") : t("规则提议")}
+              </span>
+              <span className="attention-row-text">{item.title}</span>
+            </button>
+          </li>
+        ))}
       </ul>
-      {items.length > shown.length && (
-        <p className="attention-more">{t("还有 {0} 条", { 0: items.length - shown.length })}</p>
+      {total > shown.length + shownIncidents.length && (
+        <p className="attention-more">
+          {t("还有 {0} 条", { 0: total - shown.length - shownIncidents.length })}
+        </p>
       )}
     </section>
   );

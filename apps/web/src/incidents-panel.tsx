@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type {
   Incident,
+  IncidentActionRequest,
   IncidentSettings,
   IncidentsResponse,
   RuleProposal,
@@ -68,25 +69,69 @@ function failureText(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason);
 }
 
+/** 左侧「故障」入口和顶栏任务目录下拉一样，只给这台电脑上的房主 */
+export function incidentsAvailable(
+  isOwner: boolean,
+  local: Pick<LocalAgentsState, "enabled" | "mode">,
+): boolean {
+  return isOwner && Boolean(local.enabled) && local.mode === "local";
+}
+
+/** 故障入口上的数字：我们自己的问题里还没人管的（待处理、升级给人的）+ 待批准的规则提议 */
+export function unhandledIncidentCount(data: IncidentsResponse): number {
+  return (
+    data.incidents.filter(
+      (incident) =>
+        incident.origin === "internal" &&
+        (incident.status === "open" || incident.status === "escalated"),
+    ).length + data.proposals.filter((proposal) => proposal.status === "pending").length
+  );
+}
+
+/** 进左侧「需要你处理」的：升级给人的故障单、待批准的规则提议 */
+export type IncidentAttentionItem = {
+  id: string;
+  kind: "incident" | "proposal";
+  title: string;
+};
+
+export function incidentAttentionItems(
+  data: IncidentsResponse | undefined,
+): IncidentAttentionItem[] {
+  if (!data) return [];
+  return [
+    ...data.incidents
+      .filter((incident) => incident.status === "escalated")
+      .map((incident) => ({ id: incident.id, kind: "incident" as const, title: incident.title })),
+    ...data.proposals
+      .filter((proposal) => proposal.status === "pending")
+      .map((proposal) => ({ id: proposal.id, kind: "proposal" as const, title: proposal.text })),
+  ];
+}
+
+export type IncidentsState = {
+  /** 只有这台电脑上的房主页面用得上 */
+  enabled: boolean;
+  data: IncidentsResponse | undefined;
+  error: string | undefined;
+  /** 入口上的数字；还没拉到详情时先用 Server 推来的「需要你处理」数 */
+  unhandled: number;
+  attentionItems: IncidentAttentionItem[];
+  refresh(): void;
+  updateSettings(patch: Partial<IncidentSettings>): void;
+  act(id: string, action: IncidentActionRequest["action"]): void;
+  decide(id: string, decision: "approve" | "reject" | "retire"): void;
+};
+
 /**
- * 「这台电脑」设置页里的故障单：失败先按来源归类，我们自己的问题按指纹合并计数，
- * 到阈值后派给 Agent 修；也在这里批准 Agent 提的规则、看经验库。
- * attention：升级给人的故障单 + 待批准的规则提议（Server 推来的数字）。
+ * 本机房主页面上的故障单。Server 每次有变化都推 incidents.changed（signal 随之变），
+ * 这里稍等一下再拉 /api/local/incidents：同一种错误连着出现时只拉一次。
  */
-export function IncidentsSettingsEntry({
-  local,
-  attention,
-  rooms,
-  currentRoomId,
-  username,
-}: {
-  local: LocalAgentsState;
-  attention: number | undefined;
-  rooms: ReadonlyArray<{ id: string; name: string }>;
-  currentRoomId: string;
-  username: string;
-}) {
-  const [open, setOpen] = useState(false);
+export function useIncidents(
+  local: LocalAgentsState,
+  enabled: boolean,
+  signal: { attention: number; version: number } | undefined,
+): IncidentsState {
   const [data, setData] = useState<IncidentsResponse>();
   const [error, setError] = useState<string>();
   const { incidents } = local;
@@ -99,70 +144,99 @@ export function IncidentsSettingsEntry({
       (reason: unknown) => setError(failureText(reason)),
     );
   }, [incidents]);
-  // 打开着的时候，Server 推来的数字一变就重新拉一次
+  const version = signal?.version;
   useEffect(() => {
-    if (open) refresh();
-  }, [open, refresh, attention]);
-  if (local.mode !== "local") return null;
+    if (!enabled) return;
+    const timer = window.setTimeout(refresh, version === undefined ? 0 : 300);
+    return () => window.clearTimeout(timer);
+  }, [enabled, refresh, version]);
   const run = (action: Promise<unknown>) =>
-    action.then(refresh, (reason: unknown) => setError(failureText(reason)));
+    void action.then(refresh, (reason: unknown) => setError(failureText(reason)));
+  const shown = enabled ? data : undefined;
+  return {
+    enabled,
+    data: shown,
+    error: enabled ? error : undefined,
+    unhandled: shown ? unhandledIncidentCount(shown) : enabled ? (signal?.attention ?? 0) : 0,
+    attentionItems: incidentAttentionItems(shown),
+    refresh,
+    updateSettings: (patch) => run(local.updateIncidentSettings(patch)),
+    act: (id, action) => run(local.incidentAction(id, action)),
+    decide: (id, decision) => run(local.decideRuleProposal(id, decision)),
+  };
+}
+
+/**
+ * 「这台电脑」设置里和故障单有关的只有自动派修这一组设置；
+ * 故障单、规则提议、经验库和慢操作在左侧「故障」入口里看。
+ */
+export function IncidentSettingsGroup({
+  state,
+  rooms,
+  currentRoomId,
+  username,
+  onOpenIncidents,
+}: {
+  state: IncidentsState;
+  rooms: ReadonlyArray<{ id: string; name: string }>;
+  currentRoomId: string;
+  username: string;
+  onOpenIncidents: () => void;
+}) {
+  if (!state.enabled) return null;
+  const { data } = state;
   return (
     <div className="settings-group">
-      <div className="settings-section-heading slow-ops-heading">
+      <div className="settings-section-heading">
         <div>
-          <h4>
-            {t("故障单")}
-            {attention ? (
-              <span className="incident-attention" title={t("需要你处理的故障单和规则提议")}>
-                {attention}
-              </span>
-            ) : null}
-          </h4>
+          <h4>{t("故障自动派修")}</h4>
           <p>
             {t(
-              "失败先分清是谁的问题：外部原因（模型服务、凭证、Agent 自己崩溃）只重试和提示；我们自己的问题按同一种错误合并计数，到次数后自动派给 Agent 先写复现测试再修，合入仍要人 review。",
+              "我们自己的问题按同一种错误合并计数，到次数后自动派给 Agent 先写复现测试再修，合入仍要人 review。外部原因（模型服务、凭证、Agent 自己崩溃）只重试和提示，不派修。",
             )}
           </p>
         </div>
-        <button
-          type="button"
-          className="settings-action"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-        >
-          {open ? t("收起") : t("查看")}
-        </button>
       </div>
-      {open && error && <p className="settings-note error">{error}</p>}
-      {open && data && (
-        <IncidentsPanel
-          data={data}
-          rooms={rooms}
-          currentRoomId={currentRoomId}
-          username={username}
-          onSettings={(patch) => run(local.updateIncidentSettings(patch))}
-          onAction={(id, action) => run(local.incidentAction(id, action))}
-          onDecide={(id, decision) => run(local.decideRuleProposal(id, decision))}
-        />
+      {state.error && <p className="settings-note error">{state.error}</p>}
+      {data && (
+        <>
+          <IncidentSettingsForm
+            settings={data.settings}
+            dispatchedToday={data.dispatchedToday}
+            canDispatch={Boolean(data.runningCommit)}
+            rooms={rooms}
+            currentRoomId={currentRoomId}
+            username={username}
+            onSave={state.updateSettings}
+          />
+          <details className="incident-more">
+            <summary>
+              {t("自动修复不许改的代码（{0} 处）", { 0: data.protectedPaths.length })}
+            </summary>
+            <p className="settings-note">
+              {t("权限、协作规则、门禁、审计和故障单系统本身；修复动了这些会直接升级给你：{0}", {
+                0: data.protectedPaths.join(t("、")),
+              })}
+            </p>
+          </details>
+        </>
       )}
+      <button type="button" className="incident-link" onClick={onOpenIncidents}>
+        {t("故障单和慢操作在左侧「故障」里查看")}
+      </button>
     </div>
   );
 }
 
 export function IncidentsPanel({
   data,
-  rooms,
-  currentRoomId,
-  username,
-  onSettings,
+  focusId,
   onAction,
   onDecide,
 }: {
   data: IncidentsResponse;
-  rooms: ReadonlyArray<{ id: string; name: string }>;
-  currentRoomId: string;
-  username: string;
-  onSettings: (patch: Partial<IncidentSettings>) => void;
+  /** 从「需要你处理」点进来的那一条：滚到它、展开现场 */
+  focusId?: string;
   onAction: (id: string, action: "ignore" | "reopen" | "resolve" | "dispatch") => void;
   onDecide: (id: string, decision: "approve" | "reject" | "retire") => void;
 }) {
@@ -171,21 +245,17 @@ export function IncidentsPanel({
   const approved = data.proposals.filter((proposal) => proposal.status === "approved");
   return (
     <div className="incidents">
-      <IncidentSettingsForm
-        settings={data.settings}
-        dispatchedToday={data.dispatchedToday}
-        canDispatch={Boolean(data.runningCommit)}
-        rooms={rooms}
-        currentRoomId={currentRoomId}
-        username={username}
-        onSave={onSettings}
-      />
       {pending.length > 0 && (
         <section aria-label={t("待批准的规则提议")}>
           <h5>{t("待批准的规则提议")}</h5>
           <ul className="incident-list">
             {pending.map((proposal) => (
-              <ProposalRow key={proposal.id} proposal={proposal} onDecide={onDecide} />
+              <ProposalRow
+                key={proposal.id}
+                proposal={proposal}
+                focused={proposal.id === focusId}
+                onDecide={onDecide}
+              />
             ))}
           </ul>
         </section>
@@ -194,6 +264,7 @@ export function IncidentsPanel({
         title={t("我们的问题")}
         empty={t("没有待处理的故障单。")}
         incidents={groups.active}
+        focusId={focusId}
         onAction={onAction}
       />
       {approved.length > 0 && (
@@ -268,14 +339,6 @@ export function IncidentsPanel({
           onAction={onAction}
         />
       )}
-      <details className="incident-more">
-        <summary>{t("自动修复不许改的代码（{0} 处）", { 0: data.protectedPaths.length })}</summary>
-        <p className="settings-note">
-          {t("权限、协作规则、门禁、审计和故障单系统本身；修复动了这些会直接升级给你：{0}", {
-            0: data.protectedPaths.join(t("、")),
-          })}
-        </p>
-      </details>
     </div>
   );
 }
@@ -425,6 +488,7 @@ function IncidentSection({
   empty,
   incidents,
   collapsed = false,
+  focusId,
   onAction,
 }: {
   title: string;
@@ -432,13 +496,19 @@ function IncidentSection({
   empty?: string;
   incidents: Incident[];
   collapsed?: boolean;
+  focusId?: string;
   onAction: (id: string, action: "ignore" | "reopen" | "resolve" | "dispatch") => void;
 }) {
   const list =
     incidents.length > 0 ? (
       <ul className="incident-list">
         {incidents.map((incident) => (
-          <IncidentRow key={incident.id} incident={incident} onAction={onAction} />
+          <IncidentRow
+            key={incident.id}
+            incident={incident}
+            focused={incident.id === focusId}
+            onAction={onAction}
+          />
         ))}
       </ul>
     ) : empty ? (
@@ -464,9 +534,11 @@ function IncidentSection({
 
 function IncidentRow({
   incident,
+  focused = false,
   onAction,
 }: {
   incident: Incident;
+  focused?: boolean;
   onAction: (id: string, action: "ignore" | "reopen" | "resolve" | "dispatch") => void;
 }) {
   const note = serverString(incident.noteText);
@@ -475,7 +547,10 @@ function IncidentRow({
     incident.origin !== "external" && ["open", "escalated"].includes(incident.status);
   const canReopen = ["resolved", "ignored", "escalated"].includes(incident.status);
   return (
-    <li className={`incident ${incident.status}`}>
+    <li
+      className={`incident ${incident.status}${focused ? " focused" : ""}`}
+      data-incident-id={incident.id}
+    >
       <div className="incident-head">
         <span className={`incident-status ${incident.status}`}>
           {incidentStatusLabel[incident.status]}
@@ -498,7 +573,7 @@ function IncidentRow({
           .join(" · ")}
       </small>
       {note && <p className="incident-note">{note}</p>}
-      <details>
+      <details open={focused || undefined}>
         <summary>{t("现场与派修记录")}</summary>
         {sample && (
           <dl className="incident-sample">
@@ -601,13 +676,15 @@ const dispatchOutcomeLabel: Record<Incident["dispatches"][number]["outcome"], st
 
 function ProposalRow({
   proposal,
+  focused = false,
   onDecide,
 }: {
   proposal: RuleProposal;
+  focused?: boolean;
   onDecide: (id: string, decision: "approve" | "reject" | "retire") => void;
 }) {
   return (
-    <li className="incident-proposal">
+    <li className={`incident-proposal${focused ? " focused" : ""}`} data-incident-id={proposal.id}>
       <strong>{proposal.text}</strong>
       <small>{t("{0} 提议 · {1}", { 0: proposal.agentName, 1: when(proposal.createdAt) })}</small>
       <p>{proposal.reason}</p>

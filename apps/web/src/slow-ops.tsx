@@ -104,8 +104,8 @@ function newestFirst(items: Iterable<SlowOperation>, capacity: number): SlowOper
 
 /**
  * 本机房主页面上的慢操作，全靠 WebSocket：连上时服务端给一份全集（receiveSnapshot），
- * 之后逐条推（receive），不轮询。只在设置里「最近慢操作」给排查问题的人看：
- * 多个 Agent 同时跑测试、装依赖时慢操作一多就是上百条，放在顶栏或弹提示只会被当成噪音。
+ * 之后逐条推（receive），不轮询。只在左侧「故障 → 慢操作」给排查问题的人看，入口不为它标数字：
+ * 多个 Agent 同时跑测试、装依赖时慢操作一多就是上百条，标数字或弹提示只会被当成噪音。
  */
 export function useSlowOps(): SlowOpsState {
   const [operations, setOperations] = useState<SlowOperation[]>([]);
@@ -194,48 +194,10 @@ export function SlowOpsList({
   );
 }
 
-function thresholdNote(settings: NonNullable<SlowOpsState["settings"]>): string {
+export function thresholdNote(settings: NonNullable<SlowOpsState["settings"]>): string {
   return t("记录超过 {0}（请求 {1}）的操作，只保存在 Server 内存里，最多 {2} 条，重启后清空。", {
     0: formatDuration(settings.thresholdMs),
     1: formatDuration(settings.requestThresholdMs),
     2: settings.capacity,
   });
-}
-
-/**
- * 「这台电脑」设置页里的最近慢操作：排查卡顿时打开看，平时不在顶栏露面、也不弹提示。
- * 页面卡住、Agent 起不来时，看这里能知道是哪个 git 命令、哪把锁、哪个请求在拖。
- */
-export function SlowOpsSettingsEntry({ state }: { state: SlowOpsState }) {
-  const [open, setOpen] = useState(false);
-  const count = state.operations.length;
-  return (
-    <div className="settings-group">
-      <div className="settings-section-heading slow-ops-heading">
-        <div>
-          <h4>{t("最近慢操作")}</h4>
-          <p>
-            {t(
-              "Server 上的任务目录锁、git 命令、重查询和请求超过阈值时记在这里，页面卡顿、Agent 起不来时用来排查。",
-            )}
-          </p>
-        </div>
-        <button
-          type="button"
-          className="settings-action"
-          aria-expanded={open}
-          disabled={count === 0}
-          onClick={() => setOpen((value) => !value)}
-        >
-          {count === 0 ? t("没有记录") : open ? t("收起") : t("查看（{0} 条）", { 0: count })}
-        </button>
-      </div>
-      {open && count > 0 && (
-        <>
-          {state.settings && <p className="slow-ops-note">{thresholdNote(state.settings)}</p>}
-          <SlowOpsList operations={state.operations} label={t("最近慢操作")} />
-        </>
-      )}
-    </div>
-  );
 }

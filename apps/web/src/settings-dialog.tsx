@@ -34,8 +34,7 @@ import {
 import { playNotificationTone, type BrowserNotificationPermission } from "./browser-notify";
 import { HostManageNotice, KeepAwakeSettingsGroup, OwnerDevicesGroup } from "./host-settings";
 import { LocalAgentUpdatesGroup } from "./local-agent-updates";
-import { SlowOpsSettingsEntry, type SlowOpsState } from "./slow-ops";
-import { IncidentsSettingsEntry } from "./incidents-panel";
+import { IncidentSettingsGroup, type IncidentsState } from "./incidents-panel";
 import { AgentRuntimesPanel } from "./agent-runtimes-panel";
 import type { RefObject, Dispatch, SetStateAction } from "react";
 import type { LocalAgentsState } from "./local-agents";
@@ -80,8 +79,8 @@ export function SettingsDialog({
   settingsCloseRef,
   settingsDialogRef,
   settingsTab,
-  slowOpsState,
-  incidentAttention,
+  incidents,
+  onOpenIncidents,
   rooms,
   themePreference,
   threadWidth,
@@ -129,8 +128,8 @@ export function SettingsDialog({
   settingsCloseRef: RefObject<HTMLButtonElement | null>;
   settingsDialogRef: RefObject<HTMLDivElement | null>;
   settingsTab: SettingsTab;
-  slowOpsState: SlowOpsState;
-  incidentAttention: number | undefined;
+  incidents: IncidentsState;
+  onOpenIncidents: () => void;
   rooms: ReadonlyArray<{ id: string; name: string }>;
   themePreference: ThemePreference;
   threadWidth: ThreadWidth;
@@ -494,13 +493,12 @@ export function SettingsDialog({
                 <LocalAgentUpdatesGroup local={local} />
                 <KeepAwakeSettingsGroup local={local} />
                 <OwnerDevicesGroup local={local} />
-                {slowOpsState.enabled && <SlowOpsSettingsEntry state={slowOpsState} />}
-                <IncidentsSettingsEntry
-                  local={local}
-                  attention={incidentAttention}
+                <IncidentSettingsGroup
+                  state={incidents}
                   rooms={rooms}
                   currentRoomId={currentRoomId}
                   username={username}
+                  onOpenIncidents={onOpenIncidents}
                 />
               </section>
             )}

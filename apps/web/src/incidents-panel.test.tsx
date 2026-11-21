@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_INCIDENT_SETTINGS,
@@ -7,7 +7,17 @@ import {
   type IncidentsResponse,
   type RuleProposal,
 } from "@superhive/protocol";
-import { IncidentsPanel, IncidentsSettingsEntry, groupIncidents } from "./incidents-panel";
+import {
+  IncidentSettingsGroup,
+  IncidentsPanel,
+  groupIncidents,
+  incidentsAvailable,
+  useIncidents,
+  type IncidentsState,
+} from "./incidents-panel";
+import { IncidentsDialog } from "./incidents-dialog";
+import { AttentionRoomGroup } from "./attention-alerts";
+import type { SlowOpsState } from "./slow-ops";
 import type { LocalAgentsState } from "./local-agents";
 import { installErrorReporter, ignorableError } from "./error-report";
 
@@ -85,17 +95,14 @@ describe("groupIncidents", () => {
 });
 
 describe("IncidentsPanel", () => {
-  const handlers = () => ({ onSettings: vi.fn(), onAction: vi.fn(), onDecide: vi.fn() });
+  const handlers = () => ({ onAction: vi.fn(), onDecide: vi.fn() });
 
-  it("shows our incidents with actions and saves the dispatch settings", () => {
+  it("lists our incidents with actions but no dispatch settings", () => {
     const calls = handlers();
     const open = incident({ title: "TypeError: x is undefined" });
     render(
       <IncidentsPanel
         data={response({ incidents: [open, incident({ origin: "external" })] })}
-        rooms={[{ id: "build", name: "build" }]}
-        currentRoomId="build"
-        username="rd"
         {...calls}
       />,
     );
@@ -103,77 +110,268 @@ describe("IncidentsPanel", () => {
     expect(screen.getByText("外部原因（1）")).toBeTruthy();
     fireEvent.click(screen.getAllByRole("button", { name: "派修" })[0]!);
     expect(calls.onAction).toHaveBeenCalledWith(open.id, "dispatch");
+    // 设置在「设置 → 这台电脑」里，不在列表里
+    expect(screen.queryByRole("switch", { name: /自动派修/ })).toBeNull();
+    expect(screen.queryByLabelText("修的 Agent")).toBeNull();
+  });
+
+  it("lets the owner approve or reject rule proposals", () => {
+    const calls = handlers();
+    render(<IncidentsPanel data={response({ proposals: [proposal()] })} {...calls} />);
+    expect(screen.getByText("合入前先跑全量测试")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "批准" }));
+    expect(calls.onDecide).toHaveBeenCalledWith("p1", "approve");
+  });
+
+  it("highlights the incident opened from 「需要你处理」 and expands its details", () => {
+    const target = incident({ status: "escalated", title: "TypeError: escalated" });
+    const { container } = render(
+      <IncidentsPanel
+        data={response({ incidents: [incident(), target] })}
+        focusId={target.id}
+        {...handlers()}
+      />,
+    );
+    const row = container.querySelector(`[data-incident-id="${target.id}"]`)!;
+    expect(row.className).toContain("focused");
+    expect(row.querySelector("details")!.open).toBe(true);
+    expect(container.querySelectorAll(".focused")).toHaveLength(1);
+  });
+});
+
+function state(patch: Partial<IncidentsState> = {}): IncidentsState {
+  const data = patch.data ?? response();
+  return {
+    enabled: true,
+    data,
+    error: undefined,
+    unhandled: 0,
+    attentionItems: [],
+    refresh: vi.fn(),
+    updateSettings: vi.fn(),
+    act: vi.fn(),
+    decide: vi.fn(),
+    ...patch,
+  };
+}
+
+describe("IncidentSettingsGroup", () => {
+  it("keeps only the dispatch settings and links to the sidebar entry", () => {
+    const current = state({
+      data: response({
+        incidents: [incident({ title: "TypeError: not here" })],
+        proposals: [proposal()],
+      }),
+    });
+    const onOpenIncidents = vi.fn();
+    render(
+      <IncidentSettingsGroup
+        state={current}
+        rooms={[{ id: "build", name: "build" }]}
+        currentRoomId="build"
+        username="rd"
+        onOpenIncidents={onOpenIncidents}
+      />,
+    );
+    expect(screen.queryByText("TypeError: not here")).toBeNull();
+    expect(screen.queryByText("合入前先跑全量测试")).toBeNull();
+    expect(screen.queryByText("最近慢操作")).toBeNull();
     fireEvent.change(screen.getByLabelText("修的 Agent"), { target: { value: "rd-claude2" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
-    expect(calls.onSettings).toHaveBeenCalledWith(
+    expect(current.updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({ roomId: "build", requester: "rd", fixer: "rd-claude2" }),
     );
     fireEvent.click(screen.getByRole("switch", { name: /自动派修/ }));
-    expect(calls.onSettings).toHaveBeenCalledWith({ autoDispatch: true });
+    expect(current.updateSettings).toHaveBeenCalledWith({ autoDispatch: true });
+    fireEvent.click(screen.getByRole("button", { name: /在左侧「故障」里查看/ }));
+    expect(onOpenIncidents).toHaveBeenCalled();
   });
 
   it("can't switch on automatic fixing when the server doesn't run from a checkout", () => {
-    const calls = handlers();
     const data = response();
     delete data.runningCommit;
     render(
-      <IncidentsPanel data={data} rooms={[]} currentRoomId="build" username="rd" {...calls} />,
+      <IncidentSettingsGroup
+        state={state({ data })}
+        rooms={[]}
+        currentRoomId="build"
+        username="rd"
+        onOpenIncidents={vi.fn()}
+      />,
     );
     expect((screen.getByRole("switch", { name: /自动派修/ }) as HTMLButtonElement).disabled).toBe(
       true,
     );
   });
 
-  it("lets the owner approve or reject rule proposals", () => {
-    const calls = handlers();
-    render(
-      <IncidentsPanel
-        data={response({ proposals: [proposal()] })}
-        rooms={[]}
-        currentRoomId="build"
-        username="rd"
-        {...calls}
-      />,
-    );
-    expect(screen.getByText("合入前先跑全量测试")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "批准" }));
-    expect(calls.onDecide).toHaveBeenCalledWith("p1", "approve");
-  });
-});
-
-describe("IncidentsSettingsEntry", () => {
-  it("loads incidents when opened and shows the attention count", async () => {
-    const incidents = vi.fn(async () =>
-      response({ incidents: [incident({ title: "TypeError: loaded" })] }),
-    );
-    const local = { mode: "local", incidents } as unknown as LocalAgentsState;
-    render(
-      <IncidentsSettingsEntry
-        local={local}
-        attention={2}
-        rooms={[]}
-        currentRoomId="build"
-        username="rd"
-      />,
-    );
-    expect(screen.getByTitle("需要你处理的故障单和规则提议").textContent).toBe("2");
-    expect(incidents).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "查看" }));
-    await waitFor(() => expect(screen.getByText("TypeError: loaded")).toBeTruthy());
-  });
-
   it("isn't shown on other devices", () => {
-    const local = { mode: "device", incidents: vi.fn() } as unknown as LocalAgentsState;
     const { container } = render(
-      <IncidentsSettingsEntry
-        local={local}
-        attention={0}
+      <IncidentSettingsGroup
+        state={state({ enabled: false, data: undefined })}
         rooms={[]}
         currentRoomId="build"
         username="rd"
+        onOpenIncidents={vi.fn()}
       />,
     );
     expect(container.textContent).toBe("");
+  });
+});
+
+describe("incident entry", () => {
+  it("is only for the owner on this computer, like the worktree switcher", () => {
+    expect(incidentsAvailable(true, { enabled: true, mode: "local" })).toBe(true);
+    expect(incidentsAvailable(true, { enabled: true, mode: "device" })).toBe(false);
+    expect(incidentsAvailable(true, { enabled: false, mode: undefined })).toBe(false);
+    expect(incidentsAvailable(false, { enabled: true, mode: "local" })).toBe(false);
+  });
+
+  let latest: IncidentsState | undefined;
+  function Harness({
+    local,
+    enabled,
+    signal,
+  }: {
+    local: LocalAgentsState;
+    enabled: boolean;
+    signal?: { attention: number; version: number };
+  }) {
+    latest = useIncidents(local, enabled, signal);
+    return null;
+  }
+
+  it("loads incidents for the local owner and counts what nobody handles yet", async () => {
+    const incidents = vi.fn(async () =>
+      response({
+        incidents: [
+          incident({ status: "escalated", title: "TypeError: escalated" }),
+          incident({ status: "open" }),
+          incident({ status: "fixing" }),
+          incident({ status: "resolved" }),
+          incident({ origin: "external" }),
+        ],
+        proposals: [proposal(), proposal({ id: "p2", status: "approved" })],
+      }),
+    );
+    const local = { mode: "local", incidents } as unknown as LocalAgentsState;
+    render(<Harness local={local} enabled signal={{ attention: 2, version: 1 }} />);
+    // 详情还没拉到：先用 Server 推来的数字
+    expect(latest!.unhandled).toBe(2);
+    await waitFor(() => expect(latest!.data).toBeDefined());
+    // 待处理 + 升级给人 + 待批准的规则提议；修复中、已解决、外部原因不算
+    expect(latest!.unhandled).toBe(3);
+    expect(latest!.attentionItems.map((item) => [item.kind, item.title])).toEqual([
+      ["incident", "TypeError: escalated"],
+      ["proposal", "合入前先跑全量测试"],
+    ]);
+  });
+
+  it("doesn't load or count anything elsewhere", async () => {
+    const incidents = vi.fn(async () => response({ proposals: [proposal()] }));
+    const local = { mode: "device", incidents } as unknown as LocalAgentsState;
+    render(<Harness local={local} enabled={false} signal={{ attention: 1, version: 1 }} />);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(incidents).not.toHaveBeenCalled();
+    expect(latest!.unhandled).toBe(0);
+    expect(latest!.attentionItems).toEqual([]);
+  });
+
+  it("puts escalated incidents and pending proposals into 「需要你处理」", () => {
+    const onOpenIncident = vi.fn();
+    render(
+      <AttentionRoomGroup
+        items={[]}
+        incidents={[
+          { id: "i1", kind: "incident", title: "TypeError: escalated" },
+          { id: "p1", kind: "proposal", title: "合入前先跑全量测试" },
+        ]}
+        roomName={(id) => id}
+        onOpen={vi.fn()}
+        onOpenIncident={onOpenIncident}
+      />,
+    );
+    const group = screen.getByRole("region", { name: "需要你处理" });
+    expect(group.textContent).toContain("故障单");
+    expect(group.textContent).toContain("规则提议");
+    fireEvent.click(screen.getByTitle("TypeError: escalated"));
+    expect(onOpenIncident).toHaveBeenCalledWith(expect.objectContaining({ id: "i1" }));
+  });
+});
+
+describe("IncidentsDialog", () => {
+  const slowOps: SlowOpsState = {
+    enabled: true,
+    operations: [
+      { id: "s1", at: new Date().toISOString(), kind: "git", name: "git fetch", durationMs: 4_000 },
+    ],
+    settings: {
+      thresholdMs: 3000,
+      requestThresholdMs: 5000,
+      capacity: 200,
+      alertMs: 15_000,
+      lockWaitAlertMs: 10_000,
+    },
+    receiveSnapshot: vi.fn(),
+    receive: vi.fn(),
+  };
+
+  it("switches between incidents and slow operations", () => {
+    const onTab = vi.fn();
+    const current = state({
+      unhandled: 1,
+      data: response({ incidents: [incident({ title: "TypeError: listed" })] }),
+    });
+    const { rerender } = render(
+      <IncidentsDialog
+        tab="incidents"
+        incidents={current}
+        slowOps={slowOps}
+        onTab={onTab}
+        onOpenSettings={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("dialog", { name: "故障" })).toBeTruthy();
+    expect(current.refresh).toHaveBeenCalled();
+    expect(screen.getByText("TypeError: listed")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "故障单 1" }).getAttribute("aria-selected")).toBe(
+      "true",
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "慢操作" }));
+    expect(onTab).toHaveBeenCalledWith("slow-ops");
+    rerender(
+      <IncidentsDialog
+        tab="slow-ops"
+        incidents={current}
+        slowOps={slowOps}
+        onTab={onTab}
+        onOpenSettings={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("TypeError: listed")).toBeNull();
+    expect(screen.getByRole("list", { name: "最近慢操作" }).textContent).toContain("git fetch");
+    expect(screen.getByText(/记录超过 3 秒（请求 5 秒）的操作/)).toBeTruthy();
+  });
+
+  it("links to the dispatch settings and closes on Escape", () => {
+    const onOpenSettings = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <IncidentsDialog
+        tab="incidents"
+        incidents={state()}
+        slowOps={{ ...slowOps, operations: [] }}
+        onTab={vi.fn()}
+        onOpenSettings={onOpenSettings}
+        onClose={onClose}
+      />,
+    );
+    expect(screen.getByText(/自动派修没打开/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "派修设置" }));
+    expect(onOpenSettings).toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(onClose).toHaveBeenCalled();
   });
 });
 

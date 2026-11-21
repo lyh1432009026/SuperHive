@@ -9,6 +9,8 @@ import {
 } from "react";
 import { BranchGlyph } from "./worktree-switcher";
 import { useSlowOps } from "./slow-ops";
+import { incidentsAvailable, useIncidents } from "./incidents-panel";
+import { IncidentsDialog, type IncidentsTab } from "./incidents-dialog";
 import { installErrorReporter } from "./error-report";
 import { WorkspacePanel, workspaceApi, type WorkspaceFocus } from "./workspace-panel";
 import { RefResolver, WorkspaceRefsContext, type RefTarget } from "./workspace-refs";
@@ -379,8 +381,17 @@ export function App({
   // 最近慢操作：服务端只给这台电脑上的房主页面发（连上时 slow-op.snapshot，之后逐条 slow-op.recorded）
   const slowOpsState = useSlowOps();
   slowOpsRef.current = slowOpsState;
-  // 故障单：服务端只给这台电脑上的房主页面推「需要你处理」的数字，详情打开设置再拉
-  const [incidentAttention, setIncidentAttention] = useState<number>();
+  // 故障单：服务端只给这台电脑上的房主页面推 incidents.changed，每次都换个 version 让详情重新拉
+  const [incidentSignal, setIncidentSignal] = useState<{ attention: number; version: number }>();
+  const setIncidentAttention = useCallback(
+    (attention: number) =>
+      setIncidentSignal((current) => ({ attention, version: (current?.version ?? 0) + 1 })),
+    [],
+  );
+  // 左侧「故障」入口：条件和顶栏任务目录下拉一样，只给这台电脑上的房主
+  const incidents = useIncidents(local, incidentsAvailable(isOwner, local), incidentSignal);
+  const [incidentsView, setIncidentsView] = useState<{ tab: IncidentsTab; focusId?: string }>();
+  const incidentsTriggerRef = useRef<HTMLElement | null>(null);
   // 房主页面上的报错交给 Server 归档成故障单
   useEffect(() => {
     if (!isOwner || !authToken) return;
@@ -1149,6 +1160,7 @@ export function App({
   function openActivity(view: ActivityView, trigger?: HTMLElement | null) {
     activityTriggerRef.current = trigger ?? null;
     closeMobilePanel(false);
+    setIncidentsView(undefined);
     setActivityView(view);
     if (view === "mentions") void refreshMentions().catch(() => undefined);
     if (view === "tasks") void refreshTasks().catch(() => undefined);
@@ -1947,6 +1959,20 @@ export function App({
           closeMobilePanel={closeMobilePanel}
           connectionState={connectionState}
           freezeRoomList={freezeRoomList}
+          incidentAttention={incidents.attentionItems}
+          incidentEntry={
+            incidents.enabled
+              ? {
+                  count: incidents.unhandled,
+                  open: (trigger, focusId) => {
+                    incidentsTriggerRef.current = trigger ?? null;
+                    closeMobilePanel(false);
+                    setActivityView(undefined);
+                    setIncidentsView({ tab: "incidents", focusId });
+                  },
+                }
+              : undefined
+          }
           isOwner={isOwner}
           mobilePanel={mobilePanel}
           modifierKeyLabel={modifierKeyLabel}
@@ -2232,6 +2258,25 @@ export function App({
         />
       )}
 
+      {incidentsView && incidents.enabled && (
+        <IncidentsDialog
+          tab={incidentsView.tab}
+          focusId={incidentsView.focusId}
+          incidents={incidents}
+          slowOps={slowOpsState}
+          onTab={(tab) => setIncidentsView({ tab })}
+          onOpenSettings={() => {
+            setIncidentsView(undefined);
+            setSettingsTab("computer");
+            setSettingsOpen(true);
+          }}
+          onClose={() => {
+            setIncidentsView(undefined);
+            incidentsTriggerRef.current?.focus();
+          }}
+        />
+      )}
+
       {gotoOpen && (
         <GoToPalette
           items={buildGoToItems({
@@ -2401,8 +2446,11 @@ export function App({
           settingsCloseRef={settingsCloseRef}
           settingsDialogRef={settingsDialogRef}
           settingsTab={settingsTab}
-          slowOpsState={slowOpsState}
-          incidentAttention={incidentAttention}
+          incidents={incidents}
+          onOpenIncidents={() => {
+            closeSettings();
+            setIncidentsView({ tab: "incidents" });
+          }}
           rooms={rooms}
           themePreference={themePreference}
           threadWidth={threadWidth}

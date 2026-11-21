@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SlowOperation } from "@superhive/protocol";
 import {
-  SlowOpsSettingsEntry,
+  SlowOpsList,
   formatDuration,
   groupSlowOps,
   useSlowOps,
@@ -35,7 +35,7 @@ let latest: SlowOpsState | undefined;
 function Harness() {
   const state = useSlowOps();
   latest = state;
-  return state.enabled ? <SlowOpsSettingsEntry state={state} /> : null;
+  return state.enabled ? <SlowOpsList operations={state.operations} label="最近慢操作" /> : null;
 }
 
 /** 模拟服务端在连上时发来的全集 */
@@ -52,7 +52,7 @@ describe("recent slow operations", () => {
     cleanup();
   });
 
-  it("lists details in settings only, without a header button or pop-up notices", () => {
+  it("lists details without pop-up notices", () => {
     renderLoaded([
       op({
         kind: "lock",
@@ -69,10 +69,6 @@ describe("recent slow operations", () => {
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
 
-    const toggle = screen.getByRole("button", { name: "查看（3 条）" });
-    expect(screen.queryByRole("list", { name: "最近慢操作" })).toBeNull();
-    fireEvent.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
     const list = screen.getByRole("list", { name: "最近慢操作" });
     expect(list.textContent).toContain("worktrees.lock runtimeWorkspaces");
     expect(screen.getByText("等锁 25 秒")).toBeTruthy();
@@ -80,9 +76,6 @@ describe("recent slow operations", () => {
     expect(screen.getByText(/来自 POST \/api\/agent\/worktree/)).toBeTruthy();
     expect(screen.getByTitle("/Users/me/Coding/ai-hive").textContent).toBe("ai-hive");
     expect(screen.getByText("git fetch").closest("li")?.className).toContain("failed");
-    expect(screen.getByText(/记录超过 3 秒（请求 5 秒）的操作/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "收起" }));
-    expect(screen.queryByRole("list", { name: "最近慢操作" })).toBeNull();
   });
 
   it("does not count the same pushed operation twice", () => {
@@ -90,19 +83,17 @@ describe("recent slow operations", () => {
     act(() => latest!.receive(op({ name: "git log" })));
     act(() => latest!.receive(latest!.operations[0]!));
     expect(latest!.operations).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "查看（2 条）" })).toBeTruthy();
+    expect(screen.getByRole("list", { name: "最近慢操作" }).children).toHaveLength(2);
   });
 
   it("stays hidden until the server sends a snapshot, which only the local owner gets", () => {
     render(<Harness />);
-    expect(screen.queryByRole("heading", { name: "最近慢操作" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "最近慢操作" })).toBeNull();
     // 推来的单条不会让它出现：先得有全集
     act(() => latest!.receive(op({ alert: true, durationMs: 20_000 })));
     expect(latest!.enabled).toBe(false);
     act(() => latest!.receiveSnapshot({ ...settings, operations: [] }));
-    expect((screen.getByRole("button", { name: "没有记录" }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    expect(latest!.enabled).toBe(true);
   });
 
   it("replaces the list with a new snapshot after reconnecting", () => {

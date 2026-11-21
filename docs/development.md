@@ -87,7 +87,7 @@ pnpm preview:sandbox --from-data ~/Coding/ai-hive/apps/server/data   # 真实数
 
 - 先构建本任务线的 protocol 和网页，再直接跑本任务线的 Server 源码，看到的就是这条分支的效果。已经构建过可以加 `--no-build`。
 - 只监听 `127.0.0.1`，自动挑一个空闲端口，就绪后打印 `SANDBOX_URL=http://127.0.0.1:<端口>`。也可以用 `--port` 指定端口；端口被占用时直接报错，不会去结束别人的进程。
-- 外面带进来的 `HIVE_*` 环境变量不会传给沙箱 Server，只有慢操作阈值 `HIVE_SLOW_*` 例外：例如 `HIVE_SLOW_REQUEST_MS=1 HIVE_SLOW_ALERT_MS=1 pnpm preview:sandbox` 能马上造出慢操作，看顶栏「性能」和提示的样子。
+- 外面带进来的 `HIVE_*` 环境变量不会传给沙箱 Server，只有慢操作阈值 `HIVE_SLOW_*` 例外：例如 `HIVE_SLOW_REQUEST_MS=1 HIVE_SLOW_ALERT_MS=1 pnpm preview:sandbox` 能马上造出慢操作，在左侧「故障 → 慢操作」里看效果。
 - 数据放在临时目录里，退出（Ctrl+C）时删掉；加 `--keep` 可以保留。原数据目录只读打开（`VACUUM INTO` 快照），不会被改。
 - **复制时就剔除**：IM 连接、凭据和投递队列（`im_*`）、房主登录设备和配对票据（`owner_*`）、访客会话、邀请链接、join token、房主登录签名密钥、待执行的任务目录清理批次；本机 Agent 的自启和任务目录的自动清理都关掉。不拷 `im-secret.key`、`agent-logs`、`agent-settings`；附件默认一起拷，APFS 上是写时复制，加 `--no-attachments` 就不拷。剔除之后会 `VACUUM`，删掉的密钥不会留在文件的空闲页里。
 - **服务端还有一道硬开关**（`HIVE_SANDBOX=1` / `BuildAppOptions.sandbox`），不靠删数据来保证：
@@ -113,7 +113,7 @@ pnpm screenshot --compare output/before.png output/after.png --out output/compar
 - `--theme light,dark` 一次截两张，文件名自动加上 `-light`、`-dark`。`--compare` 会把多张图原尺寸并排拼起来，并加标签（默认「改前」「改后」）。
 - 「改前」的图：在 main 的工作区（或改动前的提交）上照样起一个沙箱再截。
 - `--hide-sandbox-badge` 可以隐藏顶部的沙箱标记。Chrome 按常见安装位置查找，也可以用 `--chrome` 或环境变量 `CHROME_PATH` 指定。
-- 沙箱里不起本机 Agent，`/api/local/*` 也是关的。要看本机 Agent 相关的界面，用 `--init-script scripts/fixtures/local-agents.js` 加载测试替身：它在页面加载前拦截 fetch 和房间快照，模拟几个忙、空闲、旧版本、已停止的本机 Agent，例如 `pnpm screenshot --url {url} --init-script scripts/fixtures/local-agents.js --action settings:computer`。`--init-script` 可以重复，自己写的替身脚本也能这样加载。
+- 沙箱里不起本机 Agent，`/api/local/*` 也是关的。要看本机 Agent 相关的界面，用 `--init-script scripts/fixtures/local-agents.js` 加载测试替身：它在页面加载前拦截 fetch 和房间快照，模拟几个忙、空闲、旧版本、已停止的本机 Agent，例如 `pnpm screenshot --url {url} --init-script scripts/fixtures/local-agents.js --action settings:computer`。`--init-script` 可以重复，自己写的替身脚本也能这样加载。左侧「故障」入口再叠加 `scripts/fixtures/incidents.js`：它给出几张故障单、一条待批准的规则提议和几条慢操作，并替换掉沙箱 Server 推来的空数据。
 
 **一次跑完**：在 `--` 后面写要执行的命令，Server 就绪后运行它。命令里的 `{url}` 会换成沙箱地址，环境变量 `SANDBOX_URL` 也会带上；命令结束后沙箱自动关闭，退出码和命令一致：
 
@@ -368,7 +368,7 @@ Agent 的行为规则有一份权威来源：`apps/server/src/agent-instructions
 
 调用失败按 Bridge 的结构化原因键（`detailText.key`）归类，表在 `incidents.ts` 的 `INVOCATION_ORIGINS`；新加 Bridge 原因键时记得补上。同一种错误按指纹合并：调用失败是「原因键 + 运行时」，异常是错误类型加调用栈前三帧（去掉行列号、`node_modules`、打包文件名里的哈希，路径只留仓库内部分）。每张单留最近 5 次现场（房间、调用、Agent、路由、调用栈、在跑的代码提交），本机用户目录换成 `~`；凭证（Bearer/Basic 认证头、`sk-`/`ghp_`/`github_pat_`/`xox*` 这类密钥、JWT、URL 里的用户名密码和 token/key/secret/password/auth/signature 参数、`"token": …`/`x-hive-owner: …` 这类键值，以及这台 Server 的入房令牌和房主令牌原值）一律换成 `<secret>`，派修消息发出前再过一遍；不记消息正文和工具参数。同一次出现（同一调用的同一次尝试）只记一次。
 
-**派修**：在「设置 → 这台电脑 → 故障单」里打开「自动派修」，选房间、以谁的名义派活、修的 Agent 和 review 的 Agent。我们的问题出现到阈值（默认 3 次）后，Server 以派活人的名义 @ 修的 Agent，消息里带现场、相关经验、受保护路径，要求先写复现测试再修、提交信息末尾加 `Incident: <短号>`、用 `hive_incident_report` 回报后交 review。合入仍由 review 方和人决定，Server 不合入、不回滚。
+**派修**：在「设置 → 这台电脑 → 故障自动派修」里打开「自动派修」，选房间、以谁的名义派活、修的 Agent 和 review 的 Agent。我们的问题出现到阈值（默认 3 次）后，Server 以派活人的名义 @ 修的 Agent，消息里带现场、相关经验、受保护路径，要求先写复现测试再修、提交信息末尾加 `Incident: <短号>`、用 `hive_incident_report` 回报后交 review。合入仍由 review 方和人决定，Server 不合入、不回滚。
 
 - 每天（本地日期）最多自动派修 `dailyLimit` 次（默认 3）；房主手动派修不受阈值、开关和每日上限限制。
 - 派出去的调用失败、被停止或结果未知，或 24 小时没回报，算一次没修成；修好后同一种错误又出现（修复已在跑的代码里），重新打开、也算一次，并在房间里提醒房主考虑回滚。累计 `maxAttempts` 次（默认 2）就升级给人：自动派修停下，页面上标「需要你处理」。
@@ -376,7 +376,9 @@ Agent 的行为规则有一份权威来源：`apps/server/src/agent-instructions
 - 修复有没有进在跑的代码：Server 启动时记下源码仓库的 `HEAD`，每分钟查一次交了修复的单，修复提交是它的祖先、或它的历史里有带 `Incident: <短号>` 的提交（变基后提交号会变）就标为已解决，经验标为已验证。
 - 不是从源码仓库运行的 Server（`npx` 安装、沙箱预览）核对不了修复，只归类计数，不派修。
 
-**经验库与规则**：每次回报 `fixed` 的症状、原因、修法存进经验库，派修时附上最相关的 5 条（同一张单的优先，再是同一来源的）。Agent 用 `hive_rule_propose` 提的规则要房主在同一个面板里批准，批准后接在 `/agent.md` 后面（「房主批准的补充规则」），撤下后不再加进去；Agent 重启后拿到新规则。
+**在网页上哪里看**：故障单、规则提议、经验库和最近慢操作是要看、要处理的东西，不是设置，放在左侧快捷入口「故障」里（`incidents-dialog.tsx`），只对这台电脑上的房主显示（条件同顶栏任务目录下拉：`local.enabled && local.mode === "local"`）。入口上的数字是我们的问题里待处理、升级给人的单加待批准的规则提议，没有就不显示；慢操作不计数。升级给人的单和待批准的规则提议同时进左侧「需要你处理」，点了打开面板并定位到那一条。「设置 → 这台电脑」里只留自动派修的设置。页面靠 `incidents.changed` 推送得知有变化，稍等 300 毫秒再拉 `/api/local/incidents`。
+
+**经验库与规则**：每次回报 `fixed` 的症状、原因、修法存进经验库，派修时附上最相关的 5 条（同一张单的优先，再是同一来源的）。Agent 用 `hive_rule_propose` 提的规则要房主在左侧「故障」面板里批准，批准后接在 `/agent.md` 后面（「房主批准的补充规则」），撤下后不再加进去；Agent 重启后拿到新规则。
 
 ## 本机 Agent 管家
 

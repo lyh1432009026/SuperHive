@@ -70,12 +70,14 @@
 }
 
 .attention-row.question .attention-kind,
-.attention-row.approval .attention-kind {
+.attention-row.approval .attention-kind,
+.attention-row.rule-proposal .attention-kind {
   background: var(--accent-soft);
   color: var(--accent);
 }
 
-.attention-row.failed .attention-kind {
+.attention-row.failed .attention-kind,
+.attention-row.escalated-incident .attention-kind {
   background: var(--danger-soft);
   color: var(--danger);
 }
