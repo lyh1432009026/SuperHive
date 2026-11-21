@@ -108,7 +108,9 @@ export function classifyInvocation(
       agentName: invocation.agentName,
       provider: context.provider,
       detail: detail ? redact(detail).slice(0, 1000) : undefined,
-      detailText: invocation.detailText as WireServerText | undefined,
+      detailText: invocation.detailText
+        ? redactText(invocation.detailText as WireServerText)
+        : undefined,
       codeVersion: context.codeVersion,
     }),
   };
@@ -260,10 +262,70 @@ export function normalizeMessage(message: string): string {
     .trim();
 }
 
-/** 去掉本机用户目录，不让用户名、私有路径进故障单 */
+/** 这台 Server 自己的令牌（入房令牌、房主令牌）：按原值精确替换 */
+const knownSecrets = new Set<string>();
+
+/** 登记一个要从故障单里抹掉的原值（太短的不登记，免得误伤普通文字） */
+export function registerIncidentSecret(value: string | undefined): void {
+  if (value && value.length >= 8) knownSecrets.add(value);
+}
+
+const SECRET = "<secret>";
+/** 按顺序替换：先认出认证头和已知格式的密钥，再按键名兜底 */
+const SECRET_PATTERNS: Array<[RegExp, string]> = [
+  // Authorization: Bearer xxx / Basic xxx
+  [/\b(Bearer|Basic)\s+(?!<secret>)[A-Za-z0-9._~+/=-]{6,}/gi, `$1 ${SECRET}`],
+  // 常见的 API key 前缀
+  [
+    /\b(?:sk-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|xox[abposr]-[A-Za-z0-9-]{8,})/g,
+    SECRET,
+  ],
+  // JWT
+  [/\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}/g, SECRET],
+  // URL 里的用户名密码
+  [/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+(?::[^\s/@]*)?@/gi, `$1${SECRET}@`],
+  // 查询参数：token、key、secret、password、auth、signature……
+  [
+    /([?&#;][\w.-]*?(?:token|key|secret|password|passwd|auth|signature|sig)[\w.-]*=)[^&#\s"'`]+/gi,
+    `$1${SECRET}`,
+  ],
+  // 键值写法："token": "…"、x-hive-owner: …、password=…
+  [
+    /((?:["']?)[\w-]*(?:token|secret|password|passwd|api[_-]?key|apikey|authorization|x-hive-owner|cookie)[\w-]*["']?\s*[:=]\s*["']?)(?!<secret>)[^\s"',;}&]+/gi,
+    `$1${SECRET}`,
+  ],
+];
+
+/**
+ * 去掉本机用户目录和凭证：现场会存进故障单、贴进派修消息（房间里可能有访客、连着 IM），
+ * 不能把令牌、密钥带出去。
+ */
 export function redact(text: string): string {
+  let result = text;
+  for (const secret of knownSecrets) result = result.replaceAll(secret, SECRET);
+  for (const [pattern, replacement] of SECRET_PATTERNS) {
+    result = result.replace(pattern, replacement);
+  }
   const home = homedir();
-  return home && home.length > 1 ? text.replaceAll(home, "~") : text;
+  return home && home.length > 1 ? result.replaceAll(home, "~") : result;
+}
+
+/** 结构化说明里的参数也可能带原始报错：逐个字符串脱敏 */
+function redactText(text: WireServerText): WireServerText {
+  if (!text.params) return text;
+  return {
+    key: text.key,
+    params: Object.fromEntries(
+      Object.entries(text.params).map(([name, value]) => [
+        name,
+        typeof value === "string"
+          ? redact(value)
+          : typeof value === "number"
+            ? value
+            : redactText(value),
+      ]),
+    ),
+  };
 }
 
 function pageUrl(url: string): string {

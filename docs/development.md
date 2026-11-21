@@ -366,7 +366,7 @@ Agent 的行为规则有一份权威来源：`apps/server/src/agent-instructions
 - **我们的问题**（`internal`）：Bridge 与 Server 对不上账或卡住（`invocation.stale`、`invocation.unacknowledged`、`bridge.steerEndRace` 等）、Server 抛的异常（HTTP 5xx、WebSocket 事件处理、MCP 工具里不是 `HiveError` 的异常）、已接入的 Agent 发来没通过协议校验的事件、房主页面上未捕获的报错。
 - **说不清**（`unknown`）：旧版 Bridge 只给了中文说明，或新的原因键。只记下来，房主判断后可以手动派修。
 
-调用失败按 Bridge 的结构化原因键（`detailText.key`）归类，表在 `incidents.ts` 的 `INVOCATION_ORIGINS`；新加 Bridge 原因键时记得补上。同一种错误按指纹合并：调用失败是「原因键 + 运行时」，异常是错误类型加调用栈前三帧（去掉行列号、`node_modules`、打包文件名里的哈希，路径只留仓库内部分）。每张单留最近 5 次现场（房间、调用、Agent、路由、调用栈、在跑的代码提交），本机用户目录换成 `~`，不记消息正文和工具参数。同一次出现（同一调用的同一次尝试）只记一次。
+调用失败按 Bridge 的结构化原因键（`detailText.key`）归类，表在 `incidents.ts` 的 `INVOCATION_ORIGINS`；新加 Bridge 原因键时记得补上。同一种错误按指纹合并：调用失败是「原因键 + 运行时」，异常是错误类型加调用栈前三帧（去掉行列号、`node_modules`、打包文件名里的哈希，路径只留仓库内部分）。每张单留最近 5 次现场（房间、调用、Agent、路由、调用栈、在跑的代码提交），本机用户目录换成 `~`；凭证（Bearer/Basic 认证头、`sk-`/`ghp_`/`github_pat_`/`xox*` 这类密钥、JWT、URL 里的用户名密码和 token/key/secret/password/auth/signature 参数、`"token": …`/`x-hive-owner: …` 这类键值，以及这台 Server 的入房令牌和房主令牌原值）一律换成 `<secret>`，派修消息发出前再过一遍；不记消息正文和工具参数。同一次出现（同一调用的同一次尝试）只记一次。
 
 **派修**：在「设置 → 这台电脑 → 故障单」里打开「自动派修」，选房间、以谁的名义派活、修的 Agent 和 review 的 Agent。我们的问题出现到阈值（默认 3 次）后，Server 以派活人的名义 @ 修的 Agent，消息里带现场、相关经验、受保护路径，要求先写复现测试再修、提交信息末尾加 `Incident: <短号>`、用 `hive_incident_report` 回报后交 review。合入仍由 review 方和人决定，Server 不合入、不回滚。
 

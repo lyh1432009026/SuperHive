@@ -14,7 +14,7 @@ import {
   type UpdateIncidentSettingsRequest,
 } from "@superhive/protocol";
 import { HiveError } from "./database.js";
-import type { IncidentOccurrence } from "./incidents.js";
+import { redact, type IncidentOccurrence } from "./incidents.js";
 import type { IncidentStore } from "./incident-store.js";
 
 /**
@@ -354,7 +354,8 @@ export class IncidentDesk {
       firstSeen: incident.firstSeenAt,
       lastSeen: incident.lastSeenAt,
       commit: this.deps.runningCommit?.slice(0, 12) ?? "?",
-      scene: quote(scene, 3000),
+      // 现场入库时已经脱敏；令牌可能是之后才登记的，发出前再过一遍
+      scene: quote(redact(scene), 3000),
       reviewer: settings.reviewer
         ? serverText("incident.reviewer", { reviewer: settings.reviewer })
         : serverText("incident.reviewerAny"),
@@ -363,12 +364,14 @@ export class IncidentDesk {
         lessons.length > 0
           ? serverText("incident.lessons", {
               lessons: quote(
-                lessons
-                  .map(
-                    (lesson, index) =>
-                      `${index + 1}. ${lesson.title}${lesson.verified ? "" : "（未验证）"}\n   症状：${lesson.symptom}\n   原因：${lesson.cause}\n   修法：${lesson.fix}`,
-                  )
-                  .join("\n"),
+                redact(
+                  lessons
+                    .map(
+                      (lesson, index) =>
+                        `${index + 1}. ${lesson.title}${lesson.verified ? "" : "（未验证）"}\n   症状：${lesson.symptom}\n   原因：${lesson.cause}\n   修法：${lesson.fix}`,
+                    )
+                    .join("\n"),
+                ),
                 3000,
               ),
             })

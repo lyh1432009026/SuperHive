@@ -115,6 +115,7 @@ import { AttachmentStore, publicAttachment, type StoredAttachment } from "./atta
 import { listRoomArtifacts } from "./room-artifacts.js";
 import { slowOps, slowOpsSettingsFromEnv, type SlowOpsSettings } from "./slow-ops.js";
 import {
+  registerIncidentSecret,
   classifyClientError,
   classifyInvocation,
   classifyProtocolError,
@@ -460,6 +461,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   });
   const database = new HiveDatabase(options.databasePath ?? "./data/hive.sqlite");
   const joinToken = database.getOrCreateToken(options.token ?? process.env.HIVE_TOKEN);
+  // 入房令牌等同房主权限：故障现场里出现原值就抹掉
+  registerIncidentSecret(joinToken);
   const access = new AccessStore(database.connection());
   const incidentRepo =
     sandbox || options.incidentRepo === false

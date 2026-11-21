@@ -9,6 +9,8 @@ import {
   classifyServerError,
   invocationOrigin,
   normalizeMessage,
+  redact,
+  registerIncidentSecret,
   stackFrames,
   type IncidentOccurrence,
 } from "./incidents.js";
@@ -159,6 +161,76 @@ describe("incident classification", () => {
   });
 });
 
+describe("credential redaction", () => {
+  it.each([
+    ["Bearer header", "request failed: Authorization: Bearer abc123def456ghi", "abc123def456ghi"],
+    ["Basic header", "Authorization: Basic dXNlcjpwYXNzd29yZA==", "dXNlcjpwYXNzd29yZA=="],
+    ["sk- key", "upstream rejected key sk-ant-api03-AbCdEf123456", "sk-ant-api03-AbCdEf123456"],
+    ["GitHub token", "push failed with ghp_1234567890abcdefABCDEF", "ghp_1234567890abcdefABCDEF"],
+    [
+      "GitHub PAT",
+      "token github_pat_11ABCDEFG0123456789_abcdef",
+      "github_pat_11ABCDEFG0123456789_abcdef",
+    ],
+    ["Slack token", "slack said no to xoxb-1234-5678-abcdefgh", "xoxb-1234-5678-abcdefgh"],
+    [
+      "JWT",
+      "jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N",
+      "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N",
+    ],
+    [
+      "URL user and password",
+      "fetch https://alice:hunter2pass@git.example.com/repo",
+      "hunter2pass",
+    ],
+    [
+      "token query",
+      "GET http://127.0.0.1:8787/api/x?room=build&token=hvs_abcdef123456",
+      "hvs_abcdef123456",
+    ],
+    ["key query", "GET https://api.example.com/v1?api_key=AKIA1234567890", "AKIA1234567890"],
+    [
+      "signature query",
+      "https://s3.example.com/f?X-Amz-Signature=deadbeefcafe0011",
+      "deadbeefcafe0011",
+    ],
+    ["JSON token field", '{"token": "hvi_supersecretvalue1"}', "hvi_supersecretvalue1"],
+    ["owner header", "x-hive-owner: 0123456789abcdef0123", "0123456789abcdef0123"],
+    ["password assignment", "password=correct-horse-battery", "correct-horse-battery"],
+  ])("removes a %s", (_label, text, secret) => {
+    const cleaned = redact(text);
+    expect(cleaned).not.toContain(secret);
+    expect(cleaned).toContain("<secret>");
+  });
+
+  it("replaces this server's own tokens by their exact value", () => {
+    const token = "f00dfeedcafebabe1234";
+    registerIncidentSecret(token);
+    expect(redact(`unexpected ${token} in body`)).toBe("unexpected <secret> in body");
+  });
+
+  it("keeps one fingerprint for the same error with different credentials", () => {
+    const a = classifyServerError(new Error("auth failed for Bearer aaaaaaaaaaaa"), { route: "x" });
+    const b = classifyServerError(new Error("auth failed for Bearer bbbbbbbbbbbb"), { route: "x" });
+    expect(a.fingerprint).toBe(b.fingerprint);
+    expect(a.title).not.toContain("aaaaaaaaaaaa");
+    expect(a.sample.detail).not.toContain("aaaaaaaaaaaa");
+  });
+
+  it("redacts parameters of structured invocation details", () => {
+    const occurrence = classifyInvocation(
+      invocation({
+        detailText: {
+          key: "bridge.upstreamFailed",
+          params: { reason: "401 for sk-live-0123456789abcdef", why: "" },
+        },
+      }),
+      {},
+    )!;
+    expect(JSON.stringify(occurrence.sample)).not.toContain("sk-live-0123456789abcdef");
+  });
+});
+
 describe("incident store", () => {
   it("merges occurrences by fingerprint, keeps the latest samples and ignores repeats", () => {
     let now = BASE;
@@ -265,6 +337,23 @@ describe("incident desk", () => {
     // 修着的时候再出现只计数，不重复派
     hit(target, 3);
     expect(target.dispatched).toHaveLength(1);
+  });
+
+  it("keeps credentials out of the dispatch message", () => {
+    const target = desk({ settings: { threshold: 1 } });
+    const token = "0wnerT0kenValue9876";
+    const error = new Error(`boom with x-hive-owner: hdr-secret-123 and ${token}`);
+    error.stack = `Error: boom\n    at f (/repo/apps/server/src/a.ts:1:1)\n    at g (http://h/x?token=query-secret-456)`;
+    const occurrence = classifyServerError(error, { route: "GET /x" });
+    // 令牌在归档之后才登记，发出前那一遍也要能抹掉
+    registerIncidentSecret(token);
+    occurrence.sample.detail = `${occurrence.sample.detail} ${token}`;
+    target.desk.record(occurrence);
+    const sent = JSON.stringify(target.dispatched[0]!.text);
+    expect(sent).not.toContain("hdr-secret-123");
+    expect(sent).not.toContain("query-secret-456");
+    expect(sent).not.toContain(token);
+    expect(sent).toContain("<secret>");
   });
 
   it("never dispatches external or unknown failures, and stays quiet when switched off", () => {

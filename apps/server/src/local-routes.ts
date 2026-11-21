@@ -40,6 +40,7 @@ import {
 } from "@superhive/protocol";
 import QRCode from "qrcode";
 import { HiveError } from "./database.js";
+import { registerIncidentSecret } from "./incidents.js";
 import type { HostApproval, HostApprovals } from "./host-approvals.js";
 import type { OwnerDevice } from "./owner-devices.js";
 import { checkLocalRequest, type LocalCheck } from "./local-access.js";
@@ -218,6 +219,8 @@ export function registerLocalAgentRoutes(
   rooms: LocalRoomActions,
 ): void {
   const ownerToken = randomBytes(32).toString("hex");
+  // 房主令牌：故障现场里出现原值就抹掉
+  registerIncidentSecret(ownerToken);
   const ownerBuffer = Buffer.from(ownerToken);
 
   const hostLabel = hostname().replace(/\.local$/, "");
