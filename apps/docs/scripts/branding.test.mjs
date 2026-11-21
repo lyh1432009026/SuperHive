@@ -6,8 +6,8 @@ import { load } from "cheerio";
 const mark = readFileSync(new URL("../src/assets/hive-mark.svg", import.meta.url), "utf8");
 
 test("documentation mark retains the main application's HiveLogo geometry and treatment", () => {
-  const app = readFileSync(new URL("../../web/src/App.tsx", import.meta.url), "utf8");
-  const logo = app.match(/function HiveLogo\([\s\S]*?(?=\nfunction )/)?.[0];
+  const app = readFileSync(new URL("../../web/src/app-icons.tsx", import.meta.url), "utf8");
+  const logo = app.match(/function HiveLogo\([\s\S]*?\n}\n/)?.[0];
   assert.ok(logo, "main application HiveLogo exists");
   const paths = [...logo.matchAll(/<path d="([^"]+)"/g)].map((match) => match[1]);
   const svg = load(mark, { xmlMode: true });
