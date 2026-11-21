@@ -1744,5 +1744,12 @@
   "收起右侧栏": "Hide side panel",
   "有新版本": "New version",
   "换成最新发的 {0}": "Switch to the latest {0}",
-  "调整预览栏宽度": "Resize preview panel"
+  "调整预览栏宽度": "Resize preview panel",
+  "丢弃并删除": "Discard and delete",
+  "还没合入：变基或解过冲突后合入的，git 认不出来，确认内容已进主分支再丢弃。": "Not merged: git can't recognize work merged after a rebase or conflict resolution. Discard only once you've confirmed the content is on the main branch.",
+  "确认丢弃 {0}？": "Discard {0}?",
+  "下面这些提交不在主分支上，会随目录和分支一起删掉，找不回来。删除前会重新核对：有改动、任务占用或分支又有新提交就不删。": "These commits aren't on the main branch and will be deleted with the directory and branch, with no way back. It's rechecked first: nothing is deleted if there are changes, active tasks or new commits on the branch.",
+  "还有 {0} 个提交没列出。": "{0} more commits not listed.",
+  "确认丢弃并删除": "Confirm discard and delete",
+  "已丢弃并删除 {0}，丢掉 {1} 个提交。": "Discarded and deleted {0}, dropping {1} commits."
 }

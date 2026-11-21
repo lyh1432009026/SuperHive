@@ -55,6 +55,10 @@ export const imTexts = {
     zh: "请求清理 {count} 个 worktree",
     en: "Requested cleanup of {count} worktrees",
   },
+  "im.worktree.discardAudit": {
+    zh: "丢弃并删除未合入的 worktree {branch}（{count} 个提交）",
+    en: "Discarded the unmerged worktree {branch} ({count} commits)",
+  },
   "im.worktree.repairAudit": {
     zh: "修复被换了分支的 worktree：{action}",
     en: "Fixed a worktree whose branch was switched: {action}",

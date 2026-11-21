@@ -10,6 +10,7 @@ import {
   localAgentAutoUpdateSchema,
   localAgentProviderSchema,
   repairWorktreeRequestSchema,
+  discardWorktreeRequestSchema,
   restartLocalAgentRequestSchema,
   updateLocalAgentSettingsRequestSchema,
   keepAwakeSettingsSchema,
@@ -113,6 +114,15 @@ export type LocalRoomActions = {
     request: (roomId: string, batchId: string) => boolean;
     /** 被换了分支的任务目录：切回登记分支，或按当前分支重新登记 */
     repair?: (roomId: string, id: string, action: "restore" | "adopt") => Promise<unknown>;
+    /** 尚未合入的任务线丢弃前要给房主看的提交 */
+    discardPreview?: (roomId: string, id: string) => Promise<unknown>;
+    /** 房主确认后丢弃尚未合入的任务线；by 写进审计日志 */
+    discard?: (
+      roomId: string,
+      id: string,
+      headCommit: string,
+      by: string,
+    ) => Promise<{ branch: string; discarded: string[] }>;
   };
   /** 请求是否来自 Server 所在电脑；默认 checkLocalRequest（不放行别的端口上的网页） */
   isLocal?: (request: FastifyRequest) => LocalCheck;
@@ -418,6 +428,53 @@ export function registerLocalAgentRoutes(
           true,
         );
         return { worktree: status };
+      } catch (error) {
+        if (!(error instanceof HiveError)) throw error;
+        return reply.code(ERROR_STATUS[error.code] ?? 409).send(hiveErrorBody(error));
+      }
+    },
+  );
+  app.get<{ Params: { roomId: string; id: string } }>(
+    "/api/local/worktrees/:roomId/items/:id/discard",
+    async (request, reply) => {
+      if (!authorize(request, reply, "read")) return reply;
+      const id = z.string().uuid().safeParse(request.params.id);
+      if (!id.success || !rooms.worktrees?.discardPreview)
+        return reply.code(400).send({ error: "Invalid worktree" });
+      try {
+        return await rooms.worktrees.discardPreview(request.params.roomId, id.data);
+      } catch (error) {
+        if (!(error instanceof HiveError)) throw error;
+        return reply.code(ERROR_STATUS[error.code] ?? 409).send(hiveErrorBody(error));
+      }
+    },
+  );
+  app.post<{ Params: { roomId: string; id: string }; Body: unknown }>(
+    "/api/local/worktrees/:roomId/items/:id/discard",
+    async (request, reply) => {
+      const caller = authorize(request, reply, "manage");
+      if (!caller) return reply;
+      const input = discardWorktreeRequestSchema.safeParse(request.body);
+      const id = z.string().uuid().safeParse(request.params.id);
+      if (!input.success || !id.success || !rooms.worktrees?.discard)
+        return reply.code(400).send({ error: "Invalid worktree discard" });
+      try {
+        const result = await rooms.worktrees.discard(
+          request.params.roomId,
+          id.data,
+          input.data.headCommit,
+          caller.kind === "device" ? `${caller.name}（房主设备）` : "本机房主",
+        );
+        audit(
+          request,
+          caller,
+          {
+            key: "im.worktree.discardAudit",
+            params: { branch: result.branch, count: result.discarded.length },
+          },
+          true,
+        );
+        return result;
       } catch (error) {
         if (!(error instanceof HiveError)) throw error;
         return reply.code(ERROR_STATUS[error.code] ?? 409).send(hiveErrorBody(error));

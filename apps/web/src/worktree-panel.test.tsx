@@ -45,6 +45,18 @@ const api = (canManage = true) => ({
   configureWorktreeCleanup: vi.fn(async () => undefined),
   cleanWorktreeBatch: vi.fn(async () => undefined),
   repairWorktree: vi.fn(async () => undefined),
+  worktreeDiscardPreview: vi.fn(async () => ({
+    headCommit: "d".repeat(40),
+    total: 22,
+    commits: Array.from({ length: 20 }, (_, index) => ({
+      hash: `${index}`.padStart(2, "0") + "e".repeat(38),
+      subject: `commit ${index}`,
+    })),
+  })),
+  discardWorktree: vi.fn(async () => ({
+    branchDeleted: true,
+    discarded: Array.from({ length: 22 }, () => "e".repeat(40)),
+  })),
 });
 
 describe("WorktreePanel", () => {
@@ -263,5 +275,91 @@ describe("WorktreePanel", () => {
     fireEvent.click(screen.getByText("确认清理"));
     await waitFor(() => expect(screen.queryByText("清理这批目录")).toBeNull());
     expect(client.cleanWorktreeBatch).not.toHaveBeenCalled();
+  });
+
+  it("offers discarding only for unmerged, clean and idle task lines and to managing owners", async () => {
+    const client = api();
+    const unmerged = (id: string, extra: Partial<WorktreeStatus> = {}): WorktreeStatus => ({
+      ...row(id, false),
+      dirty: false,
+      merged: false,
+      discardable: false,
+      ...extra,
+    });
+    client.worktrees.mockResolvedValue({
+      worktrees: [
+        unmerged("rebased", { discardable: true }),
+        unmerged("dirty", { dirty: true }),
+        unmerged("busy", { activeInvocationIds: ["task"] }),
+        row("merged", true),
+      ],
+      autoCleanup: false,
+      cleanupBatch: null,
+    });
+    const { unmount } = render(<WorktreePanel roomId="general" api={client} />);
+    await screen.findByText("feat/rebased");
+    expect(screen.getAllByRole("button", { name: "丢弃并删除" })).toHaveLength(1);
+    unmount();
+    // 没拿到管理权的设备：不出现
+    const device = api(false);
+    device.worktrees.mockResolvedValue({
+      worktrees: [unmerged("rebased", { discardable: true })],
+      autoCleanup: false,
+      cleanupBatch: null,
+    });
+    render(<WorktreePanel roomId="general" api={device} />);
+    await screen.findByText("feat/rebased");
+    expect(screen.queryByRole("button", { name: "丢弃并删除" })).toBeNull();
+  });
+
+  it("lists the commits to be dropped and discards with the confirmed head only after confirmation", async () => {
+    const client = api();
+    let discarded = false;
+    client.worktrees.mockImplementation(async () => ({
+      worktrees: discarded
+        ? []
+        : [{ ...row("rebased", false), dirty: false, merged: false, discardable: true }],
+      autoCleanup: false,
+      cleanupBatch: null,
+    }));
+    client.discardWorktree.mockImplementation(async () => {
+      discarded = true;
+      return { branchDeleted: true, discarded: Array.from({ length: 22 }, () => "e".repeat(40)) };
+    });
+    render(<WorktreePanel roomId="general" api={client} />);
+    fireEvent.click(await screen.findByRole("button", { name: "丢弃并删除" }));
+    await screen.findByText("确认丢弃 feat/rebased？");
+    expect(client.worktreeDiscardPreview).toHaveBeenCalledWith("general", "rebased");
+    expect(screen.getByText("commit 0")).toBeTruthy();
+    expect(screen.getByText("00eeeee")).toBeTruthy();
+    expect(screen.getAllByRole("listitem")).toHaveLength(20);
+    screen.getByText("还有 2 个提交没列出。");
+    // 取消：不删，确认框收起
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(screen.queryByText("确认丢弃 feat/rebased？")).toBeNull();
+    expect(client.discardWorktree).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "丢弃并删除" }));
+    fireEvent.click(await screen.findByRole("button", { name: "确认丢弃并删除" }));
+    await waitFor(() =>
+      expect(client.discardWorktree).toHaveBeenCalledWith("general", "rebased", "d".repeat(40)),
+    );
+    await screen.findByText("已丢弃并删除 feat/rebased，丢掉 22 个提交。");
+    await waitFor(() => expect(screen.queryByText("feat/rebased")).toBeNull());
+  });
+
+  it("shows why a discard was refused and keeps the task line", async () => {
+    const client = api();
+    client.worktrees.mockResolvedValue({
+      worktrees: [{ ...row("rebased", false), dirty: false, merged: false, discardable: true }],
+      autoCleanup: false,
+      cleanupBatch: null,
+    });
+    client.discardWorktree.mockRejectedValueOnce(new Error("分支在你确认后又有了新提交"));
+    render(<WorktreePanel roomId="general" api={client} />);
+    fireEvent.click(await screen.findByRole("button", { name: "丢弃并删除" }));
+    fireEvent.click(await screen.findByRole("button", { name: "确认丢弃并删除" }));
+    await screen.findByText("分支在你确认后又有了新提交");
+    expect(screen.queryByText("确认丢弃 feat/rebased？")).toBeNull();
+    expect(screen.getByText("feat/rebased")).toBeTruthy();
   });
 });

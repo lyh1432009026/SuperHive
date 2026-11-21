@@ -13,6 +13,7 @@ import {
   type Participant,
   type ServerText,
   type WorktreeDependencies,
+  type WorktreeDiscardPreview,
   type WorktreeStatus,
 } from "@superhive/protocol";
 import { HiveDatabase, HiveError } from "./database.js";
@@ -261,6 +262,8 @@ const MERGE_CACHE_LIMIT = 1_000;
 
 /** 列出的挡住清理的忽略文件最多几条：够人看清是什么，不把整个目录树塞进状态 */
 const IGNORED_FILES_LIMIT = 20;
+/** 丢弃前给房主看的提交最多列几条 */
+const DISCARD_PREVIEW_LIMIT = 20;
 
 /**
  * 能重新生成、清理时不用保护的忽略文件：任意层级的依赖目录（真实目录或软链，pnpm workspace
@@ -315,6 +318,22 @@ function dependencyMessage(outcome: DependencyOutcome, durationMs: number) {
  */
 function unfinished(record: ManagedWorktree): boolean {
   return record.phase === "removing" || record.phase === "error";
+}
+
+/** 尚未合入、但能确认后整条丢弃：目录完好、干净、没有任务占用（是否还在装依赖由调用方再看） */
+function discardable(status: WorktreeStatus): boolean {
+  return (
+    !status.merged &&
+    !status.error &&
+    !status.missing &&
+    !status.branchSwitched &&
+    Boolean(status.headCommit) &&
+    !status.dirty &&
+    !status.untracked &&
+    !status.ignored &&
+    status.activeInvocationIds.length === 0 &&
+    !unfinished(status.worktree)
+  );
 }
 
 export class WorktreeManager {
@@ -1546,10 +1565,12 @@ export class WorktreeManager {
       this.inspect(record, expectedTarget),
     );
     const dependencies = this.dependencies(record.id);
+    const settled = !this.dependencyJobs.has(record.id);
     return {
       ...status,
       ...(dependencies ? { dependencies } : {}),
-      removable: status.removable && !this.dependencyJobs.has(record.id),
+      removable: status.removable && settled,
+      discardable: discardable(status) && settled,
     };
   }
 
@@ -1711,6 +1732,10 @@ export class WorktreeManager {
       ...(dependencies ? { dependencies } : {}),
       removable:
         clean && idle && !this.writes.has(record.id) && !this.dependencyJobs.has(record.id),
+      discardable:
+        discardable({ ...status, worktree: record, activeInvocationIds }) &&
+        !this.writes.has(record.id) &&
+        !this.dependencyJobs.has(record.id),
     };
   }
 
@@ -1961,6 +1986,144 @@ export class WorktreeManager {
         }
         this.finishRemoval(record);
         return { removed: true, branchDeleted, ...(branchError ? { branchError } : {}) };
+      });
+    });
+  }
+
+  /** 「丢弃并删除」前给房主看：这条分支上有、目标分支上没有的提交 */
+  async discardPreview(workspace: string, path: string): Promise<WorktreeDiscardPreview> {
+    const repository = await worktreeRepository(workspace);
+    const record = this.records(repository.repo).find((item) => item.path === path);
+    if (!record)
+      throw new HiveError(
+        "WORKTREE_UNREGISTERED",
+        serverText("error.worktree.unregistered", { path }),
+      );
+    const headCommit = await commit(record.repo, `refs/heads/${record.branch}`);
+    const { total, commits } = await this.unmergedCommits(
+      record,
+      headCommit,
+      DISCARD_PREVIEW_LIMIT,
+    );
+    return { headCommit, total, commits };
+  }
+
+  private async unmergedCommits(
+    record: ManagedWorktree,
+    tip: string,
+    limit?: number,
+  ): Promise<{ total: number; commits: Array<{ hash: string; subject: string }> }> {
+    const range = [tip, "--not", `refs/heads/${record.target}`, "--"];
+    const total = Number((await git(record.repo, ["rev-list", "--count", ...range])).trim());
+    const commits = (
+      await git(record.repo, [
+        "log",
+        "--format=%H%x1f%s%x1e",
+        ...(limit ? [`--max-count=${limit}`] : []),
+        ...range,
+      ])
+    )
+      .split("\x1e")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => {
+        const [hash = "", subject = ""] = entry.split("\x1f");
+        return { hash, subject };
+      });
+    return { total, commits };
+  }
+
+  /**
+   * 房主确认后丢弃一条尚未合入的任务线：删目录，分支用 -D 删（合入前被变基、git 认不出已合入的
+   * 也能清掉）。只在目录干净、没有任务占用、分支还停在房主看到的那个提交时才删；丢掉的提交号写进审计日志
+   */
+  async discard(
+    workspace: string,
+    input: { path: string; expectedCommit: string; by: string },
+  ): Promise<{
+    removed: true;
+    branchDeleted: boolean;
+    branchError?: string;
+    discarded: string[];
+  }> {
+    this.assertWritable();
+    const repository = await worktreeRepository(workspace);
+    return this.serial(repository.repo, "discard", async () => {
+      const record = this.records(repository.repo).find((item) => item.path === input.path);
+      if (!record)
+        throw new HiveError(
+          "WORKTREE_UNREGISTERED",
+          serverText("error.worktree.unregistered", { path: input.path }),
+        );
+      const unsafe = () =>
+        new HiveError(
+          "WORKTREE_UNSAFE",
+          serverText("error.worktree.discardUnsafe", { path: record.path }),
+        );
+      return this.writing(record.id, async () => {
+        const status = await this.status(record, repository.target);
+        if (!status.discardable || status.headCommit !== input.expectedCommit) throw unsafe();
+        const tip = input.expectedCommit;
+        const { commits } = await this.unmergedCommits(record, tip);
+        const discarded = commits.map((item) => item.hash);
+        record.phase = "removing";
+        this.save(record);
+        try {
+          await this.identity(record);
+          if (
+            this.options.activeInvocations(record).length !== 0 ||
+            (await commit(record.repo, `refs/heads/${record.branch}`)) !== tip
+          )
+            throw unsafe();
+          // 不加 --force：目录里这时冒出改动，git 会拒绝，宁可不删
+          await git(record.repo, ["worktree", "remove", "--", record.path]);
+        } catch (error) {
+          record.phase = "error";
+          this.save(record);
+          throw error;
+        }
+        let branchDeleted = false;
+        let branchError: string | undefined;
+        try {
+          if ((await commit(record.repo, `refs/heads/${record.branch}`)) !== tip) {
+            branchError = zhText(serverText("error.worktree.identity", { path: record.path }));
+          } else {
+            const deletion = await worktreeGit(record.repo, ["branch", "-D", "--", record.branch]);
+            branchDeleted = deletion.code === 0;
+            if (!branchDeleted)
+              branchError = zhText(
+                serverText("error.worktree.branchRetained", { branch: record.branch }),
+              );
+          }
+        } catch (error) {
+          branchError = error instanceof Error ? error.message : String(error);
+        }
+        this.finishRemoval(record);
+        this.options.audit?.(
+          zhText(
+            serverText("worktree.discarded", {
+              by: input.by,
+              path: record.path,
+              branch: record.branch,
+              count: discarded.length,
+            }),
+          ),
+          {
+            roomId: record.roomId,
+            agentName: record.agentName,
+            worktreeId: record.id,
+            branch: record.branch,
+            headCommit: tip,
+            by: input.by,
+            discardedCommits: discarded.join(","),
+          },
+        );
+        return {
+          removed: true,
+          branchDeleted,
+          ...(branchError ? { branchError } : {}),
+          discarded,
+        };
       });
     });
   }

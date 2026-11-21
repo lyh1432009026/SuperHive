@@ -23,6 +23,7 @@ import type {
   RuntimeCredentials,
   RuntimeMcpServerInput,
   UpdateRuntimeCredentialsRequest,
+  WorktreeDiscardPreview,
   WorktreeStatus,
 } from "@superhive/protocol";
 import { localized, t } from "./i18n";
@@ -62,6 +63,14 @@ export type LocalAgentsState = {
   cleanWorktreeBatch(roomId: string, batchId: string): Promise<void>;
   /** 被换了分支的任务目录：restore=切回登记分支，adopt=按当前分支重新登记 */
   repairWorktree(roomId: string, id: string, action: "restore" | "adopt"): Promise<void>;
+  /** 尚未合入的任务线丢弃前要确认的提交 */
+  worktreeDiscardPreview(roomId: string, id: string): Promise<WorktreeDiscardPreview>;
+  /** 丢弃并删除尚未合入的任务线；headCommit 是确认时看到的分支提交，变了 Server 会拒绝 */
+  discardWorktree(
+    roomId: string,
+    id: string,
+    headCommit: string,
+  ): Promise<{ branchDeleted: boolean; branchError?: string; discarded: string[] }>;
   /** undefined：还在确认；false：不是本机或房主设备，或服务端已关闭 */
   enabled: boolean | undefined;
   reason?: string | undefined;
@@ -375,6 +384,26 @@ export function useLocalAgents(
         `/api/local/worktrees/${encodeURIComponent(roomId)}/items/${encodeURIComponent(id)}/repair`,
         { method: "POST", body: JSON.stringify({ action }) },
       );
+    },
+    [request],
+  );
+
+  const worktreeDiscardPreview = useCallback(
+    async (roomId: string, id: string) => {
+      const response = await request(
+        `/api/local/worktrees/${encodeURIComponent(roomId)}/items/${encodeURIComponent(id)}/discard`,
+      );
+      return response.json();
+    },
+    [request],
+  );
+  const discardWorktree = useCallback(
+    async (roomId: string, id: string, headCommit: string) => {
+      const response = await request(
+        `/api/local/worktrees/${encodeURIComponent(roomId)}/items/${encodeURIComponent(id)}/discard`,
+        { method: "POST", body: JSON.stringify({ headCommit }) },
+      );
+      return response.json();
     },
     [request],
   );
@@ -870,6 +899,8 @@ export function useLocalAgents(
     configureWorktreeCleanup,
     cleanWorktreeBatch,
     repairWorktree,
+    worktreeDiscardPreview,
+    discardWorktree,
     enabled,
     reason: session && !session.enabled ? session.reason : undefined,
     mode,

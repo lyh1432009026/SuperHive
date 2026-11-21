@@ -66,6 +66,11 @@ export const worktreeStatusSchema = z.object({
   mergeMethod: z.enum(["ancestor", "patches", "squash"]).optional(),
   activeInvocationIds: z.array(z.string()),
   removable: z.boolean(),
+  /**
+   * 尚未合入、但目录干净、没有任务占用：房主可以确认后「丢弃并删除」（分支用 -D 删）。
+   * 用于合入前被变基、提交号和补丁都对不上的任务线
+   */
+  discardable: z.boolean().optional(),
   error: z.string().optional(),
   headCommit: z.string().optional(),
   missing: z.boolean().optional(),
@@ -77,6 +82,17 @@ export const worktreeStatusSchema = z.object({
 /** 房主对「被换了分支」的任务目录能做的两个安全操作 */
 export const repairWorktreeRequestSchema = z.object({
   action: z.enum(["restore", "adopt"]),
+});
+
+/** 丢弃并删除前要房主确认的提交：只在这条分支上、目标分支上没有的提交，最多列前 20 条 */
+export const worktreeDiscardPreviewSchema = z.object({
+  headCommit: z.string(),
+  total: z.number().int().nonnegative(),
+  commits: z.array(z.object({ hash: z.string(), subject: z.string() })),
+});
+
+export const discardWorktreeRequestSchema = z.object({
+  headCommit: z.string().regex(/^[a-f0-9]{40,64}$/),
 });
 
 export const worktreeCleanupEventSchema = z.object({
@@ -93,4 +109,5 @@ export type CreateWorktreeRequest = z.infer<typeof createWorktreeRequestSchema>;
 export type ManagedWorktree = z.infer<typeof managedWorktreeSchema>;
 export type WorktreeStatus = z.infer<typeof worktreeStatusSchema>;
 export type RepairWorktreeRequest = z.infer<typeof repairWorktreeRequestSchema>;
+export type WorktreeDiscardPreview = z.infer<typeof worktreeDiscardPreviewSchema>;
 export type WorktreeDependencies = z.infer<typeof worktreeDependenciesSchema>;

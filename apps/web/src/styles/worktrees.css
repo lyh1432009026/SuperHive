@@ -168,6 +168,34 @@
   gap: 5px;
 }
 
+/* 尚未合入但能丢弃：按钮和确认框缩进到复选框右侧，和目录信息对齐 */
+.worktree-discard {
+  padding: 10px 12px 0 43px;
+}
+
+.worktree-discard small {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.worktree-discard-confirm {
+  margin: 10px 0 0 43px;
+}
+
+.worktree-panel button.danger {
+  color: var(--danger);
+}
+
+.worktree-discard-commits {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
 .worktree-result {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

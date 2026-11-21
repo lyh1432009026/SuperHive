@@ -552,6 +552,8 @@ export {
   managedWorktreeSchema,
   worktreeStatusSchema,
   repairWorktreeRequestSchema,
+  worktreeDiscardPreviewSchema,
+  discardWorktreeRequestSchema,
   worktreeDependenciesSchema,
 } from "./worktree.js";
 export type {
@@ -560,6 +562,7 @@ export type {
   ManagedWorktree,
   WorktreeStatus,
   RepairWorktreeRequest,
+  WorktreeDiscardPreview,
   WorktreeDependencies,
 } from "./worktree.js";
 

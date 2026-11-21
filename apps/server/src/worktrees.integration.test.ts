@@ -919,6 +919,95 @@ describe("worktree MCP permissions and bindings", () => {
     ).toBe(409);
   }, 15_000);
 
+  it("lets only the owner discard an unmerged task line after confirming its commits", async () => {
+    const { app, repo, git, join, mcp, run, finish } = await start();
+    const owner = await join("Alice", "human");
+    const helper = await join("helper", "agent");
+    const task = await run(owner, helper, "helper");
+    const call = await mcp("helper");
+    const worktree = (await call("hive_worktree_create", { slug: "rebased" })).structuredContent!
+      .worktree as ManagedWorktree;
+    writeFileSync(path.join(worktree.path, "test.txt"), "feature\n");
+    await git(worktree.path, ["commit", "-am", "feature"]);
+    // main 上是变基、解过冲突后的同一份改动：git 认不出已合入
+    writeFileSync(path.join(repo, "test.txt"), "feature (rebased)\n");
+    await git(repo, ["commit", "-am", "feature (rebased)"]);
+    await finish(owner, helper, task);
+    const session = (await app.inject({ method: "GET", url: "/api/local/session" })).json();
+    const ownerHeaders = { "x-hive-owner": session.ownerToken };
+    const url = `/api/local/worktrees/general/items/${worktree.id}/discard`;
+    const item = (
+      await app.inject({ url: "/api/local/worktrees/general", headers: ownerHeaders })
+    ).json().worktrees[0] as WorktreeStatus;
+    expect(item).toMatchObject({ merged: false, removable: false, discardable: true });
+    const preview = await app.inject({ url, headers: ownerHeaders });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json()).toMatchObject({
+      headCommit: item.headCommit,
+      total: 1,
+      commits: [{ hash: item.headCommit, subject: "feature" }],
+    });
+    // 不是房主：拿房间令牌或什么都不带都不行
+    for (const headers of [{ authorization: "Bearer test-token" }, {}]) {
+      expect(
+        (
+          await app.inject({
+            method: "POST",
+            url,
+            headers,
+            payload: { headCommit: item.headCommit },
+          })
+        ).statusCode,
+      ).toBe(401);
+      expect((await app.inject({ url, headers })).statusCode).toBe(401);
+    }
+    // 有未提交的改动：不删
+    writeFileSync(path.join(worktree.path, "test.txt"), "uncommitted\n");
+    const dirty = await app.inject({
+      method: "POST",
+      url,
+      headers: ownerHeaders,
+      payload: { headCommit: item.headCommit },
+    });
+    expect(dirty.statusCode).toBe(409);
+    expect(dirty.json().code).toBe("WORKTREE_UNSAFE");
+    await git(worktree.path, ["checkout", "--", "test.txt"]);
+    // 看完列表后分支又有了新提交：按看到的提交号拒绝
+    writeFileSync(path.join(worktree.path, "late.txt"), "late\n");
+    await git(worktree.path, ["add", "."]);
+    await git(worktree.path, ["commit", "-m", "late"]);
+    const stale = await app.inject({
+      method: "POST",
+      url,
+      headers: ownerHeaders,
+      payload: { headCommit: item.headCommit },
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(existsSync(worktree.path)).toBe(true);
+    const latest = (await app.inject({ url, headers: ownerHeaders })).json();
+    expect(latest.total).toBe(2);
+    const discarded = await app.inject({
+      method: "POST",
+      url,
+      headers: ownerHeaders,
+      payload: { headCommit: latest.headCommit },
+    });
+    expect(discarded.statusCode).toBe(200);
+    expect(discarded.json()).toMatchObject({
+      removed: true,
+      branchDeleted: true,
+      branch: worktree.branch,
+      discarded: [latest.headCommit, item.headCommit],
+    });
+    expect(existsSync(worktree.path)).toBe(false);
+    const branches = await worktreeGit(repo, ["branch", "--list", worktree.branch]);
+    expect(branches.stdout.trim()).toBe("");
+    expect(
+      (await app.inject({ url: "/api/local/worktrees/general", headers: ownerHeaders })).json()
+        .worktrees,
+    ).toEqual([]);
+  }, 15_000);
+
   it("creates, reuses, reports occupancy and removes only after the original task finishes", async () => {
     const { repo, git, join, mcp, run, finish } = await start();
     const owner = await join("Alice", "human");

@@ -208,6 +208,14 @@ export const serverTexts = {
     zh: "工作区不能清理：有改动、未跟踪/忽略文件、尚未合入或仍有任务占用。{path}",
     en: "Cannot remove this worktree: changes, untracked/ignored files, unmerged work or active tasks remain. {path}",
   },
+  "error.worktree.discardUnsafe": {
+    zh: "不能丢弃这个任务目录：已合入的请用普通清理；有改动、未跟踪/忽略文件、任务占用，或分支在你确认后又有了新提交，都不删。{path}",
+    en: "Cannot discard this worktree: use normal cleanup if it is merged; it is kept when it has changes, untracked/ignored files, active tasks, or new commits since you confirmed. {path}",
+  },
+  "worktree.discarded": {
+    zh: "{by} 丢弃并删除了未合入的任务目录 {path}（分支 {branch}，丢弃 {count} 个提交）",
+    en: "{by} discarded the unmerged worktree {path} (branch {branch}, {count} commits dropped)",
+  },
   "error.sandbox.disabled": {
     zh: "沙箱预览模式下不能这样做：它会动到真实仓库、本机进程或外部服务。",
     en: "Not available in sandbox preview: it would touch real repositories, local processes or external services.",

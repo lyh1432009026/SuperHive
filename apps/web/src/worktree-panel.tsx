@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { WorktreeStatus } from "@superhive/protocol";
+import type { WorktreeDiscardPreview, WorktreeStatus } from "@superhive/protocol";
 import type { LocalAgentsState } from "./local-agents";
 import { ConfirmPopover } from "./confirm-popover";
 import { t } from "./i18n";
@@ -11,6 +11,8 @@ type WorktreeApi = Pick<
   | "configureWorktreeCleanup"
   | "cleanWorktreeBatch"
   | "repairWorktree"
+  | "worktreeDiscardPreview"
+  | "discardWorktree"
   | "canManage"
 >;
 
@@ -130,6 +132,50 @@ export function WorktreePanel({ roomId, api }: { roomId: string; api: WorktreeAp
       setBusy(false);
     }
   };
+  const [discarding, setDiscarding] = useState<{
+    item: WorktreeStatus;
+    preview: WorktreeDiscardPreview;
+  }>();
+  const previewDiscard = async (item: WorktreeStatus) => {
+    setBusy(true);
+    setResult(undefined);
+    setError(undefined);
+    try {
+      setDiscarding({ item, preview: await api.worktreeDiscardPreview(roomId, item.worktree.id) });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const discard = async () => {
+    if (!discarding) return;
+    const { item, preview } = discarding;
+    refreshVersion.current++;
+    setBusy(true);
+    setResult(undefined);
+    try {
+      const response = await api.discardWorktree(roomId, item.worktree.id, preview.headCommit);
+      setResult(
+        [
+          t("已丢弃并删除 {0}，丢掉 {1} 个提交。", {
+            0: item.worktree.branch,
+            1: response.discarded.length,
+          }),
+          ...(response.branchError ? [response.branchError] : []),
+        ].join("\n"),
+      );
+      setDiscarding(undefined);
+      await refresh();
+    } catch (reason) {
+      // 被拒（比如分支又有了新提交）：按最新状态重列，再说明原因，免得刷新把提示清掉
+      setDiscarding(undefined);
+      await refresh();
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
   const configure = async (enabled: boolean) => {
     setBusy(true);
     try {
@@ -235,6 +281,58 @@ export function WorktreePanel({ roomId, api }: { roomId: string; api: WorktreeAp
                 {item.error && !item.branchSwitched && <small role="alert">{item.error}</small>}
               </div>
             </label>
+            {item.discardable && api.canManage && (
+              <div className="worktree-toolbar worktree-discard">
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={busy || Boolean(discarding)}
+                  onClick={() => void previewDiscard(item)}
+                >
+                  {t("丢弃并删除")}
+                </button>
+                <small>
+                  {t("还没合入：变基或解过冲突后合入的，git 认不出来，确认内容已进主分支再丢弃。")}
+                </small>
+              </div>
+            )}
+            {discarding?.item.worktree.id === item.worktree.id && (
+              <div className="worktree-confirmation worktree-discard-confirm" role="alert">
+                <strong>{t("确认丢弃 {0}？", { 0: item.worktree.branch })}</strong>
+                <p>
+                  {t(
+                    "下面这些提交不在主分支上，会随目录和分支一起删掉，找不回来。删除前会重新核对：有改动、任务占用或分支又有新提交就不删。",
+                  )}
+                </p>
+                <ul className="worktree-discard-commits">
+                  {discarding.preview.commits.map((commit) => (
+                    <li key={commit.hash}>
+                      <code>{commit.hash.slice(0, 7)}</code> {commit.subject}
+                    </li>
+                  ))}
+                </ul>
+                {discarding.preview.total > discarding.preview.commits.length && (
+                  <small>
+                    {t("还有 {0} 个提交没列出。", {
+                      0: discarding.preview.total - discarding.preview.commits.length,
+                    })}
+                  </small>
+                )}
+                <div className="worktree-toolbar">
+                  <button type="button" disabled={busy} onClick={() => setDiscarding(undefined)}>
+                    {t("取消")}
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    disabled={busy || !api.canManage}
+                    onClick={() => void discard()}
+                  >
+                    {t("确认丢弃并删除")}
+                  </button>
+                </div>
+              </div>
+            )}
             {item.branchSwitched && (
               <div className="worktree-switched" role="alert">
                 <strong>

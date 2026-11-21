@@ -1309,6 +1309,75 @@ describe("managed worktrees", () => {
       expect(unset.dependencies(third.worktree.id)).toBeUndefined();
     });
   });
+
+  it("discards an unmerged task line only after the owner confirms the exact commits", async () => {
+    const audit = vi.fn();
+    manager = new WorktreeManager({ database, activeInvocations: () => active, audit });
+    const { worktree } = await create();
+    await change(worktree, "first.txt", "feature\n");
+    await change(worktree, "second.txt", "feature\n");
+    // 合入前被变基、解过冲突：main 上的内容一样，但提交号和补丁都对不上
+    writeFileSync(path.join(repo, "second.txt"), "conflict\n");
+    await git(repo, "commit", "-am", "conflicting change on main");
+    let [status] = await manager.list(repo);
+    expect(status).toMatchObject({ merged: false, removable: false, discardable: true });
+    const preview = await manager.discardPreview(repo, worktree.path);
+    expect(preview).toMatchObject({
+      headCommit: status!.headCommit,
+      total: 2,
+      commits: [{ subject: "change second.txt" }, { subject: "change first.txt" }],
+    });
+    // 有任务占用、有未跟踪文件：都不删
+    active = ["task"];
+    await expect(
+      manager.discard(repo, { path: worktree.path, expectedCommit: preview.headCommit, by: "x" }),
+    ).rejects.toMatchObject({ code: "WORKTREE_UNSAFE" });
+    active = [];
+    writeFileSync(path.join(worktree.path, "notes.txt"), "draft\n");
+    await expect(
+      manager.discard(repo, { path: worktree.path, expectedCommit: preview.headCommit, by: "x" }),
+    ).rejects.toMatchObject({ code: "WORKTREE_UNSAFE" });
+    rmSync(path.join(worktree.path, "notes.txt"));
+    // 房主看过列表后分支又有了新提交：按看到的那个提交号拒绝
+    await change(worktree, "third.txt", "late\n");
+    await expect(
+      manager.discard(repo, { path: worktree.path, expectedCommit: preview.headCommit, by: "x" }),
+    ).rejects.toMatchObject({ code: "WORKTREE_UNSAFE" });
+    expect(existsSync(worktree.path)).toBe(true);
+    [status] = await manager.list(repo);
+    const head = status!.headCommit!;
+    const result = await manager.discard(repo, {
+      path: worktree.path,
+      expectedCommit: head,
+      by: "本机房主",
+    });
+    expect(result).toMatchObject({ removed: true, branchDeleted: true });
+    expect(result.discarded).toHaveLength(3);
+    expect(result.discarded[0]).toBe(head);
+    expect(existsSync(worktree.path)).toBe(false);
+    expect(await git(repo, "branch", "--list", worktree.branch)).toBe("");
+    expect(await manager.list(repo)).toEqual([]);
+    expect(audit).toHaveBeenCalledWith(
+      expect.stringContaining("本机房主"),
+      expect.objectContaining({
+        worktreeId: worktree.id,
+        branch: worktree.branch,
+        by: "本机房主",
+        discardedCommits: result.discarded.join(","),
+      }),
+    );
+  });
+
+  it("does not offer discarding for merged task lines", async () => {
+    const { worktree } = await create();
+    await change(worktree);
+    await git(repo, "merge", "--no-edit", worktree.branch);
+    const [status] = await manager.list(repo);
+    expect(status).toMatchObject({ merged: true, removable: true, discardable: false });
+    await expect(
+      manager.discard(repo, { path: worktree.path, expectedCommit: status!.headCommit!, by: "x" }),
+    ).rejects.toMatchObject({ code: "WORKTREE_UNSAFE" });
+  });
 });
 
 describe("blockingIgnored", () => {

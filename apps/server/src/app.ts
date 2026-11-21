@@ -613,6 +613,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     return decided;
   }
 
+  /** 房间里登记的一条任务线；别的房间的一律当不存在 */
+  function roomWorktree(roomId: string, id: string) {
+    const workspace = database.getRoom(roomId)?.workspace;
+    if (!workspace) throw new HiveError("ROOM_NOT_FOUND", serverText("error.room.notFound"));
+    const record = worktrees.allRecords().find((item) => item.id === id);
+    if (!record || record.roomId !== roomId)
+      throw new HiveError(
+        "WORKTREE_UNREGISTERED",
+        serverText("error.worktree.unregistered", { path: id }),
+      );
+    return { workspace, record };
+  }
+
   registerLocalAgentRoutes(app, localAgents, {
     worktrees: {
       list: async (roomId) => {
@@ -671,6 +684,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             serverText("error.worktree.unregistered", { path: id }),
           );
         return worktrees.repair(workspace, id, action);
+      },
+      discardPreview: async (roomId, id) => {
+        const { workspace, record } = roomWorktree(roomId, id);
+        return worktrees.discardPreview(workspace, record.path);
+      },
+      discard: async (roomId, id, headCommit, by) => {
+        const { workspace, record } = roomWorktree(roomId, id);
+        const result = await worktrees.discard(workspace, {
+          path: record.path,
+          expectedCommit: headCommit,
+          by,
+        });
+        return { ...result, branch: record.branch };
       },
       configure: (roomId, enabled) => {
         if (!database.getRoom(roomId))
