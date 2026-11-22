@@ -77,6 +77,13 @@ function sentence(text: string): string {
   return /[。！？.!?]$/.test(trimmed) ? trimmed : `${trimmed}。`;
 }
 
+/** 等待时长的说法：一分钟以上按分钟取整，否则按秒 */
+function waitText(ms: number): string {
+  return ms >= 60_000
+    ? `${Math.round(ms / 60_000)} 分钟`
+    : `${Math.max(1, Math.round(ms / 1000))} 秒`;
+}
+
 function stepsNote(
   steps: ReadonlyArray<{ summary: string; done: boolean; irreversible?: boolean }>,
   cwd?: string,
@@ -233,6 +240,8 @@ export class AgentBridge {
   private readonly sessionRetried = new Set<string>();
   /** 上游出错后正在等待自动继续的消息（及其计时器） */
   private readonly waitingResume = new Map<string, NodeJS.Timeout>();
+  /** 等待自动继续期间的心跳（按等待计时器索引）：等待可能比 Server 判超时的窗口还长，期间也要报进度 */
+  private readonly waitingHeartbeats = new Map<NodeJS.Timeout, NodeJS.Timeout>();
   /** 上游出错中断的原因：下一轮（自动继续或人点「继续」）开头提示 Agent 从断点接着做 */
   private readonly resumeNotes = new Map<string, string>();
   /**
@@ -463,6 +472,8 @@ export class AgentBridge {
     if (this.batchTimer) clearTimeout(this.batchTimer);
     for (const timer of new Set(this.waitingResume.values())) clearTimeout(timer);
     this.waitingResume.clear();
+    for (const heartbeat of this.waitingHeartbeats.values()) clearInterval(heartbeat);
+    this.waitingHeartbeats.clear();
     // 停止进程时中断正在进行的回合；执行意图会在中断回报后清除
     this.active?.controller.abort();
     await this.draining?.catch(() => undefined);
@@ -1073,7 +1084,10 @@ export class AgentBridge {
     const waiting = this.waitingResume.get(messageId);
     if (waiting) {
       this.waitingResume.delete(messageId);
-      if (![...this.waitingResume.values()].includes(waiting)) clearTimeout(waiting);
+      if (![...this.waitingResume.values()].includes(waiting)) {
+        clearTimeout(waiting);
+        this.stopWaitingHeartbeat(waiting);
+      }
       this.resumeNotes.delete(messageId);
       this.rememberProcessed(messageId);
       this.syncTyping();
@@ -2045,25 +2059,22 @@ export class AgentBridge {
     if (delay !== undefined && live.length > 0) {
       for (const message of live) this.upstreamRetries.set(message.id, used + 1);
       await this.store.save(this.state);
-      const wait =
-        delay >= 60_000
-          ? `${Math.round(delay / 60_000)} 分钟`
-          : `${Math.max(1, Math.round(delay / 1000))} 秒`;
+      const reason =
+        error.kind === "network" ? "连不上模型服务（网络中断）" : UPSTREAM_FAILURE_PREFIX;
+      const progress = (wait: string) =>
+        `${reason}，${wait}后自动继续（第 ${used + 1}/${delays.length} 次）`.slice(0, 200);
+      const wait = waitText(delay);
       this.log(`[hive] ${error.message}；这一轮没有改动，${wait}后自动继续`);
       for (const message of live) {
         this.room.report({
           messageId: message.id,
           status: "running",
-          progress:
-            `${error.kind === "network" ? "连不上模型服务（网络中断）" : UPSTREAM_FAILURE_PREFIX}，${wait}后自动继续（第 ${used + 1}/${delays.length} 次）`.slice(
-              0,
-              200,
-            ),
+          progress: progress(wait),
           detail: error.message.slice(0, 500),
           ...this.usageReport(active),
         });
       }
-      this.resumeLater(live, delay);
+      this.resumeLater(live, delay, (remaining) => progress(`约 ${remaining}`));
       return;
     }
     for (const message of active.messages) {
@@ -2090,8 +2101,14 @@ export class AgentBridge {
   }
 
   /** 等 delay 后把这些消息放回队首重新执行；等待中的消息算作本地在办：重连补拉、重复的 @ 都不会再另起一份 */
-  private resumeLater(live: ChatMessage[], delay: number): void {
+  private resumeLater(
+    live: ChatMessage[],
+    delay: number,
+    progress: (remaining: string) => string,
+  ): void {
+    const resumeAt = Date.now() + delay;
     const timer = setTimeout(() => {
+      this.stopWaitingHeartbeat(timer);
       const resume: ChatMessage[] = [];
       for (const message of live) {
         if (this.waitingResume.get(message.id) !== timer) continue;
@@ -2108,6 +2125,27 @@ export class AgentBridge {
     }, delay);
     timer.unref?.();
     for (const message of live) this.waitingResume.set(message.id, timer);
+    // Server 把 heartbeat 窗口内没有更新的 running 调用判为超时（结果未知）：等多久都照常报进度
+    const heartbeat = setInterval(() => {
+      const remaining = waitText(Math.max(0, resumeAt - Date.now()));
+      for (const message of live) {
+        if (this.waitingResume.get(message.id) !== timer) continue;
+        this.room.report({
+          messageId: message.id,
+          status: "running",
+          progress: progress(remaining),
+        });
+      }
+    }, this.tuning.heartbeatMs);
+    heartbeat.unref?.();
+    this.waitingHeartbeats.set(timer, heartbeat);
+  }
+
+  private stopWaitingHeartbeat(timer: NodeJS.Timeout): void {
+    const heartbeat = this.waitingHeartbeats.get(timer);
+    if (!heartbeat) return;
+    clearInterval(heartbeat);
+    this.waitingHeartbeats.delete(timer);
   }
 
   /**
@@ -2124,18 +2162,20 @@ export class AgentBridge {
     if (delay !== undefined && live.length > 0) {
       for (const message of live) this.transientRetries.set(message.id, used + 1);
       await this.store.save(this.state);
+      const progress = (wait: string) =>
+        `暂时没成功，${wait}后自动重试（第 ${used + 1}/${delays.length} 次）`;
       const wait = `${Math.max(1, Math.round(delay / 1000))} 秒`;
       this.log(`[hive] 暂时没成功（${reason}），还没开始执行，${wait}后自动重试`);
       for (const message of live) {
         this.room.report({
           messageId: message.id,
           status: "running",
-          progress: `暂时没成功，${wait}后自动重试（第 ${used + 1}/${delays.length} 次）`,
+          progress: progress(wait),
           detail: reason.slice(0, 500),
           ...this.usageReport(active),
         });
       }
-      this.resumeLater(live, delay);
+      this.resumeLater(live, delay, (remaining) => progress(`约 ${remaining}`));
       return;
     }
     for (const message of active.messages) this.rememberProcessed(message.id);

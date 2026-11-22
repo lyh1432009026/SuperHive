@@ -2363,6 +2363,60 @@ describe("AgentBridge", () => {
     expect(room.statuses(mention.id)).not.toContain("uncertain");
   });
 
+  it("keeps reporting running while waiting longer than a heartbeat to auto-continue", async () => {
+    // 等待时间比 Server 判超时的窗口还长（线上第 5 次等 15 分钟 > 10 分钟）：等待期间也要按心跳报进度
+    extraTuning = { heartbeatMs: 20, networkRetryDelaysMs: [200] };
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    responder.fail(new AgentUpstreamError("API Error: Can't reach the API server (ENOTFOUND)"));
+    await waitUntil(() =>
+      room.reports.some((report) => report.progress?.includes("连不上模型服务（网络中断）")),
+    );
+    const first = room.reports.length;
+    await waitUntil(() =>
+      room.reports
+        .slice(first)
+        .some(
+          (report) =>
+            report.messageId === mention.id &&
+            report.status === "running" &&
+            report.progress?.includes("后自动继续"),
+        ),
+    );
+    await waitUntil(() => responder.calls.length === 2);
+    const resumedAt = room.reports.length;
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    // 恢复执行后不再报等待中的进度
+    expect(
+      room.reports.slice(resumedAt).some((report) => report.progress?.includes("后自动继续")),
+    ).toBe(false);
+    responder.finish("完成", "s1");
+    await waitUntil(() => room.statuses(mention.id).includes("completed"));
+  });
+
+  it("stops the waiting heartbeat once a waiting task is stopped", async () => {
+    extraTuning = { heartbeatMs: 20, networkRetryDelaysMs: [10_000] };
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    responder.fail(new AgentUpstreamError("API Error: Can't reach the API server (ENOTFOUND)"));
+    await waitUntil(
+      () => room.reports.filter((report) => report.progress?.includes("后自动继续")).length >= 2,
+    );
+    room.handlers.onCancel?.(mention.id);
+    await waitUntil(() => room.statuses(mention.id).includes("cancelled"));
+    const cancelledAt = room.reports.length;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(room.reports.slice(cancelledAt).some((report) => report.status === "running")).toBe(
+      false,
+    );
+  });
+
   it("tells the agent to check and carry on when a human continues an interrupted turn", async () => {
     await startBridge(baseState());
     const mention = chat();
