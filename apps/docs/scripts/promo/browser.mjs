@@ -93,6 +93,9 @@ export async function launchBrowser({
       "--force-color-profile=srgb",
       // 不碰系统钥匙串：临时 profile 第一次启动时 macOS 会弹「找不到用于储存 Chrome 的钥匙串」
       "--use-mock-keychain",
+      // 中文界面：文档站首页对非中文浏览器会自动跳到英文版
+      "--lang=zh-CN",
+      "--accept-lang=zh-CN,zh",
       "--password-store=basic",
       "--font-render-hinting=none",
       `--force-device-scale-factor=${scale}`,

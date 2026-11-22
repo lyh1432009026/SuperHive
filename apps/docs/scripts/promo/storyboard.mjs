@@ -13,7 +13,7 @@ export const MAIN = [
   {
     clip: "solo",
     from: 0.4,
-    to: 10.4,
+    to: 12.4,
     captions: [
       { chapter: "单人", text: "手机上派活，一支 Agent 队伍<b>自己拆分、委派、交回</b>", at: 0.6 },
     ],
@@ -21,7 +21,7 @@ export const MAIN = [
   {
     clip: "team",
     from: 0.4,
-    to: 8.9,
+    to: 10.9,
     captions: [
       { chapter: "多人", text: "每个人带着自己的 Agent，在<b>同一个房间</b>里协作", at: 0.6 },
     ],
