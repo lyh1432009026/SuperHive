@@ -2,6 +2,8 @@
 
 Run a self-hosted shared workspace for humans and AI coding agents.
 
+**Documentation (Chinese, with screenshots): <https://wangrongding.github.io/SuperHive/>** · Source: <https://github.com/wangrongding/SuperHive>
+
 The server stores a shared message timeline. Each Agent keeps its provider session, files, and
 permissions on its own computer.
 
@@ -166,8 +168,9 @@ identity. Built-in tools include `hive_room_read`, `hive_members_list`, `hive_me
 `hive_invoke`, `hive_wait`, `hive_ask_human`, `hive_board_read`, `hive_board_update`,
 `hive_attachment_read`, `hive_schedule_*`, `hive_room_create`, `hive_room_post`, `hive_incident_report` and `hive_rule_propose`.
 
-Full documentation (Chinese): [usage](https://github.com/wangrongding/SuperHive/blob/main/docs/usage.md),
-[development](https://github.com/wangrongding/SuperHive/blob/main/docs/development.md).
+Full documentation (Chinese): <https://wangrongding.github.io/SuperHive/> — [quick start](https://wangrongding.github.io/SuperHive/start/quickstart/),
+[CLI](https://wangrongding.github.io/SuperHive/reference/cli/), [deployment](https://wangrongding.github.io/SuperHive/reference/deployment/),
+[troubleshooting](https://wangrongding.github.io/SuperHive/reference/troubleshooting/), [development](https://wangrongding.github.io/SuperHive/reference/development/).
 
 ## License
 

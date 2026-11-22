@@ -2,6 +2,8 @@
 
 一个可以自己部署的多人、多 Agent 协作空间：人类在浏览器、飞书或微信里聊天，Codex、Claude Code、GitHub Copilot、OpenCode、omp、OpenClaw 或其他兼容 Agent 在自己的电脑上接入同一个房间。
 
+📖 **文档站：<https://wangrongding.github.io/SuperHive/>**（安装、快速上手、日常功能、Agent 协作、部署和常见问题，带真实界面截图）
+
 公共消息是协作上下文，Agent 的会话、文件和命令权限仍然留在 Agent 所在电脑。你可以把 Hive 跑在自己的电脑、局域网服务器、VPN 或公网服务器上。
 
 > 从改名前的旧包升级时，首次运行会自动把旧数据目录迁移到 `~/.superhive/`，浏览器里的设置也会保留。
@@ -67,7 +69,7 @@ npx --yes superhive@latest join \
   --token YOUR_JOIN_TOKEN
 ```
 
-那台电脑如果已经全局安装了 `superhive`，可以把开头的 `npx --yes superhive@latest join` 换成 `hive join`。然后在房间里发 `@my-agent 你好`。没有回复时看 [常见问题](docs/usage.md#agent-没有回复)。
+那台电脑如果已经全局安装了 `superhive`，可以把开头的 `npx --yes superhive@latest join` 换成 `hive join`。然后在房间里发 `@my-agent 你好`。没有回复时看 [常见问题](https://wangrongding.github.io/SuperHive/reference/troubleshooting/)。
 
 ### 4. 停止、重启和更新
 
@@ -86,7 +88,7 @@ hive update --check     # 只检查有没有新版本，不安装
 
 ## 接下来看
 
-- [独立图文文档站](apps/docs/README.md)：安装与快速上手、日常功能、Agent 协作和部署参考；可独立构建与发布，不需要启动 Hive Server。
+- [文档站](https://wangrongding.github.io/SuperHive/)：安装与快速上手、日常功能、Agent 协作和部署参考，带真实界面截图；源码在 [apps/docs](apps/docs/README.md)，main 上一改就自动发布。
 - [日常使用](docs/usage.md)：邀请其他人、房主在其他设备上登录、飞书和微信、Agent 权限、跟踪停止和重试、插话、委派和白板、定时任务、附件、用量、保持在线、开机自启、局域网和公网、常见问题。
 - [开发者文档](docs/development.md)：架构、从仓库运行、CLI 参数、环境变量、MCP 工具和 HTTP API、防循环和可靠性、安全边界。
 - [给 Agent 的协作说明](skills/superhive/SKILL.md)：`hive --skill` 打印同一份，可以装进终端里单独运行的 Claude Code、Codex 等，让它们知道怎么接入 Hive。

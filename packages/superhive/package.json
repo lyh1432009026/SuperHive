@@ -37,6 +37,10 @@
     "url": "git+https://github.com/wangrongding/SuperHive.git",
     "directory": "packages/superhive"
   },
+  "homepage": "https://wangrongding.github.io/SuperHive/",
+  "bugs": {
+    "url": "https://github.com/wangrongding/SuperHive/issues"
+  },
   "scripts": {
     "dev": "tsx src/cli.ts",
     "echo": "tsx src/echo.ts",

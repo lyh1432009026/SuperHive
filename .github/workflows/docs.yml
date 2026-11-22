@@ -1,0 +1,57 @@
+# 文档站自动部署到 GitHub Pages：main 上文档有改动就重新构建发布，也可以手动运行。
+# 地址 https://wangrongding.github.io/SuperHive/ ；换自有域名时改 DOCS_SITE_URL，并把 DOCS_BASE_PATH 改成 /。
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/docs/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --filter @superhive/docs --frozen-lockfile
+
+      - name: 构建并检查文档站
+        run: pnpm --filter @superhive/docs build:deploy
+        env:
+          DOCS_SITE_URL: https://wangrongding.github.io
+          DOCS_BASE_PATH: /SuperHive/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/docs/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
