@@ -1,6 +1,12 @@
 import type { Invocation, Participant } from "@superhive/protocol";
 import { describe, expect, it } from "vitest";
-import { agentRuntimeRows, needsAttention, orderByDelegation, plainPreview } from "./activity";
+import {
+  agentRuntimeRows,
+  needsAttention,
+  orderByDelegation,
+  plainPreview,
+  searchSnippet,
+} from "./activity";
 
 describe("plainPreview", () => {
   it("strips markdown markers for list previews", () => {
@@ -12,6 +18,32 @@ describe("plainPreview", () => {
     expect(plainPreview("看下\n```ts\nconst a = 1;\n```\n[文档](https://x.y)")).toBe(
       "看下 [代码] 文档",
     );
+  });
+});
+
+describe("searchSnippet", () => {
+  const filler = "前面是一大段和搜索无关的内容。".repeat(10);
+
+  it("starts near the hit so the keyword stays in the two-line preview", () => {
+    const snippet = searchSnippet(`${filler}推荐主帖文案：一个人带一支团队。${filler}`, "文案");
+    expect(snippet.startsWith("…")).toBe(true);
+    expect(snippet.endsWith("…")).toBe(true);
+    expect(snippet.indexOf("文案")).toBeGreaterThan(0);
+    expect(snippet.indexOf("文案")).toBeLessThanOrEqual(25);
+  });
+
+  it("keeps the head when the hit is already near the start", () => {
+    expect(searchSnippet("这段文案不错", "文案")).toBe("这段文案不错");
+  });
+
+  it("matches case-insensitively and falls back to raw text for hits inside code", () => {
+    expect(searchSnippet("Use `Snake_Case` here", "snake_case")).toBe("Use Snake_Case here");
+    const snippet = searchSnippet(`${filler}\n\`\`\`ts\nconst token = 1;\n\`\`\``, "TOKEN");
+    expect(snippet).toContain("token");
+  });
+
+  it("returns the normal preview when the query cannot be located", () => {
+    expect(searchSnippet("**文**案", "文案")).toBe("文案");
   });
 });
 

@@ -149,21 +149,39 @@ function preview(content: string, length = 120): string {
   return flat.length > length ? `${flat.slice(0, length)}…` : flat;
 }
 
-/** 把命中的关键词包成 <mark>，大小写不敏感 */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * 搜索结果的摘要：从命中位置前留一小段上下文截起，保证关键词落在两行预览里。
+ * 去 Markdown 后找不到（命中在代码块等被替换的部分）就退回只压缩空白的原文；
+ * 仍找不到（关键词被标记拆开）按普通预览处理。
+ */
+export function searchSnippet(content: string, query: string, length = 160, context = 24): string {
+  const needle = query.trim();
+  if (!needle) return preview(content, length);
+  const pattern = new RegExp(escapeRegExp(needle), "iu");
+  let flat = plainPreview(content);
+  let index = flat.search(pattern);
+  if (index < 0) {
+    flat = content.replace(/\s+/g, " ").trim();
+    index = flat.search(pattern);
+  }
+  if (index < 0) return preview(content, length);
+  // 命中已在开头一段里就从头显示，不加前省略号
+  const start = index <= context ? 0 : index - context;
+  const end = Math.min(flat.length, start + length);
+  return `${start > 0 ? "…" : ""}${flat.slice(start, end).trim()}${end < flat.length ? "…" : ""}`;
+}
+
+/** 把命中的关键词包成 <mark>，大小写不敏感，同一段里命中几处标几处 */
 function Highlight({ text, query }: { text: string; query: string }) {
   const needle = query.trim();
   if (!needle) return <>{text}</>;
-  const parts: ReactNode[] = [];
-  const lower = text.toLocaleLowerCase();
-  const target = needle.toLocaleLowerCase();
-  let cursor = 0;
-  for (let index = lower.indexOf(target); index >= 0; index = lower.indexOf(target, cursor)) {
-    if (index > cursor) parts.push(text.slice(cursor, index));
-    parts.push(<mark key={index}>{text.slice(index, index + needle.length)}</mark>);
-    cursor = index + needle.length;
-  }
-  parts.push(text.slice(cursor));
-  return <>{parts}</>;
+  const parts = text.split(new RegExp(`(${escapeRegExp(needle)})`, "giu"));
+  // split 带捕获组时，奇数位就是命中的部分
+  return <>{parts.map((part, index) => (index % 2 ? <mark key={index}>{part}</mark> : part))}</>;
 }
 
 type ResultItem = {
@@ -232,7 +250,14 @@ function ResultList({
                 {item.unread && <span className="activity-unread" aria-label={t("未读")} />}
               </span>
               <span className="activity-result-text">
-                <Highlight text={preview(item.message.content, 160)} query={query} />
+                <Highlight
+                  text={
+                    query
+                      ? searchSnippet(item.message.content, query)
+                      : preview(item.message.content, 160)
+                  }
+                  query={query}
+                />
               </span>
               {item.detail && <span className="activity-result-detail">{item.detail}</span>}
             </button>
