@@ -9,6 +9,7 @@ import {
 import { createPortal } from "react-dom";
 import type { WorkspaceOverview, WorktreeStatus } from "@superhive/protocol";
 import { t } from "./i18n";
+import { Tooltip } from "./tooltip";
 import { formatRelativeTime } from "./whiteboard";
 import "./styles/worktree-switcher.css";
 
@@ -250,28 +251,31 @@ export function WorktreeSwitcher({
 
   return (
     <>
-      <button
-        ref={buttonRef}
-        type="button"
-        className={`chat-title-branch worktree-switcher-toggle${open ? " active" : ""}`}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        title={t("当前分支 {0}：点开看这个仓库的任务目录", { 0: branch })}
-        onClick={() => (open ? close() : setOpen(true))}
+      <Tooltip
+        content={open ? undefined : t("当前分支 {0}：点开看这个仓库的任务目录", { 0: branch })}
       >
-        <BranchGlyph />
-        <span className="worktree-switcher-branch">{branch}</span>
-        <svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true">
-          <path
-            d="m4 6 4 4 4-4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
+        <button
+          ref={buttonRef}
+          type="button"
+          className={`chat-title-branch worktree-switcher-toggle${open ? " active" : ""}`}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          onClick={() => (open ? close() : setOpen(true))}
+        >
+          <BranchGlyph />
+          <span className="worktree-switcher-branch">{branch}</span>
+          <svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true">
+            <path
+              d="m4 6 4 4 4-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      </Tooltip>
       {open &&
         createPortal(
           <div

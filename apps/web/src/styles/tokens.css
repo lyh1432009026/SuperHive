@@ -34,6 +34,11 @@
   /* 滚动条滑块：半透明，压在侧栏、正文、代码块各种底色上都看得清；悬停加深 */
   --scrollbar-thumb: rgb(0 0 0 / 0.18);
   --scrollbar-thumb-hover: rgb(0 0 0 / 0.34);
+  /* 悬停提示：浅色主题用深底白字，深色主题用比面板更亮的灰底，两边都和页面拉开对比 */
+  --tooltip-bg: #1f1f1f;
+  --tooltip-text: #ffffff;
+  --tooltip-muted: rgb(255 255 255 / 0.62);
+  --tooltip-border: transparent;
 
   --accent: #0169cc;
   --accent-hover: #0158ad;
@@ -115,6 +120,10 @@
   --focus-ring: rgb(255 255 255 / 0.3);
   --scrollbar-thumb: rgb(255 255 255 / 0.18);
   --scrollbar-thumb-hover: rgb(255 255 255 / 0.34);
+  --tooltip-bg: #3d3d3d;
+  --tooltip-text: #f3f3f3;
+  --tooltip-muted: rgb(255 255 255 / 0.58);
+  --tooltip-border: rgb(255 255 255 / 0.08);
 
   --accent: #48aaff;
   --accent-hover: #6cbaff;

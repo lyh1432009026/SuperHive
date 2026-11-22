@@ -969,13 +969,6 @@
   padding: 0;
 }
 
-/* 顶栏变窄：「代码」只留图标和数量（和「产物」一致） */
-@media (max-width: 1100px) {
-  .workspace-toggle span:not(.header-count) {
-    display: none;
-  }
-}
-
 @media (max-width: 900px) {
   .workspace-source {
     min-width: 0;

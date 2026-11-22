@@ -398,6 +398,7 @@
   "所在房间的每条新消息都提醒": "Notify on every new message in rooms you are in",
   "所有偏好即时生效，并且只保存在当前浏览器中。": "All preferences apply instantly and are stored only in this browser.",
   "打开成员列表": "Open member list",
+  "更多操作": "More actions",
   "打开房间列表": "Open room list",
   "扫码接入飞书或微信，在手机上给房间发消息": "Scan to connect Feishu or WeChat and message the room from your phone",
   "扫码连接{0}": "Scan to connect {0}",

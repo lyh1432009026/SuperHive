@@ -12,7 +12,14 @@ export type ContextMenuItem =
     }
   | "separator";
 
-export type ContextMenuState = { x: number; y: number; title?: string; items: ContextMenuItem[] };
+export type ContextMenuState = {
+  x: number;
+  y: number;
+  title?: string;
+  items: ContextMenuItem[];
+  /** end：菜单右边对齐 x（从按钮弹出的下拉菜单靠右对齐按钮）；默认左边对齐 x */
+  align?: "start" | "end";
+};
 
 /**
  * 右键位置：鼠标右键用指针位置；键盘（菜单键、Shift+F10）触发时坐标是 0，改用元素左下角
@@ -35,7 +42,10 @@ export function ContextMenu({ menu, onClose }: { menu: ContextMenuState; onClose
     if (!element) return;
     const { width, height } = element.getBoundingClientRect();
     setPosition({
-      left: Math.max(4, Math.min(menu.x, window.innerWidth - width - 4)),
+      left: Math.max(
+        4,
+        Math.min(menu.align === "end" ? menu.x - width : menu.x, window.innerWidth - width - 4),
+      ),
       top: Math.max(4, Math.min(menu.y, window.innerHeight - height - 4)),
     });
     element.focus();

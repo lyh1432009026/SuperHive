@@ -1,4 +1,11 @@
-import { useMemo, type Dispatch, type RefObject, type SetStateAction } from "react";
+import {
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
+} from "react";
 import type {
   Attachment,
   ChatMessage,
@@ -22,6 +29,8 @@ import { animateLayout } from "./ui-utils";
 import { Icon } from "./app-icons";
 import { keepAwakeSummary } from "./host-settings";
 import type { ShareSelection } from "./share-bar";
+import { ContextMenu, type ContextMenuItem, type ContextMenuState } from "./context-menu";
+import { Tooltip } from "./tooltip";
 
 /** 对话区顶栏：房间名、在线人数、工作区与分支（房主可点开任务目录下拉），以及新话题、产物、代码、分享等入口 */
 export function ChatHeader({
@@ -98,25 +107,57 @@ export function ChatHeader({
   >;
 }) {
   const { shareMode, setShareMode, exitShareMode } = share;
+  const [moreMenu, setMoreMenu] = useState<ContextMenuState>();
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  // 菜单开着时按「更多」：菜单先因为点了外面自己关掉，这次点击不能再把它打开
+  const moreWasOpen = useRef(false);
+  const roomsLabel = roomsCollapsed ? t("显示房间列表") : t("隐藏房间列表");
+  const rightPanelLabel = previewDocked
+    ? t("收起右侧栏")
+    : membersCollapsed
+      ? t("显示成员与白板")
+      : t("隐藏成员与白板");
+  const newTopicDisabled = messages.length === 0 || messages.at(-1)?.kind === "topic";
+  const shareLabel = shareMode ? t("退出分享模式") : t("分享对话");
+  const toggleShare = () => (shareMode ? exitShareMode() : setShareMode(true));
+  const toggleWorkspace = () => {
+    setArtifactsOpen(false);
+    setWorkspaceOpen((current) => !current);
+  };
+  const headerRef = useRef<HTMLElement>(null);
+  /** 「更多」菜单里的项：和顶栏上带 data-overflow 的按钮一一对应，打开时只列出被收起来的那几个 */
+  const overflowItems: Record<string, ContextMenuItem> = {
+    "new-topic": { label: t("新话题"), disabled: newTopicDisabled, onSelect: startNewTopic },
+    workspace: {
+      label: t("代码"),
+      hint: workspaceChangeCount > 0 ? String(workspaceChangeCount) : undefined,
+      onSelect: toggleWorkspace,
+    },
+    share: { label: shareLabel, onSelect: toggleShare },
+  };
+  const workspaceName = currentRoomWorkspace?.split("/").filter(Boolean).at(-1);
   return (
-    <header className="chat-header">
-      <button
-        type="button"
-        className="header-button rooms-toggle"
-        aria-label={roomsCollapsed ? t("显示房间列表") : t("隐藏房间列表")}
-        aria-pressed={!roomsCollapsed}
-        title={roomsCollapsed ? t("显示房间列表") : t("隐藏房间列表")}
-        onClick={() =>
-          animateLayout(() =>
-            setRoomsCollapsed((current) => {
-              localStorage.setItem(storedRoomsCollapsedKey, String(!current));
-              return !current;
-            }),
-          )
-        }
-      >
-        <Icon name="panel-left" size={17} />
-      </button>
+    // 顶栏按自己的宽度（容器查询）逐级收起：先藏人数和消息数，再把按钮文字收成图标，
+    // 最后把新话题、分享收进「更多」菜单。左右侧栏开合时顶栏宽度变了也跟着变，见 shell.css
+    <header ref={headerRef} className="chat-header">
+      <Tooltip content={roomsLabel}>
+        <button
+          type="button"
+          className="header-button rooms-toggle"
+          aria-label={roomsLabel}
+          aria-pressed={!roomsCollapsed}
+          onClick={() =>
+            animateLayout(() =>
+              setRoomsCollapsed((current) => {
+                localStorage.setItem(storedRoomsCollapsedKey, String(!current));
+                return !current;
+              }),
+            )
+          }
+        >
+          <Icon name="panel-left" size={17} />
+        </button>
+      </Tooltip>
       <button
         type="button"
         className="header-button mobile-only"
@@ -128,15 +169,18 @@ export function ChatHeader({
       </button>
       <div className="chat-title">
         <h1>{currentRoomName}</h1>
-        <span>
-          {online.length} {t("位在线 ·")} {messages.length} {t("条消息")}
+        <span className="chat-title-meta">
+          <span className="chat-title-counts">
+            {online.length} {t("位在线 ·")} {messages.length} {t("条消息")}
+          </span>
           {currentRoomWorkspace && (
-            <span
-              className="chat-title-workspace"
-              title={t("房间工作区：{0}", { 0: currentRoomWorkspace })}
-            >
-              {" "}
-              · {currentRoomWorkspace.split("/").filter(Boolean).at(-1)}
+            <span className="chat-title-workspace">
+              <span className="chat-title-sep" aria-hidden="true">
+                ·
+              </span>
+              <Tooltip content={t("房间工作区：{0}", { 0: currentRoomWorkspace })}>
+                <span className="chat-title-workspace-name">{workspaceName}</span>
+              </Tooltip>
               {currentRoom?.branch &&
                 (isOwner && local.enabled ? (
                   <WorktreeSwitcher
@@ -147,147 +191,197 @@ export function ChatHeader({
                     onManage={openWorktrees}
                   />
                 ) : (
-                  <span className="chat-title-branch" title={t("当前分支")}>
-                    <BranchGlyph />
-                    {currentRoom.branch}
-                  </span>
+                  <Tooltip content={t("当前分支")}>
+                    <span className="chat-title-branch">
+                      <BranchGlyph />
+                      <span className="chat-title-branch-name">{currentRoom.branch}</span>
+                    </span>
+                  </Tooltip>
                 ))}
             </span>
           )}
           {local.keepAwake &&
             (local.keepAwake.status === "active" || local.keepAwake.status === "failed") && (
-              <button
-                type="button"
-                className={`keep-awake-badge ${local.keepAwake.status}`}
-                title={keepAwakeSummary(local.keepAwake)}
-                aria-label={keepAwakeSummary(local.keepAwake)}
-                onClick={() => {
-                  setSettingsTab("computer");
-                  setSettingsOpen(true);
-                }}
-              >
-                {local.keepAwake.status === "active" ? t("☾ 保持在线") : t("! 保持在线未生效")}
-              </button>
+              <Tooltip content={keepAwakeSummary(local.keepAwake)}>
+                <button
+                  type="button"
+                  className={`keep-awake-badge ${local.keepAwake.status}`}
+                  aria-label={keepAwakeSummary(local.keepAwake)}
+                  onClick={() => {
+                    setSettingsTab("computer");
+                    setSettingsOpen(true);
+                  }}
+                >
+                  {local.keepAwake.status === "active" ? t("☾ 保持在线") : t("! 保持在线未生效")}
+                </button>
+              </Tooltip>
             )}
         </span>
       </div>
       <div className="chat-header-actions">
-        <button
-          type="button"
-          className="header-button new-topic"
-          disabled={messages.length === 0 || messages.at(-1)?.kind === "topic"}
-          title={t("开启新话题：房间里的 Agent 会丢弃之前的会话，从新会话开始；历史消息保留")}
-          onClick={startNewTopic}
+        <Tooltip
+          content={t("开启新话题：房间里的 Agent 会丢弃之前的会话，从新会话开始；历史消息保留")}
         >
-          <Icon name="plus" size={16} />
-          <span>{t("新话题")}</span>
-        </button>
-        <button
-          ref={artifactsButtonRef}
-          type="button"
-          className={`header-button artifacts-toggle ${artifactsOpen ? "active" : ""}`}
-          aria-label={
-            artifactCount
-              ? t("产物：{0} 个图片和文件", { 0: artifactCount })
-              : t("产物：房间里的图片和文件")
-          }
-          aria-pressed={artifactsOpen}
-          title={t("产物：房间里的图片和文件")}
-          onClick={() => {
-            setWorkspaceOpen(false);
-            setArtifactsOpen((current) => !current);
-          }}
-        >
-          <Icon name="files" size={16} />
-          <span>{t("产物")}</span>
-          {artifactCount ? (
-            <span className="header-count" aria-hidden="true">
-              {artifactCount > 99 ? "99+" : artifactCount}
-            </span>
-          ) : null}
-        </button>
-        {canViewWorkspace && (
           <button
-            ref={workspaceButtonRef}
             type="button"
-            className={`header-button workspace-toggle ${workspaceOpen ? "active" : ""}`}
-            aria-pressed={workspaceOpen}
+            className="header-button new-topic"
+            data-overflow="new-topic"
+            aria-label={t("新话题")}
+            disabled={newTopicDisabled}
+            onClick={startNewTopic}
+          >
+            <Icon name="plus" size={16} />
+            <span className="header-button-label">{t("新话题")}</span>
+          </button>
+        </Tooltip>
+        <Tooltip content={t("产物：房间里的图片和文件")}>
+          <button
+            ref={artifactsButtonRef}
+            type="button"
+            className={`header-button artifacts-toggle ${artifactsOpen ? "active" : ""}`}
             aria-label={
-              workspaceChangeCount
-                ? t("工作区文件与改动（{0} 个文件有未提交改动）", { 0: workspaceChangeCount })
-                : t("工作区文件与改动")
+              artifactCount
+                ? t("产物：{0} 个图片和文件", { 0: artifactCount })
+                : t("产物：房间里的图片和文件")
             }
-            title={t("工作区文件与改动（只读）")}
+            aria-pressed={artifactsOpen}
             onClick={() => {
-              setArtifactsOpen(false);
-              setWorkspaceOpen((current) => !current);
+              setWorkspaceOpen(false);
+              setArtifactsOpen((current) => !current);
             }}
           >
-            <WorkspaceGlyph />
-            <span>{t("代码")}</span>
-            {workspaceChangeCount > 0 && (
-              <span className="header-count workspace-toggle-count" aria-hidden="true">
-                {workspaceChangeCount > 999 ? "999+" : workspaceChangeCount}
+            <Icon name="files" size={16} />
+            <span className="header-button-label">{t("产物")}</span>
+            {artifactCount ? (
+              <span className="header-count" aria-hidden="true">
+                {artifactCount > 99 ? "99+" : artifactCount}
               </span>
-            )}
+            ) : null}
           </button>
+        </Tooltip>
+        {canViewWorkspace && (
+          <Tooltip content={t("工作区文件与改动（只读）")}>
+            <button
+              ref={workspaceButtonRef}
+              type="button"
+              className={`header-button workspace-toggle ${workspaceOpen ? "active" : ""}`}
+              data-overflow="workspace"
+              aria-pressed={workspaceOpen}
+              aria-label={
+                workspaceChangeCount
+                  ? t("工作区文件与改动（{0} 个文件有未提交改动）", { 0: workspaceChangeCount })
+                  : t("工作区文件与改动")
+              }
+              onClick={toggleWorkspace}
+            >
+              <WorkspaceGlyph />
+              <span className="header-button-label">{t("代码")}</span>
+              {workspaceChangeCount > 0 && (
+                <span className="header-count workspace-toggle-count" aria-hidden="true">
+                  {workspaceChangeCount > 999 ? "999+" : workspaceChangeCount}
+                </span>
+              )}
+            </button>
+          </Tooltip>
         )}
-        <button
-          type="button"
-          className={`header-button share-fab ${shareMode ? "active" : ""}`}
-          aria-label={shareMode ? t("退出分享模式") : t("分享对话")}
-          aria-pressed={shareMode}
-          onClick={() => (shareMode ? exitShareMode() : setShareMode(true))}
-        >
-          <Icon name="share" size={16} />
-          <span>{shareMode ? t("取消") : t("分享")}</span>
-        </button>
-        <button
-          type="button"
-          className="header-button members-drawer-toggle"
-          aria-label={t("打开成员列表")}
-          aria-expanded={mobilePanel === "members"}
-          onClick={(event) => openMobilePanel("members", event.currentTarget)}
-        >
-          <Icon name="users" size={17} />
-        </button>
-        <button
-          type="button"
-          className="header-button desktop-only"
-          aria-label={
-            previewDocked
-              ? t("收起右侧栏")
-              : membersCollapsed
-                ? t("显示成员与白板")
-                : t("隐藏成员与白板")
-          }
-          aria-pressed={previewDocked || !membersCollapsed}
-          title={
-            previewDocked
-              ? t("收起右侧栏")
-              : membersCollapsed
-                ? t("显示成员与白板")
-                : t("隐藏成员与白板")
-          }
-          onClick={() =>
-            animateLayout(() => {
-              // 停靠着预览时右侧栏一定是开着的：这里就是收起它，连预览一起关
-              if (previewDocked) {
-                setDockedPreview(undefined);
-                localStorage.setItem(storedMembersCollapsedKey, "true");
-                setMembersCollapsed(true);
+        <Tooltip content={shareLabel}>
+          <button
+            type="button"
+            className={`header-button share-fab ${shareMode ? "active" : ""}`}
+            data-overflow="share"
+            aria-label={shareLabel}
+            aria-pressed={shareMode}
+            onClick={toggleShare}
+          >
+            <Icon name="share" size={16} />
+            <span className="header-button-label">{shareMode ? t("取消") : t("分享")}</span>
+          </button>
+        </Tooltip>
+        <Tooltip content={moreMenu ? undefined : t("更多操作")}>
+          <button
+            ref={moreButtonRef}
+            type="button"
+            className={`header-button header-more${shareMode ? " active" : ""}`}
+            aria-label={t("更多操作")}
+            aria-haspopup="menu"
+            aria-expanded={Boolean(moreMenu)}
+            onPointerDown={() => {
+              moreWasOpen.current = Boolean(moreMenu);
+            }}
+            onClick={(event) => {
+              if (moreWasOpen.current || moreMenu) {
+                moreWasOpen.current = false;
+                setMoreMenu(undefined);
                 return;
               }
-              setMembersCollapsed((current) => {
-                localStorage.setItem(storedMembersCollapsedKey, String(!current));
-                return !current;
+              const buttons = [
+                ...(headerRef.current?.querySelectorAll<HTMLElement>("[data-overflow]") ?? []),
+              ];
+              const collapsed = buttons.filter((el) => getComputedStyle(el).display === "none");
+              const rect = event.currentTarget.getBoundingClientRect();
+              setMoreMenu({
+                align: "end",
+                x: rect.right,
+                y: rect.bottom + 4,
+                // 收起哪几个由样式按顶栏宽度决定；万一一个都没收（样式没加载），就全列出来
+                items: (collapsed.length ? collapsed : buttons).map(
+                  (el) => overflowItems[el.dataset.overflow!]!,
+                ),
               });
-            })
-          }
-        >
-          <Icon name="panel-right" size={17} />
-        </button>
+            }}
+          >
+            <Icon name="more" size={17} />
+          </button>
+        </Tooltip>
+        <Tooltip content={t("打开成员列表")}>
+          <button
+            type="button"
+            className="header-button members-drawer-toggle"
+            aria-label={t("打开成员列表")}
+            aria-expanded={mobilePanel === "members"}
+            onClick={(event) => openMobilePanel("members", event.currentTarget)}
+          >
+            <Icon name="users" size={17} />
+          </button>
+        </Tooltip>
+        <Tooltip content={rightPanelLabel}>
+          <button
+            type="button"
+            className="header-button desktop-only"
+            aria-label={rightPanelLabel}
+            aria-pressed={previewDocked || !membersCollapsed}
+            onClick={() =>
+              animateLayout(() => {
+                // 停靠着预览时右侧栏一定是开着的：这里就是收起它，连预览一起关
+                if (previewDocked) {
+                  setDockedPreview(undefined);
+                  localStorage.setItem(storedMembersCollapsedKey, "true");
+                  setMembersCollapsed(true);
+                  return;
+                }
+                setMembersCollapsed((current) => {
+                  localStorage.setItem(storedMembersCollapsedKey, String(!current));
+                  return !current;
+                });
+              })
+            }
+          >
+            <Icon name="panel-right" size={17} />
+          </button>
+        </Tooltip>
       </div>
+      {moreMenu && (
+        <ContextMenu
+          menu={moreMenu}
+          onClose={() => {
+            setMoreMenu(undefined);
+            // 键盘关掉菜单（Esc、选了一项）焦点回到「更多」；点别处关的由那次点击决定焦点
+            if (!document.activeElement || document.activeElement === document.body) {
+              moreButtonRef.current?.focus();
+            }
+          }}
+        />
+      )}
     </header>
   );
 }

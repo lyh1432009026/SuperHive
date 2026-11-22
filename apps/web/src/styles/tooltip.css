@@ -1,0 +1,66 @@
+/*
+ * 悬停提示（tooltip.tsx）：替代原生 title。挂在 body 上、position: fixed，由脚本算好位置；
+ * 跟随明暗主题，出现时从按钮方向轻轻滑出。触屏设备（不能悬停）一律不显示。
+ */
+.tooltip {
+  position: fixed;
+  z-index: 2000;
+  max-width: min(240px, calc(100vw - 16px));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 9px;
+  border: 1px solid var(--tooltip-border);
+  border-radius: var(--radius-sm);
+  background: var(--tooltip-bg);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.16);
+  color: var(--tooltip-text);
+  font-size: var(--text-xs);
+  font-weight: 450;
+  line-height: 17px;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  animation: tooltip-in 140ms var(--ease-out);
+}
+
+.tooltip[data-side="top"] {
+  animation-name: tooltip-in-top;
+}
+
+.tooltip-keys {
+  flex: 0 0 auto;
+}
+
+.tooltip-keys kbd {
+  min-width: 18px;
+  border-color: rgb(255 255 255 / 0.18);
+  background: rgb(255 255 255 / 0.1);
+  color: var(--tooltip-muted);
+  font-size: 10.5px;
+  line-height: 15px;
+}
+
+/* 给 aria-describedby 用的隐藏说明：放在触发元素旁边，不能被父级的 display 规则带出来 */
+.tooltip-description {
+  display: none !important;
+}
+
+@keyframes tooltip-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.97);
+  }
+}
+
+@keyframes tooltip-in-top {
+  from {
+    opacity: 0;
+    transform: translateY(3px) scale(0.97);
+  }
+}
+
+@media (hover: none) {
+  .tooltip {
+    display: none;
+  }
+}
