@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { IncidentDispatchSettings, IncidentsPanel, type IncidentsState } from "./incidents-panel";
+import {
+  IncidentDispatchSettings,
+  IncidentsPanel,
+  type IncidentsState,
+  type RoomAgent,
+} from "./incidents-panel";
 import { SlowOpsList, thresholdNote, type SlowOpsState } from "./slow-ops";
 import { t } from "./i18n";
 
@@ -18,6 +23,7 @@ export function IncidentsDialog({
   rooms,
   currentRoomId,
   username,
+  loadAgents,
   onTab,
   onClose,
 }: {
@@ -26,10 +32,11 @@ export function IncidentsDialog({
   focusId?: string;
   incidents: IncidentsState;
   slowOps: SlowOpsState;
-  /** 派修设置里选在哪个房间派活、以谁的名义派 */
+  /** 派修设置里选在哪个房间派活、派给谁；派活消息以 username（房主）的名义发出 */
   rooms: ReadonlyArray<{ id: string; name: string }>;
   currentRoomId: string;
   username: string;
+  loadAgents: (roomId: string) => Promise<RoomAgent[]>;
   onTab: (tab: IncidentsTab) => void;
   onClose: () => void;
 }) {
@@ -130,6 +137,7 @@ export function IncidentsDialog({
                     rooms={rooms}
                     currentRoomId={currentRoomId}
                     username={username}
+                    loadAgents={loadAgents}
                     onSave={incidents.updateSettings}
                   />
                 </section>

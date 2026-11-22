@@ -10,45 +10,126 @@
   font-size: var(--text-sm);
 }
 
+/* 派修设置：开关下面两列，房间和次数占满一行 */
 .incident-settings {
   display: grid;
-  gap: 8px;
-  padding: 10px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-md);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-light);
+  transition: opacity var(--duration-fast);
 }
 
-.incident-settings-grid {
+/* 开关关着：收淡但仍能改，指上去或在里面操作时恢复 */
+.incident-settings.muted {
+  opacity: 0.6;
+}
+
+.incident-settings.muted:hover,
+.incident-settings.muted:focus-within {
+  opacity: 1;
+}
+
+.incident-field {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 8px;
-}
-
-.incident-settings-grid label {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: var(--text-sm);
-}
-
-.incident-settings-grid input,
-.incident-settings-grid select {
+  gap: 6px;
   min-width: 0;
-  padding: 5px 10px;
-  border: 1px solid var(--border);
+}
+
+.incident-field > span,
+.incident-limit > span {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.incident-field-wide {
+  grid-column: 1 / -1;
+}
+
+.incident-select.select-trigger {
+  min-height: 36px;
+  padding: 0 10px 0 12px;
+  border-color: var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-main);
-  color: var(--text);
   font-size: var(--text-sm);
 }
 
-.incident-settings-actions {
-  display: flex;
-  justify-content: flex-end;
+.incident-settings-warning {
+  margin: -4px 0 0;
+  color: var(--warning);
+  font-size: var(--text-xs);
 }
 
-.incident-settings-actions .settings-action {
-  margin-top: 0;
+.incident-limits {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.incident-limit {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.incident-limit > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.incident-limit .stepper {
+  width: 96px;
+  height: 32px;
+}
+
+.incident-limit small {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.incident-settings-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.incident-settings-footer .incident-more {
+  flex: 1;
+  min-width: 0;
+}
+
+.incident-settings-saved {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  color: var(--success);
+  font-size: var(--text-xs);
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+
+.incident-settings-saved.shown {
+  opacity: 1;
+}
+
+.incident-settings-saved svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (max-width: 720px) {
+  .incident-settings,
+  .incident-limits {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .incident-list {
@@ -266,9 +347,9 @@
 
 .incidents-dispatch {
   display: grid;
-  gap: 8px;
+  gap: 12px;
   margin: 0 0 16px;
-  padding: 12px;
+  padding: 4px 16px 14px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   background: var(--bg-subtle);
@@ -276,10 +357,4 @@
 
 .incidents-dispatch > .settings-note {
   margin: 0;
-}
-
-/* 外面已经有一层底色框，表单本身不再画虚线框 */
-.incidents-dispatch .incident-settings {
-  padding: 0;
-  border: 0;
 }

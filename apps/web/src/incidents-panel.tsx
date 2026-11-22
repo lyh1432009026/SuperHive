@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   Incident,
   IncidentActionRequest,
   IncidentSettings,
   IncidentsResponse,
+  Participant,
   RuleProposal,
 } from "@superhive/protocol";
+import { AvatarGlyph } from "./avatar";
+import { Select, type SelectOption } from "./select";
+import { Stepper } from "./stepper";
 import type { LocalAgentsState } from "./local-agents";
 import { SettingsSwitch } from "./settings-switch";
 import { localized, t } from "./i18n";
@@ -118,7 +122,8 @@ export type IncidentsState = {
   unhandled: number;
   attentionItems: IncidentAttentionItem[];
   refresh(): void;
-  updateSettings(patch: Partial<IncidentSettings>): void;
+  /** 存好了返回 true；失败时错误写进 error */
+  updateSettings(patch: Partial<IncidentSettings>): Promise<boolean>;
   act(id: string, action: IncidentActionRequest["action"]): void;
   decide(id: string, decision: "approve" | "reject" | "retire"): void;
 };
@@ -160,55 +165,307 @@ export function useIncidents(
     unhandled: shown ? unhandledIncidentCount(shown) : enabled ? (signal?.attention ?? 0) : 0,
     attentionItems: incidentAttentionItems(shown),
     refresh,
-    updateSettings: (patch) => run(local.updateIncidentSettings(patch)),
+    updateSettings: (patch) =>
+      local.updateIncidentSettings(patch).then(
+        () => {
+          refresh();
+          return true;
+        },
+        (reason: unknown) => {
+          setError(failureText(reason));
+          return false;
+        },
+      ),
     act: (id, action) => run(local.incidentAction(id, action)),
     decide: (id, decision) => run(local.decideRuleProposal(id, decision)),
   };
 }
 
+/** 派修设置里能选的 Agent：名字、运行时、在线状态 */
+export type RoomAgent = Pick<Participant, "username" | "status" | "provider">;
+
+/** 次数的范围：派修阈值和每日上限 1–20，修失败几次找人 1–5 */
+const LIMITS = {
+  threshold: { min: 1, max: 20 },
+  dailyLimit: { min: 1, max: 20 },
+  maxAttempts: { min: 1, max: 5 },
+} as const;
+
+/** 连点 −/+ 时停下来再存，免得每点一下发一次 */
+const NUMBER_SAVE_DELAY_MS = 500;
+const SAVED_NOTE_MS = 2000;
+
 /**
  * 自动派修怎么派：在「故障」面板顶部点「派修设置」展开，不放进偏好设置。
- * 故障单、规则提议、经验库和慢操作就在同一个面板里看。
+ * 每项改了就存（开关本来就是即时生效的，几个选项互不依赖，没必要再点一次「保存」），存好了轻提示「已保存」。
+ * 派活消息以房主（当前用户）的名义发出，不用填。开关关着时下面的选项收淡但仍能改：
+ * 常见顺序是先选好人再打开，折起来就得先打开才能配，开着却没配好又派不出去。
  */
 export function IncidentDispatchSettings({
   data,
   rooms,
   currentRoomId,
   username,
+  loadAgents,
   onSave,
 }: {
   data: IncidentsResponse;
   rooms: ReadonlyArray<{ id: string; name: string }>;
   currentRoomId: string;
   username: string;
-  onSave: (patch: Partial<IncidentSettings>) => void;
+  /** 某个房间的 Agent 成员 */
+  loadAgents: (roomId: string) => Promise<RoomAgent[]>;
+  onSave: (patch: Partial<IncidentSettings>) => Promise<boolean>;
 }) {
+  // 改了先在界面上生效，等 Server 推回新设置再以它为准
+  const [optimistic, setOptimistic] = useState<Partial<IncidentSettings>>({});
+  useEffect(() => setOptimistic({}), [data.settings]);
+  const settings = { ...data.settings, ...optimistic };
+  const canDispatch = Boolean(data.runningCommit);
+  const roomId = settings.roomId ?? currentRoomId;
+  const [agents, setAgents] = useState<{ roomId: string; list: RoomAgent[] }>();
+  const [agentsError, setAgentsError] = useState(false);
+  const [counts, setCounts] = useState(() => countsOf(data.settings));
+  const [clearedReviewer, setClearedReviewer] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const pendingCounts = useRef<Partial<IncidentSettings>>({});
+  const countsTimer = useRef<number>(undefined);
+  const savedTimer = useRef<number>(undefined);
+
+  useEffect(() => setCounts(countsOf(data.settings)), [data.settings]);
+
+  useEffect(() => {
+    let current = true;
+    setAgentsError(false);
+    loadAgents(roomId).then(
+      (list) => current && setAgents({ roomId, list }),
+      () => current && setAgentsError(true),
+    );
+    return () => {
+      current = false;
+    };
+  }, [loadAgents, roomId]);
+
+  // 派活消息以房主的名义发出；房间没存过时按当前房间算，一起存上
+  const save = (patch: Partial<IncidentSettings>) => {
+    setOptimistic((current) => ({ ...current, ...patch }));
+    void onSave({ roomId, requester: username, ...patch }).then((ok) => {
+      if (!ok) return setOptimistic({});
+      setSaved(true);
+      window.clearTimeout(savedTimer.current);
+      savedTimer.current = window.setTimeout(() => setSaved(false), SAVED_NOTE_MS);
+    });
+  };
+  const saveRef = useRef(save);
+  saveRef.current = save;
+
+  const flushCounts = () => {
+    window.clearTimeout(countsTimer.current);
+    const patch = pendingCounts.current;
+    pendingCounts.current = {};
+    if (Object.keys(patch).length > 0) saveRef.current(patch);
+  };
+  const flushRef = useRef(flushCounts);
+  flushRef.current = flushCounts;
+  useEffect(
+    () => () => {
+      flushRef.current();
+      window.clearTimeout(savedTimer.current);
+    },
+    [],
+  );
+
+  const setCount = (key: keyof typeof LIMITS, value: number) => {
+    setCounts((current) => ({ ...current, [key]: value }));
+    pendingCounts.current = { ...pendingCounts.current, [key]: value };
+    window.clearTimeout(countsTimer.current);
+    countsTimer.current = window.setTimeout(flushCounts, NUMBER_SAVE_DELAY_MS);
+  };
+
+  const roomAgents = agents?.roomId === roomId ? agents.list : undefined;
+  const roomName = rooms.find((room) => room.id === roomId)?.name ?? roomId;
+  const fixer = settings.fixer ?? "";
+  const reviewer = settings.reviewer ?? "";
+  const absent = (name: string) =>
+    Boolean(name && roomAgents && !roomAgents.some((agent) => sameName(agent.username, name)));
+  const roomOptions: SelectOption[] = [
+    ...(rooms.some((room) => room.id === roomId) ? [] : [{ value: roomId, label: `# ${roomId}` }]),
+    ...rooms.map((room) => ({ value: room.id, label: `# ${room.name}` })),
+  ];
+
   return (
     <>
-      <p className="settings-note">
-        {t(
-          "我们自己的问题按同一种错误合并计数，到次数后自动派给 Agent 先写复现测试再修，合入仍要人 review。外部原因（模型服务、凭证、Agent 自己崩溃）只重试和提示，不派修。",
-        )}
-      </p>
-      <IncidentSettingsForm
-        settings={data.settings}
-        dispatchedToday={data.dispatchedToday}
-        canDispatch={Boolean(data.runningCommit)}
-        rooms={rooms}
-        currentRoomId={currentRoomId}
-        username={username}
-        onSave={onSave}
+      <SettingsSwitch
+        checked={settings.autoDispatch}
+        disabled={!canDispatch}
+        label={t("自动派修")}
+        description={
+          canDispatch
+            ? t(
+                "同一种错误出现到次数，就派给下面的 Agent 先写复现测试再修，合入仍要人 review；今天已派 {0} 次。",
+                { 0: data.dispatchedToday },
+              )
+            : t("Server 不是从源码仓库运行的，核对不了修复有没有合入，只归类、不派修。")
+        }
+        onChange={(checked) => save({ autoDispatch: checked })}
       />
-      <details className="incident-more">
-        <summary>{t("自动修复不许改的代码（{0} 处）", { 0: data.protectedPaths.length })}</summary>
-        <p className="settings-note">
-          {t("权限、协作规则、门禁、审计和故障单系统本身；修复动了这些会直接升级给你：{0}", {
-            0: data.protectedPaths.join(t("、")),
-          })}
-        </p>
-      </details>
+      <div className={`incident-settings${settings.autoDispatch ? "" : " muted"}`}>
+        <label className="incident-field incident-field-wide">
+          <span>{t("在哪个房间派活")}</span>
+          <Select
+            className="incident-select"
+            value={roomId}
+            options={roomOptions}
+            menuMinWidth={240}
+            onChange={(next) => {
+              setClearedReviewer(false);
+              save({ roomId: next });
+            }}
+          />
+        </label>
+        <label className="incident-field">
+          <span>{t("修的 Agent")}</span>
+          <Select
+            className="incident-select"
+            value={fixer}
+            placeholder={t("选择 Agent")}
+            options={agentOptions(roomAgents, fixer)}
+            menuMinWidth={220}
+            onChange={(next) => {
+              // review 的不能和修的同一个：撞上时清掉 review 的，让人重新选
+              const clash = Boolean(reviewer) && sameName(next, reviewer);
+              setClearedReviewer(clash);
+              save(clash ? { fixer: next, reviewer: "" } : { fixer: next });
+            }}
+          />
+        </label>
+        <label className="incident-field">
+          <span>{t("review 的 Agent")}</span>
+          <Select
+            className="incident-select"
+            value={reviewer}
+            options={[
+              { value: "", label: t("不指定") },
+              ...agentOptions(roomAgents, reviewer, fixer),
+            ]}
+            menuMinWidth={220}
+            onChange={(next) => {
+              setClearedReviewer(false);
+              save({ reviewer: next });
+            }}
+          />
+        </label>
+        {(agentsError ||
+          absent(fixer) ||
+          absent(reviewer) ||
+          clearedReviewer ||
+          (roomAgents && roomAgents.length === 0)) && (
+          <p className="incident-field-wide incident-settings-warning" role="alert">
+            {agentsError
+              ? t("没能读到 #{0} 的成员，稍后再打开试试。", { 0: roomName })
+              : roomAgents?.length === 0
+                ? t("#{0} 里还没有 Agent，先在那个房间接入一个。", { 0: roomName })
+                : clearedReviewer
+                  ? t("review 的 Agent 不能和修的是同一个，已清空，请重新选。")
+                  : t("{0} 不在 #{1}，请重新选。", {
+                      0: [fixer, reviewer].filter(absent).join(t("、")),
+                      1: roomName,
+                    })}
+          </p>
+        )}
+        <div className="incident-limits incident-field-wide">
+          {(
+            [
+              ["threshold", t("出现几次派修")],
+              ["dailyLimit", t("每天最多派")],
+              ["maxAttempts", t("修失败几次找你")],
+            ] as const
+          ).map(([key, label]) => (
+            <div key={key} className="incident-limit">
+              <span aria-hidden="true">{label}</span>
+              <div>
+                <Stepper
+                  value={counts[key]}
+                  min={LIMITS[key].min}
+                  max={Math.max(LIMITS[key].max, counts[key])}
+                  label={label}
+                  onChange={(value) => setCount(key, value)}
+                />
+                <small>{t("次")}</small>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="incident-settings-footer">
+        <details className="incident-more">
+          <summary>
+            {t("自动修复不许改的代码（{0} 处）", { 0: data.protectedPaths.length })}
+          </summary>
+          <p className="settings-note">
+            {t("权限、协作规则、门禁、审计和故障单系统本身；修复动了这些会直接升级给你：{0}", {
+              0: data.protectedPaths.join(t("、")),
+            })}
+          </p>
+        </details>
+        <span className={`incident-settings-saved${saved ? " shown" : ""}`} role="status">
+          {saved && (
+            <>
+              <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                <path d="m3.5 8.5 3 3 6-7" />
+              </svg>
+              {t("已保存")}
+            </>
+          )}
+        </span>
+      </div>
     </>
   );
+}
+
+function countsOf(settings: IncidentSettings) {
+  return {
+    threshold: settings.threshold,
+    dailyLimit: Math.max(LIMITS.dailyLimit.min, settings.dailyLimit),
+    maxAttempts: settings.maxAttempts,
+  };
+}
+
+function sameName(a: string, b: string): boolean {
+  return a.toLocaleLowerCase() === b.toLocaleLowerCase();
+}
+
+/** 房间里的 Agent：在线的在前，离线的归到「离线」；except 是另一个下拉已选的人，不能再选 */
+function agentOptions(
+  agents: RoomAgent[] | undefined,
+  value: string,
+  except?: string,
+): SelectOption[] {
+  const list = [...(agents ?? [])].sort(
+    (a, b) =>
+      Number(a.status === "offline") - Number(b.status === "offline") ||
+      a.username.localeCompare(b.username),
+  );
+  const options: SelectOption[] = list.map((agent) => ({
+    value: agent.username,
+    label: agent.username,
+    group: agent.status === "offline" ? t("离线") : t("在线"),
+    icon: (
+      <span className="avatar agent select-avatar" aria-hidden="true">
+        <AvatarGlyph type="agent" name={agent.username} provider={agent.provider} />
+      </span>
+    ),
+    ...(except && sameName(agent.username, except)
+      ? { disabled: true, description: t("已选为修的 Agent") }
+      : agent.status === "busy"
+        ? { description: t("忙碌中") }
+        : {}),
+  }));
+  // 存着的人已经不在这个房间（或成员还没读到）：照样显示出来，别让下拉像是没选
+  if (value && !list.some((agent) => sameName(agent.username, value))) {
+    options.unshift({ value, label: value });
+  }
+  return options;
 }
 
 export function IncidentsPanel({
@@ -323,145 +580,6 @@ export function IncidentsPanel({
         />
       )}
     </div>
-  );
-}
-
-function IncidentSettingsForm({
-  settings,
-  dispatchedToday,
-  canDispatch,
-  rooms,
-  currentRoomId,
-  username,
-  onSave,
-}: {
-  settings: IncidentSettings;
-  dispatchedToday: number;
-  canDispatch: boolean;
-  rooms: ReadonlyArray<{ id: string; name: string }>;
-  currentRoomId: string;
-  username: string;
-  onSave: (patch: Partial<IncidentSettings>) => void;
-}) {
-  const initial = useCallback(
-    () => ({
-      roomId: settings.roomId ?? currentRoomId,
-      requester: settings.requester ?? username,
-      fixer: settings.fixer ?? "",
-      reviewer: settings.reviewer ?? "",
-      threshold: String(settings.threshold),
-      dailyLimit: String(settings.dailyLimit),
-      maxAttempts: String(settings.maxAttempts),
-    }),
-    [settings, currentRoomId, username],
-  );
-  const [draft, setDraft] = useState(initial);
-  useEffect(() => setDraft(initial()), [initial]);
-  const set = (patch: Partial<typeof draft>) => setDraft((current) => ({ ...current, ...patch }));
-  const number = (value: string, fallback: number) => {
-    const parsed = Number.parseInt(value, 10);
-    return Number.isFinite(parsed) ? parsed : fallback;
-  };
-  return (
-    <form
-      className="incident-settings"
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSave({
-          roomId: draft.roomId,
-          requester: draft.requester.trim(),
-          fixer: draft.fixer.trim(),
-          reviewer: draft.reviewer.trim(),
-          threshold: number(draft.threshold, settings.threshold),
-          dailyLimit: number(draft.dailyLimit, settings.dailyLimit),
-          maxAttempts: number(draft.maxAttempts, settings.maxAttempts),
-        });
-      }}
-    >
-      <SettingsSwitch
-        checked={settings.autoDispatch}
-        disabled={!canDispatch}
-        label={t("自动派修")}
-        description={
-          canDispatch
-            ? t("同一种错误出现到次数，就派给下面的 Agent 修；今天已派 {0} 次。", {
-                0: dispatchedToday,
-              })
-            : t("Server 不是从源码仓库运行的，核对不了修复有没有合入，只归类、不派修。")
-        }
-        onChange={(checked) => onSave({ autoDispatch: checked })}
-      />
-      <div className="incident-settings-grid">
-        <label>
-          <span>{t("在哪个房间派活")}</span>
-          <select value={draft.roomId} onChange={(event) => set({ roomId: event.target.value })}>
-            {rooms.map((room) => (
-              <option key={room.id} value={room.id}>
-                # {room.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>{t("以谁的名义派活")}</span>
-          <input
-            value={draft.requester}
-            onChange={(event) => set({ requester: event.target.value })}
-          />
-        </label>
-        <label>
-          <span>{t("修的 Agent")}</span>
-          <input
-            value={draft.fixer}
-            placeholder="rd-claude2"
-            onChange={(event) => set({ fixer: event.target.value })}
-          />
-        </label>
-        <label>
-          <span>{t("review 的 Agent")}</span>
-          <input
-            value={draft.reviewer}
-            placeholder="rd-claude"
-            onChange={(event) => set({ reviewer: event.target.value })}
-          />
-        </label>
-        <label>
-          <span>{t("出现几次派修")}</span>
-          <input
-            type="number"
-            min={1}
-            max={100}
-            value={draft.threshold}
-            onChange={(event) => set({ threshold: event.target.value })}
-          />
-        </label>
-        <label>
-          <span>{t("每天最多派几次")}</span>
-          <input
-            type="number"
-            min={0}
-            max={50}
-            value={draft.dailyLimit}
-            onChange={(event) => set({ dailyLimit: event.target.value })}
-          />
-        </label>
-        <label>
-          <span>{t("修失败几次就找你")}</span>
-          <input
-            type="number"
-            min={1}
-            max={10}
-            value={draft.maxAttempts}
-            onChange={(event) => set({ maxAttempts: event.target.value })}
-          />
-        </label>
-      </div>
-      <div className="incident-settings-actions">
-        <button type="submit" className="settings-action">
-          {t("保存")}
-        </button>
-      </div>
-    </form>
   );
 }
 

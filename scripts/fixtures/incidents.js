@@ -169,10 +169,33 @@
         headers: { "Content-Type": "application/json" },
       }),
     );
+  // 派修设置里按房间列 Agent：沙箱里的 Agent 都不在线，换成几个在线、忙、离线的
+  const agent = (username, provider, status) => ({
+    id: `00000000-0000-4000-9000-${username.length.toString().padStart(12, "0")}`,
+    roomId: "build",
+    username,
+    type: "agent",
+    status,
+    provider,
+    joinedAt: ago(6000),
+    lastSeenAt: ago(1),
+  });
+  const participants = [
+    agent("rd-claude", "claude", "online"),
+    agent("rd-claude2", "claude", "busy"),
+    agent("rd-codex", "codex", "online"),
+    agent("glm", "omp", "offline"),
+    agent("rd-opencode", "opencode", "offline"),
+  ];
   const original = window.fetch.bind(window);
   window.fetch = (input, init = {}) => {
     const url = new URL(typeof input === "string" ? input : input.url, location.href).pathname;
     if (url === "/api/local/incidents") return json(data);
+    if (url === "/api/local/incidents/settings") {
+      Object.assign(data.settings, JSON.parse(init.body ?? "{}"));
+      return json(data.settings);
+    }
+    if (url === "/api/rooms/build/participants") return json({ participants });
     return original(input, init);
   };
 })();

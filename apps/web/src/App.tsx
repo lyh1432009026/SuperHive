@@ -393,6 +393,18 @@ export function App({
   );
   // 左侧「故障」入口：条件和顶栏任务目录下拉一样，只给这台电脑上的房主
   const incidents = useIncidents(local, incidentsAvailable(isOwner, local), incidentSignal);
+  /** 派修设置里按房间列出可选的 Agent */
+  const loadRoomAgents = useCallback(
+    async (roomId: string) => {
+      const response = await fetch(`${base}/api/rooms/${encodeURIComponent(roomId)}/participants`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!response.ok) throw new Error(t("无法加载房间成员。"));
+      const payload = (await response.json()) as { participants: Participant[] };
+      return payload.participants.filter((participant) => participant.type === "agent");
+    },
+    [authToken, base],
+  );
   const [incidentsView, setIncidentsView] = useState<{ tab: IncidentsTab; focusId?: string }>();
   const incidentsTriggerRef = useRef<HTMLElement | null>(null);
   // 房主页面上的报错交给 Server 归档成故障单
@@ -2301,6 +2313,7 @@ export function App({
           rooms={rooms}
           currentRoomId={currentRoomId}
           username={username}
+          loadAgents={loadRoomAgents}
           onTab={(tab) => setIncidentsView({ tab })}
           onClose={() => {
             setIncidentsView(undefined);

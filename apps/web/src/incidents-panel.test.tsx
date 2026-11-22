@@ -13,6 +13,7 @@ import {
   incidentsAvailable,
   useIncidents,
   type IncidentsState,
+  type RoomAgent,
 } from "./incidents-panel";
 import { IncidentsDialog } from "./incidents-dialog";
 import { AttentionRoomGroup } from "./attention-alerts";
@@ -147,7 +148,7 @@ function state(patch: Partial<IncidentsState> = {}): IncidentsState {
     unhandled: 0,
     attentionItems: [],
     refresh: vi.fn(),
-    updateSettings: vi.fn(),
+    updateSettings: vi.fn(() => Promise.resolve(true)),
     act: vi.fn(),
     decide: vi.fn(),
     ...patch,
@@ -265,6 +266,7 @@ describe("IncidentsDialog", () => {
         rooms={[]}
         currentRoomId="build"
         username="rd"
+        loadAgents={loadAgents}
         onTab={onTab}
         onClose={vi.fn()}
       />,
@@ -285,6 +287,7 @@ describe("IncidentsDialog", () => {
         rooms={[]}
         currentRoomId="build"
         username="rd"
+        loadAgents={loadAgents}
         onTab={onTab}
         onClose={vi.fn()}
       />,
@@ -294,7 +297,43 @@ describe("IncidentsDialog", () => {
     expect(screen.getByText(/记录超过 3 秒（请求 5 秒）的操作/)).toBeTruthy();
   });
 
-  it("unfolds the dispatch settings in place and closes on Escape", () => {
+  const agentsByRoom: Record<string, RoomAgent[]> = {
+    build: [
+      { username: "rd-claude", status: "offline", provider: "claude" },
+      { username: "rd-claude2", status: "online", provider: "claude" },
+      { username: "rd-codex", status: "busy", provider: "codex" },
+    ],
+    ops: [{ username: "ops-bot", status: "online", provider: "codex" }],
+  };
+  const loadAgents = (roomId: string) => Promise.resolve(agentsByRoom[roomId] ?? []);
+  const rooms = [
+    { id: "build", name: "build" },
+    { id: "ops", name: "运维" },
+  ];
+
+  function openSettings(current: IncidentsState, onClose = vi.fn()) {
+    render(
+      <IncidentsDialog
+        tab="incidents"
+        incidents={current}
+        slowOps={{ ...slowOps, operations: [] }}
+        rooms={rooms}
+        currentRoomId="build"
+        username="rd"
+        loadAgents={loadAgents}
+        onTab={vi.fn()}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "派修设置" }));
+  }
+
+  const pick = async (field: string, option: string | RegExp) => {
+    fireEvent.click(screen.getByRole("combobox", { name: field }));
+    fireEvent.click(await screen.findByRole("option", { name: option }));
+  };
+
+  it("unfolds the dispatch settings in place and closes on Escape", async () => {
     const onClose = vi.fn();
     const current = state({ data: response() });
     render(
@@ -302,9 +341,10 @@ describe("IncidentsDialog", () => {
         tab="incidents"
         incidents={current}
         slowOps={{ ...slowOps, operations: [] }}
-        rooms={[{ id: "build", name: "build" }]}
+        rooms={rooms}
         currentRoomId="build"
         username="rd"
+        loadAgents={loadAgents}
         onTab={vi.fn()}
         onClose={onClose}
       />,
@@ -312,24 +352,138 @@ describe("IncidentsDialog", () => {
     expect(screen.getByText(/自动派修没打开/)).toBeTruthy();
     const toggle = screen.getByRole("button", { name: "派修设置" });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByLabelText("修的 Agent")).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "修的 Agent" })).toBeNull();
 
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     const settings = screen.getByRole("region", { name: "派修设置" });
-    fireEvent.change(screen.getByLabelText("修的 Agent"), { target: { value: "rd-claude2" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-    expect(current.updateSettings).toHaveBeenCalledWith(
-      expect.objectContaining({ roomId: "build", requester: "rd", fixer: "rd-claude2" }),
-    );
+    // 以房主的名义派活，不用填；也没有「保存」按钮，改了就存
+    expect(screen.queryByText("以谁的名义派活")).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("button", { name: "保存" })).toBeNull();
+    expect(settings.querySelector(".incident-settings.muted")).toBeTruthy();
+
+    await pick("修的 Agent", /rd-claude2/);
+    expect(current.updateSettings).toHaveBeenLastCalledWith({
+      roomId: "build",
+      requester: "rd",
+      fixer: "rd-claude2",
+    });
+    expect((await screen.findByRole("status")).textContent).toContain("已保存");
     fireEvent.click(screen.getByRole("switch", { name: /自动派修/ }));
-    expect(current.updateSettings).toHaveBeenCalledWith({ autoDispatch: true });
+    expect(current.updateSettings).toHaveBeenLastCalledWith({
+      roomId: "build",
+      requester: "rd",
+      autoDispatch: true,
+    });
     expect(settings.textContent).toContain("自动修复不许改的代码");
 
     fireEvent.click(toggle);
     expect(screen.queryByRole("region", { name: "派修设置" })).toBeNull();
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("lists the chosen room's agents, online first and offline marked", async () => {
+    const current = state({ data: response() });
+    openSettings(current);
+    fireEvent.click(screen.getByRole("combobox", { name: "修的 Agent" }));
+    await screen.findByRole("option", { name: /rd-claude2/ });
+    const names = screen.getAllByRole("option").map((option) => option.textContent);
+    expect(names[0]).toContain("rd-claude2");
+    expect(names[1]).toContain("rd-codex");
+    expect(names[1]).toContain("忙碌中");
+    expect(names[2]).toContain("rd-claude");
+    const headings = [...document.querySelectorAll(".select-group")].map(
+      (item) => item.textContent,
+    );
+    expect(headings).toEqual(["在线", "离线"]);
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "修的 Agent" }), { key: "Escape" });
+
+    await pick("在哪个房间派活", "# 运维");
+    expect(current.updateSettings).toHaveBeenLastCalledWith({ roomId: "ops", requester: "rd" });
+    fireEvent.click(screen.getByRole("combobox", { name: "修的 Agent" }));
+    await screen.findByRole("option", { name: /ops-bot/ });
+    expect(screen.queryByRole("option", { name: /rd-claude2/ })).toBeNull();
+  });
+
+  it("won't let the reviewer be the fixer", async () => {
+    const current = state({
+      data: response({
+        settings: {
+          ...DEFAULT_INCIDENT_SETTINGS,
+          roomId: "build",
+          requester: "rd",
+          fixer: "rd-claude2",
+          reviewer: "rd-codex",
+        },
+      }),
+    });
+    openSettings(current);
+    fireEvent.click(screen.getByRole("combobox", { name: "review 的 Agent" }));
+    const same = await screen.findByRole("option", { name: /rd-claude2/ });
+    expect(same.getAttribute("aria-disabled")).toBe("true");
+    expect(same.textContent).toContain("已选为修的 Agent");
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "review 的 Agent" }), {
+      key: "Escape",
+    });
+
+    // 把修的换成原来 review 的那个：review 的清空，提示重新选
+    await pick("修的 Agent", /rd-codex/);
+    expect(current.updateSettings).toHaveBeenLastCalledWith({
+      roomId: "build",
+      requester: "rd",
+      fixer: "rd-codex",
+      reviewer: "",
+    });
+    expect(screen.getByRole("alert").textContent).toContain("不能和修的是同一个");
+  });
+
+  it("warns when a saved agent is no longer in the room", async () => {
+    const current = state({
+      data: response({
+        settings: { ...DEFAULT_INCIDENT_SETTINGS, roomId: "build", fixer: "gone-agent" },
+      }),
+    });
+    openSettings(current);
+    expect((await screen.findByRole("alert")).textContent).toContain("gone-agent 不在 #build");
+    expect(screen.getByRole("combobox", { name: "修的 Agent" }).textContent).toContain(
+      "gone-agent",
+    );
+  });
+
+  it("keeps the counts within range and saves them once the clicking stops", async () => {
+    const current = state({ data: response() });
+    openSettings(current);
+    const threshold = screen.getByRole("spinbutton", { name: "出现几次派修" });
+    const daily = screen.getByRole("spinbutton", { name: "每天最多派" });
+    const attempts = screen.getByRole("spinbutton", { name: "修失败几次找你" });
+    expect([threshold, daily, attempts].map((item) => item.getAttribute("aria-valuemax"))).toEqual([
+      "20",
+      "20",
+      "5",
+    ]);
+    expect(daily.getAttribute("aria-valuemin")).toBe("1");
+    fireEvent.keyDown(threshold, { key: "End" });
+    fireEvent.keyDown(threshold, { key: "ArrowUp" });
+    fireEvent.keyDown(attempts, { key: "End" });
+    fireEvent.keyDown(daily, { key: "Home" });
+    fireEvent.keyDown(daily, { key: "ArrowDown" });
+    expect(threshold.getAttribute("aria-valuenow")).toBe("20");
+    expect(attempts.getAttribute("aria-valuenow")).toBe("5");
+    expect(daily.getAttribute("aria-valuenow")).toBe("1");
+    expect(current.updateSettings).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(current.updateSettings).toHaveBeenCalledWith({
+        roomId: "build",
+        requester: "rd",
+        threshold: 20,
+        maxAttempts: 5,
+        dailyLimit: 1,
+      }),
+    );
+    expect(current.updateSettings).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByText("次")).toHaveLength(3);
   });
 
   it("can't switch on automatic fixing when the server doesn't run from a checkout", () => {
@@ -343,6 +497,7 @@ describe("IncidentsDialog", () => {
         rooms={[]}
         currentRoomId="build"
         username="rd"
+        loadAgents={loadAgents}
         onTab={vi.fn()}
         onClose={vi.fn()}
       />,
