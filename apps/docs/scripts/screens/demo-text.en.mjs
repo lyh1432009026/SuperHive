@@ -4,7 +4,7 @@
 
 /** 整个文字节点等于它时才换（头像里的单字） */
 export const EXACT = {
-  林: "L",
+  荣: "R",
   周: "Z",
   陈: "C",
   // 规范里的短标题、表头和被加粗、代码拆开的片段，单独成段时才换，免得误伤长句
@@ -21,13 +21,19 @@ export const EXACT = {
 
 export const TEXT = {
   // 人和 Agent 简介
-  林夏: "Lin",
+  荣顶: "Rong",
   周屿: "Zhou",
   陈默: "Chen",
   "架构设计与代码 review": "Architecture and code review",
   "写代码、修 bug、补测试": "Code, bug fixes and tests",
   运维脚本与环境巡检: "Ops scripts and environment checks",
   文档与小改动: "Docs and small changes",
+  查资料与方案对比: "Research and comparing options",
+  页面走查与截图: "UI walkthroughs and screenshots",
+  前端页面与交互: "Frontend pages and interactions",
+  补测试与回归检查: "Tests and regression checks",
+  "周屿的电脑 · 接口联调": "Zhou's computer · API integration",
+  "周屿的电脑 · 跑 E2E 测试": "Zhou's computer · E2E tests",
   演示仓库: "Demo repository",
 
   // #design 交付的规范（Markdown 预览）
@@ -53,8 +59,8 @@ export const TEXT = {
     "Order details shows discounts as “- ¥20”, missing decimals.",
 
   // 白板
-  "结算页舍入口径等林夏三选一，确认后 30 分钟内可提测":
-    "Checkout rounding rule waiting for Lin to pick one of three; ready for QA 30 min after",
+  "结算页舍入口径等荣顶三选一，确认后 30 分钟内可提测":
+    "Checkout rounding rule waiting for Rong to pick one of three; ready for QA 30 min after",
   "移动端结算页金额格式对齐 PC：千分位加货币符号":
     "Mobile checkout price format matches desktop: separators and currency symbol",
   "登录接口限流做完了，等 review": "Login rate limiting done, awaiting review",
@@ -102,8 +108,8 @@ export const TEXT = {
     "Round half up in cents everywhere (matches the order service)",
   "统一用银行家舍入（四舍六入五成双）": "Use banker's rounding everywhere (round half to even)",
   "前端不舍入，直接显示后端金额": "No rounding on the frontend; show backend amounts as is",
-  "等林夏定舍入口径的时候，先帮我看下移动端结算页的金额格式：千分位和货币符号跟 PC 端对齐。":
-    "while Lin decides on rounding, look at the mobile checkout price format: match desktop's thousands separators and currency symbol.",
+  "等荣顶定舍入口径的时候，先帮我看下移动端结算页的金额格式：千分位和货币符号跟 PC 端对齐。":
+    "while Rong decides on rounding, look at the mobile checkout price format: match desktop's thousands separators and currency symbol.",
   先找两端格式化金额的地方: "Find where both sides format prices",
   "先看移动端结算页现在怎么格式化金额，再和 PC 端对齐。":
     "First check how mobile checkout formats prices now, then match desktop.",

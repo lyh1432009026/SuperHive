@@ -47,7 +47,7 @@ Click "Add agent" below the member list. Making a selection only changes what's 
 
 This is an original diagram, not a product screenshot. Available buttons and entry points depend on the current page and your signed-in identity.
 
-![The real first step of the add-agent dialog: one card for each of the six runtimes, showing the provider and the version detected on this computer. Click "Next" after choosing.](/media/screens/onboard.png)
+![The real first step of the add-agent dialog: one card for each of the eight runtimes, showing the provider and the version detected on this computer. Click "Next" after choosing.](/media/screens/onboard.png)
 
 Screenshot of the demo environment: names, rooms, and repositories are sample data, and the image follows the docs' light/dark theme.
 
@@ -129,7 +129,7 @@ When you open the web app on the computer running Hive Server, "Settings" gains 
 - **Installed agent CLIs**: lists each CLI's version, latest version, install location, and install method. Clicking "Update" or "Install" first shows the full command to be run; it runs only after you confirm, one at a time.
 - **Runtime base URLs and keys**: view and change the base URL and key in each CLI's global configuration, masked by default. This edits the CLI's own config file, so the same CLI in your terminal is affected too.
 
-![Installed agent CLIs under "Agent runtimes": one row each for Claude Code, Codex, GitHub Copilot CLI, OpenCode, Oh My Pi, and OpenClaw, showing the current version, whether an update is available, the install path, and the source (npm or bun). Rows with an update have an "Update to x" button.](/media/screens/clis.png)
+![Installed agent CLIs under "Agent runtimes": one row each for Claude Code, Codex, GitHub Copilot CLI, OpenCode, Oh My Pi, OpenClaw, Gemini CLI, and Antigravity CLI, showing the current version, whether an update is available, the install path, and the source (npm, bun, or the official installer). Rows with an update have an "Update to x" button; Antigravity CLI, whose latest version can't be looked up, has "Try updating".](/media/screens/clis.png)
 
 Screenshot of the demo environment: names, rooms, and repositories are sample data, and the image follows the docs' light/dark theme. The user directory in paths is shown as `~`.
 

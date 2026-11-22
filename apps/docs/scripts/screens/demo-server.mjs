@@ -38,14 +38,21 @@ const ago = (ms) => new Date(Date.now() - ms).toISOString();
 
 /* ---------------- 演示数据 ---------------- */
 
-/** 当前身份（截图时网页以她进入）；房主 */
-export const OWNER = "林夏";
+/** 当前身份（截图时网页以这个身份进入）；房主 */
+export const OWNER = "荣顶";
 
 const AGENTS = {
   claude: { provider: "claude", persona: "架构设计与代码 review" },
+  "claude-2": { provider: "claude", persona: "前端页面与交互" },
+  "claude-3": { provider: "claude", persona: "补测试与回归检查" },
   codex: { provider: "codex", persona: "写代码、修 bug、补测试" },
   omp: { provider: "omp", persona: "运维脚本与环境巡检" },
   opencode: { provider: "opencode", persona: "文档与小改动" },
+  gemini: { provider: "gemini", persona: "查资料与方案对比" },
+  agy: { provider: "agy", persona: "页面走查与截图" },
+  // 周屿电脑上的 Agent：从别的电脑接进来，不是本机 Agent，成员栏里没有「本机」标记
+  "zhou-codex": { provider: "codex", persona: "周屿的电脑 · 接口联调", remote: true },
+  "zhou-codex-2": { provider: "codex", persona: "周屿的电脑 · 跑 E2E 测试", remote: true },
 };
 
 /** 房间：名字、在线成员（人和 Agent）、离线的人；pinned 置顶 */
@@ -57,7 +64,19 @@ const ROOMS = [
     pinned: true,
     humans: ["周屿"],
     offline: ["陈默"],
-    agents: ["codex", "omp", "opencode", "claude"],
+    // 成员栏里后上线的排在前面：倒着写，显示出来同类的挨在一起，周屿的两个在最后
+    agents: [
+      "zhou-codex-2",
+      "zhou-codex",
+      "omp",
+      "opencode",
+      "agy",
+      "gemini",
+      "codex",
+      "claude-3",
+      "claude-2",
+      "claude",
+    ],
   },
   { id: "design", pinned: true, humans: ["周屿"], agents: ["claude"] },
   // 还没有聊天记录的房间：截「提及成员」弹窗用，弹窗背后是空白
@@ -91,6 +110,14 @@ const CLIS = [
     latest: "19.0.0",
     bun: true,
   },
+  {
+    command: "gemini",
+    pkg: "@google/gemini-cli",
+    version: "0.21.3",
+    latest: "0.23.0",
+  },
+  // agy 不在 npm 上：官方脚本装成 ~/.local/bin 里的单个程序
+  { command: "agy", version: "1.6.2", native: true },
   {
     command: "openclaw",
     pkg: "openclaw",
@@ -164,10 +191,17 @@ function createRepository() {
   return repo;
 }
 
-/** 假的 Agent CLI：一个只会打印版本号的脚本，按 npm 全局安装（bun 安装）的目录结构放好 */
+/** 假的 Agent CLI：一个只会打印版本号的脚本，按 npm 全局安装（bun 安装、官方脚本安装）的目录结构放好 */
 function createFakeClis() {
   const dirs = new Set();
   for (const cli of CLIS) {
+    if (cli.native) {
+      const bin = path.join(HOME, ".local/bin");
+      write(path.join(bin, cli.command), `#!/bin/sh\necho "${cli.version}"\n`);
+      fs.chmodSync(path.join(bin, cli.command), 0o755);
+      dirs.add(bin);
+      continue;
+    }
     const prefix = path.join(HOME, cli.bun ? ".bun" : ".npm-global");
     const real = cli.bun
       ? path.join(prefix, "install/global/node_modules", cli.pkg, "bin", cli.command)
@@ -232,7 +266,7 @@ function seedWhiteboard(database, repo, worktrees) {
       input: {
         key: "price-rounding",
         slot: "blocked",
-        summary: "结算页舍入口径等林夏三选一，确认后 30 分钟内可提测",
+        summary: "结算页舍入口径等荣顶三选一，确认后 30 分钟内可提测",
         repo: "shop-web",
         branch: "feat/codex-price-rounding",
       },
@@ -462,9 +496,9 @@ function seedDatabase(databasePath, repo) {
         "offline",
       );
   }
-  // 四个 Agent 都是这台电脑上的本机 Agent（进程是假的，见 buildApp 的 localAgents.spawn）：
+  // 除了周屿的两个，其余 Agent 都是这台电脑上的本机 Agent（进程是假的，见 buildApp 的 localAgents.spawn）：
   // 本机 Agent 才能建任务目录，成员栏里也和平时一样显示本机管理入口
-  for (const [name, agent] of Object.entries(AGENTS))
+  for (const [name, agent] of Object.entries(AGENTS).filter(([, agent]) => !agent.remote))
     database.createLocalAgent({
       name,
       provider: agent.provider,
@@ -626,7 +660,7 @@ async function playScenario(url, token) {
   const timeline = [];
   const at = (message, age) => timeline.push({ id: message.id, age });
 
-  // 先让各房间的成员上线（房主「林夏」由截图用的网页以她的身份进入，这里只临时代她发言）
+  // 先让各房间的成员上线（房主「荣顶」由截图用的网页以这个身份进入，这里只临时代为发言）
   const online = {};
   for (const room of ROOMS) {
     for (const name of room.humans)
@@ -653,7 +687,7 @@ async function playScenario(url, token) {
   claude.report(kickoffTask.id, "completed", { replyMessageId: done.id });
   at(done, 25 * MINUTE + 30_000);
 
-  // codex 查舍入，查完向林夏提问（等你回答）
+  // codex 查舍入，查完向荣顶提问（等你回答）
   const rounding = await lin.say("@codex 结算页和订单详情页的金额对不上，帮我查一下两边的舍入。");
   at(rounding, 52 * MINUTE);
   const roundingTask = await codex.mentioned((message) => message.id === rounding.id);
@@ -696,7 +730,7 @@ async function playScenario(url, token) {
 
   // 周屿让 codex 先看另一件事：codex 正在执行，上报执行过程
   const format = await zhou.say(
-    "@codex 等林夏定舍入口径的时候，先帮我看下移动端结算页的金额格式：千分位和货币符号跟 PC 端对齐。",
+    "@codex 等荣顶定舍入口径的时候，先帮我看下移动端结算页的金额格式：千分位和货币符号跟 PC 端对齐。",
   );
   at(format, 37 * MINUTE);
   const formatTask = await codex.mentioned((message) => message.id === format.id);
@@ -808,7 +842,7 @@ async function playScenario(url, token) {
   at(delivered, 22 * MINUTE);
 
   await sleep(300);
-  // 林夏的临时连接退出，网页会以她的身份重新进来
+  // 荣顶的临时连接退出，网页会以这个身份重新进来
   for (const owner of [lin, linOps, linDesign]) {
     owner.close();
     members.splice(members.indexOf(owner), 1);
@@ -889,7 +923,9 @@ seedIncidents(seeded);
 seeded.close();
 
 const token = randomBytes(24).toString("hex");
-const latest = Object.fromEntries(CLIS.map((cli) => [cli.pkg, cli.latest]));
+const latest = Object.fromEntries(
+  CLIS.filter((cli) => cli.pkg).map((cli) => [cli.pkg, cli.latest]),
+);
 const app = await buildApp({
   databasePath,
   token,

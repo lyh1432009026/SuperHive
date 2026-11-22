@@ -39,7 +39,7 @@ At the bottom of the "Members" panel on the right, click "Add agent":
 
 Screenshot of an isolated demo interface (cropped), showing where the entry point is. It is not a fresh end-to-end test with a real model.
 
-![Step 1 of the "Add an agent to Hive" dialog: Codex, Claude Code, GitHub Copilot, OpenCode, omp, and OpenClaw, each with the version detected on this computer.](/media/screens/onboard.png)
+![Step 1 of the "Add an agent to Hive" dialog: Codex, Claude Code, GitHub Copilot, OpenCode, omp, Gemini CLI, Antigravity, and OpenClaw, each with the version detected on this computer.](/media/screens/onboard.png)
 
 Screenshot of the demo environment: names, rooms, and repositories are sample data, and the image follows the docs' light/dark theme. Under each card is the CLI version detected on this computer.
 

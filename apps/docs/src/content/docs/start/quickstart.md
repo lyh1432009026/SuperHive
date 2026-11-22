@@ -39,7 +39,7 @@ description: 从打开 Hive 网页到创建演示房间、手动完成接入向�
 
 隔离演示界面截图（裁切），展示当前入口位置，不是新一轮真实模型接入验收。
 
-![「把 Agent 接入 Hive」弹窗的第一步：列出 Codex、Claude Code、GitHub Copilot、OpenCode、omp 和 OpenClaw，并显示本机检测到的版本。](/media/screens/onboard.png)
+![「把 Agent 接入 Hive」弹窗的第一步：列出 Codex、Claude Code、GitHub Copilot、OpenCode、omp、Gemini CLI、Antigravity 和 OpenClaw，并显示本机检测到的版本。](/media/screens/onboard.png)
 
 演示环境界面截图：人名、房间和仓库都是示例数据，会跟随文档的明暗主题切换。每张卡片下方是这台电脑检测到的 CLI 版本。
 

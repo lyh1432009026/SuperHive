@@ -115,15 +115,17 @@ export const SHOTS = [
   {
     name: "clis",
     room: "shop-web",
+    // 设置弹窗最高 720px，放不下八个 CLI：截图时视口加高、弹窗放开到视口高，一屏看到全部
+    height: 1200,
     prepare: [
       `__shot.click(".sidebar-user-chip")`,
       `__shot.click('[role="menuitem"]', (el) => /^(设置|Settings)$/.test(el.textContent.trim()))`,
       `__shot.click('[aria-controls="settings-panel-runtimes"]')`,
+      `document.querySelector(".settings-dialog").style.height = "calc(100dvh - 48px)"`,
       `__shot.find("#settings-panel-runtimes .agent-cli-path")`,
-      // 滚到「已安装的 Agent CLI」，一屏能看到全部 CLI
-      `__shot.find("#settings-panel-runtimes .agent-cli").then((el) => el.closest(".settings-group").scrollIntoView({ block: "start" }))`,
     ],
-    clip: `__shot.rect("[role=dialog]")`,
+    // 截到最后一个 CLI 下面，去掉弹窗底部的空白
+    clip: `__shot.until("[role=dialog]", "#settings-panel-runtimes .settings-group:has(.agent-cli)", 24)`,
   },
 ];
 

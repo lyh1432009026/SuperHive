@@ -47,7 +47,7 @@ Agent 是在一台电脑上运行的协作者。Hive 把房间消息交给它，
 
 图中是原创操作示意图，不是产品截图；按钮和可用入口以当前页面及登录身份为准。
 
-![接入弹窗第一步的真实界面：六种运行时各一张卡片，显示提供方和本机检测到的版本，选好后点「下一步」。](/media/screens/onboard.png)
+![接入弹窗第一步的真实界面：八种运行时各一张卡片，显示提供方和本机检测到的版本，选好后点「下一步」。](/media/screens/onboard.png)
 
 演示环境界面截图：人名、房间和仓库都是示例数据，会跟随文档的明暗主题切换。
 
@@ -129,7 +129,7 @@ Codex、Claude Code 的额外 MCP 可选择加载；`hive` 始终加载。MCP �
 - **已安装的 Agent CLI**：列出每个 CLI 的版本、最新版、安装位置和安装方式。点「升级」或「安装」会先显示要执行的完整命令，确认后才运行，一次只跑一个。
 - **运行时接口地址与密钥**：查看、修改各 CLI 全局配置里的接口地址和密钥，默认打码；改的是 CLI 自己的配置文件，终端里的同一个 CLI 也会受影响。
 
-![「Agent 运行时」里的已安装 Agent CLI：Claude Code、Codex、GitHub Copilot CLI、OpenCode、Oh My Pi、OpenClaw 各一行，显示当前版本、是否有新版、安装路径和来源（npm 或 bun），有新版的带「升级到 x」按钮。](/media/screens/clis.png)
+![「Agent 运行时」里的已安装 Agent CLI：Claude Code、Codex、GitHub Copilot CLI、OpenCode、Oh My Pi、OpenClaw、Gemini CLI、Antigravity CLI 各一行，显示当前版本、是否有新版、安装路径和来源（npm、bun 或官方安装器），有新版的带「升级到 x」按钮，查不到最新版的 Antigravity CLI 带「尝试升级」。](/media/screens/clis.png)
 
 演示环境界面截图：人名、房间和仓库都是示例数据，会跟随文档的明暗主题切换。路径里的用户目录显示为 `~`。
 
