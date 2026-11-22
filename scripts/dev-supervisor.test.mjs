@@ -6,10 +6,12 @@ import path from "node:path";
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
+import { adoptProcess } from "./dev-process.mjs";
 import {
   DevError,
   DevSupervisor,
   SOURCE_ROOTS,
+  findOrphanServer,
   isWatchedFile,
   publicError,
   readGeneration,
@@ -460,3 +462,130 @@ test("a code update leaves a handover marker so local Agents survive; a real sto
   assert.deepEqual(seenAtStop, [true, false]);
   assert.equal(fs.existsSync(handoverPath), false);
 });
+
+test("a supervisor without its Server reclaims the old generation by handover instead of failing on the busy port", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hive-dev-reclaim-"));
+  const handoverPath = path.join(root, ".superhive-dev/agent-handover");
+  const events = [];
+  const orphan = fakeServer();
+  orphan.stop = async () => {
+    events.push(["stop-orphan", fs.existsSync(handoverPath)]);
+  };
+  let reclaims = 0;
+  const supervisor = new DevSupervisor({
+    statusPath: path.join(root, ".superhive-dev/status.json"),
+    handoverPath,
+    debounceMs: 20,
+    build: async () => ({}),
+    // 上一代 supervisor 意外退出，Server 还占着端口：只有手上没有 Server 时才去找
+    reclaim: async () => (reclaims++ === 0 ? orphan : undefined),
+    startServer: async () => {
+      events.push(["start"]);
+      return fakeServer();
+    },
+  });
+  const statuses = [];
+  supervisor.on("status", (status) => statuses.push(status));
+  t.after(async () => {
+    await supervisor.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  supervisor.changed(["initial-start"], { immediate: true });
+  await until(() => statuses.some((s) => s.state === "ready"));
+  // 交接标记写好后才停旧 Server，停完才起新的
+  assert.deepEqual(events, [["stop-orphan", true], ["start"]]);
+  supervisor.changed(["apps/server/src/app.ts"]);
+  await until(() => statuses.filter((s) => s.state === "ready").length === 2);
+  assert.equal(reclaims, 1);
+});
+
+test("a port held by something other than our old Server fails with its reason and starts nothing", async (t) => {
+  let starts = 0;
+  const f = fixture(t, {
+    reclaim: async () => {
+      throw new DevError("端口 8787 被其他程序占用（不是 Hive Server）");
+    },
+    startServer: async () => {
+      starts += 1;
+      return fakeServer();
+    },
+  });
+  f.supervisor.changed(["initial-start"], { immediate: true });
+  await until(() => f.statuses.some((s) => s.state === "failed"));
+  assert.match(f.statuses.at(-1).error, /不是 Hive Server/);
+  assert.equal(starts, 0);
+});
+
+test("only this checkout's unmanaged Hive Server is reclaimed from a busy port", async (t) => {
+  let body = { status: "ok", pid: 4242, instanceId: "old" };
+  const listener = http.createServer((_request, response) => {
+    response.setHeader("Content-Type", "application/json");
+    response.end(typeof body === "string" ? body : JSON.stringify(body));
+  });
+  await new Promise((resolve) => listener.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => listener.close(resolve)));
+  const port = listener.address().port;
+  const entry = "/repo/apps/server/src/index.ts";
+  let command = `node --import tsx ${entry}`;
+  let managed = false;
+  const find = () =>
+    findOrphanServer({
+      port,
+      host: "127.0.0.1",
+      healthUrl: `http://127.0.0.1:${port}/health`,
+      entry,
+      inspect: async (pid) => (pid === 4242 ? { ppid: 1, pgid: 4242, command } : undefined),
+      isUnmanaged: async () => !managed,
+    });
+  const orphan = await find();
+  assert.equal(orphan.pid, 4242);
+  assert.equal(orphan.adopted, true);
+  managed = true;
+  await assert.rejects(find(), /另一个 pnpm dev/);
+  managed = false;
+  command = "node /elsewhere/apps/server/src/index.ts";
+  await assert.rejects(find(), /另一个 Hive Server/);
+  body = "<html>not hive</html>";
+  await assert.rejects(find(), /不是 Hive Server/);
+  const probe = http.createServer();
+  await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
+  const freePort = probe.address().port;
+  await new Promise((resolve) => probe.close(resolve));
+  assert.equal(
+    await findOrphanServer({
+      port: freePort,
+      host: "127.0.0.1",
+      healthUrl: `http://127.0.0.1:${freePort}/health`,
+      entry,
+    }),
+    undefined,
+  );
+});
+
+test(
+  "adopted orphans are stopped with their process group, and never once they are not ours",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    const spawnOrphan = async () => {
+      const child = startProcess(
+        process.execPath,
+        ["-e", "setInterval(()=>{},1000); console.log('started');"],
+        { stdio: ["ignore", "pipe", "ignore"] },
+      );
+      await new Promise((resolve) => child.child.stdout.once("data", resolve));
+      return child;
+    };
+    const ours = await spawnOrphan();
+    t.after(() => ours.stop());
+    const adopted = adoptProcess(ours.child.pid, { isOwn: async () => true, pollMs: 10 });
+    await adopted.stop();
+    assert.equal(adopted.finished, true);
+    assert.equal((await ours.exited).signal, "SIGTERM");
+    // pid 已经不是我们的（被复用、或核对失败）：不发任何信号
+    const theirs = await spawnOrphan();
+    t.after(() => theirs.stop());
+    const refused = adoptProcess(theirs.child.pid, { isOwn: async () => false, pollMs: 10 });
+    await refused.stop();
+    assert.equal(theirs.finished, false);
+  },
+);

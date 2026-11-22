@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { clearTimeout, setTimeout } from "node:timers";
+import { setTimeout as delay } from "node:timers/promises";
 
 /** The web plugin watches the parent directory, so atomic rename is observable. */
 export function writeStatus(statusPath, status) {
@@ -172,4 +173,96 @@ export async function runCheck(command, args, label, { cwd, signal, env, timeout
     clearTimeout(timeout);
     signal.removeEventListener("abort", cancel);
   }
+}
+
+const execFileText = (command, args) =>
+  new Promise((resolve) => {
+    execFile(command, args, { windowsHide: true }, (error, stdout) =>
+      resolve(error ? undefined : String(stdout)),
+    );
+  });
+
+/** 父进程、进程组和命令行；进程不在或拿不到（Windows 没有 ps）时返回 undefined */
+export async function describeProcess(pid) {
+  if (process.platform === "win32") return undefined;
+  const output = await execFileText("ps", ["-o", "ppid=,pgid=,command=", "-p", String(pid)]);
+  const match = output?.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/s);
+  return match ? { ppid: Number(match[1]), pgid: Number(match[2]), command: match[3] } : undefined;
+}
+
+/** 在端口上监听的进程；拿不到（Windows、没有 lsof）时返回空 */
+export async function listeningPids(port) {
+  if (process.platform === "win32") return [];
+  const output = await execFileText("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"]);
+  return [...new Set((output ?? "").split(/\s+/).filter(Boolean).map(Number))];
+}
+
+export async function processCwd(pid) {
+  if (process.platform === "win32") return undefined;
+  const output = await execFileText("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"]);
+  return output
+    ?.split("\n")
+    .find((line) => line.startsWith("n"))
+    ?.slice(1);
+}
+
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+}
+
+/**
+ * 接管一个不是自己起的、但确认属于本仓库 dev 的进程（上一代 supervisor 意外退出后留下的孤儿）。
+ * 每次发信号前都重新核对 isOwn，防止它已经退出、pid 被别的程序复用；
+ * 进程组的组长也核对过才结束整组（Server 的 caffeinate、pnpm 下的 vite 和它们一起走）。
+ */
+export function adoptProcess(pid, { isOwn, stopGraceMs = 12_000, pollMs = 100 }) {
+  let finished = false;
+  let resolveExited;
+  const exited = new Promise((resolve) => {
+    resolveExited = resolve;
+  });
+  const settle = () => {
+    finished = true;
+    resolveExited({ code: null, signal: null });
+  };
+  const signal = async (name) => {
+    const info = await describeProcess(pid);
+    if (!info || !(await isOwn(pid, info))) return false;
+    const leader =
+      info.pgid === pid ? info : info.pgid > 1 ? await describeProcess(info.pgid) : undefined;
+    const group = leader && (info.pgid === pid || (await isOwn(info.pgid, leader)));
+    try {
+      process.kill(group ? -info.pgid : pid, name);
+    } catch (error) {
+      if (error.code !== "ESRCH") throw error;
+    }
+    return true;
+  };
+  let stopping;
+  return {
+    pid,
+    adopted: true,
+    exited,
+    get finished() {
+      return finished;
+    },
+    stop() {
+      stopping ??= (async () => {
+        if (!(await signal("SIGTERM"))) return settle();
+        const deadline = Date.now() + stopGraceMs;
+        while (alive(pid) && Date.now() < deadline) await delay(pollMs);
+        if (alive(pid)) await signal("SIGKILL");
+        // 收尸由它的父进程负责，这里只等到期限，不无限挂着
+        const killDeadline = Date.now() + stopGraceMs;
+        while (alive(pid) && Date.now() < killDeadline) await delay(pollMs);
+        settle();
+      })();
+      return stopping;
+    },
+  };
 }

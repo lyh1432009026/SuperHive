@@ -11,6 +11,10 @@ import { clearTimeout, setTimeout } from "node:timers";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   DevError,
+  adoptProcess,
+  describeProcess,
+  listeningPids,
+  processCwd,
   publicError,
   readGeneration,
   runCheck,
@@ -71,8 +75,12 @@ export class DevSupervisor extends EventEmitter {
     debounceMs = 1_500,
     healthTimeoutMs = 30_000,
     handoverPath,
+    reclaim,
   }) {
     super();
+    // 手上没有在跑的 Server 时，找回端口上本仓库上一代留下的 Server（supervisor 意外退出后的孤儿），
+    // 按换代流程交接后停掉；端口被别的程序占着时抛出说明原因的 DevError
+    this.reclaim = reclaim;
     // 换代时写下交接标记：旧 Server 据此把本机 Agent 留给新 Server 接管，而不是一起结束
     this.handoverPath = handoverPath;
     this.statusPath = statusPath;
@@ -151,7 +159,7 @@ export class DevSupervisor extends EventEmitter {
       build = await this.build({ signal: this.abort.signal });
       if (this.closed || this.paused || this.pending.size) return;
       this.status("restarting", files);
-      const previous = this.server;
+      const previous = this.server ?? (await this.reclaim?.());
       this.server = undefined; // An intentional exit must not be reported as a crash.
       if (previous) this.markHandover(true);
       await previous?.stop();
@@ -429,16 +437,121 @@ export function watchWorkspace(repoRoot, onChange, onError) {
   };
 }
 
-async function assertPortAvailable(port, host) {
-  await new Promise((resolve, reject) => {
+function portAvailable(port, host) {
+  return new Promise((resolve) => {
     const probe = net.createServer();
-    probe.once("error", () =>
-      reject(
-        new DevError(`端口 ${port} 已被占用；请先停止旧 dev 实例再启动，不会替你结束其他进程。`),
-      ),
-    );
-    probe.listen(port, host, () => probe.close(resolve));
+    probe.once("error", () => resolve(false));
+    probe.listen(port, host, () => probe.close(() => resolve(true)));
   });
+}
+
+/**
+ * 端口上的进程是不是本仓库 dev 起的、并且已经没有 supervisor 在管：父进程是本 supervisor
+ * （丢了引用），或者父进程已不是 dev supervisor（上一代意外退出，它被 init 收养）。
+ * 另一个还活着的 pnpm dev 管着的进程不算，避免两个 dev 互相抢端口。
+ */
+async function unmanaged(info) {
+  if (info.ppid === process.pid) return true;
+  const parent = info.ppid > 1 ? await describeProcess(info.ppid) : undefined;
+  return !parent?.command.includes("scripts/dev-supervisor.mjs");
+}
+
+/**
+ * Server 端口被占时认一认占用者：本仓库上一代留下的 Hive Server 返回可交接的进程，
+ * 其他情况抛出说明原因的 DevError，不替人结束别的进程。
+ */
+export async function findOrphanServer({
+  port,
+  host,
+  healthUrl,
+  entry,
+  inspect = describeProcess,
+  isUnmanaged = unmanaged,
+  stopGraceMs,
+}) {
+  if (await portAvailable(port, host)) return undefined;
+  let body;
+  try {
+    const response = await globalThis.fetch(healthUrl, {
+      signal: globalThis.AbortSignal.timeout(2_000),
+    });
+    body = await response.json();
+  } catch {
+    /* not an HTTP/Hive listener */
+  }
+  if (body?.status !== "ok" || !Number.isSafeInteger(body.pid) || body.pid <= 1)
+    throw new DevError(
+      `端口 ${port} 被其他程序占用（不是 Hive Server）；请先释放端口或换 HIVE_PORT，不会替你结束其他进程。`,
+    );
+  const info = await inspect(body.pid);
+  if (!info?.command.includes(entry))
+    throw new DevError(
+      `端口 ${port} 被另一个 Hive Server 占用（pid ${body.pid}，不是这个仓库的 pnpm dev 启动的）；请先停掉它或换 HIVE_PORT，不会替你结束其他进程。`,
+    );
+  if (!(await isUnmanaged(info)))
+    throw new DevError(
+      `端口 ${port} 上的 Hive Server（pid ${body.pid}）还由另一个 pnpm dev 管着；请先停掉那个 dev 再启动。`,
+    );
+  const isOwn = async (pid, current) => {
+    const next = current ?? (await inspect(pid));
+    return Boolean(next?.command.includes(entry));
+  };
+  return adoptProcess(body.pid, { isOwn, ...(stopGraceMs ? { stopGraceMs } : {}) });
+}
+
+/** Web 端口被本仓库上一代留下的 Vite 占着时结束它（它不带状态，直接重起）；其他占用者报原因 */
+export async function reclaimWebPort({ port, host, repoRoot, stopGraceMs }) {
+  if (await portAvailable(port, host)) return;
+  // lsof 给的是真实路径（macOS 的 /var 是 /private/var 的软链）
+  const root = fs.realpathSync(repoRoot);
+  const isOwn = async (pid, current) => {
+    const info = current ?? (await describeProcess(pid));
+    const cwd = info && (await processCwd(pid));
+    return Boolean(
+      info?.command.includes("vite") &&
+      info.command.includes(`--port ${port}`) &&
+      cwd &&
+      (cwd === root || cwd.startsWith(`${root}${path.sep}`)),
+    );
+  };
+  const orphans = [];
+  for (const pid of await listeningPids(port)) {
+    const info = await describeProcess(pid);
+    if (!info || !(await isOwn(pid, info))) continue;
+    // vite 的父进程是 pnpm，pnpm（进程组组长）才是 supervisor 直接起的
+    const leader = info.pgid === pid ? info : await describeProcess(info.pgid);
+    const owner = leader && (await isOwn(info.pgid, leader)) ? leader : info;
+    if (!(await unmanaged(owner)))
+      throw new DevError(
+        `Web 端口 ${port} 上的 Vite（pid ${pid}）还由另一个 pnpm dev 管着；请先停掉那个 dev 再启动。`,
+      );
+    orphans.push(adoptProcess(pid, { isOwn, ...(stopGraceMs ? { stopGraceMs } : {}) }));
+  }
+  if (!orphans.length)
+    throw new DevError(
+      `Web 端口 ${port} 已被占用（不是这个仓库上一次 pnpm dev 留下的 Vite）；请先释放端口或换 HIVE_DEV_WEB_PORT，不会替你结束其他进程。`,
+    );
+  console.log(
+    `[dev] 结束上一次 pnpm dev 留下的 Vite（pid ${orphans.map((o) => o.pid).join(", ")}）`,
+  );
+  await Promise.all(orphans.map((orphan) => orphan.stop()));
+  if (!(await portAvailable(port, host)))
+    throw new DevError(`Web 端口 ${port} 仍被占用；请查看本机 dev 终端。`);
+}
+
+/** supervisor 被强制结束时来不及清理的编译暂存目录 */
+function removeStaleStaging(directories) {
+  for (const directory of directories) {
+    let entries;
+    try {
+      entries = fs.readdirSync(directory);
+    } catch {
+      continue;
+    }
+    for (const name of entries)
+      if (name.startsWith("build-"))
+        fs.rmSync(path.join(directory, name), { recursive: true, force: true });
+  }
 }
 
 export async function main() {
@@ -453,27 +566,41 @@ export async function main() {
       throw new DevError("开发端口必须在 1 到 65535 之间。");
   }
   if (port === webPort) throw new DevError("Web 和 Hive Server 不能使用同一端口。");
-  await assertPortAvailable(port, host);
-  await assertPortAvailable(webPort, "0.0.0.0");
+  const probeHost = ["0.0.0.0", "::", "localhost"].includes(host) ? "127.0.0.1" : host;
+  const formattedHost = probeHost.includes(":") ? `[${probeHost}]` : probeHost;
+  const serverEntry = path.join(repoRoot, "apps/server/src/index.ts");
+  // 上一代 supervisor 意外退出时 Server 和 Vite 会留下来占着端口：Server 交给第一次换代按交接流程接管
+  // （编译通过前它照常服务，本机 Agent 不掉线），Vite 不带状态，直接结束重起
+  const reclaim = async () => {
+    const orphan = await findOrphanServer({
+      port,
+      host,
+      healthUrl: `http://${formattedHost}:${port}/health`,
+      entry: serverEntry,
+    });
+    if (orphan)
+      console.log(
+        `[dev] 端口 ${port} 上是上一代留下的 Hive Server（pid ${orphan.pid}），换代时交接接管`,
+      );
+    return orphan;
+  };
+  await reclaim();
+  await reclaimWebPort({ port: webPort, host: "0.0.0.0", repoRoot });
+  removeStaleStaging([stateDir, path.join(repoRoot, "packages/protocol/.superhive-dev")]);
   const require = createRequire(path.join(repoRoot, "apps/server/package.json"));
   const handoverPath = path.join(stateDir, "agent-handover");
   const supervisor = new DevSupervisor({
     statusPath,
     handoverPath,
+    reclaim,
     build: ({ signal }) => buildWorkspace(repoRoot, { signal, stateDir }),
     startServer: () => {
       const instanceId = randomUUID();
       const shutdownToken = randomUUID();
-      const probeHost = ["0.0.0.0", "::", "localhost"].includes(host) ? "127.0.0.1" : host;
-      const formattedHost = probeHost.includes(":") ? `[${probeHost}]` : probeHost;
       const server = startProcess(
         process.execPath,
         // --import 要的是 URL：Windows 上 C:\... 这样的路径会被当成 c: 协议报错
-        [
-          "--import",
-          pathToFileURL(require.resolve("tsx")).href,
-          path.join(repoRoot, "apps/server/src/index.ts"),
-        ],
+        ["--import", pathToFileURL(require.resolve("tsx")).href, serverEntry],
         {
           cwd: path.join(repoRoot, "apps/server"),
           env: {

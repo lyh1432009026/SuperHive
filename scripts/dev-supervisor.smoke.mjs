@@ -86,6 +86,7 @@ try {
     "index.html",
     "vite.config.ts",
     "dev-status-plugin.ts",
+    "pptx-preview-plugin.ts",
     "tsconfig.node.json",
     "public",
   ])
@@ -278,6 +279,24 @@ if(args[0]==='install'){
   await waitStatus("ready", ++generation);
   console.log(
     "PASS malformed supervisor preserves old runtime; boot failure leaves launcher alive and save fix recovers",
+  );
+  // 上一代 supervisor 被强制结束（崩溃、kill -9）：Server 和 Vite 在各自的进程组里留下来占着端口
+  identity = (await json(healthUrl)).instanceId;
+  const supervisorPid = Number(
+    execFileSync("pgrep", ["-P", String(child.child.pid)], { encoding: "utf8" }).trim(),
+  );
+  process.kill(supervisorPid, "SIGKILL");
+  await waitStatus("failed", generation);
+  assert.equal((await json(healthUrl)).instanceId, identity);
+  fs.appendFileSync(
+    path.join(root, "apps/server/src/index.ts"),
+    "\n// source edit after the supervisor was killed\n",
+  );
+  await waitStatus("ready", ++generation);
+  assert.notEqual((await json(healthUrl)).instanceId, identity);
+  assert.equal((await json(statusUrl)).generation, generation);
+  console.log(
+    "PASS killed supervisor leaves Server/Vite behind; the next one reclaims them by handover",
   );
   await child.stop();
   for (const url of [healthUrl, statusUrl]) {
