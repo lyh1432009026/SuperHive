@@ -966,7 +966,11 @@ describe("decideAcpPermission", () => {
     it("allows new nested directories and paths whose parents do not exist yet", () => {
       expect(edit("src/new/deeper/file.ts")).toBe("allow");
       expect(edit(path.join(cwd, "missing", "also-missing", "file.ts"))).toBe("allow");
-      expect(edit("missing/../src/x.ts")).toBe("allow");
+      // newdir 不存在：mkdir -p 后 newdir/.. 回到 cwd，再经 escape 写到外面
+      symlinkSync(outside, path.join(cwd, "escape"));
+      expect(edit("newdir/../escape/x")).toBe("reject");
+      expect(edit("newdir/../src/x.ts")).toBe("reject");
+      expect(edit("newdir/sub/x")).toBe("allow");
       expect(edit("../outside/x")).toBe("reject");
     });
 

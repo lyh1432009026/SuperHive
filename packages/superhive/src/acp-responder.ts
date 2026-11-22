@@ -154,7 +154,8 @@ function segments(input: string): string[] {
  * - 末段是悬空软链时 realpath 报不存在，但写它会在链接指向处新建文件；
  * - link/.. 在系统里是链接目标的上一级，按字面却折回了 cwd。
  * 已存在的部分逐段 lstat、遇到软链就把链接内容展开进待解析的段；从第一个不存在的段起，剩下的按字面拼接
- * （新建的目录不会是软链）。软链循环、无权限等异常返回 undefined，调用方按目录外处理。
+ * （新建的目录不会是软链），剩下的段里还有 .. 时不拼。软链循环、无权限、这种 .. 都返回 undefined，
+ * 调用方按目录外处理。
  */
 function resolveRealPath(cwd: string, target: string): string | undefined {
   const absolute = path.isAbsolute(target) ? target : `${cwd}${path.sep}${target}`;
@@ -175,7 +176,10 @@ function resolveRealPath(cwd: string, target: string): string | undefined {
       isLink = lstatSync(next).isSymbolicLink();
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ENOENT" || code === "ENOTDIR") return path.join(next, ...pending);
+      if (code !== "ENOENT" && code !== "ENOTDIR") return undefined;
+      // 剩下的段里还有 ..：写文件工具会先 mkdir -p，newdir/../link 实际经过已存在的 link，
+      // 按字面拼接会消掉它；正常写法极少这样，直接按目录外处理
+      return pending.includes("..") ? undefined : path.join(next, ...pending);
       return undefined;
     }
     if (!isLink) {
