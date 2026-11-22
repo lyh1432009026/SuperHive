@@ -310,57 +310,59 @@ export function IncidentDispatchSettings({
         onChange={(checked) => save({ autoDispatch: checked })}
       />
       <div className={`incident-settings${settings.autoDispatch ? "" : " muted"}`}>
-        <label className="incident-field incident-field-wide">
-          <span>{t("在哪个房间派活")}</span>
-          <Select
-            className="incident-select"
-            value={roomId}
-            options={roomOptions}
-            menuMinWidth={240}
-            onChange={(next) => {
-              setClearedReviewer(false);
-              save({ roomId: next });
-            }}
-          />
-        </label>
-        <label className="incident-field">
-          <span>{t("修的 Agent")}</span>
-          <Select
-            className="incident-select"
-            value={fixer}
-            placeholder={t("选择 Agent")}
-            options={agentOptions(roomAgents, fixer)}
-            menuMinWidth={220}
-            onChange={(next) => {
-              // review 的不能和修的同一个：撞上时清掉 review 的，让人重新选
-              const clash = Boolean(reviewer) && sameName(next, reviewer);
-              setClearedReviewer(clash);
-              save(clash ? { fixer: next, reviewer: "" } : { fixer: next });
-            }}
-          />
-        </label>
-        <label className="incident-field">
-          <span>{t("review 的 Agent")}</span>
-          <Select
-            className="incident-select"
-            value={reviewer}
-            options={[
-              { value: "", label: t("不指定") },
-              ...agentOptions(roomAgents, reviewer, fixer),
-            ]}
-            menuMinWidth={220}
-            onChange={(next) => {
-              setClearedReviewer(false);
-              save({ reviewer: next });
-            }}
-          />
-        </label>
+        <div className="incident-pickers">
+          <label className="incident-field">
+            <span>{t("在哪个房间派活")}</span>
+            <Select
+              className="incident-select"
+              value={roomId}
+              options={roomOptions}
+              menuMinWidth={240}
+              onChange={(next) => {
+                setClearedReviewer(false);
+                save({ roomId: next });
+              }}
+            />
+          </label>
+          <label className="incident-field">
+            <span>{t("修的 Agent")}</span>
+            <Select
+              className="incident-select"
+              value={fixer}
+              placeholder={t("选择 Agent")}
+              options={agentOptions(roomAgents, fixer)}
+              menuMinWidth={220}
+              onChange={(next) => {
+                // review 的不能和修的同一个：撞上时清掉 review 的，让人重新选
+                const clash = Boolean(reviewer) && sameName(next, reviewer);
+                setClearedReviewer(clash);
+                save(clash ? { fixer: next, reviewer: "" } : { fixer: next });
+              }}
+            />
+          </label>
+          <label className="incident-field">
+            <span>{t("review 的 Agent")}</span>
+            <Select
+              className="incident-select"
+              value={reviewer}
+              options={[
+                { value: "", label: t("不指定") },
+                ...agentOptions(roomAgents, reviewer, fixer),
+              ]}
+              menuMinWidth={220}
+              onChange={(next) => {
+                setClearedReviewer(false);
+                save({ reviewer: next });
+              }}
+            />
+          </label>
+        </div>
         {(agentsError ||
           absent(fixer) ||
           absent(reviewer) ||
           clearedReviewer ||
           (roomAgents && roomAgents.length === 0)) && (
-          <p className="incident-field-wide incident-settings-warning" role="alert">
+          <p className="incident-settings-warning" role="alert">
             {agentsError
               ? t("没能读到 #{0} 的成员，稍后再打开试试。", { 0: roomName })
               : roomAgents?.length === 0
@@ -373,7 +375,7 @@ export function IncidentDispatchSettings({
                     })}
           </p>
         )}
-        <div className="incident-limits incident-field-wide">
+        <div className="incident-limits">
           {(
             [
               ["threshold", t("出现几次派修")],
@@ -381,9 +383,9 @@ export function IncidentDispatchSettings({
               ["maxAttempts", t("修失败几次找你")],
             ] as const
           ).map(([key, label]) => (
-            <div key={key} className="incident-limit">
+            <div key={key} className="incident-field">
               <span aria-hidden="true">{label}</span>
-              <div>
+              <div className="incident-stepper">
                 <Stepper
                   value={counts[key]}
                   min={LIMITS[key].min}
