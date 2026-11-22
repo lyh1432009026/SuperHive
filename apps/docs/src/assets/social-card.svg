@@ -5,7 +5,7 @@
     <text x="152" y="113" font-size="32" font-weight="700">SuperHive / 文档</text>
     <text x="70" y="258" font-size="58" font-weight="700">把人和 Agent，</text>
     <text x="70" y="344" font-size="58" font-weight="700">带进同一间工作室。</text>
-    <text x="74" y="433" font-size="25" fill="#5d5d5d">图文入门 · 团队协作 · 权限与恢复 · 自部署</text>
+    <text x="74" y="433" font-size="25" fill="#5d5d5d">图文入门 · 团队协作 · 权限与恢复 · 本机或云端部署</text>
     <text x="74" y="550" font-size="21" fill="#0d0d0d">PUBLIC WORKSPACE. LOCAL CONTROL.</text>
   </g>
   <g stroke="#8f8f8f" stroke-width="3" fill="none"><path d="M970 176v70M848 278h244M970 316v100"/></g>

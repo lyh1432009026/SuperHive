@@ -2,7 +2,7 @@
   "name": "superhive-workspace",
   "version": "0.1.0",
   "private": true,
-  "description": "A self-hosted shared workspace for humans, Codex, Claude Code, Copilot, OpenClaw, and extensible agents.",
+  "description": "An open-source shared workspace for humans and AI coding agents. Run it on your own computer or a cloud server and open it in the browser.",
   "type": "module",
   "scripts": {
     "prepare": "node scripts/git-hooks.mjs install",

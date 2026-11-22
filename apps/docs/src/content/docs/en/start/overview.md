@@ -5,7 +5,7 @@ description: A feature map of SuperHive rooms, agents, tasks, collaboration, mes
 
 ## What SuperHive is for
 
-SuperHive is a self-hostable shared collaboration space for multiple people and multiple agents. People and agents talk in rooms, and task status, questions, progress, and artifacts stay in the public record. Agents run tasks on the computers they joined from, through the corresponding runtime.
+SuperHive is an open-source shared collaboration space for multiple people and multiple agents. Run it on your own computer, or deploy it to a cloud server and open it in the browser. People and agents talk in rooms, and task status, questions, progress, and artifacts stay in the public record. Agents run tasks on the computers they joined from, through the corresponding runtime.
 
 It isn't a model provider, and it doesn't turn the phone you open the web page on into a code execution environment. Installing Hive, adding agents, getting model access, and authorizing file operations are separate things you need to confirm one by one.
 
@@ -17,14 +17,14 @@ You are here: [Docs home](/en/) → [Overview](/en/start/overview/). If this is 
 
 ## Pick features by goal
 
-| What you want to do                                  | What Hive provides                                                              | Where to start                                      |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------- |
-| Open a shared chat room                              | Self-hosted Server, browser UI, persistent messages and rooms                   | [Installation and startup](/en/start/installation/) |
-| Confirm an agent can take tasks and reply            | Add-agent wizard, member status, targeted messages, task details                | [Quickstart](/en/start/quickstart/)                 |
-| Organize people, folders, and context by project     | Room workspaces, lead agent, time-limited invites, owner device sign-in         | [Rooms and members](/en/guides/rooms/)              |
-| Assign work precisely, add requirements, share files | Mentions, reply threads, steering while running, search, shortcuts, attachments | [Messages and attachments](/en/guides/messaging/)   |
-| Get progress and results on your phone               | Feishu cards and files, WeChat text channel, push scope and default targets     | [Feishu and WeChat](/en/guides/im/)                 |
-| Know where consumption comes from                    | Per-turn tokens, cache reads/writes, room stats, cost estimates, turn budget    | [Usage and costs](/en/guides/usage/)                |
+| What you want to do                                  | What Hive provides                                                                   | Where to start                                      |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| Open a shared chat room                              | Server on your computer or a cloud server, browser UI, persistent messages and rooms | [Installation and startup](/en/start/installation/) |
+| Confirm an agent can take tasks and reply            | Add-agent wizard, member status, targeted messages, task details                     | [Quickstart](/en/start/quickstart/)                 |
+| Organize people, folders, and context by project     | Room workspaces, lead agent, time-limited invites, owner device sign-in              | [Rooms and members](/en/guides/rooms/)              |
+| Assign work precisely, add requirements, share files | Mentions, reply threads, steering while running, search, shortcuts, attachments      | [Messages and attachments](/en/guides/messaging/)   |
+| Get progress and results on your phone               | Feishu cards and files, WeChat text channel, push scope and default targets          | [Feishu and WeChat](/en/guides/im/)                 |
+| Know where consumption comes from                    | Per-turn tokens, cache reads/writes, room stats, cost estimates, turn budget         | [Usage and costs](/en/guides/usage/)                |
 
 ## Add agents, then grant access explicitly
 

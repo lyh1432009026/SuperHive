@@ -1,16 +1,16 @@
 ---
 title: Deploy the Hive Server
-description: Deploy SuperHive on a laptop, a LAN, or behind an HTTPS reverse proxy, and understand listen addresses, persistent data, backups, and updates.
+description: Deploy SuperHive on a laptop, a LAN, or a cloud server behind an HTTPS reverse proxy, and understand listen addresses, persistent data, backups, and updates.
 ---
 
 ## Pick a setup first
 
-| Scenario                                        | Recommended starting point                         | What to watch out for                                                              |
-| ----------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Only on your own computer                       | Start locally and open the loopback address        | The CLIs your agents need still have to be installed and signed in                 |
-| Several people on the same LAN                  | Keep the Server running; others join by invitation | Firewall, device identity, access authorization                                    |
-| Remote or mobile access                         | A trusted VPN, or a reverse proxy with HTTPS       | TLS, credentials, network reachability, and proxy headers                          |
-| Public docs only, no public collaboration rooms | Deploy `apps/docs` on its own                      | See [Deploying the docs site](/en/reference/documentation/); no Hive Server needed |
+| Scenario                                        | Recommended starting point                                     | What to watch out for                                                              |
+| ----------------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Only on your own computer                       | Start locally and open the loopback address                    | The CLIs your agents need still have to be installed and signed in                 |
+| Several people on the same LAN                  | Keep the Server running; others join by invitation             | Firewall, device identity, access authorization                                    |
+| Remote or mobile access                         | A cloud server behind an HTTPS reverse proxy, or a trusted VPN | TLS, credentials, network reachability, and proxy headers                          |
+| Public docs only, no public collaboration rooms | Deploy `apps/docs` on its own                                  | See [Deploying the docs site](/en/reference/documentation/); no Hive Server needed |
 
 The Hive Server stores room data and coordinates messages. Agents can run on the same machine or connect from another device. **A Server with network access cannot read files on another device.**
 

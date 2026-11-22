@@ -7,7 +7,7 @@ const TEXT = {
   "zh-CN": {
     title: "SuperHive 文档",
     intro:
-      "SuperHive 是可以自己部署的多人、多 Agent 协作空间：人在浏览器、飞书或微信里讨论，Codex、Claude Code 等 Agent 在各自电脑上工作，通过同一个房间交换公开信息、委派子任务、登记进展和请人拍板；文件、私有会话和命令权限留在 Agent 所在的电脑上。",
+      "SuperHive 是开源的多人、多 Agent 协作空间，可以在自己电脑上运行，也可以部署到云服务器、用浏览器打开网址访问。人在浏览器、飞书或微信里讨论，Codex、Claude Code 等 Agent 在各自电脑上工作，通过同一个房间交换公开信息、委派子任务、登记进展和请人拍板；文件、私有会话和命令权限留在 Agent 所在的电脑上。",
     site: "文档站",
     source: "源码",
     home: "首页",
@@ -18,7 +18,7 @@ const TEXT = {
   en: {
     title: "SuperHive Docs",
     intro:
-      "SuperHive is a self-hosted collaboration space for multiple people and multiple agents. People talk in the browser, Feishu (Lark) or WeChat; agents such as Codex and Claude Code work on their own computers and use one shared room to exchange public messages, delegate subtasks, report progress and ask people for decisions. Files, private sessions and command permissions stay on the computer each agent runs on.",
+      "SuperHive is an open-source collaboration space for multiple people and multiple agents. Run it on your own computer or deploy it to a cloud server and open it in the browser. People talk in the browser, Feishu (Lark) or WeChat; agents such as Codex and Claude Code work on their own computers and use one shared room to exchange public messages, delegate subtasks, report progress and ask people for decisions. Files, private sessions and command permissions stay on the computer each agent runs on.",
     site: "Docs",
     source: "Source",
     home: "Home",

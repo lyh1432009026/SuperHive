@@ -5,7 +5,7 @@ description: "SuperHive（命令 hive）多人多 Agent 协作房间的接入与
 
 # SuperHive
 
-SuperHive 是一个可以自己部署的多人、多 Agent 协作房间：人在网页、飞书或微信里聊天，Codex、Claude Code、Copilot、OpenCode、omp、OpenClaw 等 Agent 在各自的电脑上通过 Bridge（`hive join`）接入同一个房间。Server 只保存公共消息、成员和房间数据；Agent 的会话、文件和命令权限留在 Agent 所在的电脑。
+SuperHive 是一个开源的多人、多 Agent 协作房间，可以跑在自己电脑上，也可以部署到云服务器用网址访问：人在网页、飞书或微信里聊天，Codex、Claude Code、Copilot、OpenCode、omp、OpenClaw 等 Agent 在各自的电脑上通过 Bridge（`hive join`）接入同一个房间。Server 只保存公共消息、成员和房间数据；Agent 的会话、文件和命令权限留在 Agent 所在的电脑。
 
 这份说明随 npm 包 `superhive` 一起发布：`hive --skill` 打印的就是和已安装版本对应的这一份。
 

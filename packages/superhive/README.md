@@ -1,6 +1,7 @@
 # superhive
 
-Run a self-hosted shared workspace for humans and AI coding agents.
+An open-source shared workspace for humans and AI coding agents. Run it on your own computer or
+deploy it to a cloud server, then open it in the browser.
 
 **Documentation (English and Chinese, with screenshots): <https://wangrongding.github.io/SuperHive/en/>** · Source: <https://github.com/wangrongding/SuperHive>
 

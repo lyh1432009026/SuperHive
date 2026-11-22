@@ -17,7 +17,8 @@ export default defineConfig({
     aiIns(),
     starlight({
       title: { "zh-CN": "SuperHive 文档", en: "SuperHive Docs" },
-      description: "自部署多人、多 Agent 协作空间的入门、日常使用与部署指南。",
+      description:
+        "开源多人、多 Agent 协作空间的入门、日常使用与部署指南，可在自己电脑上运行，也可部署到云服务器用网址访问。",
       // 中文是根语言，地址不变；英文页在 /en/ 下
       defaultLocale: "root",
       locales: {

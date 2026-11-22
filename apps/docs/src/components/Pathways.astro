@@ -24,9 +24,9 @@ const zh = [
     link: "guides/permissions/",
   },
   {
-    label: "自己部署",
-    title: "把服务放在自己的设备上",
-    detail: "网络、持久数据、备份与公网安全。",
+    label: "部署服务",
+    title: "放在自己电脑或云服务器上",
+    detail: "网络、HTTPS 网址访问、持久数据与备份。",
     link: "reference/deployment/",
   },
 ];
@@ -47,9 +47,9 @@ const en = [
     detail: "Know what agents can do, and what to do after an interruption.",
   },
   {
-    label: "Self-host",
-    title: "Run the service on your own machines",
-    detail: "Networking, persistent data, backups and public exposure.",
+    label: "Deploy",
+    title: "Run it on your computer or a cloud server",
+    detail: "Networking, HTTPS access by URL, persistent data and backups.",
   },
 ];
 const pathways = lang === "en" ? zh.map((item, index) => ({ ...item, ...en[index] })) : zh;

@@ -15,7 +15,7 @@ export function localePath(path: string, lang: Lang, base: string): string {
 
 export const ui = {
   "zh-CN": {
-    heroEyebrow: "自己部署 · 公开协作 · 权限留在本机",
+    heroEyebrow: "开源 · 本机或云端部署 · 权限留在本机",
     heroTitle: "把人和 Agent，带进同一间工作室。",
     heroIntro: "从第一个 Agent，到一整个协作团队。把安装、派活、审批和交付，一步步讲清楚。",
     heroPrimary: "开始上手",
@@ -32,7 +32,7 @@ export const ui = {
     groups: { start: "开始使用", guides: "使用指南", reference: "部署与参考" },
   },
   en: {
-    heroEyebrow: "Self-hosted · Open collaboration · Permissions stay local",
+    heroEyebrow: "Open source · Run locally or in the cloud · Permissions stay local",
     heroTitle: "Bring people and agents into one workroom.",
     heroIntro:
       "From your first agent to a whole team working together — install, assign work, approve and ship, explained step by step.",

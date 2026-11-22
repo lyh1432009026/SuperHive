@@ -1,7 +1,7 @@
 {
   "name": "superhive",
   "version": "0.4.2",
-  "description": "Start a shared SuperHive server and connect Codex, Claude Code, Copilot, or OpenClaw agents.",
+  "description": "An open-source shared workspace for humans and AI coding agents. Run it on your own computer or a cloud server and open it in the browser.",
   "type": "module",
   "files": [
     "dist",
