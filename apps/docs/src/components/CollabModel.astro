@@ -275,7 +275,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
 
   type Step = Pick<Scene["steps"][number], "links" | "status">;
 
-  const STEP_MS = 2400;
+  const STEP_MS = 2000;
   // 出场编排的总时长，和样式里各段的延迟加时长对齐
   const INTRO_MS = 2000;
   const SVG = "http://www.w3.org/2000/svg";
@@ -464,7 +464,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
           show(step === last ? 0 : step + 1);
           schedule();
         },
-        STEP_MS + (step === last ? 800 : 0),
+        STEP_MS + (step === last ? 400 : 0),
       );
     };
 
@@ -545,9 +545,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
     --cm-surface: var(--sl-color-bg);
     --cm-raised: var(--sl-color-gray-6);
     --cm-wire: var(--sl-color-gray-4);
-    --cm-ms: 2400ms;
-    /* 光点走完「发起方 → 房间 → 接收方」的时长，比步骤停留短，读字时线上已经送达 */
-    --cm-pulse-ms: 1600ms;
+    --cm-ms: 2000ms;
     --cm-width: min(calc(100vw - 2 * clamp(1.5rem, 4vw, 5rem)), 110rem);
     min-width: 0;
     margin: 0;
@@ -1694,11 +1692,11 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
     }
 
     .cm.is-run .cm-wires :global(.is-from .cm-wire-pulse) {
-      animation: cm-go var(--cm-pulse-ms) linear both;
+      animation: cm-go var(--cm-ms) linear both;
     }
 
     .cm.is-run .cm-wires :global(.is-to .cm-wire-pulse) {
-      animation: cm-come var(--cm-pulse-ms) linear both;
+      animation: cm-come var(--cm-ms) linear both;
     }
 
     .cm.is-run .cm-wires :global(.cm-wire-glow) {
@@ -1732,16 +1730,19 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
     }
   }
 
+  /* 光点占满整个步骤：前半程发起方 → 房间，后半程房间 → 接收方，中间和步骤之间都不留空档 */
   @keyframes cm-go {
-    0% {
+    0%,
+    50% {
       opacity: 0.9;
+    }
+    0% {
       stroke-dashoffset: 5;
     }
-    42% {
-      opacity: 0.9;
+    50% {
       stroke-dashoffset: -100;
     }
-    44%,
+    50.1%,
     100% {
       opacity: 0;
       stroke-dashoffset: -100;
@@ -1750,20 +1751,16 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
 
   @keyframes cm-come {
     0%,
-    46% {
+    49.9% {
       opacity: 0;
       stroke-dashoffset: -100;
     }
-    48% {
+    50% {
       opacity: 0.9;
+      stroke-dashoffset: -100;
     }
-    88% {
-      opacity: 0.9;
-      stroke-dashoffset: 5;
-    }
-    90%,
     100% {
-      opacity: 0;
+      opacity: 0.9;
       stroke-dashoffset: 5;
     }
   }
