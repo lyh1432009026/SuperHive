@@ -281,7 +281,7 @@ export function WorktreePanel({
         </div>
         {batch && (
           <div className="worktree-batch" role="status">
-            <span>{t("{0} 个 worktree 已合入，可清理。", { 0: batch.count })}</span>
+            <span>{t("{0} 个任务目录已合入，可清理。", { 0: batch.count })}</span>
             <button
               type="button"
               disabled={busy || !api.canManage}

@@ -342,7 +342,7 @@ export function ChatNotices({
           {isOwner && local.enabled && worktreeNotices.has(currentRoomId) && (
             <div className="notification-prompt worktree-batch" role="status">
               <span>
-                {t("{0} 个 worktree 已合入，可清理。", {
+                {t("{0} 个任务目录已合入，可清理。", {
                   0: worktreeNotices.get(currentRoomId)!.count,
                 })}
               </span>

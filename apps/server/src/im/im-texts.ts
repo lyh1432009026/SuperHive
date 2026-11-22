@@ -24,23 +24,26 @@ export function parseImLocale(value: string): ImLocale | undefined {
 
 export const imTexts = {
   "im.worktree.ready": {
-    zh: "{count} 个 worktree 已合入，可安全清理",
-    en: "{count} merged worktrees are ready for safe cleanup",
+    zh: "{count} 个任务目录已合入，可安全清理",
+    en: "{count} merged task directories are ready for safe cleanup",
   },
-  "im.worktree.completed": { zh: "已清理 {count} 个 worktree", en: "Cleaned up {count} worktrees" },
+  "im.worktree.completed": {
+    zh: "已清理 {count} 个任务目录",
+    en: "Cleaned up {count} task directories",
+  },
   "im.worktree.safety": {
     zh: "仅清理已登记、已合入、无文件改动且没有任务占用的目录；逐项复核，不强删。",
     en: "Only registered, merged, unchanged and unoccupied checkouts are removed. Each is rechecked; no force deletion.",
   },
-  "im.worktree.cleanAll": { zh: "清理这批 worktree", en: "Clean up this batch" },
-  "im.worktree.open": { zh: "打开房间管理 worktree", en: "Open room to manage worktrees" },
+  "im.worktree.cleanAll": { zh: "清理这批任务目录", en: "Clean up this batch" },
+  "im.worktree.open": { zh: "打开房间管理任务目录", en: "Open room to manage task directories" },
   "im.worktree.queued": {
     zh: "已提交清理请求，逐项复核后会另发结果。",
     en: "Cleanup requested. Results will follow after each checkout is rechecked.",
   },
   "im.worktree.unavailable": {
-    zh: "这批清理不可用或无权操作，请在网页查看 worktree 列表。",
-    en: "This cleanup batch is unavailable or not authorized. Check the worktree list on the web.",
+    zh: "这批清理不可用或无权操作，请在网页的任务目录面板（顶栏分支下拉 →「管理任务目录」）查看。",
+    en: 'This cleanup batch is unavailable or not authorized. Check the task directories panel on the web (branch dropdown in the top bar → "Manage task directories").',
   },
   "im.worktree.command": {
     zh: "微信没有卡片按钮；确认清理这批目录请发送 /worktree clean {batch}",

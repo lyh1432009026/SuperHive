@@ -21,7 +21,7 @@
   "归档事项：{0}": "Archive item: {0}",
   "恢复事项：{0}": "Restore item: {0}",
   "一条开发任务一个目录；合入后安全回收，不删除聊天记录。": "One checkout per development task; safely reclaim it after merge without deleting chat history.",
-  "{0} 个 worktree 已合入，可清理。": "{0} merged {0|worktree is|worktrees are} ready for cleanup.",
+  "{0} 个任务目录已合入，可清理。": "{0} merged task {0|directory is|directories are} ready for cleanup.",
   "还没有 Hive 登记的任务目录。手工建立的目录不会被接管或删除。": "No Hive-registered task directories yet. Manually created checkouts are never adopted or deleted.",
   "已清理 {0} 个目录，保留 {1} 个。": "Cleaned up {0} {0|checkout|checkouts}; retained {1}.",
   "已提交批量清理请求，完成后通知。": "Batch cleanup requested. You will be notified when it finishes.",

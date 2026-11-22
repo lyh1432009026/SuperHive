@@ -561,7 +561,7 @@ describe("App mention autocomplete", () => {
         latestSeq: 0,
       }),
     );
-    await screen.findByText("1 个 worktree 已合入，可清理。");
+    await screen.findByText("1 个任务目录已合入，可清理。");
     localApi.cleanupBatch = null;
     act(() =>
       socket.serverEvent({
@@ -585,7 +585,7 @@ describe("App mention autocomplete", () => {
         automatic: false,
       }),
     );
-    await screen.findByText("2 个 worktree 已合入，可清理。");
+    await screen.findByText("2 个任务目录已合入，可清理。");
     act(() =>
       socket.serverEvent({
         type: "worktree.cleanup",
@@ -596,7 +596,7 @@ describe("App mention autocomplete", () => {
         automatic: false,
       }),
     );
-    expect(screen.getByText("2 个 worktree 已合入，可清理。")).toBeTruthy();
+    expect(screen.getByText("2 个任务目录已合入，可清理。")).toBeTruthy();
     localApi.cleanupBatch = null;
     act(() =>
       socket.serverEvent({

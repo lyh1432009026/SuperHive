@@ -126,8 +126,8 @@ export const serverTexts = {
     en: "The worktree path, repository or branch changed; refusing removal: {path}",
   },
   "error.worktree.branchChanged": {
-    zh: "任务目录 {path} 登记的分支是 {branch}，现在却在 {current}：不能在里面开工。房主可以在 Worktree 列表里「切回登记分支」或「按当前分支重新登记」；要做新的工作请用 hive_worktree_create 以新 slug 另建任务目录，不要在已登记的任务目录里换分支。",
-    en: 'Task workspace {path} is registered on {branch} but is now on {current}, so no work can start in it. The owner can "Switch back to the registered branch" or "Re-register on the current branch" in the Worktree list; for new work create another task workspace with a new slug via hive_worktree_create instead of switching branches inside a registered one.',
+    zh: "任务目录 {path} 登记的分支是 {branch}，现在却在 {current}：不能在里面开工。房主可以在任务目录面板（顶栏分支下拉 →「管理任务目录」）里「切回登记分支」或「按当前分支重新登记」；要做新的工作请用 hive_worktree_create 以新 slug 另建任务目录，不要在已登记的任务目录里换分支。",
+    en: 'Task workspace {path} is registered on {branch} but is now on {current}, so no work can start in it. The owner can "Switch back to the registered branch" or "Re-register on the current branch" in the task directories panel (branch dropdown in the top bar → "Manage task directories"); for new work create another task workspace with a new slug via hive_worktree_create instead of switching branches inside a registered one.',
   },
   "error.worktree.detached": {
     zh: "任务目录 {path} 处于 detached HEAD，不在登记的分支 {branch} 上：不能在里面开工，在里面切回 {branch} 后再试。",
@@ -154,8 +154,8 @@ export const serverTexts = {
     en: "Task workspace {path} is locked with git worktree lock; unlock it and retry.",
   },
   "error.worktree.reuseSwitched": {
-    zh: "slug {slug} 的任务目录 {path} 已被切到分支 {current}（登记的是 {branch}），不能复用。换一件事请用新的 slug 建新任务目录；要接着原任务线，请房主在 Worktree 列表里「切回登记分支」或「按当前分支重新登记」。",
-    en: 'The task workspace {path} for slug {slug} was switched to {current} (registered: {branch}) and cannot be reused. For a different task create a new task workspace with a new slug; to continue the original line, ask the owner to "Switch back to the registered branch" or "Re-register on the current branch" in the Worktree list.',
+    zh: "slug {slug} 的任务目录 {path} 已被切到分支 {current}（登记的是 {branch}），不能复用。换一件事请用新的 slug 建新任务目录；要接着原任务线，请房主在任务目录面板（顶栏分支下拉 →「管理任务目录」）里「切回登记分支」或「按当前分支重新登记」。",
+    en: 'The task workspace {path} for slug {slug} was switched to {current} (registered: {branch}) and cannot be reused. For a different task create a new task workspace with a new slug; to continue the original line, ask the owner to "Switch back to the registered branch" or "Re-register on the current branch" in the task directories panel (branch dropdown in the top bar → "Manage task directories").',
   },
   "error.worktree.notSwitched": {
     zh: "任务目录 {path} 没有被换分支，不需要处理。",
@@ -181,8 +181,8 @@ export const serverTexts = {
     en: "Branch {branch} is already registered or claimed by another task line, so task workspace {path} can't be re-registered on it.",
   },
   "worktree.branchSwitched": {
-    zh: "分支已被切换：登记 {registered}，当前 {current}（{path}）。房主可在 Worktree 列表里切回登记分支或按当前分支重新登记；处理前不会沿用、也不会自动清理这个目录。",
-    en: "Branch switched: registered {registered}, now {current} ({path}). The owner can switch it back or re-register it on the current branch in the Worktree list; until then it won't be reused or cleaned up automatically.",
+    zh: "分支已被切换：登记 {registered}，当前 {current}（{path}）。房主可在任务目录面板（顶栏分支下拉 →「管理任务目录」）里切回登记分支或按当前分支重新登记；处理前不会沿用、也不会自动清理这个目录。",
+    en: 'Branch switched: registered {registered}, now {current} ({path}). The owner can switch it back or re-register it on the current branch in the task directories panel (branch dropdown in the top bar → "Manage task directories"); until then it won\'t be reused or cleaned up automatically.',
   },
   "worktree.focusDropped": {
     zh: "{agent} 上次用的任务目录 {path} 不能再用（{reason}），这次的任务没有沿用它。",
@@ -193,8 +193,8 @@ export const serverTexts = {
     en: "it was cleaned up; this is a newly assigned task, not a continuation of that one",
   },
   "error.worktree.unfinished": {
-    zh: "任务目录 {path} 上次建立或清理没有完成：不能在里面开工。已合入且只缺了被删的文件时，后台扫描会自动接着清理；否则请房主在 Worktree 列表里核对。",
-    en: "Task workspace {path} was left half-created or half-removed, so no work can start in it. If it is merged and only deleted files are missing, the background scan finishes the removal; otherwise the owner needs to check it in the Worktree list.",
+    zh: "任务目录 {path} 上次建立或清理没有完成：不能在里面开工。已合入且只缺了被删的文件时，后台扫描会自动接着清理；否则请房主在任务目录面板（顶栏分支下拉 →「管理任务目录」）里核对。",
+    en: 'Task workspace {path} was left half-created or half-removed, so no work can start in it. If it is merged and only deleted files are missing, the background scan finishes the removal; otherwise the owner needs to check it in the task directories panel (branch dropdown in the top bar → "Manage task directories").',
   },
   "worktree.removalResumed": {
     zh: "上次没清理完的任务目录 {path} 已接着清理掉。",
