@@ -19,9 +19,19 @@ Monorepo 中的独立应用 `@superhive/docs`，使用 Astro + Starlight 构建�
 ```bash
 pnpm docs:screens                      # 全部重截，明暗两套
 pnpm docs:screens --only overview      # 只截某几张，名字见 --help
+pnpm docs:screens --locale en          # 英文界面，存成 名字.en.主题.png，英文页自动换用
 ```
 
-脚本 `scripts/screens.mjs` 先构建网页，再用 `scripts/screens/demo-server.mjs` 在临时目录里起一个演示 Server：独立 HOME、独立数据库和演示仓库，只监听 127.0.0.1，不连 IM、不拉起真实 Agent、不联网。演示成员经真实协议上线、发消息、提问、上报执行过程，白板和任务目录在启动前写好；随后用独立的无头 Chrome 按 2 倍像素截取、转成 8 位调色板 PNG，结束后删除临时目录。改截图范围或演示数据就改这两个文件；新增配图在 `SHOTS` 里加一项。
+脚本 `scripts/screens.mjs` 先构建网页，再用 `scripts/screens/demo-server.mjs` 在临时目录里起一个演示 Server：独立 HOME、独立数据库和演示仓库，只监听 127.0.0.1，不连 IM、不拉起真实 Agent、不联网。演示成员经真实协议上线、发消息、提问、上报执行过程，白板和任务目录在启动前写好；随后用独立的无头 Chrome 按 2 倍像素截取、转成 8 位调色板 PNG，结束后删除临时目录。改截图范围或演示数据就改这两个文件；新增配图在 `SHOTS` 里加一项。英文截图把网页切到英文界面，演示数据里的中文在截图时按 `scripts/screens/demo-text.en.mjs` 换成英文（演示 Server 不变）；演示数据加了中文，脚本会打印截图范围里剩下的中文，照着补这个文件。
+
+## 中英双语
+
+中文是根语言，地址不变；英文页放在 `src/content/docs/en/` 下，地址带 `/en/`，两边文件一一对应（`verify-build` 会检查页数一致、每页有 hreflang、英文页没有中文残留）。改了中文正文，记得同步改英文页。
+
+- 侧栏文字在 `scripts/navigation.mjs`（`translations.en`），首页组件和协作图的文字在 `src/components/i18n.ts`、`src/components/collab-scenes.ts`。
+- 插图：有 `名字.en.svg` / `名字.en.png` 的，英文页自动换用；界面截图同理用 `名字.en.light.png` / `名字.en.dark.png`。
+- 第一次进站时按浏览器语言选中英文（`Head.astro` 里的内联脚本，爬虫不跳）；在右上角切换过语言后记在 `localStorage` 的 `superhive.docs.locale`，之后按这个来。
+- `llms.txt`、`llms-full.txt` 中英各一份，英文的在 `/en/` 下。
 
 ## 本地预览
 

@@ -557,7 +557,7 @@ export const collabText = {
     play: "Play",
     youIcon: "Y",
     youTitle: "Just you",
-    youDetail: "Direct from phone or desktop",
+    youDetail: "Phone or desktop",
     localShort: "Stays local",
     localLong: "Files · permissions · sessions stay local",
     roomKind: "One shared SuperHive room",
