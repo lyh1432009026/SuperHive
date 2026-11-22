@@ -7,6 +7,7 @@ import { classifyCodex } from "./failure.js";
 import { createRequire } from "node:module";
 import {
   CODEX_HIVE_TOOLS_APPROVAL_OVERRIDE,
+  codexHiveMcpEnv,
   codexHiveMcpOverrides,
   type HiveMcpConnection,
 } from "./hive-mcp-config.js";
@@ -718,7 +719,10 @@ export class CodexAppServerResponder implements AgentResponder {
       CODEX_HIVE_TOOLS_APPROVAL_OVERRIDE,
       ...codexMcpDisableOverrides(mcpDisabled).flatMap((override) => ["-c", override]),
     ];
-    const transport = this.createTransport(this.options.command, args, { cwd: this.options.cwd });
+    const transport = this.createTransport(this.options.command, args, {
+      cwd: this.options.cwd,
+      env: codexHiveMcpEnv(this.options.hive),
+    });
     const session: Session = {
       transport,
       nextId: 1,

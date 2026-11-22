@@ -20,16 +20,21 @@ const hive = {
 
 describe("ClaudeCodeResponder", () => {
   it("runs Claude Code in read-only print mode and resumes its session", async () => {
-    const runner = vi.fn<CommandRunner>(async () => ({
-      stdout: JSON.stringify({
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        result: "来自 Claude 的回复",
-        session_id: "11111111-1111-4111-8111-111111111111",
-      }),
-      stderr: "",
-    }));
+    let mcpConfig: { content: string; mode: number } | undefined;
+    const runner = vi.fn<CommandRunner>(async (_command, args) => {
+      const file = args[args.indexOf("--mcp-config") + 1]!;
+      mcpConfig = { content: readFileSync(file, "utf8"), mode: statSync(file).mode & 0o777 };
+      return {
+        stdout: JSON.stringify({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "来自 Claude 的回复",
+          session_id: "11111111-1111-4111-8111-111111111111",
+        }),
+        stderr: "",
+      };
+    });
     const responder = new ClaudeCodeResponder({
       command: "claude",
       cwd: "/workspace",
@@ -64,7 +69,14 @@ describe("ClaudeCodeResponder", () => {
     expect(args[args.indexOf("--disallowedTools") + 1]).toBe(
       "CronCreate,CronDelete,CronList,ScheduleWakeup",
     );
-    expect(args.join(" ")).toContain("X-Hive-Agent-Name");
+    // Hive token 只在权限 600 的临时配置文件里，跑完就删；命令行参数里不能出现
+    expect(args.join(" ")).not.toContain("test-token");
+    expect(args).not.toContain("--strict-mcp-config");
+    expect(JSON.parse(mcpConfig!.content)).toMatchObject({
+      mcpServers: { hive: { headers: { Authorization: "Bearer test-token" } } },
+    });
+    if (process.platform !== "win32") expect(mcpConfig!.mode).toBe(0o600);
+    expect(existsSync(args[args.indexOf("--mcp-config") + 1]!)).toBe(false);
     expect(args).toContain("sonnet");
     expect(args).toContain("00000000-0000-4000-8000-000000000001");
     expect(args).not.toContain("Shared context");

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import type { CommandRunner } from "./command-runner.js";
 import { CopilotResponder } from "./copilot-client.js";
 
@@ -11,20 +12,25 @@ const hive = {
 
 describe("CopilotResponder", () => {
   it("uses a restricted plan session and parses Copilot JSONL", async () => {
-    const runner = vi.fn<CommandRunner>(async () => ({
-      stdout: [
-        "non-json diagnostic",
-        JSON.stringify({
-          type: "session.start",
-          data: { sessionId: "11111111-1111-4111-8111-111111111111" },
-        }),
-        JSON.stringify({
-          type: "assistant.message",
-          data: { content: "来自 Copilot 的回复" },
-        }),
-      ].join("\n"),
-      stderr: "",
-    }));
+    let mcpConfig: { content: string; mode: number } | undefined;
+    const runner = vi.fn<CommandRunner>(async (_command, args) => {
+      const file = args[args.indexOf("--additional-mcp-config") + 1]!.slice(1);
+      mcpConfig = { content: readFileSync(file, "utf8"), mode: statSync(file).mode & 0o777 };
+      return {
+        stdout: [
+          "non-json diagnostic",
+          JSON.stringify({
+            type: "session.start",
+            data: { sessionId: "11111111-1111-4111-8111-111111111111" },
+          }),
+          JSON.stringify({
+            type: "assistant.message",
+            data: { content: "来自 Copilot 的回复" },
+          }),
+        ].join("\n"),
+        stderr: "",
+      };
+    });
     const responder = new CopilotResponder({
       command: "copilot",
       cwd: "/workspace",
@@ -51,7 +57,13 @@ describe("CopilotResponder", () => {
     expect(args).toContain("--disable-builtin-mcps");
     expect(args).toContain("--additional-mcp-config");
     expect(args).toContain("--allow-tool=hive");
-    expect(args.join(" ")).toContain("X-Hive-Agent-Name");
+    // Hive token 只在权限 600 的临时配置文件里（@路径），跑完就删；命令行参数里不能出现
+    expect(args.join(" ")).not.toContain("test-token");
+    expect(JSON.parse(mcpConfig!.content)).toMatchObject({
+      mcpServers: { hive: { headers: { Authorization: "Bearer test-token" } } },
+    });
+    if (process.platform !== "win32") expect(mcpConfig!.mode).toBe(0o600);
+    expect(existsSync(args[args.indexOf("--additional-mcp-config") + 1]!.slice(1))).toBe(false);
     expect(args).toContain("--resume=00000000-0000-4000-8000-000000000001");
     expect(args).toContain("gpt-5");
     // 提示走标准输入，不进命令行（Windows 命令行有长度上限）

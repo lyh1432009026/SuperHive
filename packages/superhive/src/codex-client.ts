@@ -6,8 +6,15 @@ import {
   AgentNonRetryableError,
 } from "./responder.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { codexHiveMcpOverrides, type HiveMcpConnection } from "./hive-mcp-config.js";
+import {
+  StdioClientTransport,
+  type StdioServerParameters,
+} from "@modelcontextprotocol/sdk/client/stdio.js";
+import {
+  codexHiveMcpEnv,
+  codexHiveMcpOverrides,
+  type HiveMcpConnection,
+} from "./hive-mcp-config.js";
 import type { AgentAccessMode, AgentReply, AgentReplyInput, AgentResponder } from "./responder.js";
 
 type ToolDescription = {
@@ -81,6 +88,29 @@ export function isMissingCodexThread(error: unknown): boolean {
     current = current instanceof Error ? current.cause : undefined;
   }
   return classifyText(messages.join("\n")) === "session_invalid";
+}
+
+/** 启动 `codex mcp-server` 的参数；Hive token 经环境变量交给 Codex，不进命令行 */
+export function codexMcpServerParams(options: {
+  command: string;
+  access?: AgentAccessMode;
+  hive: HiveMcpConnection;
+}): StdioServerParameters {
+  const access = codexAccess(options.access);
+  return {
+    command: options.command,
+    args: [
+      "mcp-server",
+      "-c",
+      `sandbox_mode="${access.sandbox}"`,
+      "-c",
+      `approval_policy="${access.approvalPolicy}"`,
+      ...codexHiveMcpOverrides(options.hive).flatMap((override) => ["-c", override]),
+    ],
+    // 与 SDK 默认继承的少量环境变量合并
+    env: codexHiveMcpEnv(options.hive),
+    stderr: "pipe",
+  };
 }
 
 export class CodexMcpResponder implements AgentResponder {
@@ -206,19 +236,7 @@ export class CodexMcpResponder implements AgentResponder {
 
   private async ensureConnected(): Promise<void> {
     if (this.client) return;
-    const access = codexAccess(this.options.access);
-    const transport = new StdioClientTransport({
-      command: this.options.command,
-      args: [
-        "mcp-server",
-        "-c",
-        `sandbox_mode="${access.sandbox}"`,
-        "-c",
-        `approval_policy="${access.approvalPolicy}"`,
-        ...codexHiveMcpOverrides(this.options.hive).flatMap((override) => ["-c", override]),
-      ],
-      stderr: "pipe",
-    });
+    const transport = new StdioClientTransport(codexMcpServerParams(this.options));
     const client = new Client({ name: "superhive-agent", version: "0.1.1" });
     let stderr = "";
     try {

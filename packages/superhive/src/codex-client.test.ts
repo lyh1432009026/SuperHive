@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { AgentExecutionUncertainError, AgentNonRetryableError } from "./responder.js";
-import { CodexMcpResponder, isMissingCodexThread } from "./codex-client.js";
+import { CodexMcpResponder, codexMcpServerParams, isMissingCodexThread } from "./codex-client.js";
 
 const options = {
   command: "codex",
@@ -30,6 +30,13 @@ const tools = [
 ];
 
 describe("CodexMcpResponder", () => {
+  it("hands the Hive token to codex mcp-server by environment, not argv", () => {
+    const params = codexMcpServerParams(options);
+    expect(params.args?.join(" ")).not.toContain("test-token");
+    expect(params.args).toContain('mcp_servers.hive.bearer_token_env_var="HIVE_MCP_TOKEN"');
+    expect(params.env).toEqual({ HIVE_MCP_TOKEN: "test-token" });
+  });
+
   it("latches unknown execution and never resends on a closed transport", async () => {
     const callTool = vi.fn(async () => {
       throw new Error("MCP error -32000: Connection closed");

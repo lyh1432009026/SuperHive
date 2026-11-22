@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { defaultCommandRunner, type CommandRunner } from "./command-runner.js";
 import { copilotHiveMcpConfig, type HiveMcpConnection } from "./hive-mcp-config.js";
 import { classifyText, isUpstreamKind } from "./failure.js";
@@ -54,6 +57,9 @@ export class CopilotResponder implements AgentResponder {
   async reply(input: AgentReplyInput): Promise<AgentReply> {
     const sessionId = input.threadId ?? randomUUID();
     const access = this.options.access ?? "read-only";
+    const mcpDir = mkdtempSync(path.join(tmpdir(), "hive-copilot-mcp-"));
+    const mcpFile = path.join(mcpDir, "mcp.json");
+    writeFileSync(mcpFile, copilotHiveMcpConfig(this.options.hive), { mode: 0o600 });
     // 提示走标准输入（不带 -p 时 Copilot 读管道输入）：放在参数里会受命令行长度限制，
     // Windows 上 32767 字符，十几条长消息就超了，也会出现在进程列表里
     const args = [
@@ -63,8 +69,9 @@ export class CopilotResponder implements AgentResponder {
       "off",
       "--mode",
       access === "read-only" ? "plan" : "interactive",
+      // 配置里有 Hive token：写进只有自己能读的临时文件、用 @路径 传，放在参数里会被同机其他用户通过 ps 看到
       "--additional-mcp-config",
-      copilotHiveMcpConfig(this.options.hive),
+      `@${mcpFile}`,
       "--allow-tool=hive",
       "--no-custom-instructions",
       "--no-ask-user",
@@ -111,6 +118,8 @@ export class CopilotResponder implements AgentResponder {
         throw new AgentUpstreamError(message.slice(0, 240), input.threadId, kind);
       }
       throw new Error(message, { cause: error });
+    } finally {
+      rmSync(mcpDir, { recursive: true, force: true });
     }
     const events = parseJsonLines(result.stdout);
     const text = events

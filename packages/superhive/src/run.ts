@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { commandFor } from "./windows-command.js";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { superhiveHome } from "./home-dir.js";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { AgentBridge } from "./bridge.js";
@@ -21,8 +22,8 @@ import { createOpenCodeResponder } from "./opencode-client.js";
 import { OpenClawResponder } from "./openclaw-client.js";
 import {
   hiveMcpUrl,
-  openClawHiveMcpConfig,
-  openClawHiveMcpName,
+  openClawHiveMcpBatch,
+  sweepStaleHiveMcpConfigs,
   type HiveMcpConnection,
 } from "./hive-mcp-config.js";
 import { fetchRooms } from "./room-client.js";
@@ -195,8 +196,11 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
   const username = parsed.values.name;
   // 也可经环境变量传入：由本机 Hive Server 拉起时用它，避免 token 出现在进程参数里
   const token = parsed.values.token ?? process.env.HIVE_AGENT_TOKEN;
+  // 读完就从环境里删掉：各运行时都继承本进程的环境，Agent 执行的命令能读到它（join token 有房主权限）
+  delete process.env.HIVE_AGENT_TOKEN;
   if (!serverUrl || !username || !token)
     throw new Error(`缺少 --server、--name 或 --token。\n${usage}`);
+  sweepStaleHiveMcpConfigs();
   new URL(serverUrl);
   if (roomId !== undefined && !/^[A-Za-z0-9_-]+$/.test(roomId)) {
     throw new Error("room 含有不支持的字符。");
@@ -394,16 +398,21 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
       token: token!,
     };
     if (provider === "openclaw" && parsed.values["openclaw-configure-mcp"]) {
-      const configure = commandFor(command, [
-        "mcp",
-        "set",
-        openClawHiveMcpName(hive),
-        openClawHiveMcpConfig(hive),
-      ]);
-      const configured = spawnSync(configure.command, configure.args, {
-        encoding: "utf8",
-        windowsHide: true,
-      });
+      // 配置里有 Hive token：经只有自己能读的临时文件交给 config set --batch-file，
+      // 不用 mcp set 把它放在参数里（同机其他用户用 ps 就能看到）
+      const batchDir = mkdtempSync(path.join(tmpdir(), "hive-openclaw-mcp-"));
+      const batchFile = path.join(batchDir, "mcp.json");
+      let configured;
+      try {
+        writeFileSync(batchFile, openClawHiveMcpBatch(hive), { mode: 0o600 });
+        const configure = commandFor(command, ["config", "set", "--batch-file", batchFile]);
+        configured = spawnSync(configure.command, configure.args, {
+          encoding: "utf8",
+          windowsHide: true,
+        });
+      } finally {
+        rmSync(batchDir, { recursive: true, force: true });
+      }
       if (configured.status !== 0) {
         throw new Error(
           `无法配置 OpenClaw Hive MCP：${configured.stderr || configured.error?.message}`,

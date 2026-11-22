@@ -9,6 +9,7 @@ import {
   CodexAppServerUnsupportedError,
   isAppServerUnsupported,
   type AppServerExit,
+  type AppServerTransportFactory,
   type AppServerTransport,
 } from "./codex-app-server-client.js";
 import {
@@ -129,7 +130,7 @@ function setup(
   deps: { requestTimeoutMs?: number; interruptGraceMs?: number; idleTimeoutMs?: number } = {},
 ) {
   const servers: FakeAppServer[] = [];
-  const createTransport = vi.fn((command: string, args: string[]) => {
+  const createTransport = vi.fn<AppServerTransportFactory>((_command, args) => {
     const server = new FakeAppServer(args, handlers);
     servers.push(server);
     return server;
@@ -369,6 +370,12 @@ describe("CodexAppServerResponder", () => {
     expect(server.args).toContain('sandbox_mode="read-only"');
     expect(server.args).toContain('approval_policy="on-request"');
     expect(server.args.some((arg) => arg.startsWith("mcp_servers.hive.url="))).toBe(true);
+    // Hive token 走环境变量（bearer_token_env_var），不出现在命令行参数里
+    expect(server.args.join(" ")).not.toContain("test-token");
+    expect(server.args).toContain('mcp_servers.hive.bearer_token_env_var="HIVE_MCP_TOKEN"');
+    expect(createTransport.mock.calls[0]?.[2]).toMatchObject({
+      env: { HIVE_MCP_TOKEN: "test-token" },
+    });
     expect(server.methods()).toEqual(["initialize", "initialized", "thread/start", "turn/start"]);
     expect(server.sent[0]!.params).toEqual({
       clientInfo: { name: "superhive", title: "SuperHive", version: "9.9.9" },

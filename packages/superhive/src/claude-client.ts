@@ -101,15 +101,17 @@ export class ClaudeCodeResponder implements AgentResponder {
   ) {}
 
   /**
-   * 写出本轮的 MCP 配置文件。用文件而不是命令行参数：本机 MCP 配置里常有密钥，
-   * 命令行参数会被同机其他用户通过 ps 看到。
+   * 写出本轮的 MCP 配置文件。用文件而不是命令行参数：Hive token 和本机 MCP 配置里常有的密钥
+   * 放在命令行参数里会被同机其他用户通过 ps 看到。没有设置文件时只写 Hive 一项。
    */
   private writeMcpConfig(): { file: string; cleanup: () => void } {
-    const settings = readAgentSettings(this.options.settingsFile);
-    const servers = (this.options.mcpServers ?? enabledClaudeMcpServers)(
-      this.options.cwd,
-      settings,
-    );
+    const servers =
+      this.options.settingsFile === undefined
+        ? {}
+        : (this.options.mcpServers ?? enabledClaudeMcpServers)(
+            this.options.cwd,
+            readAgentSettings(this.options.settingsFile),
+          );
     const hive = (
       JSON.parse(claudeHiveMcpConfig(this.options.hive)) as {
         mcpServers: Record<string, unknown>;
@@ -144,7 +146,7 @@ export class ClaudeCodeResponder implements AgentResponder {
     ]
       .map((tool) => `mcp__hive__${tool}`)
       .join(",");
-    const mcp = this.options.settingsFile !== undefined ? this.writeMcpConfig() : undefined;
+    const mcp = this.writeMcpConfig();
     const args = [
       "--print",
       "--output-format",
@@ -160,8 +162,8 @@ export class ClaudeCodeResponder implements AgentResponder {
       "--append-system-prompt",
       input.instructions,
       "--mcp-config",
-      mcp ? mcp.file : claudeHiveMcpConfig(this.options.hive),
-      ...(mcp ? ["--strict-mcp-config"] : []),
+      mcp.file,
+      ...(this.options.settingsFile !== undefined ? ["--strict-mcp-config"] : []),
       "--allowedTools",
       access === "workspace" ? `Read,Glob,Grep,Edit,Write,Bash,${hiveTools}` : hiveTools,
       // 工作区档：Claude 想做 auto 模式下要人确认的事时，通过标准输入问我们（can_use_tool），交给人批；
@@ -348,7 +350,7 @@ export class ClaudeCodeResponder implements AgentResponder {
         said ? `Claude Code 中途报错退出：${said}。` : "Claude Code 中途退出，没有给出原因。",
       );
     } finally {
-      mcp?.cleanup();
+      mcp.cleanup();
     }
     settleTurn();
     if (killTimer) clearTimeout(killTimer);
