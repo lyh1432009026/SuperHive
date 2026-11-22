@@ -46,6 +46,17 @@ export const BRIDGE_TEXTS = {
     "上游模型服务出错：{reason}。{why}；点「继续」会接着原会话从中断处往下做，不需要了点「忽略」。",
   "bridge.upstreamMutated": "这一轮已经做过改动，不自动重跑",
   "bridge.upstreamExhausted": "已自动继续 {count} 次仍未成功",
+  "bridge.fix.login":
+    "凭证无效或没有登录，等多久都不会好，没有自动重试；先在这台电脑上重新登录这个 Agent 的 CLI 或检查 API key",
+  "bridge.fix.quota":
+    "用量额度用完了，到重置时间才会恢复，没有自动重试；等额度恢复或换个账号后再处理，也可以点「换个模型重试」",
+  "bridge.fix.billing": "账户余额不足或欠费，没有自动重试；先充值或检查账单",
+  "bridge.fix.context":
+    "对话超出了模型的上下文长度，没有自动重试；接着原会话多半还会超，建议开个新话题再派，或点「换个模型重试」换上下文更长的模型",
+  "bridge.fix.refused":
+    "模型拒绝回答，原样重试结果一样，没有自动重试；可以换个说法重新派，或点「换个模型重试」",
+  "bridge.fix.request":
+    "模型服务拒绝了这次请求，原样重试结果一样，没有自动重试；多半是运行时或模型配置的问题，先检查配置",
   "bridge.sessionRetrying": "会话已失效（{reason}），已开新会话重试",
   "bridge.sessionInvalid": "会话已失效：{reason}。{why}；点「重试」会开新会话。",
   "bridge.sessionExecuted": "这一轮已经开始执行工具，不自动重跑",

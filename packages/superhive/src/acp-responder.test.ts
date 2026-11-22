@@ -407,7 +407,9 @@ describe("AcpResponder", () => {
       model: "nope/x",
     });
     await expect(failure).rejects.toThrow("没有模型 nope/x");
-    expect(((await failure.catch((error) => error)) as AgentUpstreamError).kind).toBe("model");
+    expect(((await failure.catch((error) => error)) as AgentUpstreamError).kind).toBe(
+      "model_unavailable",
+    );
   });
 
   it("ends an idle agent process and restores the session in a fresh one next time", async () => {
@@ -624,7 +626,10 @@ describe("AcpResponder", () => {
       text: "部分回答",
       threadId: "ses-new",
     });
-    await expect(withStop("refusal", "不行")).rejects.toThrow("TestAgent 拒绝了这次请求。");
+    // 模型拒答：原样重跑还是拒绝，按上游出错交给 Bridge，不自动重试
+    const refused = await withStop("refusal", "不行").catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(AgentUpstreamError);
+    expect((refused as AgentUpstreamError).kind).toBe("refused");
     await expect(withStop("end_turn")).rejects.toThrow("TestAgent 没有返回可发送的文本。");
     await expect(withStop("max_turn_requests")).rejects.toThrow("（max_turn_requests）");
   });

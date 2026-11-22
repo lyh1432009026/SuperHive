@@ -3470,6 +3470,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           progress: report.progress ?? invocation.progressText ?? invocation.progress ?? null,
           runtime: observeRuntime(invocation.runtime, report.runtimeEvent, now),
           detail: reportDetail(report) ?? null,
+          failure: report.failure,
         }),
       );
       return;
@@ -3493,6 +3494,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         recalledDetail(invocation, report.status) ??
         reportDetail(report) ??
         terminalDetail(invocation, report.status),
+      failure: report.failure,
       ...(report.replyMessageId ? { replyMessageId: report.replyMessageId } : {}),
     });
     const cleaned =

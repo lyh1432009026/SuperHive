@@ -680,6 +680,30 @@ export const serverTexts = {
       other: "Still failing after {count} automatic retries",
     },
   },
+  "bridge.fix.login": {
+    zh: "凭证无效或没有登录，等多久都不会好，没有自动重试；先在这台电脑上重新登录这个 Agent 的 CLI 或检查 API key",
+    en: "The credentials are invalid or the agent isn't signed in, which waiting won't fix, so it wasn't retried automatically. Sign in to this agent's CLI again on this computer or check the API key first",
+  },
+  "bridge.fix.quota": {
+    zh: "用量额度用完了，到重置时间才会恢复，没有自动重试；等额度恢复或换个账号后再处理，也可以点「换个模型重试」",
+    en: "The usage quota is used up and only comes back when it resets, so it wasn't retried automatically. Wait for the quota to reset or switch accounts, or use Retry with another model",
+  },
+  "bridge.fix.billing": {
+    zh: "账户余额不足或欠费，没有自动重试；先充值或检查账单",
+    en: "The account is out of credit or has a billing problem, so it wasn't retried automatically. Add credit or check billing first",
+  },
+  "bridge.fix.context": {
+    zh: "对话超出了模型的上下文长度，没有自动重试；接着原会话多半还会超，建议开个新话题再派，或点「换个模型重试」换上下文更长的模型",
+    en: "The conversation exceeds the model's context length, so it wasn't retried automatically. Continuing the same session will likely overflow again; start a new topic and assign it again, or use Retry with another model that has a longer context",
+  },
+  "bridge.fix.refused": {
+    zh: "模型拒绝回答，原样重试结果一样，没有自动重试；可以换个说法重新派，或点「换个模型重试」",
+    en: "The model declined to answer and would do the same again, so it wasn't retried automatically. Rephrase and assign it again, or use Retry with another model",
+  },
+  "bridge.fix.request": {
+    zh: "模型服务拒绝了这次请求，原样重试结果一样，没有自动重试；多半是运行时或模型配置的问题，先检查配置",
+    en: "The model service rejected the request and would do the same again, so it wasn't retried automatically. It's most likely a runtime or model configuration problem; check the configuration first",
+  },
   "bridge.sessionRetrying": {
     zh: "会话已失效（{reason}），已开新会话重试",
     en: "The session stopped working ({reason}). Retrying in a new session",

@@ -1,4 +1,10 @@
 import type { AgentUsage, RuntimeEvent, TraceStep } from "./hive-protocol.js";
+import {
+  classifyText,
+  isUpstreamKind,
+  type FailureKind,
+  type UpstreamFailureKind,
+} from "./failure.js";
 
 export type AgentProvider =
   "codex" | "claude" | "copilot" | "openclaw" | "opencode" | "omp" | "gemini" | "agy" | "echo";
@@ -106,58 +112,22 @@ export class AgentTransientError extends Error {
 export const UPSTREAM_FAILURE_PREFIX = "上游模型服务出错";
 
 /**
- * 上游模型服务出错（限流、过载、5xx、连接中断）导致这一轮中途结束：Runtime 进程已正常退出、原因明确，
- * 不会有残留的执行。threadId 是这一轮所在的会话，接着它继续就能看到已经做过的步骤。
+ * 上游模型服务出错导致这一轮中途结束：Runtime 进程已正常退出、原因明确，不会有残留的执行。
+ * threadId 是这一轮所在的会话，接着它继续就能看到已经做过的步骤。
+ * kind 是失败原因（见 failure.ts）：Bridge 按它决定自动重试哪几档、要人做什么；省略时按原文判断。
  */
 export class AgentUpstreamError extends Error {
+  readonly kind: UpstreamFailureKind;
   constructor(
     readonly reason: string,
     readonly threadId?: string,
-    /**
-     * transient：限流、过载、5xx，等一会儿可能就好；model：模型本身用不了，等也没用，要人换个模型；
-     * network：根本连不上模型服务（断网、合盖睡眠、DNS），请求没发出去，等网络回来接着原会话做
-     */
-    readonly kind: "transient" | "model" | "network" = isNetworkFailure(reason)
-      ? "network"
-      : "transient",
+    kind?: UpstreamFailureKind,
   ) {
     super(`${UPSTREAM_FAILURE_PREFIX}：${reason}`);
     this.name = "AgentUpstreamError";
+    const guessed = classifyText(reason);
+    this.kind = kind ?? (isUpstreamKind(guessed) ? guessed : "provider_error");
   }
-}
-
-/**
- * 连不上模型服务：断网、电脑合盖睡眠、DNS 解析失败、连接被重置。请求没送到模型，
- * 运行时（如 Claude Code）是在两步之间发请求失败的，已经完成的工具步骤都记在会话里
- */
-export function isNetworkFailure(text: string): boolean {
-  return /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH|ENETDOWN|socket hang up|Connection error|Can't reach the API server|fetch failed|network (?:error|is unreachable)|getaddrinfo/i.test(
-    text,
-  );
-}
-
-/**
- * 网关明确说是限流、渠道全挂了。有的网关这时也回 401/403，甚至写「Failed to authenticate」，
- * 但原因写在后面（如「403 重试渠道均失败…已达到请求速率限制」），按上游出错算
- */
-function isGatewayThrottled(text: string): boolean {
-  return /重试渠道均失败|速率限制|限流|rate[ _-]?limit|too many requests/i.test(text);
-}
-
-/**
- * 看起来是上游模型服务暂时不可用（限流、过载、5xx、连接中断），等一会儿再试可能就好；
- * 额度用完、鉴权失败这类等多久都不会好的不算。只认明确的写法，不按任意数字或「超时」字样匹配。
- */
-export function isUpstreamFailure(text: string): boolean {
-  if (/insufficient_quota|quota exceeded|billing|credit balance|invalid api key/i.test(text)) {
-    return false;
-  }
-  // 单纯的 401/403 是鉴权问题；网关限流时写明了原因的除外
-  if (/unauthori[sz]ed|\b401\b|\b403\b/i.test(text) && !isGatewayThrottled(text)) return false;
-  if (isNetworkFailure(text) || isGatewayThrottled(text)) return true;
-  return /API Error:?\s*(?:429|5\d\d)\b|(?:status|statusCode|status_code|HTTP)[\s:=]*(?:429|5\d\d)\b|overloaded|service unavailable|bad gateway|gateway time-?out|ECONNRESET|ETIMEDOUT|socket hang up|stream (?:error|disconnected)|服务繁忙/i.test(
-    text,
-  );
 }
 
 /**
@@ -175,30 +145,19 @@ export class AgentSessionInvalidError extends Error {
   }
 }
 
-/** 运行时报的错误是不是「会话坏了」：只认明确的写法 */
-export function isSessionInvalid(text: string): boolean {
-  return /invalid_encrypted_content|encrypted content[^.]*could not be (?:verified|decrypted)|previous_response_not_found|previous response[^.]*not found|no (?:conversation|rollout) found|(?:thread|session|conversation|rollout)[^.]{0,40}(?:not found|does not exist|could not be (?:found|loaded|parsed))|failed to (?:load|parse|read) (?:rollout|session|thread)|corrupt(?:ed)? (?:rollout|session)/i.test(
-    text,
-  );
-}
-
 /**
- * 模型本身用不了（不存在、下线、没有权限用这个模型）：等多久都不会好，换个模型才行。
- * 额度用完、key 无效这类换模型也没用的不算。
+ * 运行时把分好类的失败（见 failure.ts）转成 Bridge 认的错误：会话失效开新会话，上游出错按分类等待或交给人。
+ * 说不清的返回 undefined，由运行时照原来的方式报（多半是结果未知）。executed：出错前是否已经执行过工具。
  */
-export function isModelUnavailable(text: string): boolean {
-  if (
-    /insufficient_quota|quota exceeded|billing|credit balance|invalid api key|unauthori[sz]ed|\b401\b/i.test(
-      text,
-    )
-  ) {
-    return false;
-  }
-  // 网关说限流了：等一会儿就好，不用换模型（渠道失败的说明里常顺带提到模型或部署不可用）
-  if (/速率限制|限流|rate[ _-]?limit|too many requests/i.test(text)) return false;
-  return /model_not_found|not_found_error[\s\S]{0,80}\bmodel\b|model[^.]{0,40}(?:does not exist|not found|not supported|is not available|unavailable|deprecated|has been (?:deprecated|retired|removed))|unknown model|invalid model|no such model|issue with the selected model|unrecognized_model|模型不存在|模型已下线/i.test(
-    text,
-  );
+export function classifiedFailure(
+  kind: FailureKind,
+  reason: string,
+  threadId: string | undefined,
+  executed: boolean,
+): AgentUpstreamError | AgentSessionInvalidError | undefined {
+  if (kind === "session_invalid") return new AgentSessionInvalidError(reason, executed);
+  if (isUpstreamKind(kind)) return new AgentUpstreamError(reason, threadId, kind);
+  return undefined;
 }
 
 /**

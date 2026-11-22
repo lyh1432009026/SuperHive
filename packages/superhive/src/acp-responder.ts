@@ -4,14 +4,13 @@ import path from "node:path";
 import { acpHiveMcpServer, type HiveMcpConnection } from "./hive-mcp-config.js";
 import type { TraceStep } from "./hive-protocol.js";
 import { ThinkingTrace } from "./trace.js";
+import { classifyAcp, classifyText } from "./failure.js";
 import {
   AgentCancelledError,
   AgentNonRetryableError,
   AgentSessionInvalidError,
   AgentUpstreamError,
-  isModelUnavailable,
-  isSessionInvalid,
-  isUpstreamFailure,
+  classifiedFailure,
   type AgentAccessMode,
   type AgentReply,
   type AgentReplyInput,
@@ -107,9 +106,12 @@ export class AcpRpcError extends Error {
   constructor(
     readonly method: string,
     readonly code: number | undefined,
-    message: string,
+    /** 运行时的原话（不带方法名前缀），分类用 */
+    readonly reason: string,
+    /** JSON-RPC error.data（opencode 把错误类别放在 errorName） */
+    readonly data?: unknown,
   ) {
-    super(`${method} 失败：${message}`);
+    super(`${method} 失败：${reason}`);
     this.name = "AcpRpcError";
   }
 }
@@ -123,9 +125,7 @@ class RequestTimeoutError extends Error {
 
 /** ACP 规定 -32000 是 auth_required；各家的文案不同（agy：Authentication required；Gemini CLI：API key is missing） */
 function isAuthRequired(error: AcpRpcError): boolean {
-  return (
-    error.code === -32000 && /authenticat|api key|log ?in|sign ?in|credential/i.test(error.message)
-  );
+  return error.code === -32000 && classifyText(error.reason) === "auth";
 }
 
 /** Windows 上 path.relative 不分大小写，盘符不同时返回绝对路径，都按目录外处理 */
@@ -603,7 +603,11 @@ export class AcpResponder implements AgentResponder {
       return;
     }
     if (stopReason === "refusal") {
-      this.finishTurn(turn, new Error(`${label} 拒绝了这次请求。`));
+      // 模型拒答：原样重跑还是拒绝，不自动重试，交给人改说法
+      this.finishTurn(
+        turn,
+        new AgentUpstreamError(`${label} 的模型拒绝回答这次请求`, turn.sessionId, "refused"),
+      );
       return;
     }
     if (!text) {
@@ -615,15 +619,20 @@ export class AcpResponder implements AgentResponder {
     this.finishTurn(turn, { text, threadId: turn.sessionId! });
   }
 
-  /** session/prompt 被拒：会话坏了、模型用不了单独归类，Bridge 据此开新会话或换模型 */
+  /** session/prompt 被拒：按 HTTP 状态码、错误类别和原文分类，会话坏了开新会话，上游出错按分类等待或交给人 */
   private classifyPromptError(turn: ActiveTurn, error: Error): Error {
-    const text = error.message;
-    if (isSessionInvalid(text))
-      return new AgentSessionInvalidError(text.slice(0, 240), turn.toolTitles.size > 0);
-    if (isModelUnavailable(text))
-      return new AgentUpstreamError(text.slice(0, 240), turn.sessionId, "model");
-    if (isUpstreamFailure(text)) return new AgentUpstreamError(text.slice(0, 240), turn.sessionId);
-    return error;
+    const kind =
+      error instanceof AcpRpcError
+        ? classifyAcp({ code: error.code, message: error.reason, data: error.data })
+        : classifyText(error.message);
+    return (
+      classifiedFailure(
+        kind,
+        error.message.slice(0, 240),
+        turn.sessionId,
+        turn.toolTitles.size > 0,
+      ) ?? error
+    );
   }
 
   /**
@@ -645,7 +654,7 @@ export class AcpResponder implements AgentResponder {
         throw new AgentUpstreamError(
           `${this.options.label} 没有模型 ${model}（可选：${known.options.slice(0, 8).join("、")}）`,
           sessionId,
-          "model",
+          "model_unavailable",
         );
       }
       return;
@@ -880,6 +889,7 @@ export class AcpResponder implements AgentResponder {
             `${this.options.label} ${pending.method}`,
             typeof message.error.code === "number" ? message.error.code : undefined,
             `${String(message.error.message ?? "未知错误")}${typeof detail === "string" && detail ? `：${detail}` : ""}`,
+            message.error.data,
           ),
         );
       } else {

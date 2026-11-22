@@ -1,6 +1,7 @@
 import type { CommandRunner } from "./command-runner.js";
 import { streamCommandRunner } from "./stream-command-runner.js";
-import { ClaudeStream } from "./claude-stream.js";
+import { ClaudeStream, type ClaudeResult } from "./claude-stream.js";
+import { classifyClaude, classifyText, isUpstreamKind } from "./failure.js";
 import { claudeToolSummary, redactTrace } from "./trace.js";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -13,9 +14,6 @@ import {
   AgentExecutionUncertainError,
   AgentSessionInvalidError,
   AgentUpstreamError,
-  isModelUnavailable,
-  isSessionInvalid,
-  isUpstreamFailure,
   type AgentAccessMode,
   type AgentReply,
   type AgentReplyInput,
@@ -39,6 +37,29 @@ type ClaudeTurn = {
   /** 写进去、还没被 Claude 收进对话的引导：uuid → 收下后的回调 */
   unacked: Map<string, (accepted: boolean) => void>;
 };
+
+/**
+ * Claude Code 写出了 is_error 的结果：按错误类别、状态码和原文分类（见 failure.ts 的 classifyClaude），
+ * 是上游出错的交给 Bridge 处理；说不清的返回 undefined，照旧按结果未知报
+ */
+function upstreamFailure(
+  payload: ClaudeResult | undefined,
+  threadId: string | undefined,
+): AgentUpstreamError | undefined {
+  if (!payload?.is_error || !payload.result?.trim()) return undefined;
+  const kind = classifyClaude({
+    category: payload.error_category,
+    status: payload.api_error_status,
+    terminalReason: payload.terminal_reason,
+    text: payload.result,
+  });
+  if (!isUpstreamKind(kind)) return undefined;
+  return new AgentUpstreamError(
+    redactTrace(payload.result.replace(/\s+/g, " ").trim()).slice(0, 240),
+    payload.session_id ?? threadId,
+    kind,
+  );
+}
 
 export class ClaudeCodeResponder implements AgentResponder {
   private turn: ClaudeTurn | undefined;
@@ -304,30 +325,19 @@ export class ClaudeCodeResponder implements AgentResponder {
           "已请求终止 Claude 主进程，但工具子进程是否停止尚未确认。",
         );
       }
-      // 上游重试用完后，Claude Code 会先写出一条 is_error 的结果（如「API Error: 429 …」）再以非零码退出。
-      // 原因明确，不是「中途断了」：按上游出错交给 Bridge，它会看这一轮有没有做过改动再决定自动继续还是等人
+      // 上游出错（重试用完的 429、额度用完、key 无效……）时，Claude Code 会先写出一条 is_error 的结果再以非零码退出。
+      // 原因明确，不是「中途断了」：按上游出错交给 Bridge，它按失败原因决定自动继续还是等人
       const payload = stream.finish();
       // 恢复会话失败（会话文件被清掉、换了机器）：Claude Code 写出 is_error 的结果和原因后退出，什么都还没做
       const errors = payload?.errors?.join("; ") ?? "";
-      if (payload?.is_error && input.threadId && isSessionInvalid(errors)) {
+      if (payload?.is_error && input.threadId && classifyText(errors) === "session_invalid") {
         throw new AgentSessionInvalidError(
           redactTrace(errors.replace(/\s+/g, " ").trim()).slice(0, 240),
           stream.toolStarted,
         );
       }
-      if (payload?.is_error && payload.result?.trim() && isModelUnavailable(payload.result)) {
-        throw new AgentUpstreamError(
-          redactTrace(payload.result.replace(/\s+/g, " ").trim()).slice(0, 240),
-          payload.session_id ?? input.threadId,
-          "model",
-        );
-      }
-      if (payload?.is_error && payload.result?.trim() && isUpstreamFailure(payload.result)) {
-        throw new AgentUpstreamError(
-          redactTrace(payload.result.replace(/\s+/g, " ").trim()).slice(0, 240),
-          payload.session_id ?? input.threadId,
-        );
-      }
+      const upstream = upstreamFailure(payload, input.threadId);
+      if (upstream) throw upstream;
       // An interrupted/invalid stream may follow tool side effects. Never blindly replay it.
       // 带上 Claude Code 最后写出的报错，否则人只看得到「中途退出」不知道为什么
       const said =
@@ -355,20 +365,9 @@ export class ClaudeCodeResponder implements AgentResponder {
       throw new AgentExecutionUncertainError(
         "Claude Code 返回了无法解析的最终结果，执行结果未知。",
       );
-    // 上游模型服务出错（限流、过载……）：进程已正常结束、原因明确，交给 Bridge 决定是否接着继续
-    if (payload.is_error && payload.result?.trim() && isModelUnavailable(payload.result)) {
-      throw new AgentUpstreamError(
-        redactTrace(payload.result.replace(/\s+/g, " ").trim()).slice(0, 240),
-        payload.session_id ?? input.threadId,
-        "model",
-      );
-    }
-    if (payload.is_error && payload.result?.trim() && isUpstreamFailure(payload.result)) {
-      throw new AgentUpstreamError(
-        redactTrace(payload.result.replace(/\s+/g, " ").trim()).slice(0, 240),
-        payload.session_id ?? input.threadId,
-      );
-    }
+    // 上游模型服务出错：进程已正常结束、原因明确，交给 Bridge 按失败原因决定是否接着继续
+    const upstream = upstreamFailure(payload, input.threadId);
+    if (upstream) throw upstream;
     if (payload.is_error || !payload.result?.trim()) {
       // 带上 Claude Code 给的原因（多半是 API 限流、额度用完），否则只看得到「结果未知」不知道为什么
       const reason =

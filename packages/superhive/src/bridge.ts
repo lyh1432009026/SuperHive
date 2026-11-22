@@ -47,6 +47,7 @@ import {
 import { StateStore, type AgentState } from "./state-store.js";
 import { isIrreversibleStep, isMutatingStep, sanitizeTraceStep } from "./trace.js";
 import { readAgentSettings } from "./mcp-servers.js";
+import { failurePolicy, type FailureKind } from "./failure.js";
 import { anyProcessAlive, liveRuntimePids, onRuntimeSpawn } from "./runtime-processes.js";
 import type { TraceStep } from "./hive-protocol.js";
 import { AttachmentCache } from "./attachment-cache.js";
@@ -2007,6 +2008,7 @@ export class AgentBridge {
           messageId: message.id,
           status: "running",
           ...said(bridgeText("bridge.sessionRetrying", { reason: error.reason.slice(0, 200) })),
+          failure: "session_invalid",
           progress: bridgeTextZh(
             bridgeText("bridge.sessionRetrying", { reason: error.reason.slice(0, 120) }),
           ).slice(0, 200),
@@ -2029,15 +2031,17 @@ export class AgentBridge {
         messageId: message.id,
         status: "failed",
         ...detail,
+        failure: "session_invalid",
         ...this.usageReport(active),
       });
     }
   }
 
   /**
-   * 上游模型服务出错（限流、过载、5xx、断流）：进程已正常退出、原因明确，不会有残留执行。
-   * 这一轮没做过有副作用的操作就等一会儿接着原会话自动继续（次数与等待时间见 tuning.upstreamRetryDelaysMs）；
-   * 做过的、或次数用完，就报失败并写明原因，由人点「继续」（即重试），同样接着原会话从断点往下做。
+   * 上游模型服务出错：进程已正常退出、原因明确，不会有残留执行。按失败原因（failure.ts 的 failurePolicy）处理：
+   * 断网、限流、过载、5xx 等一会儿接着原会话自动继续（次数与等待时间见 tuning 的 networkRetryDelaysMs、
+   * upstreamRetryDelaysMs）；额度、认证、模型用不了、上下文超长这类等多久都不会好，直接报失败并写明要人做什么。
+   * 次数用完或不自动重试的，由人点「继续」（即重试），同样接着原会话从断点往下做。
    */
   private async handleUpstreamError(active: ActiveBatch, error: AgentUpstreamError): Promise<void> {
     this.settleUsage(active, "failed");
@@ -2048,19 +2052,21 @@ export class AgentBridge {
     const steps = stepsNote([...(active.steps?.values() ?? [])]);
     for (const message of live) this.resumeNotes.set(message.id, `${error.reason}${steps}`);
     const used = Math.max(0, ...live.map((message) => this.upstreamRetries.get(message.id) ?? 0));
-    // 模型本身用不了（不存在、下线）：等多久都不会好，不自动重试，交给人换个模型
+    // 按失败原因决定：断网等网络回来（那几档等得久），限流、过载、5xx 等一会儿；
+    // 额度、认证、模型用不了、上下文超长这类等多久都不会好，不自动重试，写明要人做什么
+    const policy = failurePolicy(error.kind);
     const delays =
-      error.kind === "network"
+      policy.retry === "network"
         ? this.tuning.networkRetryDelaysMs
         : this.tuning.upstreamRetryDelaysMs;
-    const delay = error.kind === "model" ? undefined : delays[used];
+    const delay = policy.retry === "none" ? undefined : delays[used];
     // 上游出错时运行时是在两步之间发请求失败的：已经做完的步骤都记在会话里，接着原会话继续，
     // 提示里再写明做过哪些改动，Agent 自己就知道做到哪、不会重复。改过东西也照样自动继续
     if (delay !== undefined && live.length > 0) {
       for (const message of live) this.upstreamRetries.set(message.id, used + 1);
       await this.store.save(this.state);
       const reason =
-        error.kind === "network" ? "连不上模型服务（网络中断）" : UPSTREAM_FAILURE_PREFIX;
+        policy.retry === "network" ? "连不上模型服务（网络中断）" : UPSTREAM_FAILURE_PREFIX;
       const progress = (wait: string) =>
         `${reason}，${wait}后自动继续（第 ${used + 1}/${delays.length} 次）`.slice(0, 200);
       const wait = waitText(delay);
@@ -2071,6 +2077,7 @@ export class AgentBridge {
           status: "running",
           progress: progress(wait),
           detail: error.message.slice(0, 500),
+          failure: error.kind,
           ...this.usageReport(active),
         });
       }
@@ -2079,6 +2086,7 @@ export class AgentBridge {
         delay,
         (remaining) => progress(`约 ${remaining}`),
         error.message.slice(0, 500),
+        error.kind,
       );
       return;
     }
@@ -2087,10 +2095,12 @@ export class AgentBridge {
       this.upstreamRetries.delete(message.id);
     }
     await this.store.save(this.state);
-    const why = bridgeText("bridge.upstreamExhausted", { count: delays.length });
+    const why = policy.fix
+      ? bridgeText(`bridge.fix.${policy.fix}`)
+      : bridgeText("bridge.upstreamExhausted", { count: delays.length });
     // 模型本身用不了：接着原会话「继续」还是同一个模型，没用，让人换模型
     const detail = said(
-      error.kind === "model"
+      error.kind === "model_unavailable"
         ? bridgeText("bridge.modelFailed", { reason: error.reason.slice(0, 360) })
         : bridgeText("bridge.upstreamFailed", { reason: error.reason.slice(0, 360), why }),
     );
@@ -2100,6 +2110,7 @@ export class AgentBridge {
         messageId: message.id,
         status: "failed",
         ...detail,
+        failure: error.kind,
         ...this.usageReport(active),
       });
     }
@@ -2111,6 +2122,7 @@ export class AgentBridge {
     delay: number,
     progress: (remaining: string) => string,
     detail: string,
+    failure?: FailureKind,
   ): void {
     const resumeAt = Date.now() + delay;
     const timer = setTimeout(() => {
@@ -2136,12 +2148,13 @@ export class AgentBridge {
       const remaining = waitText(Math.max(0, resumeAt - Date.now()));
       for (const message of live) {
         if (this.waitingResume.get(message.id) !== timer) continue;
-        // detail 和第一次上报保持一致：Server 收到不带 detail 的 running 会把它清空；用量第一次已经报过，这里不再带
+        // detail、failure 和第一次上报保持一致：Server 收到不带 detail 的 running 会把它清空；用量第一次已经报过，这里不再带
         this.room.report({
           messageId: message.id,
           status: "running",
           progress: progress(remaining),
           detail,
+          ...(failure ? { failure } : {}),
         });
       }
     }, this.tuning.heartbeatMs);

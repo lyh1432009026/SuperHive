@@ -100,6 +100,31 @@ describe("incident classification", () => {
     expect(upstream.title).toBe("claude · 上游模型服务出错");
   });
 
+  it("files upstream failures apart by the failure kind the bridge reported", () => {
+    const upstream = (failure: Invocation["failure"]) =>
+      classifyInvocation(
+        invocation({
+          status: "failed",
+          detailText: { key: "bridge.upstreamFailed", params: { reason: "x", why: "" } },
+          ...(failure ? { failure } : {}),
+        }),
+        { provider: "claude" },
+      )!;
+    expect(upstream("rate_limited")).toMatchObject({
+      origin: "external",
+      fingerprint: "invocation:bridge.upstreamFailed:rate_limited:claude",
+      title: "claude · 上游模型服务出错（rate_limited）",
+    });
+    expect(upstream("quota").fingerprint).toBe("invocation:bridge.upstreamFailed:quota:claude");
+    // 请求被拒说不清是谁的：可能是运行时或我们拼的请求有问题，记下来不自动派修
+    expect(upstream("invalid_request").origin).toBe("unknown");
+    // 旧版 Bridge 不报失败原因：照旧按说明键归类
+    expect(upstream(undefined)).toMatchObject({
+      origin: "external",
+      fingerprint: "invocation:bridge.upstreamFailed:claude",
+    });
+  });
+
   it("counts a failed task workspace check as ours, apart from other uncertain or unsafe turns", () => {
     const verify =
       "这一轮已执行完，但没能复核任务目录（Cannot safely select the task workspaces; confirm before retrying: Cannot verify managed task workspace (401): Online local agent required）。";

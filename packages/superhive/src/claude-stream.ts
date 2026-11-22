@@ -19,6 +19,12 @@ export type ClaudeResult = {
   session_id?: string;
   /** 出错时 Claude Code 给的原因（如恢复会话失败「No conversation found with session ID」） */
   errors?: string[];
+  /** 服务商回的 HTTP 状态码；断网等没收到回应时没有 */
+  api_error_status?: number;
+  /** 回合怎么结束的（api_error、prompt_too_long……） */
+  terminal_reason?: string;
+  /** 出错前那条合成 assistant 消息上的错误类别（rate_limit、authentication_failed、billing_error……） */
+  error_category?: string;
 };
 
 function toolCategory(name: unknown): NonNullable<RuntimeEvent["tool"]> {
@@ -38,6 +44,7 @@ export class ClaudeStream {
   private buffer = "";
   private discarding = false;
   private failed = false;
+  private errorCategory: string | undefined;
   private result?: ClaudeResult;
   /** 这个进程里的每一轮结果：引导后 Claude 可能再跑一轮，各轮的回复都要交出去 */
   private readonly results: ClaudeResult[] = [];
@@ -224,6 +231,13 @@ export class ClaudeStream {
         ...(typeof event.result === "string" ? { result: event.result } : {}),
         ...(typeof event.session_id === "string" ? { session_id: event.session_id } : {}),
         is_error: event.is_error === true,
+        ...(integer(event.api_error_status, 100, 599) !== undefined
+          ? { api_error_status: event.api_error_status as number }
+          : {}),
+        ...(typeof event.terminal_reason === "string"
+          ? { terminal_reason: event.terminal_reason.slice(0, 64) }
+          : {}),
+        ...(this.errorCategory ? { error_category: this.errorCategory } : {}),
         ...(Array.isArray(event.errors)
           ? {
               errors: event.errors
@@ -277,7 +291,13 @@ export class ClaudeStream {
       });
       return;
     }
+    // 出错时 Claude Code 先写一条合成的 assistant 消息，error 是错误类别；记下来随 result 交给分类
+    if (event.type === "assistant" && typeof event.error === "string" && event.error) {
+      this.errorCategory = event.error.slice(0, 64);
+      return;
+    }
     if (event.type === "assistant" && !event.error) {
+      this.errorCategory = undefined;
       this.recovered();
       const message = object(event.message);
       this.account(message, message?.id);

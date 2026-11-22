@@ -1,4 +1,5 @@
 import { codexStartupFailure } from "./codex-errors.js";
+import { classifyText } from "./failure.js";
 import {
   AgentCancelledError,
   AgentExecutionUncertainError,
@@ -79,9 +80,7 @@ export function isMissingCodexThread(error: unknown): boolean {
     messages.push(current instanceof Error ? current.message : String(current));
     current = current instanceof Error ? current.cause : undefined;
   }
-  return /session not found for (?:thread|conversation)[_ ]?id|thread not found|no rollout found for thread/i.test(
-    messages.join("\n"),
-  );
+  return classifyText(messages.join("\n")) === "session_invalid";
 }
 
 export class CodexMcpResponder implements AgentResponder {

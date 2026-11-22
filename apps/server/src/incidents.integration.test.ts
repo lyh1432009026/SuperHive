@@ -130,6 +130,53 @@ describe("incidents in the running server", () => {
     });
   });
 
+  it("keeps the failure kind the bridge reports and files upstream failures by it", async () => {
+    const { desk, join } = await startRoom();
+    const alice = await join("Alice", "human");
+    const worker = await join("worker", "agent");
+    alice.send({ type: "message.send", clientMessageId: "q1", content: "@worker 看一下" });
+    const mentioned = (await worker.next(
+      (event) => event.type === "agent.mentioned" && event.message.clientMessageId === "q1",
+    )) as Extract<ServerEvent, { type: "agent.mentioned" }>;
+    const messageId = mentioned.message.id;
+    // 限流，等着自动继续：带着失败原因
+    worker.send({
+      type: "invocation.report",
+      messageId,
+      status: "running",
+      detail: "上游模型服务出错：API Error: 429",
+      failure: "rate_limited",
+    });
+    const waiting = (await alice.next(
+      (event) =>
+        event.type === "invocation.updated" &&
+        event.invocation.messageId === messageId &&
+        event.invocation.status === "running" &&
+        Boolean(event.invocation.detail),
+    )) as Extract<ServerEvent, { type: "invocation.updated" }>;
+    expect(waiting.invocation.failure).toBe("rate_limited");
+    // 最后是额度用完：换成新的原因
+    worker.send({
+      type: "invocation.report",
+      messageId,
+      status: "failed",
+      detailText: { key: "bridge.upstreamFailed", params: { reason: "Quota exceeded", why: "" } },
+      failure: "quota",
+    });
+    const failed = (await alice.next(
+      (event) =>
+        event.type === "invocation.updated" &&
+        event.invocation.messageId === messageId &&
+        event.invocation.status === "failed",
+    )) as Extract<ServerEvent, { type: "invocation.updated" }>;
+    expect(failed.invocation.failure).toBe("quota");
+    await until(() => desk.snapshot().incidents.length === 1);
+    expect(desk.snapshot().incidents[0]).toMatchObject({
+      origin: "external",
+      fingerprint: "invocation:bridge.upstreamFailed:quota:claude",
+    });
+  });
+
   it("files server exceptions (5xx) but not client errors (4xx)", async () => {
     const app = await buildApp({
       databasePath: ":memory:",

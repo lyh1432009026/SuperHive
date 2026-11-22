@@ -168,6 +168,8 @@ export type InvocationReport = {
   detail?: string;
   /** detail 的结构化文案（键见 bridge-text.ts） */
   detailText?: import("./bridge-text.js").BridgeText;
+  /** 失败原因（见 failure.ts）：自动重试等待中和最终失败时带上 */
+  failure?: import("./failure.js").FailureKind;
   progress?: string;
   replyMessageId?: string;
   contextSeq?: number;

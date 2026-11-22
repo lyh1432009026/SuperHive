@@ -479,11 +479,11 @@ describe("ClaudeCodeResponder", () => {
       .reply({ instructions: "rules", prompt: "context" })
       .catch((cause: unknown) => cause)) as AgentUpstreamError;
     expect(throttled).toBeInstanceOf(AgentUpstreamError);
-    expect(throttled.kind).toBe("transient");
+    expect(throttled.kind).toBe("rate_limited");
     expect(throttled.threadId).toBe("session-403");
 
-    // 结果是别的报错：仍按「结果未知」处理，但把 Claude Code 的原话带上，人才知道为什么停
-    const other = new ClaudeCodeResponder({
+    // key 无效：等多久都不会好，按上游出错交给 Bridge（不自动重试、写明要重新登录），不当成结果未知
+    const rejected = new ClaudeCodeResponder({
       command: "claude",
       cwd: "/workspace",
       hive,
@@ -494,12 +494,30 @@ describe("ClaudeCodeResponder", () => {
         return Promise.reject(new Error("运行进程异常退出（1）。"));
       },
     });
+    const auth = (await rejected
+      .reply({ instructions: "rules", prompt: "context" })
+      .catch((cause: unknown) => cause)) as AgentUpstreamError;
+    expect(auth).toBeInstanceOf(AgentUpstreamError);
+    expect(auth.kind).toBe("auth");
+
+    // 结果是说不清的报错：仍按「结果未知」处理，但把 Claude Code 的原话带上，人才知道为什么停
+    const other = new ClaudeCodeResponder({
+      command: "claude",
+      cwd: "/workspace",
+      hive,
+      runner: (_command, _args, options) => {
+        options.onStdout?.(
+          `${JSON.stringify({ type: "result", subtype: "success", is_error: true, result: "Tool execution aborted unexpectedly" })}\n`,
+        );
+        return Promise.reject(new Error("运行进程异常退出（1）。"));
+      },
+    });
     const unknown = await other
       .reply({ instructions: "rules", prompt: "context" })
       .catch((cause: unknown) => cause);
     expect(unknown).toBeInstanceOf(AgentExecutionUncertainError);
     expect((unknown as Error).message).toBe(
-      "Claude Code 中途报错退出：API Error: 401 invalid api key。",
+      "Claude Code 中途报错退出：Tool execution aborted unexpectedly。",
     );
 
     // 没有结果：仍按「执行中断，结果未知」处理，不能盲目重放

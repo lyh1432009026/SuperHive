@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { agentCodeVersionSchema } from "./agent-version.js";
+import { failureKindSchema } from "./failure-kind.js";
 import { serverTextSchema } from "./server-text.js";
 import { worktreeCleanupEventSchema } from "./worktree.js";
 
@@ -515,6 +516,8 @@ export const invocationSchema = z.object({
   detail: z.string().max(500).optional(),
   /** detail 的结构化版本：网页按用户语言渲染；没有时显示 detail 原文 */
   detailText: serverTextSchema.optional(),
+  /** 失败原因（上游限流、额度用完、认证失效……）；Bridge 说不清或旧版 Bridge 时没有 */
+  failure: failureKindSchema.optional(),
   progress: z.string().max(200).optional(),
   /** progress 的结构化版本（服务端写的进度，例如等你批准） */
   progressText: serverTextSchema.optional(),
@@ -693,6 +696,8 @@ export const invocationReportEventSchema = z.object({
   detail: z.string().trim().max(500).optional(),
   /** detail 的结构化版本（Bridge 写的说明，例如上游出错、连续失败），网页按语言渲染 */
   detailText: serverTextSchema.optional(),
+  /** 失败原因（见 failure-kind.ts）：自动重试等待中（running）和最终失败时都带上 */
+  failure: failureKindSchema.optional(),
   progress: z.string().trim().max(200).optional(),
   runtimeEvent: runtimeEventSchema.optional(),
   /** 本轮真实用量；同一轮合并处理多条消息时只随其中一条上报，避免重复计费 */
@@ -1852,6 +1857,7 @@ export * from "./agent-session.js";
 export * from "./plural.js";
 export * from "./participant-order.js";
 export * from "./invocation-decision.js";
+export * from "./failure-kind.js";
 export * from "./agent-clis.js";
 export * from "./workspace-files.js";
 export * from "./attachment-open.js";

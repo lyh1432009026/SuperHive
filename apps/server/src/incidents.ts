@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   zhText,
   type ClientErrorReport,
+  type FailureKind,
   type IncidentOrigin,
   type IncidentSample,
   type IncidentSource,
@@ -76,6 +77,15 @@ export function invocationOrigin(key: string | undefined): IncidentOrigin | unde
   return (key && INVOCATION_ORIGINS[key]) || "unknown";
 }
 
+/**
+ * Bridge 报了失败原因（见 protocol 的 failureKindSchema）时按原因归属：模型服务、网络、额度、凭证这些
+ * 我们改代码修不好；请求被拒（400 说不出原因）可能是运行时或我们拼的请求有问题，记下来给人看，不自动派修。
+ */
+function failureOrigin(failure: FailureKind): IncidentOrigin | undefined {
+  if (failure === "unknown") return undefined;
+  return failure === "invalid_request" ? "unknown" : "external";
+}
+
 /** 结果未知、已停下这两个键原因五花八门，只有原因是 Bridge 没能向 Server 核对任务目录时才能认定是我们的问题 */
 const WORKSPACE_CHECK_KEYS = new Set(["bridge.uncertain", "bridge.unsafe"]);
 
@@ -92,7 +102,8 @@ function workspaceCheckFailed(invocation: Invocation, detail: string | undefined
 
 /**
  * 一轮失败或结果未知 → 一次出现；不是失败、或按设计如此的返回 undefined。
- * 指纹按说明键 + 运行时：同一种卡住在 Claude 和 Codex 上往往是两处代码。
+ * 指纹按说明键 + 失败原因 + 运行时：同一种卡住在 Claude 和 Codex 上往往是两处代码；
+ * 同是上游出错，限流和额度用完也分开记，不混成一张。
  */
 export function classifyInvocation(
   invocation: Invocation,
@@ -104,6 +115,7 @@ export function classifyInvocation(
   const key = invocation.detailText?.key;
   let origin = invocationOrigin(key);
   if (!origin) return undefined;
+  origin = (invocation.failure && failureOrigin(invocation.failure)) || origin;
   const detail = invocation.detailText
     ? zhText(invocation.detailText as ServerText)
     : invocation.detail;
@@ -115,8 +127,8 @@ export function classifyInvocation(
   return {
     origin,
     source: "invocation",
-    fingerprint: `invocation:${key ?? `status:${invocation.status}`}${workspaceCheck ? ":workspace-check" : ""}:${provider}`,
-    title: `${provider} · ${oneLine(firstClause(normalizeMessage(detail ?? invocation.status)), 160)}`,
+    fingerprint: `invocation:${key ?? `status:${invocation.status}`}${workspaceCheck ? ":workspace-check" : ""}${invocation.failure ? `:${invocation.failure}` : ""}:${provider}`,
+    title: `${provider} · ${oneLine(firstClause(normalizeMessage(detail ?? invocation.status)), 160)}${invocation.failure ? `（${invocation.failure}）` : ""}`,
     ref: `invocation:${invocation.id}:${invocation.attempts}:${invocation.status}:${key ?? ""}`,
     sample: compact({
       at: invocation.finishedAt ?? invocation.updatedAt,

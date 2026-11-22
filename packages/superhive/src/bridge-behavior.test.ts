@@ -2152,7 +2152,7 @@ describe("AgentBridge", () => {
     room.handlers.onMention(mention, mention.seq, false);
     await waitUntil(() => responder.calls.length === 1);
     // 模型下线：等多久都不会好，不自动重试、也不自动换模型，交给人
-    responder.fail(new AgentUpstreamError("model_not_found: gpt-old", "s1", "model"));
+    responder.fail(new AgentUpstreamError("model_not_found: gpt-old", "s1", "model_unavailable"));
     await waitUntil(() => room.statuses(mention.id).includes("failed"));
     const failed = room.reports.find((report) => report.status === "failed");
     expect(failed?.detail).toBe(
@@ -2162,6 +2162,59 @@ describe("AgentBridge", () => {
     expect(failed?.detailText?.key).toBe("bridge.modelFailed");
     await flush();
     expect(responder.calls).toHaveLength(1);
+  });
+
+  it.each([
+    ["quota", "Quota exceeded. Check your plan and billing details.", "bridge.fix.quota"],
+    ["auth", "Invalid API key · Fix external API key", "bridge.fix.login"],
+    ["billing", "Credit balance is too low", "bridge.fix.billing"],
+    ["context_overflow", "Prompt is too long", "bridge.fix.context"],
+    ["refused", "TestAgent 的模型拒绝回答这次请求", "bridge.fix.refused"],
+    [
+      "invalid_request",
+      "API Error: 400 messages.0.content: Input should be a valid list",
+      "bridge.fix.request",
+    ],
+  ] as const)(
+    "does not retry a %s failure on its own and says what a person has to do",
+    async (kind, reason, fix) => {
+      await startBridge(baseState());
+      const mention = chat();
+      room.messages.push(mention);
+      room.handlers.onMention(mention, mention.seq, false);
+      await waitUntil(() => responder.calls.length === 1);
+      responder.fail(new AgentUpstreamError(reason, "s1", kind));
+      await waitUntil(() => room.statuses(mention.id).includes("failed"));
+      const failed = room.reports.find((report) => report.status === "failed");
+      // 仍是「上游出错、点继续接着原会话」那种，只是写明等多久都不会好、要人先处理什么
+      expect(failed?.detailText?.key).toBe("bridge.upstreamFailed");
+      expect((failed?.detailText?.params?.why as { key: string }).key).toBe(fix);
+      expect(failed?.failure).toBe(kind);
+      expect(room.reports.some((report) => report.progress?.includes("自动继续"))).toBe(false);
+      await flush();
+      expect(responder.calls).toHaveLength(1);
+      // 人处理好后点「继续」：接着原会话
+      room.handlers.onMention(mention, mention.seq, true);
+      await waitUntil(() => responder.calls.length === 2);
+      expect(responder.calls[1]!.threadId).toBe("s1");
+    },
+  );
+
+  it("reports the failure kind while waiting to continue and when giving up", async () => {
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    for (let call = 1; call <= 3; call += 1) {
+      await waitUntil(() => responder.calls.length === call);
+      responder.fail(new AgentUpstreamError("API Error: 429 rate limited", "s1", "rate_limited"));
+    }
+    await waitUntil(() => room.statuses(mention.id).includes("failed"));
+    const reports = room.reports.filter(
+      (report) => report.messageId === mention.id && report.detail?.includes("429"),
+    );
+    expect(reports.length).toBeGreaterThan(0);
+    for (const report of reports) expect(report.failure).toBe("rate_limited");
   });
 
   it("keeps using the same model while retrying an overloaded upstream", async () => {

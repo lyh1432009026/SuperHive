@@ -3,6 +3,7 @@ import { ThinkingTrace, isHiveProgress, redactTrace } from "./trace.js";
 import type { AgentUsage, TraceStep } from "./hive-protocol.js";
 import { codexStartupFailure } from "./codex-errors.js";
 import { isMissingCodexThread } from "./codex-client.js";
+import { classifyCodex } from "./failure.js";
 import { createRequire } from "node:module";
 import {
   CODEX_HIVE_TOOLS_APPROVAL_OVERRIDE,
@@ -13,11 +14,8 @@ import { codexMcpDisableOverrides, readAgentSettings } from "./mcp-servers.js";
 import {
   AgentCancelledError,
   AgentExecutionUncertainError,
-  AgentUpstreamError,
   AgentSessionInvalidError,
-  isModelUnavailable,
-  isSessionInvalid,
-  isUpstreamFailure,
+  classifiedFailure,
   AgentNonRetryableError,
   AgentTransientError,
   type AgentAccessMode,
@@ -644,10 +642,7 @@ export class CodexAppServerResponder implements AgentResponder {
         return threadId;
       } catch (error) {
         // 旧会话不存在、或恢复时文件坏了：还没发执行请求，直接开新会话
-        if (
-          !(error instanceof AppServerRpcError) ||
-          !(isMissingCodexThread(error) || isSessionInvalid(error.message))
-        ) {
+        if (!(error instanceof AppServerRpcError) || !isMissingCodexThread(error)) {
           throw error;
         }
         // 这一轮的提示只带了新消息（续接旧会话用的）：新会话看不到房间上下文，交给 Bridge 带完整上下文重来
@@ -1042,35 +1037,19 @@ export class CodexAppServerResponder implements AgentResponder {
       return;
     }
     if (status === "failed" && result?.error) {
-      const detail = JSON.stringify(result.error);
       const message =
         typeof result.error.message === "string" && result.error.message.trim()
           ? result.error.message
-          : detail;
-      // 会话坏了（解不开旧会话里加密的推理内容、找不到之前的 response）：开新会话就好
-      if (isSessionInvalid(detail)) {
-        this.finishTurn(
-          turn,
-          new AgentSessionInvalidError(
-            redactTrace(truncate(message, 240)),
-            Boolean(turn.toolStarted),
-          ),
-        );
-        return;
-      }
-      // 模型本身用不了（不存在、下线）：换个模型才行，等多久都不会好
-      if (isModelUnavailable(detail)) {
-        this.finishTurn(
-          turn,
-          new AgentUpstreamError(redactTrace(truncate(message, 240)), turn.threadId, "model"),
-        );
-        return;
-      }
-      if (isUpstreamFailure(detail)) {
-        this.finishTurn(
-          turn,
-          new AgentUpstreamError(redactTrace(truncate(message, 240)), turn.threadId),
-        );
+          : JSON.stringify(result.error);
+      // 按 codexErrorInfo 等结构化字段分类：会话坏了开新会话，限流、断网等一会儿，额度、认证等交给人
+      const failure = classifiedFailure(
+        classifyCodex(result.error),
+        redactTrace(truncate(message, 240)),
+        turn.threadId,
+        Boolean(turn.toolStarted),
+      );
+      if (failure) {
+        this.finishTurn(turn, failure);
         return;
       }
     }

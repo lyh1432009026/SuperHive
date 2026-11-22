@@ -1,6 +1,8 @@
 import {
   agentUsageSchema,
+  failureKindSchema,
   runtimeObservationSchema,
+  type FailureKind,
   type AgentUsage,
   type RuntimeObservation,
   type UsageRecord,
@@ -161,6 +163,7 @@ type InvocationRow = {
   block_reason: InvocationBlockReason | null;
   detail: string | null;
   detail_text: string | null;
+  failure?: string | null;
   progress: string | null;
   progress_text: string | null;
   runtime: string | null;
@@ -257,6 +260,8 @@ export type InvocationPatch = {
   status?: InvocationStatus;
   blockReason?: InvocationBlockReason | null;
   detail?: DetailInput;
+  /** 失败原因：属于 detail，改 detail 时一起写入（省略即清掉） */
+  failure?: FailureKind | null | undefined;
   progress?: DetailInput;
   runtime?: RuntimeObservation | null;
   replyMessageId?: string | null;
@@ -490,6 +495,9 @@ function mapInvocation(row: InvocationRow): Invocation {
     ...(row.detail ? { detail: row.detail } : {}),
     ...(row.detail && parseText(row.detail_text)
       ? { detailText: parseText(row.detail_text)! }
+      : {}),
+    ...(row.detail && failureKindSchema.safeParse(row.failure).success
+      ? { failure: failureKindSchema.parse(row.failure) }
       : {}),
     ...(row.progress ? { progress: row.progress } : {}),
     ...(row.progress && parseText(row.progress_text)
@@ -850,6 +858,10 @@ export class HiveDatabase {
     if (!invocationColumns.some((column) => column.name === "detail_text")) {
       // detail 的结构化文案（JSON，见 protocol 的 server-text.ts），网页按用户语言渲染
       this.db.exec("ALTER TABLE invocations ADD COLUMN detail_text TEXT");
+    }
+    if (!invocationColumns.some((column) => column.name === "failure")) {
+      // 失败原因（protocol 的 failureKindSchema），随 detail 一起写入、一起清掉
+      this.db.exec("ALTER TABLE invocations ADD COLUMN failure TEXT");
     }
     if (!invocationColumns.some((column) => column.name === "resolution_note_text")) {
       this.db.exec("ALTER TABLE invocations ADD COLUMN resolution_note_text TEXT");
@@ -1722,7 +1734,7 @@ export class HiveDatabase {
   }
 
   updateInvocation(id: string, patch: InvocationPatch): Invocation {
-    const columns: Record<keyof InvocationPatch, string> = {
+    const columns: Record<Exclude<keyof InvocationPatch, "failure">, string> = {
       status: "status",
       blockReason: "block_reason",
       detail: "detail",
@@ -1745,11 +1757,17 @@ export class HiveDatabase {
         "resolution_note = NULL",
       );
     }
-    for (const [key, column] of Object.entries(columns) as Array<[keyof InvocationPatch, string]>) {
+    for (const [key, column] of Object.entries(columns) as Array<
+      [Exclude<keyof InvocationPatch, "failure">, string]
+    >) {
       if (patch[key] === undefined) continue;
       if (key === "detail" || key === "progress") {
         assignments.push(`${column} = ?`, `${column}_text = ?`);
         values.push(...detailColumns(patch[key] ?? null, key === "progress" ? 200 : 500));
+        if (key === "detail") {
+          assignments.push("failure = ?");
+          values.push(patch.failure ?? null);
+        }
         continue;
       }
       assignments.push(`${column} = ?`);

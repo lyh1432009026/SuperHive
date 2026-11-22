@@ -945,7 +945,7 @@ describe("CodexAppServerResponder", () => {
       .reply({ instructions: "r", prompt: "p" })
       .catch((cause: unknown) => cause)) as AgentUpstreamError;
     expect(error).toBeInstanceOf(AgentUpstreamError);
-    expect(error.kind).toBe("model");
+    expect(error.kind).toBe("model_unavailable");
   });
 
   it("closes an idle app-server and resumes the same thread in a fresh one next time", async () => {

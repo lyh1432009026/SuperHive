@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { defaultCommandRunner, type CommandRunner } from "./command-runner.js";
+import { classifyText, isUpstreamKind } from "./failure.js";
 import {
   AgentCancelledError,
+  AgentUpstreamError,
   type AgentReply,
   type AgentReplyInput,
   type AgentResponder,
@@ -57,10 +59,14 @@ export class OpenClawResponder implements AgentResponder {
       });
     } catch (error) {
       if (error instanceof AgentCancelledError) throw error;
-      throw new Error(
-        `OpenClaw 执行失败：${error instanceof Error ? error.message : String(error)}`,
-        { cause: error },
-      );
+      const message = `OpenClaw 执行失败：${error instanceof Error ? error.message : String(error)}`;
+      // 没有结构化的失败信息，只能看 CLI 的原话：认得出的上游出错（断网、限流、额度、认证……）交给 Bridge 按分类处理。
+      // 会话只在续接已有会话时带上：新会话可能还没建起来，下次续接会找不到
+      const kind = classifyText(message);
+      if (isUpstreamKind(kind)) {
+        throw new AgentUpstreamError(message.slice(0, 240), input.threadId, kind);
+      }
+      throw new Error(message, { cause: error });
     }
     let payload: OpenClawResult;
     try {
