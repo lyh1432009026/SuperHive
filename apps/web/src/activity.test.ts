@@ -19,6 +19,46 @@ describe("plainPreview", () => {
       "看下 [代码] 文档",
     );
   });
+
+  it("flattens tables into cells separated by a dot and drops the divider row", () => {
+    expect(
+      plainPreview(
+        "对比如下：\n\n| 方案 | 耗时 |\n| --- | :-: |\n| A | 3s |\n| B \\| C | 5s |\n\n结论选 A",
+      ),
+    ).toBe("对比如下： 方案 · 耗时 A · 3s B | C · 5s 结论选 A");
+    expect(plainPreview("名称|状态\n---|---\nweb|ok")).toBe("名称 · 状态 web · ok");
+    // 没有分隔行的竖线不是表格，原样保留
+    expect(plainPreview("a | b")).toBe("a | b");
+  });
+
+  it("drops task list, quote, heading, rule, link, image and html syntax", () => {
+    expect(
+      plainPreview(
+        [
+          "## 进度 ##",
+          "- [ ] 写接口",
+          "- [x] 补测试",
+          "> > 引用里的 **重点**",
+          "***",
+          "看 ![截图](a.png) 和 [文档][ref]，<https://x.y>",
+          "[ref]: https://x.y/doc",
+          "<details><summary>展开</summary>细节<br/>换行</details>",
+          "<!-- 注释 -->~~旧~~ *新* _斜体_",
+          "标题",
+          "===",
+        ].join("\n"),
+      ),
+    ).toBe(
+      "进度 写接口 补测试 引用里的 重点 看 截图 和 文档，https://x.y 展开细节 换行 旧 新 斜体 标题",
+    );
+  });
+
+  it("keeps literal text that only looks like markdown", () => {
+    expect(
+      plainPreview("用 `a|b` 和 `**x**`，snake_case 与 Array<string>，2*3*4，\\*星号\\*"),
+    ).toBe("用 a|b 和 **x**，snake_case 与 Array<string>，2*3*4，*星号*");
+    expect(plainPreview("~~~\ncode\n~~~\n后面")).toBe("[代码] 后面");
+  });
 });
 
 describe("searchSnippet", () => {

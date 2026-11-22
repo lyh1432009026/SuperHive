@@ -132,14 +132,83 @@ export function orderByDelegation(
   return ordered;
 }
 
-/** 列表预览只保留文字：去掉代码块、强调、行内代码、引用与列表等 Markdown 标记 */
+/** 表格分隔行：| --- | :-: |，至少两列或带竖线 */
+const TABLE_DIVIDER = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)+\|?\s*$|^\s*\|\s*:?-+:?\s*\|?\s*$/;
+
+/** 常见 HTML 标签；只认这些标签名，正文里的 Array<string> 这类尖括号不受影响 */
+const HTML_TAG =
+  /<\/?(?:a|abbr|b|big|blockquote|br|center|code|dd|del|details|div|dl|dt|em|font|h[1-6]|hr|i|img|ins|kbd|li|mark|ol|p|picture|pre|q|s|small|source|span|strike|strong|sub|summary|sup|table|tbody|td|tfoot|th|thead|tr|u|ul|video)(?:\s[^<>]*)?\/?>/gi;
+
+/** 表格行：去掉两端竖线，单元格之间用「·」隔开；转义的 \| 是单元格里的字面竖线 */
+function tableRow(line: string): string {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/(?<!\\)\|$/, "")
+    .split(/(?<!\\)\|/)
+    .map((cell) => cell.trim().replace(/\\\|/g, "|"))
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** 有分隔行的才算表格，表头、数据行换成单元格文字，分隔行整行去掉 */
+function flattenTables(text: string): string {
+  const lines = text.split("\n");
+  const out: string[] = [];
+  let inTable = false;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (!inTable && line.includes("|") && TABLE_DIVIDER.test(lines[index + 1] ?? "")) {
+      inTable = true;
+      out.push(tableRow(line));
+      index += 1;
+      continue;
+    }
+    if (inTable && line.includes("|") && line.trim()) {
+      out.push(tableRow(line));
+      continue;
+    }
+    inTable = false;
+    out.push(line);
+  }
+  return out.join("\n");
+}
+
+/**
+ * 列表预览只保留文字：代码块换成「[代码]」，去掉强调、删除线、行内代码、链接与图片语法、
+ * HTML 标签、标题、引用、列表与任务列表标记、分割线，表格单元格用「·」隔开。
+ * 行内代码先换成占位符，里面的 ** _ | 这些字面字符不受后面的替换影响。
+ */
 export function plainPreview(content: string): string {
-  return content
-    .replace(/```[\s\S]*?```/g, t(" [代码] "))
-    .replace(/`([^`]*)`/g, "$1")
-    .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, "$1$2")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/^\s{0,3}(?:>|#{1,6}|[-*+]|\d+\.)\s+/gm, "")
+  const codes: string[] = [];
+  const text = content
+    .replace(
+      /^[ \t]*(`{3,}|~{3,})[^\n]*(?:\n[\s\S]*?)?(?:\n[ \t]*\1[`~]*[ \t]*(?=\n|$)|(?![\s\S]))/gm,
+      t(" [代码] "),
+    )
+    .replace(/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g, (_, _ticks: string, code: string) => {
+      codes.push(code.trim());
+      return `\uE000${codes.length - 1}\uE000`;
+    })
+    .replace(/<!--[\s\S]*?-->/g, " ");
+  return flattenTables(text)
+    .replace(/<(https?:\/\/[^>\s]+)>/g, "$1")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(HTML_TAG, "")
+    .replace(/^[ \t]*\[[^\]\n]+\]:[ \t]*\S.*$/gm, "")
+    .replace(/!\[([^\]\n]*)\]\([^)\n]*\)/g, "$1")
+    .replace(/\[([^\]\n]+)\](?:\([^)\n]*\)|\[[^\]\n]*\])/g, "$1")
+    .replace(/^[ \t]*(?:(?:[-*_][ \t]*){3,}|=+[ \t]*)$/gm, "")
+    .replace(/^[ \t]*(?:>[ \t]?)+/gm, "")
+    .replace(/^[ \t]*#{1,6}(?:[ \t]+|$)/gm, "")
+    .replace(/[ \t]+#+[ \t]*$/gm, "")
+    .replace(/^[ \t]*(?:[-*+]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?/gm, "")
+    .replace(/\*\*(?=\S)([^\n]*?\S)\*\*|__(?=\S)([^\n]*?\S)__/g, "$1$2")
+    .replace(/~~(?=\S)([^\n]*?\S)~~/g, "$1")
+    .replace(/(^|[^\w*\\])\*(?=\S)([^*\n]*?\S)\*(?![\w*])/g, "$1$2")
+    .replace(/(^|[^\w\\])_(?=\S)([^_\n]*?\S)_(?!\w)/g, "$1$2")
+    .replace(/\\([\\`*_{}[\]()#+\-.!|>~<])/g, "$1")
+    .replace(/\uE000(\d+)\uE000/g, (_, index: string) => codes[Number(index)] ?? "")
     .replace(/\s+/g, " ")
     .trim();
 }
