@@ -63,6 +63,10 @@ for (const [url, { filepath, dom }] of documents) {
     description.length >= 20 && !descriptions.has(description),
     `${label}: missing or duplicated description`,
   );
+  check(
+    description.length >= 50 && description.length <= 120,
+    `${label}: description should be 50–120 characters, received ${description.length}`,
+  );
   titles.add(title);
   descriptions.add(description);
   check(dom('link[rel="canonical"]').length === 1, `${label}: requires one canonical`);
@@ -81,11 +85,31 @@ for (const [url, { filepath, dom }] of documents) {
   check(dom("main").text().trim().length > 100, `${label}: body must be available in static HTML`);
   const schemas = dom('script[type="application/ld+json"]');
   check(schemas.length > 0, `${label}: missing structured data`);
+  const isHome = url === new URL(base, site).href;
   schemas.toArray().forEach((schema) => {
     try {
       const data = JSON.parse(dom(schema).text());
       check(data["@context"] === "https://schema.org", `${label}: invalid schema context`);
       check(Array.isArray(data["@graph"]), `${label}: missing schema graph`);
+      const graph = data["@graph"] ?? [];
+      const breadcrumb = graph.find((item) => item["@type"] === "BreadcrumbList");
+      check(
+        breadcrumb?.itemListElement?.length === (isHome ? 1 : 2) &&
+          breadcrumb.itemListElement.at(-1).item === url,
+        `${label}: BreadcrumbList must end at this page`,
+      );
+      const software = graph.find((item) => item["@type"] === "SoftwareApplication");
+      if (isHome) {
+        check(
+          software?.name === "SuperHive" &&
+            software.applicationCategory === "DeveloperApplication" &&
+            software.offers?.price === "0" &&
+            software.sameAs?.some((link) => link.includes("npmjs.com")),
+          `${label}: home needs a SoftwareApplication with GitHub and npm links`,
+        );
+      } else {
+        check(!software, `${label}: SoftwareApplication belongs on the home page only`);
+      }
     } catch {
       errors.push(`${label}: invalid JSON-LD`);
     }
@@ -162,6 +186,24 @@ check(
   robots.includes(`${site}${base}sitemap-index.xml`),
   "robots sitemap must respect origin and base",
 );
+const llms = existsSync(join(output, "llms.txt"))
+  ? readFileSync(join(output, "llms.txt"), "utf8")
+  : "";
+const llmsFull = existsSync(join(output, "llms-full.txt"))
+  ? readFileSync(join(output, "llms-full.txt"), "utf8")
+  : "";
+check(llms.startsWith("# SuperHive 文档\n\n> "), "llms.txt needs a title and a summary blockquote");
+check(llmsFull.startsWith("# SuperHive 文档"), "llms-full.txt missing");
+for (const [url, { filepath }] of documents) {
+  if (filepath.endsWith("404.html")) continue;
+  check(llms.includes(`](${url})`), `llms.txt missing link to ${url}`);
+  check(llmsFull.includes(`来源：${url}`), `llms-full.txt missing ${url}`);
+}
+check(
+  !/^(?:import |<[A-Z])/m.test(llmsFull),
+  "llms-full.txt must not contain MDX imports or components",
+);
+
 const sitemapFiles = walk(output).filter((file) => /sitemap.*\.xml$/.test(file));
 const sitemapUrls = sitemapFiles.flatMap((file) =>
   [...readFileSync(file, "utf8").matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]),

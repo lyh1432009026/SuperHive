@@ -1,6 +1,7 @@
 ---
 import ImageZoom from "./ImageZoom.astro";
 import { getSiteConfig, withBase } from "../../scripts/site-config.mjs";
+import { projectLinks, repoUrl } from "../../scripts/project-links.mjs";
 
 const { site, base, indexable } = getSiteConfig();
 const route = Astro.locals.starlightRoute;
@@ -41,6 +42,24 @@ const schema = {
       ...(group && groups[group] ? { articleSection: groups[group] } : {}),
     },
     { "@type": "BreadcrumbList", itemListElement: breadcrumbs },
+    // 首页额外说明 SuperHive 这个软件本身：免费、开源，附源码和 npm 地址
+    ...(route.id
+      ? []
+      : [
+          {
+            "@type": "SoftwareApplication",
+            "@id": `${home}#software`,
+            name: "SuperHive",
+            description: route.entry.data.description,
+            applicationCategory: "DeveloperApplication",
+            operatingSystem: "macOS, Linux, Windows",
+            offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+            license: projectLinks.find((link) => link.href.endsWith("/LICENSE"))?.href,
+            url: home,
+            codeRepository: repoUrl,
+            sameAs: [repoUrl, projectLinks.find((link) => link.href.includes("npmjs.com"))?.href],
+          },
+        ]),
   ],
 };
 ---
@@ -65,3 +84,51 @@ const schema = {
   )
 }
 <ImageZoom />
+
+<script>
+  // 滚动入场：只给首屏以下的内容加，首屏直接显示；没有 JS 或减少动态效果时什么都不做
+  const SELECTOR = [
+    ".sl-markdown-content > :is(h2, h3, p, ul, ol, table, blockquote, figure, aside, .expressive-code)",
+    ".workroom-subhead",
+    ".workroom-hero > .cm",
+    ".workroom-pathway",
+    ".pagination-links > a",
+  ].join(", ");
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+  if (!reduce.matches && "IntersectionObserver" in window) {
+    const fold = window.innerHeight * 0.92;
+    const pending = [...document.querySelectorAll<HTMLElement>(SELECTOR)].filter(
+      (element) => element.getBoundingClientRect().top > fold,
+    );
+    if (pending.length) {
+      document.documentElement.classList.add("docs-reveal");
+      const observer = new IntersectionObserver(
+        (entries) => {
+          // 同一批进入视口的元素依次错开 70ms，最多错开 5 个
+          let order = 0;
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const element = entry.target as HTMLElement;
+            element.style.setProperty("--docs-reveal-delay", `${Math.min(order++, 5) * 70}ms`);
+            element.classList.add("is-revealed");
+            observer.unobserve(element);
+            // 播完就摘掉，免得入场的过渡时长拖慢之后的悬停效果
+            const done = (event: TransitionEvent) => {
+              if (event.target !== element || event.propertyName !== "opacity") return;
+              element.removeEventListener("transitionend", done);
+              element.classList.remove("docs-reveal-item", "is-revealed");
+              element.style.removeProperty("--docs-reveal-delay");
+            };
+            element.addEventListener("transitionend", done);
+          }
+        },
+        { rootMargin: "0px 0px -6% 0px" },
+      );
+      for (const element of pending) {
+        element.classList.add("docs-reveal-item");
+        observer.observe(element);
+      }
+    }
+  }
+</script>

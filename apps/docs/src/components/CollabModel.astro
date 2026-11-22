@@ -52,7 +52,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
       </p>
       <span class="cm-head-side">
         <span class="cm-badge">示意图</span>
-        <button type="button" class="cm-toggle" data-cm-toggle aria-pressed="false" hidden>
+        <button type="button" class="cm-toggle" data-cm-toggle aria-pressed="false">
           <svg class="cm-icon-pause" viewBox="0 0 16 16" aria-hidden="true">
             <path d="M5 3.5v9M11 3.5v9"></path>
           </svg>
@@ -472,7 +472,6 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
 
     // 减少动态效果时不启动轮播，保留完整的静态图
     if (!reduce.matches) {
-      if (toggle) toggle.hidden = false;
       figure.classList.add("is-live");
     }
     draw();
@@ -482,7 +481,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
 <style>
   .cm {
     --cm-ok: #1f8a5b;
-    --cm-warn: #b86e00;
+    --cm-warn: #925600;
     --cm-line: var(--sl-color-gray-5);
     --cm-panel: var(--sl-color-bg-sidebar);
     --cm-surface: var(--sl-color-bg);
@@ -561,7 +560,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
     padding: 0.05rem 0.5rem;
     border: 1px solid var(--cm-line);
     border-radius: 999px;
-    color: var(--sl-color-gray-3);
+    color: var(--sl-color-gray-2);
     font-size: 0.68rem;
   }
 
@@ -625,7 +624,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
     align-items: center;
     gap: 0.25rem;
     overflow: hidden;
-    color: var(--sl-color-gray-3);
+    color: var(--sl-color-gray-2);
     font-size: 0.64rem;
     white-space: nowrap;
   }
@@ -734,7 +733,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
   }
 
   .cm-node-text span {
-    color: var(--sl-color-gray-3);
+    color: var(--sl-color-gray-2);
     font-size: 0.62rem;
   }
 
@@ -868,7 +867,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
   }
 
   .cm-room-name span {
-    color: var(--sl-color-gray-3);
+    color: var(--sl-color-gray-2);
     font-size: 0.7rem;
   }
 
@@ -903,7 +902,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
 
   .cm-zone-title {
     margin-bottom: 0.1rem;
-    color: var(--sl-color-gray-3);
+    color: var(--sl-color-gray-2);
     font-size: 0.66rem;
     font-weight: 600;
     letter-spacing: 0.04em;
@@ -918,7 +917,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
     overflow: hidden;
   }
 
-  .cm.is-live .cm-feed {
+  .cm .cm-feed {
     height: 6.6rem;
     mask-image: linear-gradient(to bottom, transparent 0, #000 1.2rem);
   }
@@ -950,6 +949,12 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
 
   .cm-line.is-later {
     display: none;
+  }
+
+  /* 白板条目还没到那一步时只隐藏不收起，免得房间高度跟着变 */
+  .cm-zone-board .cm-line.is-later {
+    display: block;
+    visibility: hidden;
   }
 
   .cm-pill {
@@ -1070,7 +1075,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
   }
 
   .cm-step-text span {
-    color: var(--sl-color-gray-3);
+    color: var(--sl-color-gray-2);
     font-size: 0.72rem;
     line-height: 1.55;
   }
@@ -1100,8 +1105,21 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
     cursor: pointer;
   }
 
-  .cm-toggle[hidden] {
-    display: none;
+  /* 按钮一开始就占位、脚本启动后才露出，免得标题行在加载后重新换行；减少动态效果时不需要它 */
+  .cm:not(.is-live) .cm-toggle {
+    visibility: hidden;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cm-toggle {
+      display: none;
+    }
+
+    /* 静态图把所有消息都摆出来 */
+    .cm .cm-feed {
+      height: auto !important;
+      mask-image: none !important;
+    }
   }
 
   .cm-toggle:hover {
@@ -1260,7 +1278,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
     grid-column: 1 / -1;
   }
 
-  .cm.is-live .cm-orbit .cm-feed {
+  .cm .cm-orbit .cm-feed {
     height: 4.8rem;
   }
 
@@ -1338,7 +1356,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
       grid-template-columns: minmax(0, 1fr);
     }
 
-    .cm.is-live .cm-orbit .cm-feed {
+    .cm .cm-orbit .cm-feed {
       height: 9rem;
     }
   }
@@ -1487,7 +1505,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
       padding: 0.45rem 0.5rem;
     }
 
-    .cm.is-live .cm-feed {
+    .cm .cm-feed {
       height: 12.5rem;
     }
 
