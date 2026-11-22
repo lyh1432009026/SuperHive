@@ -1,6 +1,9 @@
 ---
 import DefaultFooter from "@astrojs/starlight/components/Footer.astro";
 import { projectLinks } from "../../scripts/project-links.mjs";
+import { pageLang, ui } from "./i18n";
+
+const lang = pageLang(Astro.locals);
 
 const year = new Date().getFullYear();
 ---
@@ -8,11 +11,11 @@ const year = new Date().getFullYear();
 <DefaultFooter />
 
 <div class="site-footer">
-  <nav class="site-footer-links" aria-label="项目链接">
+  <nav class="site-footer-links" aria-label={ui[lang].footerNav}>
     {
       projectLinks.map((link) => (
         <a href={link.href} rel="noopener">
-          {link.label}
+          {lang === "en" ? link.en : link.label}
         </a>
       ))
     }

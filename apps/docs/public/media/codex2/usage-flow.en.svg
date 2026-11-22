@@ -1,0 +1,146 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="840"
+  height="860"
+  viewBox="0 0 840 860"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">Actual usage, cost estimates and conversation budget</title>
+  <desc id="desc">
+    Tokens reported by the Runtime are split into uncached input, cache write, cache read and
+    output, then estimated from model prices or the Runtime's self-reported cost; unrecorded does
+    not mean free. The Agent chain budget is separate from cost and is not a hard dollar cap.
+    Diagram, not a real usage screenshot.
+  </desc>
+  <defs>
+    <marker
+      id="arrow"
+      viewBox="0 0 10 10"
+      refX="8"
+      refY="5"
+      markerWidth="8"
+      markerHeight="8"
+      orient="auto-start-reverse"
+    >
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5d5d5d" />
+    </marker>
+  </defs>
+  <rect width="840" height="860" rx="24" fill="#f9f9f9" />
+  <g
+    font-family="system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif"
+    fill="#0d0d0d"
+  >
+    <text x="38" y="58" font-size="32" font-weight="700">Metering, estimates, budgets: all different</text>
+    <text x="38" y="98" font-size="24" fill="#5d5d5d">Metering diagram · Not a real usage screenshot</text>
+    <rect
+      x="38"
+      y="128"
+      width="764"
+      height="98"
+      rx="16"
+      fill="#e6f0fa"
+      stroke="#93bde5"
+      stroke-width="2"
+    />
+    <text x="420" y="168" font-size="28" font-weight="700" text-anchor="middle">
+      Runtime reports actual token usage
+    </text>
+    <text x="420" y="207" font-size="25" text-anchor="middle">
+      Failed, stopped or unknown runs may still cost
+    </text>
+    <path
+      d="M 420 236 V 260"
+      fill="none"
+      stroke="#5d5d5d"
+      stroke-width="3"
+      marker-end="url(#arrow)"
+    />
+    <rect
+      x="38"
+      y="274"
+      width="372"
+      height="64"
+      rx="12"
+      fill="#ffffff"
+      stroke="#e8e8e8"
+      stroke-width="2"
+    />
+    <text x="224" y="316" font-size="27" text-anchor="middle">Uncached input</text>
+    <rect
+      x="430"
+      y="274"
+      width="372"
+      height="64"
+      rx="12"
+      fill="#ffffff"
+      stroke="#e8e8e8"
+      stroke-width="2"
+    />
+    <text x="616" y="316" font-size="27" text-anchor="middle">Cache write</text>
+    <rect
+      x="38"
+      y="354"
+      width="372"
+      height="64"
+      rx="12"
+      fill="#ffffff"
+      stroke="#e8e8e8"
+      stroke-width="2"
+    />
+    <text x="224" y="396" font-size="27" text-anchor="middle">Cache read</text>
+    <rect
+      x="430"
+      y="354"
+      width="372"
+      height="64"
+      rx="12"
+      fill="#ffffff"
+      stroke="#e8e8e8"
+      stroke-width="2"
+    />
+    <text x="616" y="396" font-size="27" text-anchor="middle">Output</text>
+    <path
+      d="M 420 428 V 452"
+      fill="none"
+      stroke="#5d5d5d"
+      stroke-width="3"
+      marker-end="url(#arrow)"
+    />
+    <rect
+      x="38"
+      y="466"
+      width="764"
+      height="132"
+      rx="16"
+      fill="#e8f5ef"
+      stroke="#94c5b1"
+      stroke-width="2"
+    />
+    <text x="420" y="505" font-size="26" font-weight="700" text-anchor="middle">
+      Estimate from prices, else Runtime-reported cost
+    </text>
+    <text x="420" y="546" font-size="25" text-anchor="middle">Prices and alerts live only in this browser</text>
+    <text x="420" y="582" font-size="25" text-anchor="middle">
+      Not recorded ≠ free · your provider's bill is final
+    </text>
+    <path d="M 38 632 H 802" fill="none" stroke="#e8e8e8" stroke-width="2" stroke-dasharray="8 8" />
+    <rect
+      x="38"
+      y="664"
+      width="764"
+      height="146"
+      rx="16"
+      fill="#fff5e7"
+      stroke="#d4b685"
+      stroke-width="2"
+    />
+    <text x="420" y="706" font-size="28" font-weight="700" text-anchor="middle">
+      Separate Agent chain budget
+    </text>
+    <text x="420" y="751" font-size="25" text-anchor="middle">Limits Agents waking each other without a human</text>
+    <text x="420" y="791" font-size="25" text-anchor="middle">
+      More rounds ≠ more dollars · alerts aren't a cost cap
+    </text>
+  </g>
+</svg>

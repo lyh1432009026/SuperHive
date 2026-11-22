@@ -1,0 +1,71 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="760"
+  height="880"
+  viewBox="0 0 760 880"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">Room and identity access boundaries</title>
+  <desc id="desc">
+    The local owner can manage the computer running Hive. Owner devices sign in with a one-time
+    ticket valid for five minutes; managing that computer still needs approval. Guests use a
+    time-limited, multi-use invite, can only access the invited room, and dispatching the owner's
+    Agents needs approval by default. Diagram, not a real UI screenshot.
+  </desc>
+  <rect width="760" height="880" rx="24" fill="#f9f9f9" />
+  <g
+    font-family="system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif"
+    fill="#0d0d0d"
+  >
+    <text x="38" y="58" font-size="32" font-weight="700">Three entries, three access scopes</text>
+    <text x="38" y="98" font-size="24" fill="#5d5d5d">Identity diagram · Not a real UI screenshot</text>
+    <rect
+      x="38"
+      y="134"
+      width="684"
+      height="184"
+      rx="18"
+      fill="#e8f5ef"
+      stroke="#94c5b1"
+      stroke-width="2"
+    />
+    <rect x="60" y="155" width="164" height="40" rx="10" fill="#23634d" />
+    <text x="142" y="184" font-size="22" text-anchor="middle" fill="#ffffff">Local owner</text>
+    <text x="62" y="237" font-size="28" font-weight="700">Web UI on the Server's computer</text>
+    <text x="62" y="283" font-size="25">Manage Agents; issue invites &amp; device logins</text>
+    <rect
+      x="38"
+      y="342"
+      width="684"
+      height="218"
+      rx="18"
+      fill="#e6f0fa"
+      stroke="#93bde5"
+      stroke-width="2"
+    />
+    <rect x="60" y="363" width="204" height="40" rx="10" fill="#0d0d0d" />
+    <text x="162" y="392" font-size="22" text-anchor="middle" fill="#ffffff">New owner device</text>
+    <text x="62" y="444" font-size="28" font-weight="700">QR or link → own device session</text>
+    <text x="62" y="491" font-size="25">Pairing ticket: valid 5 min, single use</text>
+    <text x="62" y="534" font-size="25">Can view; managing Server PC needs approval</text>
+    <rect
+      x="38"
+      y="584"
+      width="684"
+      height="218"
+      rx="18"
+      fill="#fff5e7"
+      stroke="#d4b685"
+      stroke-width="2"
+    />
+    <rect x="60" y="605" width="164" height="40" rx="10" fill="#86591d" />
+    <text x="142" y="634" font-size="22" text-anchor="middle" fill="#ffffff">Timed guest</text>
+    <text x="62" y="687" font-size="28" font-weight="700">Invite link → invited room only</text>
+    <text x="62" y="734" font-size="25">Multi-use; stops working if expired or revoked</text>
+    <text x="62" y="777" font-size="25">Using the owner's Agents needs approval</text>
+    <text x="38" y="846" font-size="22" fill="#5d5d5d">
+      Display name ≠ owner credential · Room dir ≠ filesystem sandbox
+    </text>
+  </g>
+</svg>

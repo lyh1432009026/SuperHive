@@ -1,0 +1,124 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="760"
+  height="810"
+  viewBox="0 0 760 810"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">Feishu (Lark) and WeChat message channels</title>
+  <desc id="desc">
+    You send text from your phone; Hive checks the room and the receiving Agent; the Agent's computer
+    runs the task; the result is recorded back in Hive and pushed to you. Feishu supports cards and
+    attachments; WeChat is text-only for now and carries account risk. Diagram, not a real UI screenshot.
+  </desc>
+  <defs>
+    <marker
+      id="arrow"
+      viewBox="0 0 10 10"
+      refX="8"
+      refY="5"
+      markerWidth="8"
+      markerHeight="8"
+      orient="auto-start-reverse"
+    >
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5d5d5d" />
+    </marker>
+  </defs>
+  <rect width="760" height="810" rx="24" fill="#f9f9f9" />
+  <g
+    font-family="system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif"
+    fill="#0d0d0d"
+  >
+    <text x="38" y="58" font-size="32" font-weight="700">Phone sends, Agent's computer runs</text>
+    <text x="38" y="98" font-size="24" fill="#5d5d5d">Channel diagram · Not a real UI screenshot</text>
+    <rect
+      x="38"
+      y="128"
+      width="684"
+      height="110"
+      rx="16"
+      fill="#e6f0fa"
+      stroke="#93bde5"
+      stroke-width="2"
+    />
+    <text x="380" y="169" font-size="28" font-weight="700" text-anchor="middle">
+      Phone: Feishu (Lark) or personal WeChat
+    </text>
+    <text x="380" y="213" font-size="25" text-anchor="middle">
+      Check /room, then target with /to or @
+    </text>
+    <path
+      d="M 380 248 V 278"
+      fill="none"
+      stroke="#5d5d5d"
+      stroke-width="3"
+      marker-end="url(#arrow)"
+    />
+    <rect
+      x="38"
+      y="292"
+      width="684"
+      height="110"
+      rx="16"
+      fill="#ffffff"
+      stroke="#e8e8e8"
+      stroke-width="2"
+    />
+    <text x="380" y="333" font-size="28" font-weight="700" text-anchor="middle">
+      Hive Server: room &amp; task routing
+    </text>
+    <text x="380" y="377" font-size="25" text-anchor="middle">
+      Stores messages; checks actions &amp; identity
+    </text>
+    <path
+      d="M 380 412 V 442"
+      fill="none"
+      stroke="#5d5d5d"
+      stroke-width="3"
+      marker-end="url(#arrow)"
+    />
+    <rect
+      x="38"
+      y="456"
+      width="684"
+      height="110"
+      rx="16"
+      fill="#e8f5ef"
+      stroke="#94c5b1"
+      stroke-width="2"
+    />
+    <text x="380" y="497" font-size="28" font-weight="700" text-anchor="middle">
+      Agent's computer: Runtime runs the task
+    </text>
+    <text x="380" y="541" font-size="25" text-anchor="middle">
+      Not on the phone; never auto-expands access
+    </text>
+    <path
+      d="M 380 576 V 606"
+      fill="none"
+      stroke="#5d5d5d"
+      stroke-width="3"
+      marker-end="url(#arrow)"
+    />
+    <rect
+      x="38"
+      y="620"
+      width="684"
+      height="110"
+      rx="16"
+      fill="#ffffff"
+      stroke="#e8e8e8"
+      stroke-width="2"
+    />
+    <text x="380" y="661" font-size="28" font-weight="700" text-anchor="middle">
+      Task record back to Hive → pushed to you
+    </text>
+    <text x="380" y="705" font-size="25" text-anchor="middle">
+      Feishu: cards / files · WeChat: text only
+    </text>
+    <text x="38" y="778" font-size="22" fill="#86591d">
+      WeChat has account risk; messages go via the IM platform.
+    </text>
+  </g>
+</svg>

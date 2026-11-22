@@ -1,6 +1,9 @@
 ---
 import DefaultThemeSelect from "@astrojs/starlight/components/ThemeSelect.astro";
 import { Icon } from "@astrojs/starlight/components";
+import { pageLang, ui } from "./i18n";
+
+const text = ui[pageLang(Astro.locals)];
 
 const label = Astro.locals.t("themeSelect.accessibleLabel");
 const menuId = `theme-menu-${crypto.randomUUID()}`;
@@ -27,7 +30,7 @@ const options = [
     <Icon name="down-caret" class="theme-caret" />
   </button>
   <div class="theme-menu" id={menuId} role="menu" aria-label={label} hidden>
-    <span class="theme-menu-heading" aria-hidden="true">外观</span>
+    <span class="theme-menu-heading" aria-hidden="true">{text.themeHeading}</span>
     {
       options.map((option) => (
         <button
@@ -40,7 +43,7 @@ const options = [
           tabindex="-1"
         >
           <Icon name={option.icon} class="theme-option-icon" />
-          <span>{option.value === "auto" ? "跟随系统" : option.label}</span>
+          <span>{option.value === "auto" ? text.themeAuto : option.label}</span>
           <Icon name="approve-check" class="theme-check" />
         </button>
       ))

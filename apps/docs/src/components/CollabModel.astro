@@ -1,7 +1,8 @@
 ---
 import HiveMark from "../assets/hive-mark.svg";
-import { getSiteConfig, withBase } from "../../scripts/site-config.mjs";
-import type { AgentKind, Scene } from "./collab-scenes";
+import { getSiteConfig } from "../../scripts/site-config.mjs";
+import { collabText, type AgentKind, type Scene } from "./collab-scenes";
+import { localePath, pageLang } from "./i18n";
 
 interface Props {
   scene: Scene;
@@ -10,6 +11,8 @@ interface Props {
 const { scene } = Astro.props;
 const { id, machines, steps, feed, board, ask, layout, devices = [] } = scene;
 const { base } = getSiteConfig();
+const lang = pageLang(Astro.locals);
+const text = collabText[lang];
 const last = steps.length - 1;
 
 const marks: Record<AgentKind, string> = {
@@ -43,6 +46,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
   aria-labelledby={`${id}-title`}
   aria-describedby={`${id}-desc`}
   data-steps={JSON.stringify(steps.map(({ links, status }) => ({ links, status })))}
+  data-text={JSON.stringify({ pause: text.pause, play: text.play, status: text.status })}
 >
   <div class="cm-frame">
     <div class="cm-head">
@@ -51,7 +55,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
         <span>{scene.title}</span>
       </p>
       <span class="cm-head-side">
-        <span class="cm-badge">示意图</span>
+        <span class="cm-badge">{text.badge}</span>
         <button type="button" class="cm-toggle" data-cm-toggle aria-pressed="false">
           <svg class="cm-icon-pause" viewBox="0 0 16 16" aria-hidden="true">
             <path d="M5 3.5v9M11 3.5v9"></path>
@@ -59,7 +63,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
           <svg class="cm-icon-play" viewBox="0 0 16 16" aria-hidden="true">
             <path d="M5 3.2v9.6L12.5 8 5 3.2Z"></path>
           </svg>
-          <span data-cm-toggle-label>暂停</span>
+          <span data-cm-toggle-label>{text.pause}</span>
         </button>
       </span>
     </div>
@@ -73,10 +77,10 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
           <>
             <div class="cm-person">
               <div class="cm-person-head">
-                <span class="cm-node-icon">你</span>
+                <span class="cm-node-icon">{text.youIcon}</span>
                 <span class="cm-node-text">
-                  <strong>你一个人</strong>
-                  <span>手机、电脑都能指挥</span>
+                  <strong>{text.youTitle}</strong>
+                  <span>{text.youDetail}</span>
                 </span>
               </div>
               <ul class="cm-devices">
@@ -105,7 +109,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
                       <rect x="3" y="7" width="10" height="7" rx="1.5" />
                       <path d={lock} />
                     </svg>
-                    留在本机
+                    {text.localShort}
                   </span>
                 </span>
                 <ul class="cm-orbit-nodes">
@@ -145,8 +149,8 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
                       <rect x="3" y="7" width="10" height="7" rx="1.5" />
                       <path d={lock} />
                     </svg>
-                    <span class="cm-local-long">文件 · 权限 · 会话留在本机</span>
-                    <span class="cm-local-short">留在本机</span>
+                    <span class="cm-local-long">{text.localLong}</span>
+                    <span class="cm-local-short">{text.localShort}</span>
                   </span>
                 </div>
                 <ul class="cm-nodes">
@@ -186,13 +190,13 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
           <HiveMark width={26} height={26} />
           <span class="cm-room-name">
             <strong>{scene.room}</strong>
-            <span>同一个 SuperHive 房间</span>
+            <span>{text.roomKind}</span>
           </span>
-          <span class="cm-room-note">只走公开消息</span>
+          <span class="cm-room-note">{text.roomNote}</span>
         </div>
         <div class="cm-zones">
           <div class="cm-zone cm-zone-msg">
-            <span class="cm-zone-title">公开消息</span>
+            <span class="cm-zone-title">{text.feed}</span>
             <div class="cm-feed">
               {
                 feed.map((item) => (
@@ -204,7 +208,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
             </div>
           </div>
           <div class="cm-zone cm-zone-board">
-            <span class="cm-zone-title">协作白板</span>
+            <span class="cm-zone-title">{text.board}</span>
             {
               board.map((item) => (
                 <p class="cm-line" data-at={item.at} data-on={item.on}>
@@ -215,7 +219,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
             }
           </div>
           <div class="cm-zone cm-zone-ask">
-            <span class="cm-zone-title">等你回答</span>
+            <span class="cm-zone-title">{text.ask}</span>
             <p class="cm-line" data-at={ask.on} data-on={ask.on}>{ask.question}</p>
             <span class="cm-options" data-at={ask.on}>
               <span class="cm-option cm-option-pick" data-on={ask.pickedOn}>{ask.pick}</span>
@@ -251,9 +255,10 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
   </div>
 
   <figcaption>
-    <span>示意图，人名、Agent 名和任务均为演示数据。</span>
-    <a href={withBase("guides/collaboration/", base)}>
-      了解委派、进展与提问 <span aria-hidden="true">→</span>
+    <span>{text.caption}</span>
+    <a href={localePath("guides/collaboration/", lang, base)}>
+      {text.more}
+      <span aria-hidden="true">→</span>
     </a>
   </figcaption>
 </figure>
@@ -279,12 +284,6 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
   // 出场编排的总时长，和样式里各段的延迟加时长对齐
   const INTRO_MS = 2000;
   const SVG = "http://www.w3.org/2000/svg";
-  const LABELS: Record<Status, string> = {
-    run: "执行中",
-    wait: "等结果",
-    ask: "等你回答",
-    done: "已交回",
-  };
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
   // 和样式里的窄屏断点一致：窄屏时房间在左、电脑竖排在右
   const narrow = window.matchMedia("(max-width: 56rem)");
@@ -293,6 +292,9 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
 
   for (const figure of document.querySelectorAll<HTMLElement>(".cm")) {
     const steps: Step[] = JSON.parse(figure.dataset.steps!);
+    const text: { pause: string; play: string; status: Record<Status, string> } = JSON.parse(
+      figure.dataset.text!,
+    );
     const stage = figure.querySelector<HTMLElement>(".cm-stage")!;
     const svg = figure.querySelector<SVGSVGElement>("[data-cm-wires]")!;
     const room = figure.querySelector<HTMLElement>("[data-cm-room]")!;
@@ -425,7 +427,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
         const badge = node.querySelector<HTMLElement>("[data-cm-status]");
         if (badge) {
           const value = lit ? status[name] : undefined;
-          badge.textContent = value ? LABELS[value] : "";
+          badge.textContent = value ? text.status[value] : "";
           if (value) badge.dataset.kind = value;
           else delete badge.dataset.kind;
         }
@@ -473,7 +475,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
       figure.classList.toggle("is-paused", paused);
       if (toggle && toggleLabel) {
         toggle.setAttribute("aria-pressed", String(paused));
-        toggleLabel.textContent = paused ? "播放" : "暂停";
+        toggleLabel.textContent = paused ? text.play : text.pause;
       }
       schedule();
     };

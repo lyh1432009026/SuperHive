@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="670" viewBox="0 0 1080 670" role="img" aria-labelledby="worktree-title worktree-desc">
+  <title id="worktree-title">Diagram: managed worktree task lines and safe cleanup</title>
+  <desc id="worktree-desc">Not a real UI screenshot. A writable local Agent authorized by the owner registers a task line and ends its prep turn normally; the Bridge starts a new session in the exact cwd to continue implementation. After review and merge, cleanup still checks that the branch is merged, has no changes, no untracked files or ignored files that block cleanup, and is not claimed by a task, then runs through a checked entry point. If cleanup is refused, the worktree is kept, never force-deleted.</desc>
+  <defs>
+    <marker id="worktree-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#8f8f8f" />
+    </marker>
+  </defs>
+  <rect width="1080" height="670" rx="24" fill="#f9f9f9" />
+  <g font-family="PingFang SC, Microsoft YaHei, system-ui, sans-serif">
+    <rect x="50" y="32" width="102" height="30" rx="15" fill="#e8e8e8" />
+    <text x="101" y="53" font-size="17" font-weight="700" text-anchor="middle" fill="#0d0d0d">Isolation</text>
+    <text x="50" y="109" font-size="32" font-weight="700" fill="#0d0d0d">One task line, one directory, one safe handoff</text>
+    <text x="1028" y="53" font-size="17" text-anchor="end" fill="#5d5d5d">Diagram · Not a real UI screenshot</text>
+
+    <g fill="#ffffff" stroke="#e8e8e8" stroke-width="2">
+      <rect x="50" y="155" width="220" height="180" rx="18" />
+      <rect x="303" y="155" width="220" height="180" rx="18" />
+      <rect x="556" y="155" width="220" height="180" rx="18" />
+      <rect x="809" y="155" width="221" height="180" rx="18" />
+    </g>
+    <g font-size="22" font-weight="700" fill="#0d0d0d">
+      <text x="71" y="200">1 · Register</text>
+      <text x="324" y="200">2 · Wrap up</text>
+      <text x="577" y="200">3 · Implement</text>
+      <text x="830" y="200">4 · Review</text>
+    </g>
+    <g font-size="18" fill="#5d5d5d">
+      <text x="71" y="244">Reuse slug per task</text>
+      <text x="71" y="285">Check path &amp; base</text>
+      <text x="324" y="244">Old session: no edits</text>
+      <text x="324" y="285">Return with summary</text>
+      <text x="577" y="244">New session,</text>
+      <text x="577" y="266">verify exact cwd</text>
+      <text x="577" y="300">Patch + test gaps</text>
+      <text x="830" y="244">Merge if authorized</text>
+      <text x="830" y="285">Done ≠ merged</text>
+    </g>
+    <g fill="none" stroke="#8f8f8f" stroke-width="2.5" marker-end="url(#worktree-arrow)">
+      <path d="M 274 245 H 294" />
+      <path d="M 527 245 H 547" />
+      <path d="M 780 245 H 800" />
+      <path d="M 919 336 V 359 H 540 V 380" />
+    </g>
+
+    <rect x="50" y="390" width="980" height="85" rx="16" fill="#f3f3f3" />
+    <text x="74" y="426" font-size="20" font-weight="700" fill="#0d0d0d">Checks: merged + clean + no untracked/ignored files + unclaimed + authorized</text>
+    <text x="74" y="456" font-size="18" fill="#5d5d5d">Verifies owner and commit; ignored files like .env block removal, node_modules and build output don't.</text>
+    <g fill="none" stroke="#8f8f8f" stroke-width="2.5" marker-end="url(#worktree-arrow)">
+      <path d="M 540 475 V 497 H 283 V 520" />
+      <path d="M 540 497 H 797 V 520" />
+    </g>
+    <rect x="50" y="529" width="466" height="91" rx="18" fill="#e6f0fa" />
+    <rect x="564" y="529" width="466" height="91" rx="18" fill="#fff5e7" />
+    <text x="74" y="565" font-size="23" font-weight="700" fill="#0d0d0d">All pass → checked cleanup</text>
+    <text x="74" y="599" font-size="18" fill="#5d5d5d">Web UI, batch prompt or hive_worktree_remove</text>
+    <text x="588" y="565" font-size="23" font-weight="700" fill="#b26b00">Refused → keep it, retry later</text>
+    <text x="588" y="599" font-size="18" fill="#805000">Respects claims; no forced dir/branch deletes</text>
+    <text x="50" y="650" font-size="18" fill="#5d5d5d">Auto cleanup is off by default; undeletable branches are kept with a note; it never merges or pushes.</text>
+  </g>
+</svg>

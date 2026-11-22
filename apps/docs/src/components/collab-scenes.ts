@@ -278,3 +278,295 @@ export const soloScene: Scene = {
     pickedOn: "4 5 6",
   },
 };
+
+// 英文页用的同一套演示：节点、连线和步骤结构与中文完全一致，只换文字。
+export const teamSceneEn: Scene = {
+  ...teamScene,
+  tag: "Team",
+  title: "Everyone brings their own agents into the same room",
+  description:
+    "Diagram: four people — you, Lin, Zhou and Chen — each run a different number of agents on their own computers. Your computer has two agents of the same kind, claude-1 and claude-2, plus a codex. Every person and every agent has its own line into the same SuperHive room, which holds only public messages, the whiteboard and questions waiting for a person; files, permissions and sessions stay on each computer. Agents delegate to each other through the room, work in parallel and merge results. The seven steps below show how one piece of work moves between people and agents.",
+  machines: [
+    {
+      label: "Your computer",
+      nodes: [
+        { node: "you", name: "You", kind: "human", role: "Goals · decisions" },
+        { node: "claude-1", name: "claude-1", kind: "claude", role: "Lead" },
+        { node: "claude-2", name: "claude-2", kind: "claude", role: "Frontend" },
+        { node: "codex", name: "codex", kind: "codex", role: "Backend" },
+      ],
+    },
+    {
+      label: "Lin's computer",
+      nodes: [
+        { node: "lin", name: "Lin", kind: "human", role: "Product" },
+        { node: "lin-copilot", name: "lin-copilot", kind: "copilot", role: "Copy" },
+      ],
+    },
+    {
+      label: "Zhou's computer",
+      nodes: [
+        { node: "zhou", name: "Zhou", kind: "human", role: "QA" },
+        { node: "zhou-omp", name: "zhou-omp", kind: "omp", role: "API tests" },
+        { node: "zhou-opencode", name: "zhou-opencode", kind: "opencode", role: "Checks" },
+      ],
+    },
+    {
+      label: "Chen's computer",
+      nodes: [
+        { node: "chen", name: "Chen", kind: "human", role: "Architecture" },
+        { node: "chen-codex", name: "chen-codex", kind: "codex", role: "Review" },
+        { node: "chen-claude", name: "chen-claude", kind: "claude", role: "Research" },
+      ],
+    },
+  ],
+  steps: [
+    {
+      title: "Assign work",
+      detail: "You @claude-1 in the room and hand it the checkout page redesign to lead.",
+      links: [{ from: "you", to: ["claude-1"] }],
+      status: { "claude-1": "run" },
+    },
+    {
+      title: "Delegate to two at once",
+      detail:
+        "claude-1 splits the work: frontend to claude-2, API tests to zhou-omp on Zhou's computer.",
+      links: [{ from: "claude-1", to: ["claude-2", "zhou-omp"] }],
+      status: { "claude-1": "wait", "claude-2": "run", "zhou-omp": "run" },
+    },
+    {
+      title: "Two threads in parallel",
+      detail:
+        "Lin asks her lin-copilot to rewrite the copy; meanwhile zhou-omp posts the tests to the whiteboard.",
+      links: [
+        { from: "lin", to: ["lin-copilot"] },
+        { from: "zhou-omp", to: [] },
+      ],
+      status: { "lin-copilot": "run", "zhou-omp": "done" },
+    },
+    {
+      title: "An agent asks a person",
+      detail:
+        "Can coupons stack with bundle discounts? claude-2 pauses and puts the question in your hands.",
+      links: [{ from: "claude-2", to: ["you"] }],
+      status: { "claude-2": "ask" },
+    },
+    {
+      title: "A person answers",
+      detail: "You pick “Don't stack” on the web page, and claude-2 carries on.",
+      links: [{ from: "you", to: ["claude-2"] }],
+      status: { "claude-2": "run" },
+    },
+    {
+      title: "Merge results",
+      detail:
+        "claude-2 and zhou-omp both hand their results back to claude-1, which combines them.",
+      links: [
+        { from: "claude-2", to: ["claude-1"] },
+        { from: "zhou-omp", to: ["claude-1"] },
+      ],
+      status: { "claude-2": "done", "claude-1": "run", "lin-copilot": "done" },
+    },
+    {
+      title: "Hand back and review",
+      detail:
+        "claude-1 hands the commit back to you and asks chen-codex on Chen's computer to review it.",
+      links: [{ from: "claude-1", to: ["you", "chen-codex"] }],
+      status: { "claude-1": "done", "chen-codex": "run" },
+    },
+  ],
+  feed: [
+    { at: 0, who: "You", text: "@claude-1 redesign the checkout page, ship today" },
+    { at: 1, who: "claude-1", text: "@claude-2 frontend · @zhou-omp add API tests" },
+    { at: 2, who: "Lin", text: "@lin-copilot update the checkout copy too" },
+    { at: 3, who: "claude-2", text: "Can coupons stack with discounts? Asked" },
+    { at: 4, who: "You", text: "Picked A: don't stack" },
+    { at: 5, who: "claude-1", text: "Frontend and tests are back, merging" },
+    { at: 6, who: "claude-1", text: "Done in b7e21f0, @chen-codex please review" },
+  ],
+  board: [
+    { at: 1, on: "1", text: "Checkout redesign", pill: "Running", ok: false },
+    { at: 2, on: "2", text: "API tests", pill: "Ready", ok: true },
+    { at: 5, on: "5", text: "Checkout copy", pill: "Ready", ok: true },
+  ],
+  ask: {
+    on: 3,
+    question: "Can coupons stack with discounts?",
+    pick: "A Don't stack",
+    other: "B Allow stacking",
+    pickedOn: "4 5 6",
+  },
+};
+
+export const soloSceneEn: Scene = {
+  ...soloScene,
+  tag: "Solo · self-driving agent team",
+  title: "Just you, running a team of agents from your phone or desktop",
+  description:
+    "Diagram: there is only you, giving directions from Feishu or WeChat on your phone, or from the web app on your desktop. The room sits in the middle, surrounded by ten agents on your laptop and workstation, including several of the same kind (claude-1 to claude-3, codex-1 to codex-3) plus omp, opencode and copilot. The agents delegate to each other, split work further, run in parallel, merge and review; you only step in to assign work, answer questions and give the final approval. The seven steps below show how the team finishes a job on its own.",
+  devices: [
+    { node: "feishu", name: "Feishu", kind: "phone", role: "Phone" },
+    { node: "wechat", name: "WeChat", kind: "phone", role: "Phone" },
+    { node: "web", name: "Web", kind: "desktop", role: "Desktop" },
+  ],
+  machines: [
+    {
+      label: "Your laptop",
+      nodes: [
+        { node: "claude-1", name: "claude-1", kind: "claude", role: "Lead" },
+        { node: "claude-2", name: "claude-2", kind: "claude", role: "API" },
+        { node: "claude-3", name: "claude-3", kind: "claude", role: "Docs" },
+        { node: "copilot", name: "copilot", kind: "copilot", role: "Review" },
+        { node: "opencode", name: "opencode", kind: "opencode", role: "CI" },
+      ],
+    },
+    {
+      label: "Your workstation",
+      nodes: [
+        { node: "codex-1", name: "codex-1", kind: "codex", role: "Migration" },
+        { node: "codex-2", name: "codex-2", kind: "codex", role: "Test lead" },
+        { node: "codex-3", name: "codex-3", kind: "codex", role: "Frontend" },
+        { node: "omp-1", name: "omp-1", kind: "omp", role: "Test data" },
+        { node: "omp-2", name: "omp-2", kind: "omp", role: "Load test" },
+      ],
+    },
+  ],
+  steps: [
+    {
+      title: "Assign from your phone",
+      detail:
+        "In Feishu on your phone you say: split the checkout service out of the monolith, claude-1 leads.",
+      links: [{ from: "feishu", to: ["claude-1"] }],
+      status: { "claude-1": "run" },
+    },
+    {
+      title: "Split four ways",
+      detail:
+        "claude-1 splits the job into API, docs, data migration and tests, and hands them to four agents at once.",
+      links: [{ from: "claude-1", to: ["claude-2", "claude-3", "codex-1", "codex-2"] }],
+      status: {
+        "claude-1": "wait",
+        "claude-2": "run",
+        "claude-3": "run",
+        "codex-1": "run",
+        "codex-2": "run",
+      },
+    },
+    {
+      title: "Delegate further down",
+      detail:
+        "codex-2 passes test data to omp-1 and load testing to omp-2; claude-3 posts the docs to the whiteboard.",
+      links: [
+        { from: "codex-2", to: ["omp-1", "omp-2"] },
+        { from: "claude-3", to: [] },
+      ],
+      status: { "codex-2": "wait", "omp-1": "run", "omp-2": "run", "claude-3": "done" },
+    },
+    {
+      title: "A question reaches WeChat",
+      detail:
+        "Does the migration need downtime? codex-1 sends the question to your WeChat while the others keep working.",
+      links: [{ from: "codex-1", to: ["wechat"] }],
+      status: { "codex-1": "ask" },
+    },
+    {
+      title: "Answer in WeChat, tests return",
+      detail:
+        "You reply “Downtime overnight” in WeChat; at the same time omp-1 and omp-2 hand results back to codex-2.",
+      links: [
+        { from: "wechat", to: ["codex-1"] },
+        { from: "omp-1", to: ["codex-2"] },
+        { from: "omp-2", to: ["codex-2"] },
+      ],
+      status: { "codex-1": "run", "omp-1": "done", "omp-2": "done", "codex-2": "run" },
+    },
+    {
+      title: "Three threads merge",
+      detail:
+        "claude-2, codex-1 and codex-2 all hand back to claude-1, which combines them into one commit.",
+      links: [
+        { from: "claude-2", to: ["claude-1"] },
+        { from: "codex-1", to: ["claude-1"] },
+        { from: "codex-2", to: ["claude-1"] },
+      ],
+      status: { "claude-2": "done", "codex-1": "done", "codex-2": "done", "claude-1": "run" },
+    },
+    {
+      title: "Review, approve on desktop",
+      detail:
+        "claude-1 asks copilot to review and opencode to run CI; the results reach your desktop and you approve the merge.",
+      links: [{ from: "claude-1", to: ["copilot", "opencode", "web"] }],
+      status: { "claude-1": "done", copilot: "run", opencode: "run" },
+    },
+  ],
+  feed: [
+    { at: 0, who: "You · Feishu", text: "@claude-1 split checkout out of the monolith" },
+    {
+      at: 1,
+      who: "claude-1",
+      text: "@claude-2 API · @claude-3 docs · @codex-1 migration · @codex-2 tests",
+    },
+    { at: 2, who: "codex-2", text: "@omp-1 test data · @omp-2 load test" },
+    { at: 3, who: "codex-1", text: "5 min downtime for the migration? Sent to your WeChat" },
+    { at: 4, who: "You · WeChat", text: "Picked A: downtime overnight" },
+    { at: 5, who: "claude-1", text: "All three threads are back, merging" },
+    { at: 6, who: "claude-1", text: "c3f9a10 ready, @copilot review · @opencode run CI" },
+  ],
+  board: [
+    { at: 1, on: "1", text: "Split checkout service", pill: "Running", ok: false },
+    { at: 2, on: "2", text: "API docs", pill: "Ready", ok: true },
+    { at: 4, on: "4", text: "Tests and load test", pill: "Ready", ok: true },
+  ],
+  ask: {
+    on: 3,
+    question: "5 min downtime for the migration?",
+    pick: "A Downtime overnight",
+    other: "B Canary, no downtime",
+    pickedOn: "4 5 6",
+  },
+};
+
+export const collabScenes = {
+  "zh-CN": { solo: soloScene, team: teamScene },
+  en: { solo: soloSceneEn, team: teamSceneEn },
+} as const;
+
+/** 协作图上固定的界面文字 */
+export const collabText = {
+  "zh-CN": {
+    badge: "示意图",
+    pause: "暂停",
+    play: "播放",
+    youIcon: "你",
+    youTitle: "你一个人",
+    youDetail: "手机、电脑都能指挥",
+    localShort: "留在本机",
+    localLong: "文件 · 权限 · 会话留在本机",
+    roomKind: "同一个 SuperHive 房间",
+    roomNote: "只走公开消息",
+    feed: "公开消息",
+    board: "协作白板",
+    ask: "等你回答",
+    caption: "示意图，人名、Agent 名和任务均为演示数据。",
+    more: "了解委派、进展与提问",
+    status: { run: "执行中", wait: "等结果", ask: "等你回答", done: "已交回" },
+  },
+  en: {
+    badge: "Diagram",
+    pause: "Pause",
+    play: "Play",
+    youIcon: "Y",
+    youTitle: "Just you",
+    youDetail: "Direct from phone or desktop",
+    localShort: "Stays local",
+    localLong: "Files · permissions · sessions stay local",
+    roomKind: "One shared SuperHive room",
+    roomNote: "Public messages only",
+    feed: "Public messages",
+    board: "Whiteboard",
+    ask: "Waiting for your answer",
+    caption: "Diagram. People, agent names and tasks are demo data.",
+    more: "Learn about delegation, progress and questions",
+    status: { run: "Running", wait: "Waiting", ask: "Needs you", done: "Handed back" },
+  },
+} as const;

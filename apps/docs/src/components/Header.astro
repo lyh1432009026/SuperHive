@@ -1,12 +1,16 @@
 ---
 import DefaultHeader from "@astrojs/starlight/components/Header.astro";
 import SocialIcons from "@astrojs/starlight/components/SocialIcons.astro";
+import LanguageSelect from "./LanguageSelect.astro";
 ---
 
 <div class="hive-header">
   <DefaultHeader />
-  {/* 窄屏时 Starlight 把社交图标收进侧栏菜单，首页没有侧栏就看不到；这里在顶栏单独放一份 */}
+  {
+    /* 窄屏时 Starlight 把社交图标和语言切换收进侧栏菜单，首页没有侧栏就看不到；这里在顶栏单独放一份 */
+  }
   <div class="hive-header-social print:hidden">
+    <LanguageSelect />
     <SocialIcons />
   </div>
 </div>
@@ -27,6 +31,7 @@ import SocialIcons from "@astrojs/starlight/components/SocialIcons.astro";
   .hive-header-social {
     display: flex;
     flex-shrink: 0;
+    gap: 0.25rem;
     align-items: center;
   }
 

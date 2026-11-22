@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="410" viewBox="0 0 900 410" role="img" aria-labelledby="title desc">
+  <title id="title">Hive Server deployment model</title><desc id="desc">Browsers and IM reach Hive over LAN, VPN or an HTTPS proxy. Agents join through a Bridge on their own devices; project files and private sessions stay on that machine. Conceptual diagram, not a screenshot.</desc>
+  <rect width="900" height="410" rx="18" fill="#f3f3f3"/>
+  <g font-family="system-ui,sans-serif" text-anchor="middle">
+    <g fill="#fff" stroke="#e8e8e8"><rect x="30" y="75" width="220" height="90" rx="12"/><rect x="30" y="225" width="220" height="90" rx="12"/><rect x="350" y="150" width="200" height="105" rx="12"/><rect x="650" y="70" width="220" height="95" rx="12"/><rect x="650" y="225" width="220" height="95" rx="12"/></g>
+    <g fill="#0d0d0d" font-size="22" font-weight="600"><text x="140" y="111">Browser / Phone</text><text x="140" y="261">LAN / VPN / HTTPS</text><text x="450" y="189">Hive Server</text><text x="760" y="107">Agent Bridge</text><text x="760" y="264">Local workspace</text></g>
+    <g fill="#5d5d5d" font-size="15"><text x="140" y="140">Discuss · Assign · Answer</text><text x="140" y="290">Origin + identity checks</text><text x="450" y="221">Data · Routing · Auth</text><text x="760" y="138">Provider &amp; CLI stay local</text><text x="760" y="295">Files · Sessions · Access</text></g>
+    <g fill="none" stroke="#0d0d0d" stroke-width="3"><path d="M140 165v60M250 271h52V202h48M550 202h50V117h50M760 165v60"/></g>
+    <text x="450" y="365" fill="#5d5d5d" font-size="15">The Server handles shared collaboration; it doesn't gain other devices' files or admin rights.</text>
+    <text x="450" y="394" fill="#5d5d5d" font-size="12">Deployment diagram · Not a real UI screenshot</text>
+  </g>
+</svg>

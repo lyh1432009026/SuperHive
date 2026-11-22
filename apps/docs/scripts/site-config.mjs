@@ -31,38 +31,56 @@ export function withBase(pathname, base) {
   return `${base}${pathname.replace(/^\//, "")}`;
 }
 
+const publicRoot = fileURLToPath(new URL("../public/", import.meta.url));
 const screensRoot = fileURLToPath(new URL("../public/media/screens/", import.meta.url));
 
+/** 英文页的配图：有 名字.en.扩展名 的英文版就换成它，没有就沿用中文图 */
+export function localizedMedia(source, lang) {
+  if (lang !== "en") return source;
+  const english = source.replace(/(\.[a-z]+)$/, ".en$1");
+  return existsSync(resolve(publicRoot, english.slice(1))) ? english : source;
+}
+
 // `![说明](/media/screens/名字.png)` 展开成明暗两张真实界面截图，跟随文档主题切换。
-export function themedScreenshot(node) {
+// 英文页优先用 名字.en.dark.png / 名字.en.light.png 这套英文界面截图。
+export function themedScreenshot(node, lang = "zh-CN") {
   const source =
     node.type === "element" && node.tagName === "img" ? node.properties?.src : undefined;
   const match = typeof source === "string" && source.match(/^\/media\/screens\/([\w-]+)\.png$/);
   if (!match || !existsSync(resolve(screensRoot, `${match[1]}.dark.png`))) return [node];
+  const name =
+    lang === "en" && existsSync(resolve(screensRoot, `${match[1]}.en.dark.png`))
+      ? `${match[1]}.en`
+      : match[1];
   return ["light", "dark"].map((theme) => ({
     ...node,
     properties: {
       ...node.properties,
-      src: `/media/screens/${match[1]}.${theme}.png`,
+      src: `/media/screens/${name}.${theme}.png`,
       className: ["docs-shot", theme === "light" ? "dark:sl-hidden" : "light:sl-hidden"],
     },
   }));
 }
 
 export function prefixContentUrls(base) {
-  return () => (tree) => {
+  return () => (tree, file) => {
+    // 英文页在 src/content/docs/en/ 下
+    const lang = /[\\/]content[\\/]docs[\\/]en[\\/]/.test(file?.path ?? "") ? "en" : "zh-CN";
     function visit(node) {
-      if (node.children) node.children = node.children.flatMap(themedScreenshot);
+      if (node.children)
+        node.children = node.children.flatMap((child) => themedScreenshot(child, lang));
       if (node.type === "element" && node.properties) {
         if (node.tagName === "img") {
+          if (typeof node.properties.src === "string" && node.properties.src.startsWith("/media/"))
+            node.properties.src = localizedMedia(node.properties.src, lang);
           const source = node.properties.src;
           node.properties.loading = "lazy";
           node.properties.decoding = "async";
           if (typeof source === "string" && source.startsWith("/media/")) {
-            const publicRoot = resolve(fileURLToPath(new URL("../public/", import.meta.url)));
-            const file = resolve(publicRoot, source.slice(1));
-            if (file.startsWith(`${publicRoot}/`) && existsSync(file)) {
-              const image = readFileSync(file);
+            const root = resolve(publicRoot);
+            const path = resolve(root, source.slice(1));
+            if (path.startsWith(`${root}/`) && existsSync(path)) {
+              const image = readFileSync(path);
               if (source.endsWith(".svg")) {
                 const viewBox = image
                   .toString()

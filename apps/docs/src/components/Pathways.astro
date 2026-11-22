@@ -1,8 +1,10 @@
 ---
-import { getSiteConfig, withBase } from "../../scripts/site-config.mjs";
+import { getSiteConfig } from "../../scripts/site-config.mjs";
+import { localePath, pageLang } from "./i18n";
 
 const { base } = getSiteConfig();
-const pathways = [
+const lang = pageLang(Astro.locals);
+const zh = [
   {
     label: "第一次使用",
     title: "启动 Hive，接入第一个 Agent",
@@ -28,12 +30,35 @@ const pathways = [
     link: "reference/deployment/",
   },
 ];
+const en = [
+  {
+    label: "First time",
+    title: "Start Hive and add your first agent",
+    detail: "Install, join a room and send your first task.",
+  },
+  {
+    label: "Work as a team",
+    title: "Delegation, Progress and human decisions",
+    detail: "Delegate subtasks, see who is doing what, answer when needed.",
+  },
+  {
+    label: "Use it with confidence",
+    title: "Permissions, task states and recovery",
+    detail: "Know what agents can do, and what to do after an interruption.",
+  },
+  {
+    label: "Self-host",
+    title: "Run the service on your own machines",
+    detail: "Networking, persistent data, backups and public exposure.",
+  },
+];
+const pathways = lang === "en" ? zh.map((item, index) => ({ ...item, ...en[index] })) : zh;
 ---
 
 <div class="workroom-pathways">
   {
     pathways.map((pathway) => (
-      <a href={withBase(pathway.link, base)} class="workroom-pathway">
+      <a href={localePath(pathway.link, lang, base)} class="workroom-pathway">
         <span class="workroom-pathway-label">{pathway.label}</span>
         <strong>{pathway.title}</strong>
         <span>{pathway.detail}</span>

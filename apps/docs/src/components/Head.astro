@@ -1,23 +1,26 @@
 ---
 import ImageZoom from "./ImageZoom.astro";
+import { localePath, pageLang, ui } from "./i18n";
 import { getSiteConfig, withBase } from "../../scripts/site-config.mjs";
 import { projectLinks, repoUrl } from "../../scripts/project-links.mjs";
 
 const { site, base, indexable } = getSiteConfig();
 const route = Astro.locals.starlightRoute;
-const is404 = route.id === "404";
+const lang = pageLang(Astro.locals);
+const text = ui[lang];
+// 英文页的 id 带 en/ 前缀，去掉后两种语言同一页的 id 相同；首页是空字符串
+const pageId = route.id.replace(/^en(?:\/|$)/, "");
+const is404 = pageId === "404";
 const canonical = new URL(Astro.url.pathname, site).href;
 const image = new URL(withBase("social-card.png", base), site).href;
-const home = new URL(base, site).href;
-const groups: Record<string, string> = {
-  start: "开始使用",
-  guides: "使用指南",
-  reference: "部署与参考",
-};
-const group = route.id.split("/")[0];
+const home = new URL(localePath("", lang, base), site).href;
+// 两种语言都有，x-default 指向中文（根语言）
+const xDefault = new URL(withBase(pageId ? `${pageId}/` : "", base), site).href;
+const groups: Record<string, string> = text.groups;
+const group = pageId.split("/")[0];
 const breadcrumbs = [
-  { "@type": "ListItem", position: 1, name: "SuperHive 文档", item: home },
-  ...(route.id
+  { "@type": "ListItem", position: 1, name: text.siteName, item: home },
+  ...(pageId
     ? [{ "@type": "ListItem", position: 2, name: route.entry.data.title, item: canonical }]
     : []),
 ];
@@ -27,23 +30,23 @@ const schema = {
     {
       "@type": "WebSite",
       "@id": `${home}#website`,
-      name: "SuperHive 文档",
+      name: text.siteName,
       url: home,
-      inLanguage: "zh-CN",
+      inLanguage: lang,
     },
     {
-      "@type": route.id ? "TechArticle" : "WebPage",
+      "@type": pageId ? "TechArticle" : "WebPage",
       "@id": `${canonical}#page`,
       headline: route.entry.data.title,
       description: route.entry.data.description,
       url: canonical,
-      inLanguage: "zh-CN",
+      inLanguage: lang,
       isPartOf: { "@id": `${home}#website` },
       ...(group && groups[group] ? { articleSection: groups[group] } : {}),
     },
     { "@type": "BreadcrumbList", itemListElement: breadcrumbs },
     // 首页额外说明 SuperHive 这个软件本身：免费、开源，附源码和 npm 地址
-    ...(route.id
+    ...(pageId
       ? []
       : [
           {
@@ -64,7 +67,55 @@ const schema = {
 };
 ---
 
-{route.head.map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)}
+{
+  route.head
+    // 404 页不需要语言对应关系
+    .filter(({ attrs }) => !(is404 && attrs?.rel === "alternate"))
+    .map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)
+}
+<script is:inline define:vars={{ base, is404, isEnglish: lang === "en" }}>
+  // 首次进入时按浏览器语言选中英文；在右上角切换过语言后按记住的选择来。
+  // 在 head 里同步执行，跳转发生在正文绘制之前，不会先闪一下另一种语言。
+  // 搜索引擎爬虫和测速工具不跳，两种语言都照常抓取；站内点链接过来的也不跳。
+  (() => {
+    try {
+      if (
+        /bot|crawl|spider|slurp|lighthouse|headless|preview|facebookexternalhit/i.test(
+          navigator.userAgent,
+        )
+      )
+        return;
+      const path = location.pathname;
+      if (!path.startsWith(base)) return;
+      const rest = path.slice(base.length);
+      let want = null;
+      try {
+        want = localStorage.getItem("superhive.docs.locale");
+      } catch {}
+      if (is404) {
+        // 不存在的地址都落到中文的 404.html：地址在 en/ 下或要看英文时，换成英文的 404 页
+        if (isEnglish || want === "zh-CN") return;
+        const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
+        const english =
+          want === "en" ||
+          /^en(?:\/|$)/.test(rest) ||
+          !languages.some((language) => /^zh/i.test(language || ""));
+        if (english) location.replace(`${base}en/404/`);
+        return;
+      }
+      if (want !== "en" && want !== "zh-CN") {
+        const from = document.referrer ? new URL(document.referrer) : null;
+        if (from && from.origin === location.origin && from.pathname.startsWith(base)) return;
+        const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
+        want = languages.some((language) => /^zh/i.test(language || "")) ? "zh-CN" : "en";
+      }
+      if ((want === "en") === isEnglish) return;
+      const target = want === "en" ? `${base}en/${rest}` : base + rest.replace(/^en\//, "");
+      location.replace(target + location.search + location.hash);
+    } catch {}
+  })();
+</script>
+{!is404 && <link rel="alternate" hreflang="x-default" href={xDefault} />}
 <meta
   name="robots"
   content={indexable && !is404 ? "index, follow, max-image-preview:large" : "noindex, nofollow"}
@@ -74,7 +125,7 @@ const schema = {
 <meta property="og:image" content={image} />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
-<meta property="og:image:alt" content="SuperHive 图文文档：人类与多个 Agent 的协作指南" />
+<meta property="og:image:alt" content={text.ogImageAlt} />
 <meta name="twitter:image" content={image} />
 <meta name="twitter:title" content={route.entry.data.title} />
 <meta name="twitter:description" content={route.entry.data.description} />

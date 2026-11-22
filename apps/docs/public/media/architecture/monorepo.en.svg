@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="460" viewBox="0 0 900 460" role="img" aria-labelledby="title desc">
+  <title id="title">How the SuperHive monorepo fits together</title><desc id="desc">apps/web and IM talk to apps/server; protocol links the Server and the superhive Bridge; the Bridge calls each Provider; apps/docs builds static HTML on its own. Architecture diagram, not a screenshot.</desc>
+  <rect width="900" height="460" rx="18" fill="#f3f3f3"/>
+  <g font-family="system-ui,sans-serif" text-anchor="middle">
+    <g fill="#fff" stroke="#e8e8e8"><rect x="35" y="60" width="230" height="90" rx="12"/><rect x="335" y="60" width="230" height="90" rx="12"/><rect x="635" y="60" width="230" height="90" rx="12"/><rect x="335" y="215" width="230" height="82" rx="12"/><rect x="635" y="215" width="230" height="82" rx="12"/></g>
+    <g fill="#0d0d0d" font-size="21" font-weight="600"><text x="150" y="98">apps/web + IM</text><text x="450" y="98">apps/server</text><text x="750" y="98">superhive Bridge</text><text x="450" y="249">packages/protocol</text><text x="750" y="249">Provider CLI / SDK</text></g>
+    <g fill="#5d5d5d" font-size="15"><text x="150" y="128">Collaboration UI for people</text><text x="450" y="128">Public timeline &amp; auth</text><text x="750" y="128">Task queue &amp; local runs</text><text x="450" y="278">Shared types &amp; schemas</text><text x="750" y="278">Sessions · Tools · Usage</text></g>
+    <g fill="none" stroke="#0d0d0d" stroke-width="3"><path d="M265 105h70M565 105h70M450 150v65M750 150v65"/></g>
+    <path d="M35 334h830" stroke="#e8e8e8" stroke-dasharray="6 6"/>
+    <rect x="35" y="355" width="230" height="67" rx="12" fill="#0d0d0d"/><text x="150" y="396" fill="#fff" font-size="21" font-weight="600">apps/docs</text>
+    <text x="545" y="383" fill="#0d0d0d" font-size="19">Astro → static HTML + search index</text><text x="545" y="412" fill="#5d5d5d" font-size="15">Deployed separately; never touches the Hive app database</text>
+    <text x="450" y="445" fill="#5d5d5d" font-size="12">Code architecture diagram · Not a real UI screenshot</text>
+  </g>
+</svg>

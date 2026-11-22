@@ -39,14 +39,44 @@ for (const filepath of walk(output).filter((file) => file.endsWith(".html"))) {
 
 const titles = new Set();
 const descriptions = new Set();
+const pagesByLang = { "zh-CN": 0, en: 0 };
+const homes = { "zh-CN": new URL(base, site).href, en: new URL(withBase("en/", base), site).href };
+// 英文页允许出现的中文：语言切换里的「简体中文」（带 lang="zh-CN"），以及照抄的 CLI 输出
+const CJK = /[\u3000-\u303f\u3400-\u9fff\uff00-\uffef]/;
+const englishAllowlist = ["Web UI："];
 let pages = 0;
 let images = 0;
 let links = 0;
 
+const counterpart = (url) => {
+  const path = url.slice(homes["zh-CN"].length);
+  return path.startsWith("en/") ? homes["zh-CN"] + path.slice(3) : `${homes.en}${path}`;
+};
+
 for (const [url, { filepath, dom }] of documents) {
-  const is404 = filepath.endsWith("404.html");
+  const is404 = /(?:^|\/)404(?:\.html|\/index\.html)$/.test(relative(output, filepath));
   const label = relative(output, filepath);
-  check(dom("html").attr("lang") === "zh-CN", `${label}: missing zh-CN language`);
+  const lang = url.startsWith(homes.en) ? "en" : "zh-CN";
+  check(dom("html").attr("lang") === lang, `${label}: html lang should be ${lang}`);
+  if (lang === "en") {
+    const page = dom.root().clone();
+    page.find("script, style, [lang='zh-CN']").remove();
+    const leftovers = [
+      page.text(),
+      ...page
+        .find("[alt], [title], [aria-label], meta[content]")
+        .toArray()
+        .flatMap((element) =>
+          ["alt", "title", "aria-label", "content"].map((name) => element.attribs[name] ?? ""),
+        ),
+    ]
+      .map((text) => englishAllowlist.reduce((rest, allowed) => rest.replaceAll(allowed, ""), text))
+      .flatMap((text) => text.match(new RegExp(`.{0,12}${CJK.source}+.{0,12}`, "g")) ?? []);
+    check(
+      !leftovers.length,
+      `${label}: Chinese text left on English page: ${leftovers.slice(0, 3).join(" | ")}`,
+    );
+  }
   check(dom("h1").length === 1, `${label}: requires exactly one H1`);
   const robots = dom('meta[name="robots"]').attr("content") || "";
   check(robots.includes("noindex") === (!indexable || is404), `${label}: wrong indexing policy`);
@@ -56,6 +86,7 @@ for (const [url, { filepath, dom }] of documents) {
     continue;
   }
   pages += 1;
+  pagesByLang[lang] += 1;
   const title = dom("title").text();
   const description = dom('meta[name="description"]').attr("content") || "";
   check(title.length > 5 && !titles.has(title), `${label}: missing or duplicated title`);
@@ -63,9 +94,26 @@ for (const [url, { filepath, dom }] of documents) {
     description.length >= 20 && !descriptions.has(description),
     `${label}: missing or duplicated description`,
   );
+  const [minLength, maxLength] = lang === "en" ? [80, 170] : [50, 120];
   check(
-    description.length >= 50 && description.length <= 120,
-    `${label}: description should be 50–120 characters, received ${description.length}`,
+    description.length >= minLength && description.length <= maxLength,
+    `${label}: description should be ${minLength}–${maxLength} characters, received ${description.length}`,
+  );
+  // 每页都标明另一种语言的对应页，x-default 指向中文
+  const alternates = Object.fromEntries(
+    dom('link[rel="alternate"][hreflang]')
+      .toArray()
+      .map((element) => [element.attribs.hreflang, element.attribs.href]),
+  );
+  const zhUrl = lang === "zh-CN" ? url : counterpart(url);
+  const enUrl = lang === "en" ? url : counterpart(url);
+  check(
+    alternates["zh-CN"] === zhUrl && alternates.en === enUrl && alternates["x-default"] === zhUrl,
+    `${label}: hreflang must link zh-CN, en and x-default (zh-CN) versions`,
+  );
+  check(
+    documents.has(counterpart(url)),
+    `${label}: missing ${lang === "en" ? "Chinese" : "English"} version`,
   );
   titles.add(title);
   descriptions.add(description);
@@ -85,13 +133,17 @@ for (const [url, { filepath, dom }] of documents) {
   check(dom("main").text().trim().length > 100, `${label}: body must be available in static HTML`);
   const schemas = dom('script[type="application/ld+json"]');
   check(schemas.length > 0, `${label}: missing structured data`);
-  const isHome = url === new URL(base, site).href;
+  const isHome = url === homes[lang];
   schemas.toArray().forEach((schema) => {
     try {
       const data = JSON.parse(dom(schema).text());
       check(data["@context"] === "https://schema.org", `${label}: invalid schema context`);
       check(Array.isArray(data["@graph"]), `${label}: missing schema graph`);
       const graph = data["@graph"] ?? [];
+      check(
+        graph.filter((item) => "inLanguage" in item).every((item) => item.inLanguage === lang),
+        `${label}: JSON-LD inLanguage should be ${lang}`,
+      );
       const breadcrumb = graph.find((item) => item["@type"] === "BreadcrumbList");
       check(
         breadcrumb?.itemListElement?.length === (isHome ? 1 : 2) &&
@@ -167,7 +219,11 @@ function validateTarget(href, current, label, validateHash) {
   }
 }
 
-check(pages >= 19, `Expected at least 19 documentation pages, received ${pages}`);
+check(pages >= 38, `Expected at least 38 documentation pages, received ${pages}`);
+check(
+  pagesByLang["zh-CN"] === pagesByLang.en,
+  `Chinese and English page counts differ: ${pagesByLang["zh-CN"]} vs ${pagesByLang.en}`,
+);
 for (const route of expectedRoutes) {
   check(
     documents.has(new URL(withBase(route, base), site).href),
@@ -186,30 +242,52 @@ check(
   robots.includes(`${site}${base}sitemap-index.xml`),
   "robots sitemap must respect origin and base",
 );
-const llms = existsSync(join(output, "llms.txt"))
-  ? readFileSync(join(output, "llms.txt"), "utf8")
-  : "";
-const llmsFull = existsSync(join(output, "llms-full.txt"))
-  ? readFileSync(join(output, "llms-full.txt"), "utf8")
-  : "";
-check(llms.startsWith("# SuperHive 文档\n\n> "), "llms.txt needs a title and a summary blockquote");
-check(llmsFull.startsWith("# SuperHive 文档"), "llms-full.txt missing");
-for (const [url, { filepath }] of documents) {
-  if (filepath.endsWith("404.html")) continue;
-  check(llms.includes(`](${url})`), `llms.txt missing link to ${url}`);
-  check(llmsFull.includes(`来源：${url}`), `llms-full.txt missing ${url}`);
+const read = (file) =>
+  existsSync(join(output, file)) ? readFileSync(join(output, file), "utf8") : "";
+// 中文在根路径，英文在 en/ 下，各自只列本语言的页面
+const llmsFiles = {
+  "zh-CN": { dir: "", title: "SuperHive 文档", source: "来源：" },
+  en: { dir: "en/", title: "SuperHive Docs", source: "Source: " },
+};
+for (const [lang, { dir, title, source }] of Object.entries(llmsFiles)) {
+  const llms = read(`${dir}llms.txt`);
+  const llmsFull = read(`${dir}llms-full.txt`);
+  check(
+    llms.startsWith(`# ${title}\n\n> `),
+    `${dir}llms.txt needs a title and a summary blockquote`,
+  );
+  check(llmsFull.startsWith(`# ${title}`), `${dir}llms-full.txt missing`);
+  for (const [url, { filepath }] of documents) {
+    if (filepath.endsWith("404.html") || filepath.endsWith("404/index.html")) continue;
+    const own = url.startsWith(homes.en) === (lang === "en");
+    check(
+      llms.includes(`](${url})`) === own,
+      `${dir}llms.txt ${own ? "missing" : "should not list"} ${url}`,
+    );
+    check(
+      llmsFull.includes(`${source}${url}\n`) === own,
+      `${dir}llms-full.txt ${own ? "missing" : "should not include"} ${url}`,
+    );
+  }
+  check(
+    !/^(?:import |<[A-Z])/m.test(llmsFull),
+    `${dir}llms-full.txt must not contain MDX imports or components`,
+  );
+  if (lang === "en") {
+    const leftover = llmsFull
+      .replaceAll("Web UI：", "")
+      .match(new RegExp(`.{0,12}${CJK.source}+.{0,12}`));
+    check(!leftover, `en/llms-full.txt contains Chinese text: ${leftover?.[0]}`);
+  }
 }
-check(
-  !/^(?:import |<[A-Z])/m.test(llmsFull),
-  "llms-full.txt must not contain MDX imports or components",
-);
 
 const sitemapFiles = walk(output).filter((file) => /sitemap.*\.xml$/.test(file));
 const sitemapUrls = sitemapFiles.flatMap((file) =>
   [...readFileSync(file, "utf8").matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]),
 );
 for (const [url, { filepath }] of documents) {
-  if (!filepath.endsWith("404.html")) check(sitemapUrls.includes(url), `Sitemap missing ${url}`);
+  if (!/404(?:\.html|\/index\.html)$/.test(filepath))
+    check(sitemapUrls.includes(url), `Sitemap missing ${url}`);
 }
 check(!sitemapUrls.some((url) => url.includes("404")), "404 must not appear in sitemap");
 
