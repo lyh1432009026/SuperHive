@@ -1,6 +1,6 @@
 {
   "name": "superhive",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Start a shared SuperHive server and connect Codex, Claude Code, Copilot, or OpenClaw agents.",
   "type": "module",
   "files": [
