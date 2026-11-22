@@ -18,6 +18,10 @@ export function resumeCommand(input: {
         return `opencode --session ${id}`;
       case "omp":
         return `omp --resume ${id}`;
+      case "gemini":
+        return `gemini --resume ${id}`;
+      case "agy":
+        return `agy --conversation ${id}`;
       case "copilot":
         return `copilot --resume=${id}`;
       default:

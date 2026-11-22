@@ -33,7 +33,8 @@ import { findWindowsCommand, resolveCommand } from "./windows-command.js";
 
 type ToolSpec = {
   name: string;
-  package: string;
+  /** npm 包名（查最新版、npm 安装升级用）；不在 npm 上发布的（agy）没有，最新版查不到、只用官方脚本 */
+  package?: string;
   /** 工具自带的升级子命令 */
   officialUpdate?: string;
   /** 优先用自带的升级子命令（cc-switch 的 prefers_official_update）；Codex 的 update 断网时会假成功，不用 */
@@ -72,6 +73,9 @@ export const TOOLS: Record<AgentCliTool, ToolSpec> = {
     officialUpdate: "update --yes",
     prefersOfficial: true,
   },
+  gemini: { name: "Gemini CLI", package: "@google/gemini-cli" },
+  // agy 不在 npm 上：官方脚本装单个原生程序到 ~/.local/bin，`agy update` 自升级
+  agy: { name: "Antigravity CLI", officialUpdate: "update", prefersOfficial: true },
 };
 
 export const AGENT_CLI_TOOLS = Object.keys(TOOLS) as AgentCliTool[];
@@ -87,6 +91,7 @@ export const OFFICIAL_INSTALLERS = {
   omp: { url: "https://omp.sh/install", shell: "sh", binDir: ".local/bin" },
   // 只用于升级独立安装版：它的 `codex update` 内部是 `curl | sh`，断网时也打印成功并 exit 0
   codex: { url: "https://chatgpt.com/codex/install.sh", shell: "sh", binDir: ".local/bin" },
+  agy: { url: "https://antigravity.google/cli/install.sh", shell: "bash", binDir: ".local/bin" },
 } as const satisfies Partial<
   Record<AgentCliTool, { url: string; shell: "bash" | "sh"; binDir: string }>
 >;
@@ -98,8 +103,13 @@ export function installerCommand(tool: keyof typeof OFFICIAL_INSTALLERS): string
   return `bash -c 'tmp=$(mktemp) && curl -fsSL ${url} -o $tmp && head -c 2 $tmp | grep -q "#!" && ${shell} $tmp; status=$?; rm -f $tmp; exit $status'`;
 }
 
-/** 这些工具新装时先跑官方脚本：claude、opencode 失败再退回 npm，omp 只用官方脚本 */
-const SCRIPT_FIRST_INSTALL: ReadonlySet<AgentCliTool> = new Set(["claude", "opencode", "omp"]);
+/** 这些工具新装时先跑官方脚本：claude、opencode 失败再退回 npm，omp、agy 只用官方脚本 */
+const SCRIPT_FIRST_INSTALL: ReadonlySet<AgentCliTool> = new Set([
+  "claude",
+  "opencode",
+  "omp",
+  "agy",
+]);
 
 const VERSION_RE = /\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/;
 const DETECT_CACHE_MS = 60_000;
@@ -148,6 +158,8 @@ export function inferSource(launcher: string, real: string): AgentCliSource {
   if (l.includes("/homebrew/")) return "homebrew";
   if (r.includes("/.local/share/claude/") || r.includes("/claude/versions/")) return "native";
   if (r.includes("/packages/standalone/")) return "native";
+  // agy 官方脚本放到 ~/.local/bin 的单个原生程序（不是指向 node_modules 的软链）
+  if (/\/\.local\/bin\/agy(?:\.exe)?$/.test(r)) return "native";
   if (r.includes("/lib/node_modules/")) return "npm";
   return "unknown";
 }
@@ -353,6 +365,7 @@ function packageCommand(
   };
   if (tool === "omp" && source !== "bun") return undefined;
   const pkg = spec.package;
+  if (!pkg) return undefined;
   const npmArgs = spec.npmArgs ?? "";
   switch (source) {
     case "volta": {
@@ -456,10 +469,10 @@ export function planUpdate(
         ? `npm_config_allow_scripts=${spec.package} npm_config_ignore_scripts=false npm_config_include=optional `
         : "";
     const update = `${scripts}${official}`;
-    // omp：自带的 update 失败就重跑官方脚本（cc-switch 的 `omp update || <installer>`）
+    // omp、agy：自带的 update 失败就重跑官方脚本（cc-switch 的 `omp update || <installer>`）
     const chained =
-      tool === "omp"
-        ? installerCommand("omp")
+      tool === "omp" || tool === "agy"
+        ? installerCommand(tool)
         : fallback && "command" in fallback
           ? fallback.command
           : undefined;
@@ -485,21 +498,24 @@ export type InstallContext = {
  * 没装的工具怎么装（cc-switch 的 posix_install_command_for）：
  * - claude、opencode：先跑官方安装脚本，失败再用 `||` 退回 npm；没有 npm 就只跑脚本；
  * - omp：只跑官方脚本（它有 bun 时用 bun 装，没有就下载校验预编译程序），不要求本机先有 bun；
- * - codex、copilot、openclaw：npm。
+ * - agy：不在 npm 上，只跑官方脚本；
+ * - codex、copilot、openclaw、gemini：npm。
  * npm 用登录 shell PATH 里实际的那个（绝对路径），同目录有 node 时把这个目录放到 PATH 最前。
  */
 export function planInstall(tool: AgentCliTool, context: InstallContext): AgentCliUpdatePlan {
   if (context.platform === "win32") return manual(serverText("agentCli.manual.windows"));
   const spec = TOOLS[tool];
   let npm: string | undefined;
-  if (context.npm && safePath(context.npm)) {
+  if (spec.package && context.npm && safePath(context.npm)) {
     const dir = path.posix.dirname(context.npm);
     const pathPrefix = context.isExecutable(path.posix.join(dir, "node"))
       ? `PATH=${shellQuote(dir)}:"$PATH" `
       : "";
     npm = `${pathPrefix}${shellQuote(context.npm)} i -g ${spec.package}@latest${spec.npmArgs ?? ""}`;
   }
-  if (tool === "omp") return { kind: "anchored", command: installerCommand("omp") };
+  if (tool === "omp" || tool === "agy") {
+    return { kind: "anchored", command: installerCommand(tool) };
+  }
   if (tool === "claude" || tool === "opencode") {
     const script = installerCommand(tool);
     return { kind: "anchored", command: npm ? `${script} || ${npm}` : script };
@@ -919,9 +935,10 @@ export class AgentCliManager {
     return value;
   }
 
-  /** npm 上的最新版（dist-tags 的 latest）；查不到为 null */
+  /** npm 上的最新版（dist-tags 的 latest）；查不到、不在 npm 上为 null */
   latest(tool: AgentCliTool, refresh = false): Promise<string | null> {
     const pkg = TOOLS[tool].package;
+    if (!pkg) return Promise.resolve(null);
     const cached = this.latestCache.get(pkg);
     if (!refresh && cached && this.now() - cached.at < LATEST_CACHE_MS) return cached.value;
     const url = `https://registry.npmjs.org/-/package/${pkg.replace("/", "%2f")}/dist-tags`;
@@ -967,6 +984,7 @@ export class AgentCliManager {
     const current = await this.nodeVersion(node, loginPath);
     if (!current) return undefined;
     const pkg = TOOLS[tool].package;
+    if (!pkg) return undefined;
     const json = await this.fetchJson(
       `https://registry.npmjs.org/${pkg.replace("/", "%2f")}/${encodeURIComponent(latest)}`,
     ).catch(() => undefined);
@@ -991,7 +1009,7 @@ export class AgentCliManager {
    * npm 用 `npm prefix -g`/bin
    */
   private async globalBin(tool: AgentCliTool, context: InstallContext, loginPath: string) {
-    if (tool === "claude" || tool === "opencode" || tool === "omp") {
+    if (tool === "claude" || tool === "opencode" || tool === "omp" || tool === "agy") {
       const custom = tool === "omp" ? this.env.PI_INSTALL_DIR : undefined;
       return custom && path.isAbsolute(custom)
         ? custom
@@ -1079,7 +1097,7 @@ export class AgentCliManager {
     const base: AgentCliInfo = {
       tool,
       name: spec.name,
-      package: spec.package,
+      package: spec.package ?? "",
       status,
       version,
       installations,

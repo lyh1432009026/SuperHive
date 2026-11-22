@@ -144,6 +144,8 @@ export const PROVIDER_COMMANDS: Record<LocalAgentProvider, string> = {
   opencode: "opencode",
   omp: "omp",
   openclaw: "openclaw",
+  gemini: "gemini",
+  agy: "agy",
 };
 
 type Runtime = {

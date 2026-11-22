@@ -15,6 +15,8 @@ import { ClaudeCodeResponder } from "./claude-client.js";
 import { CodexResponder, type CodexTransport } from "./codex-responder.js";
 import { CopilotResponder } from "./copilot-client.js";
 import { createOmpResponder } from "./omp-client.js";
+import { createGeminiResponder } from "./gemini-client.js";
+import { createAgyResponder } from "./agy-client.js";
 import { createOpenCodeResponder } from "./opencode-client.js";
 import { OpenClawResponder } from "./openclaw-client.js";
 import {
@@ -46,7 +48,7 @@ SuperHive Agent
 选项：
   --room ID         只加入指定房间；省略时加入服务器上所有未归档房间，
                     并自动跟随房间的新建与归档
-  --provider NAME   codex、claude、copilot、openclaw、opencode 或 omp（默认 codex）
+  --provider NAME   codex、claude、copilot、openclaw、opencode、omp、gemini 或 agy（默认 codex）
   --access MODE     read-only、workspace 或 full（默认 read-only）
   --persona TEXT    Agent 的角色描述
   --allow-root PATH 允许跟随房间工作区切换到的目录（可重复）；默认只有 --cwd 及其上一级
@@ -68,6 +70,8 @@ SuperHive Agent
   --openclaw-configure-mcp  将当前 Hive MCP 身份保存到 OpenClaw 配置
   --opencode PATH   OpenCode CLI 命令（默认 opencode）
   --omp PATH        omp（oh-my-pi）CLI 命令（默认 omp）
+  --gemini PATH     Gemini CLI 命令（默认 gemini）
+  --agy PATH        Antigravity CLI 命令（默认 agy）
   --model NAME      provider 使用的可选模型（opencode 为 provider/model 格式）
   --agent-settings FILE
                     Agent 设置文件（JSON：{"mcpDisabled": ["名称"]}）；给定时 Claude Code / Codex
@@ -174,6 +178,8 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
       "openclaw-configure-mcp": { type: "boolean" },
       opencode: { type: "string", default: "opencode" },
       omp: { type: "string", default: "omp" },
+      gemini: { type: "string", default: "gemini" },
+      agy: { type: "string", default: "agy" },
       model: { type: "string" },
       "agent-settings": { type: "string" },
       help: { type: "boolean", short: "h" },
@@ -206,11 +212,13 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
     "openclaw",
     "opencode",
     "omp",
+    "gemini",
+    "agy",
     "echo",
   ];
   if (!supportedProviders.includes(providerValue as AgentProvider)) {
     throw new Error(
-      `不支持的 provider “${providerValue}”；当前可用：codex、claude、copilot、openclaw、opencode、omp。`,
+      `不支持的 provider “${providerValue}”；当前可用：codex、claude、copilot、openclaw、opencode、omp、gemini、agy。`,
     );
   }
   const provider = providerValue as AgentProvider;
@@ -243,6 +251,8 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
     openclaw: "通用协作 Agent",
     opencode: "通用协作 Agent",
     omp: "通用协作 Agent",
+    gemini: "通用协作 Agent",
+    agy: "通用协作 Agent",
     echo: "Echo 测试 Agent",
   };
   const persona = parsed.values.persona ?? defaultPersonas[provider];
@@ -253,6 +263,8 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
     openclaw: parsed.values.openclaw,
     opencode: parsed.values.opencode,
     omp: parsed.values.omp,
+    gemini: parsed.values.gemini,
+    agy: parsed.values.agy,
     echo: "echo",
   };
   const providerLabels: Record<AgentProvider, string> = {
@@ -262,6 +274,8 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
     openclaw: "OpenClaw",
     opencode: "OpenCode",
     omp: "omp",
+    gemini: "Gemini CLI",
+    agy: "agy",
     echo: "Echo",
   };
   const command = commands[provider];
@@ -322,6 +336,22 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
         });
       case "omp":
         return createOmpResponder({
+          command,
+          cwd,
+          hive,
+          access,
+          ...(parsed.values.model ? { model: parsed.values.model } : {}),
+        });
+      case "gemini":
+        return createGeminiResponder({
+          command,
+          cwd,
+          hive,
+          access,
+          ...(parsed.values.model ? { model: parsed.values.model } : {}),
+        });
+      case "agy":
+        return createAgyResponder({
           command,
           cwd,
           hive,
@@ -478,7 +508,7 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
   console.log(
     `[hive] 本机权限：${access === "read-only" ? "只读" : access === "workspace" ? "工作区读写与命令" : "完全访问（无 Hive 沙箱）"}`,
   );
-  if (["codex", "claude", "copilot", "opencode", "omp"].includes(provider)) {
+  if (["codex", "claude", "copilot", "opencode", "omp", "gemini", "agy"].includes(provider)) {
     console.log(
       `[hive] ${providerLabels[provider]} Hive MCP：已启用，将按需临时注入 ${hiveMcpUrl(hiveForLogs)}（仅当前 Agent 进程，不修改全局配置）`,
     );

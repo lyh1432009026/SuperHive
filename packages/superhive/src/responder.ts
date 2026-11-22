@@ -1,7 +1,7 @@
 import type { AgentUsage, RuntimeEvent, TraceStep } from "./hive-protocol.js";
 
 export type AgentProvider =
-  "codex" | "claude" | "copilot" | "openclaw" | "opencode" | "omp" | "echo";
+  "codex" | "claude" | "copilot" | "openclaw" | "opencode" | "omp" | "gemini" | "agy" | "echo";
 export type AgentAccessMode = "read-only" | "workspace" | "full";
 
 /** 执行中的权限申请：给人看的一行摘要和补充说明 */
@@ -47,7 +47,7 @@ export type AgentReplyInput = {
   /**
    * 这一轮用的模型（Agent 设置里的「模型」，或人点「换个模型重试」选的）。
    * 不给就用启动时的模型。各运行时能做到的程度不同：Codex、Claude Code、Copilot、OpenClaw 每轮生效，
-   * opencode、omp 通过 ACP 的 session/set_config_option 切换当前会话的模型。
+   * opencode、omp、agy 通过 ACP 的 session/set_config_option、Gemini CLI 通过 session/set_model 切换当前会话的模型。
    */
   model?: string;
 };

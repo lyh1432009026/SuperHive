@@ -28,7 +28,7 @@ Screenshot of the demo environment: names, rooms, and repositories are sample da
 
 ## Watching and adding requirements while it runs
 
-Claude Code, Codex, OpenCode, and omp support live Activity, showing tools, commands, files, and progress. Activity is kept only in Server memory: it is not written to the database or sent to IM. You can view it for a while after the task ends, but after a refresh or restart don't rely on it as a durable audit record.
+Claude Code, Codex, OpenCode, omp, Gemini CLI, and agy support live Activity, showing tools, commands, files, and progress. Activity is kept only in Server memory: it is not written to the database or sent to IM. You can view it for a while after the task ends, but after a refresh or restart don't rely on it as a durable audit record.
 
 When an agent is busy, new messages queue by default. Supported runtimes can take a "Steer" between tool calls:
 
@@ -47,6 +47,7 @@ The stop button ends **this one task**. It does not undo files, commits, network
 | Runtime                  | How it stops and what you get                                                                                                                           |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Codex, OpenCode, omp     | Interrupts the current turn; the Bridge process can stay online; shows Stopped once confirmed                                                           |
+| Gemini CLI, agy          | Same as above, interrupting the current turn over ACP                                                                                                   |
 | Claude Code              | First asks the runtime to interrupt the current turn and tools; if not confirmed within about 5 seconds, ends the process and marks the outcome unknown |
 | GitHub Copilot, OpenClaw | Ends the corresponding child process; you still need to check whether an external operation completed                                                   |
 

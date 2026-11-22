@@ -1,5 +1,5 @@
 export type SelectableAgentProvider =
-  "codex" | "claude" | "copilot" | "openclaw" | "opencode" | "omp";
+  "codex" | "claude" | "copilot" | "openclaw" | "opencode" | "omp" | "gemini" | "agy";
 
 const providerSuffixes: Record<SelectableAgentProvider, string> = {
   codex: "-codex",
@@ -8,6 +8,8 @@ const providerSuffixes: Record<SelectableAgentProvider, string> = {
   openclaw: "-openclaw",
   opencode: "-opencode",
   omp: "-omp",
+  gemini: "-gemini",
+  agy: "-agy",
 };
 
 /**

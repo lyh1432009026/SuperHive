@@ -79,26 +79,26 @@ hive join --provider codex --access read-only \
 
 它要求 Agent 与 Server 在同一台电脑，且示例房间 `general` 实际存在；换成你的真实房间 ID 和未占用的 Agent 名称。执行 `join` 会真正连接并运行 Agent，不是仅检查配置。
 
-| 参数                    | 含义与默认值                                                                             |
-| ----------------------- | ---------------------------------------------------------------------------------------- |
-| `--server URL`          | 必填，Hive Server 可访问的 HTTP/HTTPS 地址                                               |
-| `--name NAME`           | 必填，Agent 名称；允许字母、数字、下划线、点和连字符，必须避免重名                       |
-| `--token TOKEN`         | 认证值，也可以用 `HIVE_AGENT_TOKEN` 提供；不是用户名密码                                 |
-| `--room ID`             | 只加入指定房间；省略时加入所有未归档房间并跟随新建和归档，仍受凭据授权范围约束           |
-| `--provider NAME`       | `codex`、`claude`、`copilot`、`opencode`、`omp`、`openclaw`；默认 `codex`                |
-| `--access MODE`         | `read-only`、`workspace`、`full`；CLI 默认只读，和网页默认工作区档不同                   |
-| `--cwd PATH`            | 工作目录；工作区和完全访问必须显式提供，只读默认使用该 Agent 专属空目录                  |
-| `--allow-root PATH`     | 可重复，追加允许跟随的房间工作区目录；默认包含工作目录，及非家目录、非文件系统根的上一级 |
-| `--persona TEXT`        | Agent 角色描述，不替代操作权限                                                           |
-| `--model NAME`          | 所用模型；OpenCode 使用 `provider/model` 格式，可用性取决于 Runtime                      |
-| `--state-dir PATH`      | Agent 状态目录，默认 `~/.superhive/agents`                                               |
-| `--agent-settings FILE` | Claude Code / Codex 的 MCP 开关 JSON，每轮重新读取；本机 Server 启动时会自动传入         |
+| 参数                    | 含义与默认值                                                                               |
+| ----------------------- | ------------------------------------------------------------------------------------------ |
+| `--server URL`          | 必填，Hive Server 可访问的 HTTP/HTTPS 地址                                                 |
+| `--name NAME`           | 必填，Agent 名称；允许字母、数字、下划线、点和连字符，必须避免重名                         |
+| `--token TOKEN`         | 认证值，也可以用 `HIVE_AGENT_TOKEN` 提供；不是用户名密码                                   |
+| `--room ID`             | 只加入指定房间；省略时加入所有未归档房间并跟随新建和归档，仍受凭据授权范围约束             |
+| `--provider NAME`       | `codex`、`claude`、`copilot`、`opencode`、`omp`、`openclaw`、`gemini`、`agy`；默认 `codex` |
+| `--access MODE`         | `read-only`、`workspace`、`full`；CLI 默认只读，和网页默认工作区档不同                     |
+| `--cwd PATH`            | 工作目录；工作区和完全访问必须显式提供，只读默认使用该 Agent 专属空目录                    |
+| `--allow-root PATH`     | 可重复，追加允许跟随的房间工作区目录；默认包含工作目录，及非家目录、非文件系统根的上一级   |
+| `--persona TEXT`        | Agent 角色描述，不替代操作权限                                                             |
+| `--model NAME`          | 所用模型；OpenCode 使用 `provider/model` 格式，可用性取决于 Runtime                        |
+| `--state-dir PATH`      | Agent 状态目录，默认 `~/.superhive/agents`                                                 |
+| `--agent-settings FILE` | Claude Code / Codex 的 MCP 开关 JSON，每轮重新读取；本机 Server 启动时会自动传入           |
 
 `--allow-root` 是房间工作目录的切换范围，不是让所有 Runtime 都具备同样的文件系统沙箱。`--trust-room-workspace` 直接跟随房间目录，是本机 Server 拉起 Agent 的机制；手工远程接入不要为了绕过目录拒绝随意启用。权限差异见 [权限指南](/guides/permissions/) 和 [工作区任务线](/guides/worktrees/)。
 
 ### 少用但需要核对的 Runtime 选项
 
-- `--codex`、`--claude`、`--copilot`、`--opencode`、`--omp`、`--openclaw` 指定对应 CLI 命令路径。
+- `--codex`、`--claude`、`--copilot`、`--opencode`、`--omp`、`--openclaw`、`--gemini`、`--agy` 指定对应 CLI 命令路径。
 - `--codex-transport auto|app-server|mcp`：`auto` 当前使用 app-server，不会失败后自动降级；`mcp` 仅适合明确确认支持旧协议的 CLI。
 - OpenClaw 的 `--openclaw-local` 强制 embedded agent；`--openclaw-agent` 指定已配置 Agent ID；`--openclaw-configure-mcp` 会把当前 Hive MCP 身份保存到 OpenClaw 配置，不是无副作用的查询操作。
 
@@ -108,7 +108,7 @@ hive join --provider codex --access read-only \
 hive models --provider codex --json
 ```
 
-支持上述六种 provider；`--command PATH` 可以指定对应 CLI 路径。Codex 通过 app-server 的 `model/list`，OpenCode、omp、OpenClaw 通过各自的模型列表命令读取。
+支持上述八种 provider；`--command PATH` 可以指定对应 CLI 路径。Codex 通过 app-server 的 `model/list`，OpenCode、omp、OpenClaw 通过各自的模型列表命令读取，Gemini CLI、agy 经 ACP 开一个空会话读取。
 
 Claude Code 和 Copilot 当前返回常用预设，而不是实时账号授权清单。JSON 中的 `source` 区分 `runtime` 和 `preset`；动态读取失败时返回空模型列表并带 `error`，不要把它当成账号没有可用模型。列表中的模型名不是购买证明，也不保证实际请求成功；模型切换与重试看 [Agent 指南](/guides/agents/) 和 [任务指南](/guides/tasks/)。
 

@@ -1248,6 +1248,8 @@ export const localAgentProviderSchema = z.enum([
   "opencode",
   "omp",
   "openclaw",
+  "gemini",
+  "agy",
 ]);
 export const localAgentAccessSchema = z.enum(["read-only", "workspace", "full"]);
 export const localAgentStatusSchema = z.enum([

@@ -82,7 +82,7 @@
 
 在右侧成员列表下方点击「接入 Agent」：
 
-1. 选择 Codex、Claude Code、GitHub Copilot、OpenCode、omp 或 OpenClaw，再手动点「下一步」；选中不会自动跳步。
+1. 选择 Codex、Claude Code、GitHub Copilot、OpenCode、omp、Gemini CLI、Antigravity（agy）或 OpenClaw，再手动点「下一步」；选中不会自动跳步。
 2. 选择本机权限档位，再点「下一步」；默认工作区档，完全访问须先明确确认风险。
 3. 两种方式任选其一：
    - **在本机启动**：Hive Server 就在你这台电脑上、并且页面是用 `localhost` 或本机 IP 打开的时候可用。可选数量 1–5，按表单显示的名称依次启动同类 Agent；某个创建失败时停止后续创建，已启动的不会回滚。面板里能看到本机装了哪些 CLI、Agent 是否已上线，还能停止、重启、查看日志。房主在其他设备上登录时，启动发生在 Server 电脑，须先取得相应管理授权，高危操作还需单次批准。

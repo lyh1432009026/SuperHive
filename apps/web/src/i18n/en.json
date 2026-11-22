@@ -1838,5 +1838,10 @@
   "飞书和微信指南": "Feishu & WeChat guide",
   "故障排查指南": "Troubleshooting guide",
   "任务目录指南": "Task directory guide",
-  "看完整文档": "Read the full docs"
+  "看完整文档": "Read the full docs",
+  "Google 终端 Agent，可用 API key": "Google's terminal agent, works with an API key",
+  "Google Antigravity 终端 Agent": "Google Antigravity terminal agent",
+  "升级 {0} →": "Upgrade {0} →",
+  "agy 要先登录：在这台电脑的终端运行一次 agy，用 Google 账号登录。不想用 Google 账号的，可以在 ~/.gemini/.env 里配置 GEMINI_API_KEY（自建接口再加 GOOGLE_GEMINI_BASE_URL），Hive 会改用 API key。没登录时它会在房间里说明原因，不会卡住。": "agy needs a sign-in first: run agy once in a terminal on this computer and sign in with your Google account. To skip the Google account, set GEMINI_API_KEY in ~/.gemini/.env (plus GOOGLE_GEMINI_BASE_URL for a custom endpoint) and Hive will use the API key instead. If it isn't signed in, it explains why in the room instead of hanging.",
+  "Gemini CLI 用 ~/.gemini/.env 里的 GEMINI_API_KEY（自建接口再加 GOOGLE_GEMINI_BASE_URL），Hive 启动它时会自动带上；也可以先在终端运行一次 gemini 完成登录。": "Gemini CLI uses GEMINI_API_KEY from ~/.gemini/.env (plus GOOGLE_GEMINI_BASE_URL for a custom endpoint), and Hive passes it along when starting it. You can also run gemini once in a terminal to sign in."
 }

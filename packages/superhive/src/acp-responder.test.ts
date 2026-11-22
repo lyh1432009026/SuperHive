@@ -1,7 +1,15 @@
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type { TraceStep } from "./hive-protocol.js";
 import { describe, expect, it, vi } from "vitest";
 import { AcpResponder, decideAcpPermission, type AcpResponderOptions } from "./acp-responder.js";
-import { AgentCancelledError, AgentSessionInvalidError, AgentUpstreamError } from "./responder.js";
+import {
+  AgentCancelledError,
+  AgentNonRetryableError,
+  AgentSessionInvalidError,
+  AgentUpstreamError,
+} from "./responder.js";
 import type { StdioExit, StdioTransport } from "./stdio-transport.js";
 
 const hive = {
@@ -689,6 +697,153 @@ describe("AcpResponder", () => {
   });
 });
 
+describe("AcpResponder extensions used by Gemini CLI and agy", () => {
+  const options = [
+    { optionId: "yes", kind: "allow_once" },
+    { optionId: "no", kind: "reject_once" },
+  ];
+  const askFor = (toolCall: Record<string, unknown>): Handler =>
+    function prompt(message, agent) {
+      agent.emit({
+        jsonrpc: "2.0",
+        id: "p1",
+        method: "session/request_permission",
+        params: { sessionId: message.params.sessionId, options, toolCall },
+      });
+      agent.update(message.params.sessionId, text("ok"));
+      agent.emit({ id: message.id, result: { stopReason: "end_turn" } });
+    };
+
+  it("lets Hive MCP tools through even in read-only mode, but nothing else", async () => {
+    const isHiveTool = (toolCall: { name?: string }) => toolCall.name === "mcp_hive_hive_wait";
+    const outcome = async (toolCall: Record<string, unknown>, extra = {}) => {
+      const { responder, agents } = setup(defaultHandlers({ "session/prompt": askFor(toolCall) }), {
+        access: "read-only",
+        ...extra,
+      });
+      await responder.reply({ instructions: "rules", prompt: "hi" });
+      return agents[0]!.responseTo("p1")?.result.outcome.optionId;
+    };
+    expect(await outcome({ kind: "other", name: "mcp_hive_hive_wait" }, { isHiveTool })).toBe(
+      "yes",
+    );
+    expect(await outcome({ kind: "other", name: "mcp_other_tool" }, { isHiveTool })).toBe("no");
+    expect(await outcome({ kind: "execute", name: "mcp_hive_hive_wait" })).toBe("no");
+  });
+
+  it("switches models with session/set_model when the agent only lists models", async () => {
+    const models = {
+      currentModelId: "gemini-2.5-pro",
+      availableModels: [
+        { modelId: "gemini-2.5-pro", name: "Pro" },
+        { modelId: "gemini-3-flash", name: "Flash" },
+      ],
+    };
+    const { responder, agents } = setup(
+      defaultHandlers({
+        "session/new": ok({ sessionId: "ses-new", models }),
+        "session/set_model": ok({}),
+      }),
+    );
+    await responder.reply({ instructions: "rules", prompt: "hi", model: "gemini-3-flash" });
+    await responder.reply({ instructions: "rules", prompt: "b", threadId: "ses-new" });
+    expect(agents[0]!.requests("session/set_model").map((message: any) => message.params)).toEqual([
+      { sessionId: "ses-new", modelId: "gemini-3-flash" },
+      { sessionId: "ses-new", modelId: "gemini-2.5-pro" },
+    ]);
+    expect(agents[0]!.requests("session/set_config_option")).toEqual([]);
+  });
+
+  it("uses the default model for turns that do not pick one", async () => {
+    const configOptions = [
+      { id: "model", currentValue: "a", options: [{ value: "a" }, { value: "b" }] },
+    ];
+    const { responder, agents } = setup(
+      defaultHandlers({
+        "session/new": ok({ sessionId: "ses-new", configOptions }),
+        "session/set_config_option": ok({ configOptions }),
+      }),
+      { defaultModel: "b" },
+    );
+    await responder.reply({ instructions: "rules", prompt: "hi" });
+    expect(agents[0]!.request("session/set_config_option")?.params).toMatchObject({ value: "b" });
+  });
+
+  const authRequired: Handler = (message, agent) =>
+    agent.emit({ id: message.id, error: { code: -32000, message: "Authentication required" } });
+
+  it("signs in with the API key when the agent needs auth, and again in a new process", async () => {
+    let signedIn = false;
+    const handlers = defaultHandlers({
+      initialize: ok(
+        initializeResult({ authMethods: [{ id: "oauth-personal" }, { id: "gemini-api-key" }] }),
+      ),
+      authenticate: (message, agent) => {
+        signedIn = true;
+        agent.emit({ id: message.id, result: {} });
+      },
+      "session/new": (message, agent) =>
+        signedIn
+          ? agent.emit({ id: message.id, result: { sessionId: "ses-new" } })
+          : authRequired(message, agent),
+      "session/resume": (message, agent) =>
+        signedIn ? agent.emit({ id: message.id, result: {} }) : authRequired(message, agent),
+    });
+    const { responder, agents, log } = setup(
+      handlers,
+      { auth: { hint: "去登录", apiKeyMethod: "gemini-api-key", hasApiKey: true } },
+      { idleTimeoutMs: 20 },
+    );
+    await expect(responder.reply({ instructions: "rules", prompt: "hi" })).resolves.toMatchObject({
+      text: "done",
+    });
+    expect(agents[0]!.methods()).toEqual([
+      "initialize",
+      "session/new",
+      "authenticate",
+      "session/new",
+      "session/prompt",
+    ]);
+    expect(agents[0]!.request("authenticate")?.params).toEqual({ methodId: "gemini-api-key" });
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("API key"));
+
+    // 进程空闲退出后，新进程先登录再恢复会话，不会因为没登录把旧会话当成失效
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    signedIn = false;
+    await expect(
+      responder.reply({ instructions: "rules", prompt: "again", threadId: "ses-new" }),
+    ).resolves.toMatchObject({ threadId: "ses-new" });
+    expect(agents[1]!.methods()).toEqual([
+      "initialize",
+      "authenticate",
+      "session/resume",
+      "session/prompt",
+    ]);
+    await responder.close();
+  });
+
+  it("asks people to sign in instead of retrying when there is no API key", async () => {
+    const handlers = defaultHandlers({
+      initialize: ok(initializeResult({ authMethods: [{ id: "gemini-api-key" }] })),
+      "session/new": authRequired,
+    });
+    const noKey = setup(handlers, {
+      label: "agy",
+      auth: { hint: "先在终端运行 agy 登录", apiKeyMethod: "gemini-api-key", hasApiKey: false },
+    });
+    const failure = noKey.responder.reply({ instructions: "rules", prompt: "hi" });
+    await expect(failure).rejects.toThrow("agy 还没有登录：先在终端运行 agy 登录");
+    await expect(failure).rejects.toBeInstanceOf(AgentNonRetryableError);
+    expect(noKey.agents[0]!.methods()).not.toContain("authenticate");
+
+    // 没配置 auth 的 Agent（opencode、omp）：错误原样抛出，行为不变
+    const plain = setup(handlers);
+    const plainFailure = plain.responder.reply({ instructions: "rules", prompt: "hi" });
+    await expect(plainFailure).rejects.toThrow("Authentication required");
+    await expect(plainFailure).rejects.not.toBeInstanceOf(AgentNonRetryableError);
+  });
+});
+
 describe("decideAcpPermission", () => {
   it("allows only read-like tools in read-only mode", () => {
     expect(decideAcpPermission("read-only", "/w", { kind: "read" })).toBe("allow");
@@ -727,5 +882,33 @@ describe("decideAcpPermission", () => {
     expect(
       decideAcpPermission("full", "/w", { kind: "delete", locations: [{ path: "/etc/x" }] }),
     ).toBe("allow");
+  });
+
+  it("accepts the real path of a symlinked cwd but not its siblings", () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), "acp-perm-")));
+    const real = path.join(root, "real");
+    mkdirSync(real);
+    symlinkSync(real, path.join(root, "link"));
+    const cwd = path.join(root, "link");
+    try {
+      // Agent 报上来的是真实路径（macOS 的 /tmp → /private/tmp）
+      expect(
+        decideAcpPermission("workspace", cwd, { kind: "edit", locations: [{ path: `${real}/a` }] }),
+      ).toBe("allow");
+      expect(
+        decideAcpPermission("workspace", cwd, { kind: "edit", locations: [{ path: `${cwd}/a` }] }),
+      ).toBe("allow");
+      expect(
+        decideAcpPermission("workspace", cwd, { kind: "edit", locations: [{ path: `${root}/x` }] }),
+      ).toBe("reject");
+      expect(
+        decideAcpPermission("workspace", "/no/such/dir", {
+          kind: "edit",
+          locations: [{ path: "/elsewhere/a" }],
+        }),
+      ).toBe("reject");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

@@ -33,6 +33,11 @@ export const RUNTIME_LABELS: Record<RuntimeCredentialProvider, string> = {
   copilot: "Copilot CLI",
 };
 
+/** 网页上能改接口地址、密钥等配置的运行时（Gemini CLI、agy 还没有） */
+export function hasRuntimeConfig(tool: string): tool is RuntimeCredentialProvider {
+  return Object.hasOwn(RUNTIME_LABELS, tool);
+}
+
 const fieldLabel = (field: RuntimeCredentialField) =>
   field === "baseUrl" ? t("接口地址（base URL）") : "API key";
 

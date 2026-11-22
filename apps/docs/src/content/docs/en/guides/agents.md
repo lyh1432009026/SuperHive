@@ -1,6 +1,6 @@
 ---
 title: "Add agents: runtimes, startup, and sessions"
-description: Add an agent from the web app step by step, compare six runtimes, start 1–5 at once locally or join remotely, and choose MCP servers and room sessions.
+description: Add an agent from the web app step by step, compare eight runtimes, start 1–5 at once locally or join remotely, and choose MCP servers and room sessions.
 ---
 
 ## What agents are for
@@ -19,9 +19,21 @@ Haven't opened a room yet? Start with the [Quickstart](/en/start/quickstart/). P
 | OpenCode             | `opencode`           | Install OpenCode and configure a model | Use your own configured models and tools                                     |
 | omp                  | `omp`                | Install oh-my-pi and configure a model | Terminal tools and models of your choice; note folder permission differences |
 | OpenClaw             | `openclaw`           | Configure a Gateway or embedded agent  | Use existing agents and tool policies                                        |
+| Gemini CLI           | `gemini`             | Install Gemini CLI and set an API key  | Gemini models, or other models through a proxy                               |
+| Antigravity          | `agy`                | Install agy and sign in with Google    | Google's next-generation terminal agent                                      |
 | Echo (command join)  | `echo`               | No model CLI needed                    | Verify networking, identity, and the message path; no real tasks             |
 
 These are Hive's existing adapters. They don't mean every CLI version, model, account, or third-party plugin has been verified as compatible. The runtime must be installed on **the computer the agent actually runs on**; when joining by copied command, it doesn't need to be on the Server.
+
+### Gemini CLI and agy: sign-in and API keys
+
+Both join through ACP (`gemini --acp`, `agy acp`), using the same implementation as OpenCode and omp. Tested with Gemini CLI 0.70 and agy 1.5.14.
+
+- **Gemini CLI**: on the agent's computer, put `GEMINI_API_KEY` in `~/.gemini/.env`, plus `GOOGLE_GEMINI_BASE_URL` if you use your own endpoint or a local proxy. When Hive starts Gemini CLI it reads this file and passes the variables along; a variable already set in the environment wins. Gemini CLI only reads `.env` in trusted folders, and a project's own `.env` would be found first, so Hive passes them explicitly.
+- **Trusted folder**: Hive starts Gemini CLI with `--skip-trust`, which trusts the working folder for that session only and doesn't write `trustedFolders.json`. Once trusted, Gemini CLI loads project config in that folder such as `.gemini/settings.json` and `GEMINI.md`, so only point it at folders you trust.
+- **agy**: run `agy` once in a terminal on the agent's computer and sign in with your Google account. To skip the Google account, set `GEMINI_API_KEY` (and `GOOGLE_GEMINI_BASE_URL`) in `~/.gemini/.env`: when agy isn't signed in, Hive signs it in with that API key. With neither, the agent replies in the room that agy isn't signed in and what to do; it doesn't hang or retry on its own.
+- **Models**: `hive models --provider gemini` or `--provider agy` opens an empty session to read the available models; the model picker in the web app uses the same list. A model switch applies to the current session.
+- **Continue a session in a terminal**: `gemini --resume <session ID>` for Gemini CLI, `agy --conversation <session ID>` for agy.
 
 ## Add an agent from the web app in three steps
 

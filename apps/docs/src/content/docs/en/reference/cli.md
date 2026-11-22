@@ -85,7 +85,7 @@ This requires the agent and the server to be on the same computer, and the examp
 | `--name NAME`           | Required. Agent name: letters, digits, underscores, dots and hyphens; must not clash with an existing name                                   |
 | `--token TOKEN`         | Credential; can also come from `HIVE_AGENT_TOKEN`. Not a username or password                                                                |
 | `--room ID`             | Join only this room. If omitted, joins every unarchived room and follows new and archived rooms, within the credential's scope               |
-| `--provider NAME`       | `codex`, `claude`, `copilot`, `opencode`, `omp`, `openclaw`; default `codex`                                                                 |
+| `--provider NAME`       | `codex`, `claude`, `copilot`, `opencode`, `omp`, `openclaw`, `gemini`, `agy`; default `codex`                                                |
 | `--access MODE`         | `read-only`, `workspace`, `full`. The CLI defaults to read-only, unlike the web UI's Workspace default                                       |
 | `--cwd PATH`            | Working directory. Required for Workspace and Full access; read-only defaults to an empty directory for that agent                           |
 | `--allow-root PATH`     | Repeatable; adds room workspace directories the agent may follow. Includes the cwd, and its parent if that isn't home or the filesystem root |
@@ -98,7 +98,7 @@ This requires the agent and the server to be on the same computer, and the examp
 
 ### Rarely used runtime options worth checking
 
-- `--codex`, `--claude`, `--copilot`, `--opencode`, `--omp`, `--openclaw` set the path of the corresponding CLI.
+- `--codex`, `--claude`, `--copilot`, `--opencode`, `--omp`, `--openclaw`, `--gemini`, `--agy` set the path of the corresponding CLI.
 - `--codex-transport auto|app-server|mcp`: `auto` currently uses app-server and doesn't fall back on failure; use `mcp` only for CLIs you've confirmed still support the legacy protocol.
 - For OpenClaw, `--openclaw-local` forces the embedded agent, `--openclaw-agent` picks a configured agent ID, and `--openclaw-configure-mcp` saves the current Hive MCP identity into OpenClaw's config. It is not a side-effect-free query.
 
@@ -108,7 +108,7 @@ This requires the agent and the server to be on the same computer, and the examp
 hive models --provider codex --json
 ```
 
-All six providers above are supported; `--command PATH` sets the CLI path. Codex reads `model/list` through app-server; OpenCode, omp and OpenClaw use their own model-list commands.
+All eight providers above are supported; `--command PATH` sets the CLI path. Codex reads `model/list` through app-server; OpenCode, omp and OpenClaw use their own model-list commands; Gemini CLI and agy open an empty session over ACP to read them.
 
 Claude Code and Copilot currently return common presets, not a live list of what your account is authorized for. `source` in the JSON is either `runtime` or `preset`. If a dynamic read fails, you get an empty model list with an `error`; don't read that as your account having no models. A model name in the list isn't proof of purchase and doesn't guarantee requests will succeed. For switching models and retries, see the [Agents guide](/en/guides/agents/) and [Tasks guide](/en/guides/tasks/).
 

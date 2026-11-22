@@ -17,6 +17,12 @@ describe("resumeCommand", () => {
         platform: "win32",
       }),
     ).toBe("cd /d C:\\Work\\x && opencode --session s");
+    expect(resumeCommand({ provider: "gemini", sessionId: "fc8c1139-640e", cwd: "/r" })).toBe(
+      "cd /r && gemini --resume fc8c1139-640e",
+    );
+    expect(resumeCommand({ provider: "agy", sessionId: "98f7295e-c7bf", cwd: "/r" })).toBe(
+      "cd /r && agy --conversation 98f7295e-c7bf",
+    );
     // 会话 ID 只收常见字符：shell 元字符、以 - 开头（会被当成别的选项）都不接
     expect(
       resumeCommand({ provider: "claude", sessionId: "x';rm -rf ~'", cwd: "/r" }),

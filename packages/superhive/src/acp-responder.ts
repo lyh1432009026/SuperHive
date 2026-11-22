@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { acpHiveMcpServer, type HiveMcpConnection } from "./hive-mcp-config.js";
@@ -5,6 +6,7 @@ import type { TraceStep } from "./hive-protocol.js";
 import { ThinkingTrace } from "./trace.js";
 import {
   AgentCancelledError,
+  AgentNonRetryableError,
   AgentSessionInvalidError,
   AgentUpstreamError,
   isModelUnavailable,
@@ -24,7 +26,8 @@ import {
 
 /**
  * 基于 Agent Client Protocol（ACP，stdio 上的换行分隔 JSON-RPC）的通用 Responder。
- * opencode（`opencode acp`）与 omp（`omp --mode acp`）都实现了 ACP 的 Agent 端，相比逐次调用 CLI：
+ * opencode（`opencode acp`）、omp（`omp --mode acp`）、Gemini CLI（`gemini --acp`）与 agy（`agy acp`）
+ * 都实现了 ACP 的 Agent 端，相比逐次调用 CLI：
  * - Hive MCP 随 session/new 按会话注入，不写入任何配置文件，也不受用户全局 MCP 影响（omp）
  * - Agent 发起的 session/request_permission 由本客户端按 --access 档位逐次裁决
  * - 停止走 session/cancel，工具调用通过 session/update 实时上报为进度
@@ -36,6 +39,10 @@ export const ACP_PROTOCOL_VERSION = 1;
 export type AcpToolCall = {
   title?: string;
   kind?: string;
+  /** 工具名（agy 等会带，如 mcp_hive_hive_board_update） */
+  name?: string;
+  /** Agent 自己的扩展信息（Gemini CLI 在这里写 MCP 的 server_name、tool_name） */
+  _meta?: unknown;
   locations?: Array<{ path?: string }>;
   rawInput?: unknown;
 };
@@ -50,6 +57,19 @@ export type AcpResponderOptions = {
   hive: HiveMcpConnection;
   access?: AgentAccessMode;
   log?: (message: string) => void;
+  /**
+   * 认出随会话注入的 Hive MCP 的工具调用：会为 MCP 工具发权限请求的 Agent（Gemini CLI、agy）提供，
+   * 这些调用一律放行（只作用于聊天室本身，服务端另有预算与权限限制），否则只读档连 hive_message_send 都会被拒
+   */
+  isHiveTool?: (toolCall: AcpToolCall) => boolean;
+  /**
+   * Agent 要求先登录（session/new 等返回 Authentication required）时：
+   * apiKeyMethod 是 initialize 返回的 authMethods 里用 API key 登录的那一项，环境里有 key（hasApiKey）就自动
+   * authenticate 后重试；否则以 hint 提示人去终端登录，不自动重试
+   */
+  auth?: { hint: string; apiKeyMethod?: string; hasApiKey?: boolean };
+  /** 没指定模型的回合用的模型：启动参数里没法指定模型的 Agent（agy）用它，按会话切换 */
+  defaultModel?: string;
 };
 
 export type AcpResponderDependencies = {
@@ -101,9 +121,31 @@ class RequestTimeoutError extends Error {
   }
 }
 
-function isInside(cwd: string, target: string): boolean {
+/** ACP 规定 -32000 是 auth_required；各家的文案不同（agy：Authentication required；Gemini CLI：API key is missing） */
+function isAuthRequired(error: AcpRpcError): boolean {
+  return (
+    error.code === -32000 && /authenticat|api key|log ?in|sign ?in|credential/i.test(error.message)
+  );
+}
+
+function isInsideDir(cwd: string, target: string): boolean {
   const relative = path.relative(cwd, path.resolve(cwd, target));
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+/**
+ * 路径在 cwd 内：cwd 本身经过符号链接时（macOS 的 /tmp → /private/tmp），Agent 报上来的常是真实路径，
+ * 所以也认 cwd 的真实路径
+ */
+function isInside(cwd: string, target: string): boolean {
+  if (isInsideDir(cwd, target)) return true;
+  let real: string;
+  try {
+    real = realpathSync(cwd);
+  } catch {
+    return false;
+  }
+  return real !== cwd && isInsideDir(real, target);
 }
 
 /** 从工具调用里收集涉及的文件路径：locations 优先，rawInput 里常见的路径字段兜底 */
@@ -197,6 +239,36 @@ const acpToolCategories: Record<string, NonNullable<TraceStep["tool"]>> = {
   fetch: "search",
 };
 
+/** 会话打开时返回的可选模型：configOptions 里的 model 优先，没有再看 models（Gemini CLI 只给这个） */
+export function sessionModelChoices(
+  result: any,
+): { current?: string; options: string[]; via: "config" | "model" } | undefined {
+  const configOptions = Array.isArray(result?.configOptions) ? result.configOptions : [];
+  const model = configOptions.find(
+    (option: any) => option?.id === "model" || option?.category === "model",
+  );
+  if (model) {
+    const options = Array.isArray(model.options)
+      ? model.options
+          .map((option: any) => option?.value)
+          .filter((value: unknown): value is string => typeof value === "string")
+      : [];
+    const current = typeof model.currentValue === "string" ? model.currentValue : undefined;
+    return { ...(current ? { current } : {}), options, via: "config" };
+  }
+  const models = result?.models;
+  if (!models || !Array.isArray(models.availableModels)) return undefined;
+  const options = models.availableModels
+    .map((option: any) => option?.modelId)
+    .filter((value: unknown): value is string => typeof value === "string");
+  const current = typeof models.currentModelId === "string" ? models.currentModelId : undefined;
+  return { ...(current ? { current } : {}), options, via: "model" };
+}
+
+function offersAuth(agent: { authMethods: Array<{ id?: unknown }> }, methodId: string): boolean {
+  return agent.authMethods.some((method) => method?.id === methodId);
+}
+
 type PendingRequest = {
   method: string;
   resolve: (value: any) => void;
@@ -211,10 +283,18 @@ type AgentProcess = {
   /** 本进程已创建或恢复过的会话 */
   loadedSessions: Set<string>;
   /**
-   * 会话能切的模型（session/new、load、resume 返回的 configOptions 里 id 为 model 的那项）：
-   * initial 是会话打开时的模型，没指定模型的回合切回它，「换个模型重试」才只管这一次
+   * 会话能切的模型（session/new、load、resume 返回的 configOptions 里 id 为 model 的那项，
+   * 没有时用 models.availableModels，如 Gemini CLI）：initial 是会话打开时的模型，没指定模型的回合切回它，
+   * 「换个模型重试」才只管这一次；via 是切换用的方法
    */
-  sessionModels: Map<string, { initial?: string; current?: string; options: string[] }>;
+  sessionModels: Map<
+    string,
+    { initial?: string; current?: string; options: string[]; via: "config" | "model" }
+  >;
+  /** 这个进程已用 API key 登录过（authenticate） */
+  authenticated: boolean;
+  /** initialize 返回的登录方式 */
+  authMethods: Array<{ id?: unknown }>;
   capabilities: any;
   steering: boolean;
   ready: Promise<void>;
@@ -257,6 +337,8 @@ export class AcpResponder implements AgentResponder {
   private readonly idleTimeoutMs: number;
   private idleTimer: NodeJS.Timeout | undefined;
   private readonly clientVersion: string;
+  /** 已知要用 API key 登录：之后拉起的进程握手后先 authenticate，免得恢复旧会话时才被拒 */
+  private useApiKeyAuth = false;
 
   constructor(
     private readonly options: AcpResponderOptions,
@@ -288,7 +370,7 @@ export class AcpResponder implements AgentResponder {
       session = await this.openSession(agent, input.threadId, Boolean(input.refreshInstructions));
       input.onSession?.(session.sessionId);
       this.throwIfAborted(input.signal);
-      await this.useModel(agent, session.sessionId, input.model);
+      await this.useModel(agent, session.sessionId, input.model ?? this.options.defaultModel);
       this.throwIfAborted(input.signal);
     } catch (error) {
       if (this.active === placeholder) {
@@ -481,8 +563,9 @@ export class AcpResponder implements AgentResponder {
   }
 
   /**
-   * 按轮切模型：ACP 的会话在 configOptions 里列出能选的模型（opencode、omp 都有），
-   * 用 session/set_config_option 切换当前会话。没列出、或不在候选里的就不切，照原模型跑。
+   * 按轮切模型：ACP 的会话在 configOptions 里列出能选的模型（opencode、omp、agy 都有），
+   * 用 session/set_config_option 切换当前会话；只给 models 的（Gemini CLI）用 session/set_model。
+   * 没列出、或不在候选里的就不切，照原模型跑。
    */
   private async useModel(
     agent: AgentProcess,
@@ -504,12 +587,16 @@ export class AcpResponder implements AgentResponder {
       return;
     }
     try {
-      await this.request(
-        agent,
-        "session/set_config_option",
-        { sessionId, configId: "model", value: model },
-        true,
-      );
+      if (known.via === "model") {
+        await this.request(agent, "session/set_model", { sessionId, modelId: model }, true);
+      } else {
+        await this.request(
+          agent,
+          "session/set_config_option",
+          { sessionId, configId: "model", value: model },
+          true,
+        );
+      }
     } catch (error) {
       if (requested) throw error;
       // 只是切回会话原来的模型：切不回去不影响这一轮，记一笔照常跑
@@ -520,22 +607,14 @@ export class AcpResponder implements AgentResponder {
   }
 
   private rememberModels(agent: AgentProcess, sessionId: string, result: any): void {
-    const options = Array.isArray(result?.configOptions) ? result.configOptions : [];
-    const model = options.find(
-      (option: any) => option?.id === "model" || option?.category === "model",
-    );
-    if (!model) return;
-    const values = Array.isArray(model.options)
-      ? model.options
-          .map((option: any) => option?.value)
-          .filter((value: unknown): value is string => typeof value === "string")
-      : [];
-    const current = typeof model.currentValue === "string" ? model.currentValue : undefined;
-    const initial = agent.sessionModels.get(sessionId)?.initial ?? current;
+    const found = sessionModelChoices(result);
+    if (!found) return;
+    const initial = agent.sessionModels.get(sessionId)?.initial ?? found.current;
     agent.sessionModels.set(sessionId, {
       ...(initial ? { initial } : {}),
-      ...(current ? { current } : {}),
-      options: values,
+      ...(found.current ? { current: found.current } : {}),
+      options: found.options,
+      via: found.via,
     });
   }
 
@@ -555,12 +634,10 @@ export class AcpResponder implements AgentResponder {
           : undefined;
       if (method) {
         try {
-          const resumed = await this.request(
-            agent,
-            method,
-            { sessionId: threadId, ...params },
-            true,
-          );
+          const resumed = await this.sessionRequest(agent, method, {
+            sessionId: threadId,
+            ...params,
+          });
           agent.loadedSessions.add(threadId);
           this.rememberModels(agent, threadId, resumed);
           return { sessionId: threadId, fresh: false };
@@ -574,7 +651,7 @@ export class AcpResponder implements AgentResponder {
         }
       }
     }
-    const result = await this.request(agent, "session/new", params, true);
+    const result = await this.sessionRequest(agent, "session/new", params);
     const sessionId = result?.sessionId;
     if (typeof sessionId !== "string" || !sessionId) {
       throw new Error(`${this.options.label} session/new 没有返回会话 ID。`);
@@ -582,6 +659,25 @@ export class AcpResponder implements AgentResponder {
     agent.loadedSessions.add(sessionId);
     this.rememberModels(agent, sessionId, result);
     return { sessionId, fresh: true };
+  }
+
+  /** 打开会话的请求：Agent 说要先登录时，能用 API key 就 authenticate 后重试一次，否则提示人去登录 */
+  private async sessionRequest(agent: AgentProcess, method: string, params: unknown): Promise<any> {
+    try {
+      return await this.request(agent, method, params, true);
+    } catch (error) {
+      const auth = this.options.auth;
+      if (!auth || !(error instanceof AcpRpcError) || !isAuthRequired(error)) throw error;
+      const methodId = auth.apiKeyMethod;
+      if (agent.authenticated || !methodId || !auth.hasApiKey || !offersAuth(agent, methodId)) {
+        throw new AgentNonRetryableError(`${this.options.label} 还没有登录：${auth.hint}`);
+      }
+      this.log(`[hive] ${this.options.label} 未登录账号，改用环境里的 API key 登录（${methodId}）`);
+      await this.request(agent, "authenticate", { methodId }, true);
+      agent.authenticated = true;
+      this.useApiKeyAuth = true;
+      return this.request(agent, method, params, true);
+    }
   }
 
   private ensureAgent(): Promise<AgentProcess> {
@@ -598,6 +694,8 @@ export class AcpResponder implements AgentResponder {
       pending: new Map(),
       loadedSessions: new Set(),
       sessionModels: new Map(),
+      authenticated: false,
+      authMethods: [],
       capabilities: undefined,
       steering: false,
       ready: Promise.resolve(),
@@ -639,7 +737,18 @@ export class AcpResponder implements AgentResponder {
         throw error;
       }
       agent.capabilities = result.agentCapabilities ?? {};
+      agent.authMethods = Array.isArray(result.authMethods) ? result.authMethods : [];
       agent.steering = result._meta?.steering?.supported === true;
+      const methodId = this.options.auth?.apiKeyMethod;
+      if (this.useApiKeyAuth && methodId && offersAuth(agent, methodId)) {
+        try {
+          await this.request(agent, "authenticate", { methodId }, true);
+          agent.authenticated = true;
+        } catch (error) {
+          // 登录不上时照常握手，打开会话时会再按未登录处理
+          this.log(`[hive] ${this.options.label} API key 登录失败：${(error as Error).message}`);
+        }
+      }
       agent.initialized = true;
     })();
     return agent.ready.then(() => agent);
@@ -731,11 +840,9 @@ export class AcpResponder implements AgentResponder {
       return;
     }
     const toolCall: AcpToolCall = params?.toolCall ?? {};
-    const decision = decideAcpPermission(
-      this.options.access ?? "read-only",
-      this.options.cwd,
-      toolCall,
-    );
+    const decision = this.options.isHiveTool?.(toolCall)
+      ? "allow"
+      : decideAcpPermission(this.options.access ?? "read-only", this.options.cwd, toolCall);
     const option = pickPermissionOption(
       Array.isArray(params?.options) ? params.options : [],
       decision,

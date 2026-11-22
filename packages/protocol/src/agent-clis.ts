@@ -12,6 +12,8 @@ export const agentCliToolSchema = z.enum([
   "opencode",
   "omp",
   "openclaw",
+  "gemini",
+  "agy",
 ]);
 
 /**

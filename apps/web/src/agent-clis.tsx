@@ -10,6 +10,7 @@ import { ConfirmPopover } from "./confirm-popover";
 import { t } from "./i18n";
 import type { AgentCliWithAgents, LocalAgentsState } from "./local-agents";
 import { RuntimeConfigPanel, type RuntimeConfigApi } from "./runtime-config-panel";
+import { hasRuntimeConfig } from "./runtime-credentials";
 import "./styles/agent-clis.css";
 import { Tooltip } from "./tooltip";
 
@@ -55,6 +56,8 @@ const TOOL_NAMES: Record<AgentCliTool, string> = {
   opencode: "OpenCode",
   omp: "Oh My Pi",
   openclaw: "OpenClaw",
+  gemini: "Gemini CLI",
+  agy: "Antigravity CLI",
 };
 
 const sourceLabel = (source: AgentCliSource) =>
@@ -221,7 +224,10 @@ export function AgentClisGroup({
           info={tool}
           job={job?.tool === tool.tool ? job : undefined}
           activity={activity}
-          configurable={tool.status !== "notInstalled" || configured.has(tool.tool)}
+          configurable={
+            hasRuntimeConfig(tool.tool) &&
+            (tool.status !== "notInstalled" || configured.has(tool.tool))
+          }
           focused={focusTool === tool.tool}
           onStart={(action, command) => start(tool, action, command)}
         />
@@ -419,7 +425,9 @@ function AgentCliCard({
           }}
         />
       )}
-      {configOpen && <RuntimeConfigPanel api={api} provider={info.tool} />}
+      {configOpen && hasRuntimeConfig(info.tool) && (
+        <RuntimeConfigPanel api={api} provider={info.tool} />
+      )}
       {error && <p className="settings-note error">{error}</p>}
     </section>
   );

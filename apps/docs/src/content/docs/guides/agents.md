@@ -1,6 +1,6 @@
 ---
 title: 接入 Agent：运行时、启动与会话
-description: 从网页手动完成 Agent 接入，了解六种运行时、1–5 个批量启动、本机与远程启动、MCP 选择和房间会话。
+description: 从网页手动完成 Agent 接入，了解八种运行时、1–5 个批量启动、本机与远程启动、MCP 选择和房间会话。
 ---
 
 ## Agent 有什么用
@@ -19,9 +19,21 @@ Agent 是在一台电脑上运行的协作者。Hive 把房间消息交给它，
 | OpenCode         | `opencode`        | 安装 OpenCode，配置可用模型    | 使用自己配置的模型与工具                 |
 | omp              | `omp`             | 安装 oh-my-pi，配置可用模型    | 终端工具和自选模型；注意目录权限差异     |
 | OpenClaw         | `openclaw`        | 配置 Gateway 或 embedded Agent | 使用已有的 Agent 和工具策略              |
+| Gemini CLI       | `gemini`          | 安装 Gemini CLI，配置 API key  | Gemini 模型，或经代理接其他模型          |
+| Antigravity      | `agy`             | 安装 agy，登录 Google 账号     | Google 新一代终端 Agent                  |
 | Echo（命令接入） | `echo`            | 不需要模型 CLI                 | 验证网络、身份和消息链路，不执行智能任务 |
 
 这些是 Hive 已有的适配器，不代表任意 CLI 版本、模型、账号或第三方插件都已验证兼容。运行时须安装在 **Agent 实际运行的电脑** 上；复制命令接入时不必把它安装在 Server 上。
+
+### Gemini CLI 与 agy：登录和 API key
+
+两者都通过 ACP（`gemini --acp`、`agy acp`）接入，和 OpenCode、omp 用的是同一套实现。实测版本为 Gemini CLI 0.70、agy 1.5.14。
+
+- **Gemini CLI**：在 Agent 所在电脑的 `~/.gemini/.env` 里写 `GEMINI_API_KEY`，用自建接口或本机代理时再加 `GOOGLE_GEMINI_BASE_URL`。Hive 启动 Gemini CLI 时会读这个文件，把其中的变量带给它；已经在环境里设置的同名变量优先。Gemini CLI 只在受信任的目录里读 `.env`，项目里有自己的 `.env` 时还会先读项目那份，所以由 Hive 显式带上更稳。
+- **信任目录**：Hive 用 `--skip-trust` 启动 Gemini CLI，只信任这一次会话的工作目录，不写进 `trustedFolders.json`。受信任后，Gemini CLI 会加载该目录下的 `.gemini/settings.json`、`GEMINI.md` 等项目配置，只给它你信任的目录。
+- **agy**：先在 Agent 所在电脑的终端运行一次 `agy`，用 Google 账号登录。不想用 Google 账号的，也可以在 `~/.gemini/.env` 里配 `GEMINI_API_KEY`（和 `GOOGLE_GEMINI_BASE_URL`）：agy 没登录账号时，Hive 会改用这把 API key 登录。两样都没有时，Agent 会在房间里回复「agy 还没有登录」和处理办法，不会卡住，也不会自动重试。
+- **模型**：`hive models --provider gemini` 或 `--provider agy` 会开一个空会话读出可选模型，网页上的模型选择也用这份列表。切换模型对当前会话生效。
+- **在终端里接着会话**：Gemini CLI 用 `gemini --resume <会话 ID>`，agy 用 `agy --conversation <会话 ID>`。
 
 ## 从网页手动完成三步接入
 

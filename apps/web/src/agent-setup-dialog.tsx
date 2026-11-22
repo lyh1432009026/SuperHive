@@ -15,6 +15,7 @@ import { agentNameFor, type SelectableAgentProvider } from "./agent-name";
 import { moveRadioSelection } from "./ui-utils";
 import { providerInfo, LocalLaunch, type LocalAgentsState } from "./local-agents";
 import { ProviderLogo } from "./provider-logos";
+import { hasRuntimeConfig } from "./runtime-credentials";
 import { ConfirmPopover } from "./confirm-popover";
 import { HostManageNotice } from "./host-settings";
 import type { RefObject, Dispatch, SetStateAction } from "react";
@@ -252,6 +253,20 @@ export function AgentSetupDialog({
               ))}
             </div>
           )}
+          {agentStep === 1 && agentProviderChosen && agentProvider === "agy" && (
+            <p className="openclaw-access-note">
+              {t(
+                "agy 要先登录：在这台电脑的终端运行一次 agy，用 Google 账号登录。不想用 Google 账号的，可以在 ~/.gemini/.env 里配置 GEMINI_API_KEY（自建接口再加 GOOGLE_GEMINI_BASE_URL），Hive 会改用 API key。没登录时它会在房间里说明原因，不会卡住。",
+              )}
+            </p>
+          )}
+          {agentStep === 1 && agentProviderChosen && agentProvider === "gemini" && (
+            <p className="openclaw-access-note">
+              {t(
+                "Gemini CLI 用 ~/.gemini/.env 里的 GEMINI_API_KEY（自建接口再加 GOOGLE_GEMINI_BASE_URL），Hive 启动它时会自动带上；也可以先在终端运行一次 gemini 完成登录。",
+              )}
+            </p>
+          )}
           {agentStep === 1 && local.mode === "local" && (
             <button
               type="button"
@@ -261,9 +276,11 @@ export function AgentSetupDialog({
               {agentProviderChosen
                 ? providerInfo(local, agentProvider)?.installed === false
                   ? t("去安装 {0} →", { 0: agentProviderLabel(agentProvider) })
-                  : t("升级或调整 {0} 的配置（接口地址、密钥、模型等）→", {
-                      0: agentProviderLabel(agentProvider),
-                    })
+                  : hasRuntimeConfig(agentProvider)
+                    ? t("升级或调整 {0} 的配置（接口地址、密钥、模型等）→", {
+                        0: agentProviderLabel(agentProvider),
+                      })
+                    : t("升级 {0} →", { 0: agentProviderLabel(agentProvider) })
                 : t("安装、升级 Agent 或调整它们的配置 →")}
             </button>
           )}

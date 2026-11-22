@@ -11,6 +11,8 @@ export const selectableAgentProviders = [
   "copilot",
   "opencode",
   "omp",
+  "gemini",
+  "agy",
   "openclaw",
 ] as const;
 
@@ -21,6 +23,8 @@ export const agentProviderDescriptions: Record<SelectableAgentProvider, string> 
   openclaw: t("本地自主 Agent"),
   opencode: t("开源终端 Agent，模型自选"),
   omp: t("oh-my-pi 终端 Agent"),
+  gemini: t("Google 终端 Agent，可用 API key"),
+  agy: t("Google Antigravity 终端 Agent"),
 }));
 
 export const agentAccessOptions: Array<{
@@ -66,6 +70,8 @@ export function agentProviderLabel(provider?: string): string {
   if (provider === "openclaw") return "OpenClaw";
   if (provider === "opencode") return "OpenCode";
   if (provider === "omp") return "omp";
+  if (provider === "gemini") return "Gemini CLI";
+  if (provider === "agy") return "Antigravity";
   if (provider === "echo") return "Echo";
   return provider || "Agent";
 }

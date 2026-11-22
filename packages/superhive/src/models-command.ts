@@ -1,17 +1,25 @@
 import { execFile, spawn } from "node:child_process";
+import { mkdirSync } from "node:fs";
+import path from "node:path";
 import { parseArgs } from "node:util";
+import { ACP_PROTOCOL_VERSION, sessionModelChoices } from "./acp-responder.js";
+import { geminiHomeEnv, hasGeminiApiKey } from "./gemini-client.js";
+import { superhiveHome } from "./home-dir.js";
+import { spawnStdioTransport } from "./stdio-transport.js";
 import { commandFor } from "./windows-command.js";
 
 const usage = `
 用法：
-  hive models --provider codex|claude|copilot|opencode|omp|openclaw [--command PATH] [--json]
+  hive models --provider codex|claude|copilot|opencode|omp|openclaw|gemini|agy [--command PATH] [--json]
 
 列出这个 Agent CLI 能用的模型，供网页上选择模型、「换个模型重试」使用。
 codex 用 app-server 的 model/list，opencode 用 opencode models，omp 用 omp models --json，
-openclaw 用 openclaw models list --json；claude、copilot 没有列模型的命令，给出常用选项，网页上也能手填。
+openclaw 用 openclaw models list --json，gemini、agy 经 ACP 开一个空会话读它给的模型；
+claude、copilot 没有列模型的命令，给出常用选项，网页上也能手填。
 `;
 
-export type ModelProvider = "codex" | "claude" | "copilot" | "opencode" | "omp" | "openclaw";
+export type ModelProvider =
+  "codex" | "claude" | "copilot" | "opencode" | "omp" | "openclaw" | "gemini" | "agy";
 
 export type ModelEntry = {
   /** 传给运行时的模型名（--model、turn/start 的 model、ACP 的 configOption 值） */
@@ -35,6 +43,8 @@ export type ModelList = {
 export type ModelRunner = (command: string, args: string[]) => Promise<string>;
 /** 和 Codex app-server 说一次 model/list（测试注入） */
 export type CodexModelLister = (command: string) => Promise<unknown>;
+/** 起 ACP Agent 开一个空会话，返回 session/new 的结果（测试注入） */
+export type AcpModelLister = (provider: "gemini" | "agy", command: string) => Promise<unknown>;
 
 const TIMEOUT_MS = 20_000;
 const MAX_MODELS = 300;
@@ -122,6 +132,134 @@ const defaultCodexLister: CodexModelLister = (command) =>
     });
   });
 
+/**
+ * gemini、agy 的模型只能从 ACP 会话里拿（agy models 要求登录 Google 账号）：握手、开一个不带 MCP 的空会话，
+ * 读 configOptions / models 后结束进程。agy 没登录账号而环境里有 GEMINI_API_KEY 时先用它登录，与 Bridge 一致
+ */
+const defaultAcpLister: AcpModelLister = (provider, command) =>
+  new Promise((resolve, reject) => {
+    const env = geminiHomeEnv();
+    const cwd = path.join(superhiveHome(), "models-probe");
+    mkdirSync(cwd, { recursive: true });
+    const args = provider === "gemini" ? ["--acp", "--skip-trust"] : ["acp"];
+    const transport = spawnStdioTransport(command, args, {
+      cwd,
+      ...(Object.keys(env).length ? { env } : {}),
+    });
+    const pending = new Map<number, (message: any) => void>();
+    let nextId = 1;
+    let done = false;
+    const finish = (error?: Error, result?: unknown) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      transport.kill();
+      if (error) reject(error);
+      else resolve(result);
+    };
+    const timer = setTimeout(
+      () => finish(new Error(`${command} 没有在 20 秒内返回模型列表`)),
+      TIMEOUT_MS,
+    );
+    const call = (method: string, params: unknown) =>
+      new Promise<any>((done, fail) => {
+        const id = nextId++;
+        pending.set(id, (message) =>
+          message.error
+            ? fail(
+                Object.assign(new Error(String(message.error.message ?? `${method} 失败`)), {
+                  code: message.error.code,
+                }),
+              )
+            : done(message.result),
+        );
+        transport.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
+      });
+    transport.onExit((exit) =>
+      finish(exit.error ?? new Error(`${command} 提前退出：${exit.stderr.trim().slice(-300)}`)),
+    );
+    transport.onLine((line) => {
+      let message: any;
+      try {
+        message = JSON.parse(line);
+      } catch {
+        return;
+      }
+      if (message?.method !== undefined) {
+        // 不支持客户端方法；通知（session/update）忽略
+        if (message.id !== undefined)
+          transport.write(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: message.id,
+              error: { code: -32601, message: "unsupported" },
+            }),
+          );
+        return;
+      }
+      const handle = pending.get(message?.id);
+      if (!handle) return;
+      pending.delete(message.id);
+      handle(message);
+    });
+    void (async () => {
+      const init = await call("initialize", {
+        protocolVersion: ACP_PROTOCOL_VERSION,
+        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+        clientInfo: { name: "superhive", title: "SuperHive", version: "0" },
+      });
+      const params = { cwd, mcpServers: [] };
+      try {
+        return await call("session/new", params);
+      } catch (error) {
+        const methods: Array<{ id?: unknown }> = Array.isArray(init?.authMethods)
+          ? init.authMethods
+          : [];
+        const canUseKey =
+          provider === "agy" &&
+          (error as { code?: unknown }).code === -32000 &&
+          hasGeminiApiKey(env) &&
+          methods.some((method) => method?.id === "gemini-api-key");
+        if (!canUseKey) throw error;
+        await call("authenticate", { methodId: "gemini-api-key" });
+        return await call("session/new", params);
+      }
+    })().then(
+      (result) => finish(undefined, result),
+      (error: Error) => finish(error),
+    );
+  });
+
+/** ACP session/new 的结果：configOptions 的 model 或 models.availableModels */
+function parseAcpSession(result: unknown): ModelEntry[] {
+  const found = sessionModelChoices(result);
+  if (!found) return [];
+  const names = new Map<string, string>();
+  const record = result as {
+    configOptions?: Array<{ id?: unknown; category?: unknown; options?: unknown }>;
+    models?: { availableModels?: Array<{ modelId?: unknown; name?: unknown }> };
+  };
+  if (found.via === "config") {
+    const option = record.configOptions?.find(
+      (item) => item?.id === "model" || item?.category === "model",
+    );
+    for (const item of Array.isArray(option?.options)
+      ? (option.options as Array<{ value?: unknown; name?: unknown }>)
+      : []) {
+      const value = text(item?.value);
+      const name = text(item?.name);
+      if (value && name) names.set(value, name);
+    }
+  } else {
+    for (const item of record.models?.availableModels ?? []) {
+      const value = text(item?.modelId);
+      const name = text(item?.name);
+      if (value && name) names.set(value, name);
+    }
+  }
+  return found.options.map((id) => entry(id, names.get(id), id === found.current));
+}
+
 function text(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -191,6 +329,7 @@ export async function listModels(options: {
   command?: string;
   run?: ModelRunner;
   listCodex?: CodexModelLister;
+  listAcp?: AcpModelLister;
 }): Promise<ModelList> {
   const { provider } = options;
   const command = options.command ?? provider;
@@ -203,6 +342,8 @@ export async function listModels(options: {
       models = parseCodex(await (options.listCodex ?? defaultCodexLister)(command));
     else if (provider === "opencode") models = parseLines(await run(command, ["models"]));
     else if (provider === "omp") models = parseOmp(await run(command, ["models", "--json"]));
+    else if (provider === "gemini" || provider === "agy")
+      models = parseAcpSession(await (options.listAcp ?? defaultAcpLister)(provider, command));
     else models = parseOpenClaw(await run(command, ["models", "list", "--json"]));
     return { provider, source: "runtime", models: unique(models) };
   } catch (error) {
@@ -223,6 +364,8 @@ const PROVIDERS: readonly ModelProvider[] = [
   "opencode",
   "omp",
   "openclaw",
+  "gemini",
+  "agy",
 ];
 
 export async function modelsCommand(argv: string[]): Promise<void> {

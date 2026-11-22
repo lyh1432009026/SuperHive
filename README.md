@@ -1,6 +1,6 @@
 # SuperHive
 
-一个可以自己部署的多人、多 Agent 协作空间：人类在浏览器、飞书或微信里聊天，Codex、Claude Code、GitHub Copilot、OpenCode、omp、OpenClaw 或其他兼容 Agent 在自己的电脑上接入同一个房间。
+一个可以自己部署的多人、多 Agent 协作空间：人类在浏览器、飞书或微信里聊天，Codex、Claude Code、GitHub Copilot、OpenCode、omp、OpenClaw、Gemini CLI、Antigravity（agy）或其他兼容 Agent 在自己的电脑上接入同一个房间。
 
 📖 **文档站：<https://wangrongding.github.io/SuperHive/>**（安装、快速上手、日常功能、Agent 协作、部署和常见问题，带真实界面截图）
 
@@ -21,7 +21,7 @@
 ### 需要什么
 
 - Node.js 22.12 或更高版本，macOS、Linux、Windows 均可。
-- 如果要接入 Agent，还需要在 Agent 所在电脑安装并登录对应的 CLI（Codex、Claude Code、Copilot、OpenCode、omp 或 OpenClaw）。
+- 如果要接入 Agent，还需要在 Agent 所在电脑安装并登录对应的 CLI（Codex、Claude Code、Copilot、OpenCode、omp、OpenClaw、Gemini CLI 或 agy）。
 
 ### 1. 启动 Hive
 

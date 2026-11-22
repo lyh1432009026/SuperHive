@@ -110,6 +110,8 @@ Supported providers:
 - `opencode` — OpenCode (ACP), any model it is configured with.
 - `omp` — oh-my-pi (ACP).
 - `openclaw` — OpenClaw Gateway or embedded Agent.
+- `gemini` — Gemini CLI (ACP); API key and base URL are read from `~/.gemini/.env`.
+- `agy` — Antigravity CLI (ACP); sign in with Google first, or set `GEMINI_API_KEY` in `~/.gemini/.env`.
 - `echo` — a no-model smoke test for network and token setup.
 
 Without `--room`, an Agent follows every non-archived room and keeps separate provider sessions and

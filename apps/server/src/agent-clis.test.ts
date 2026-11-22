@@ -86,6 +86,16 @@ describe("inferSource", () => {
     ["/usr/local/bin/copilot", "/usr/local/lib/node_modules/@github/copilot/npm-loader.js", "npm"],
     ["/Users/a/.nix-profile/bin/omp", "/nix/store/abc-omp/bin/omp", "unknown"],
     ["/Users/a/bin/opencode", "/Users/a/bin/opencode", "unknown"],
+    [
+      "/Users/a/.npm-global/bin/gemini",
+      "/Users/a/.npm-global/lib/node_modules/@google/gemini-cli/bundle/gemini.js",
+      "npm",
+    ],
+    // agy 官方脚本装的单个原生程序；别处的同名程序认不出来源
+    ["/Users/a/.local/bin/agy", "/Users/a/.local/bin/agy", "native"],
+    ["/Users/a/bin/agy", "/Users/a/bin/agy", "unknown"],
+    // 只认 agy：~/.local/bin 里的其他原生程序不受影响
+    ["/Users/a/.local/bin/omp", "/Users/a/.local/bin/omp", "unknown"],
   ])("%s → %s", (launcher, real, source) => {
     expect(inferSource(launcher, real)).toBe(source);
   });
@@ -417,6 +427,8 @@ describe("AgentCliManager detection", () => {
       "opencode",
       "omp",
       "openclaw",
+      "gemini",
+      "agy",
     ]);
     const codex = list.find((item) => item.tool === "codex")!;
     expect(codex).toMatchObject({
@@ -487,6 +499,58 @@ describe("AgentCliManager detection", () => {
       kind: "manual",
       reasonText: { key: "agentCli.manual.unknownSource" },
     });
+  });
+});
+
+describe("AgentCliManager without an npm package (agy)", () => {
+  it("never asks the npm registry about agy, leaves latest unknown and still offers its own update", async () => {
+    const { bin, script } = sandbox();
+    const dir = bin("native");
+    const agy = script(dir, "agy", 'echo "1.5.14"');
+    script(dir, "gemini", 'echo "0.70.0"');
+    const { clis, fetchJson } = manager({
+      loginPath: dir,
+      latest: { "@google/gemini-cli": "0.71.0" },
+    });
+    const list = await clis.list();
+    expect(list.find((item) => item.tool === "agy")).toMatchObject({
+      name: "Antigravity CLI",
+      package: "",
+      status: "ok",
+      version: "1.5.14",
+      latest: null,
+      updateAvailable: false,
+      plan: {
+        kind: "anchored",
+        command: `${shellQuote(agy)} update || ${installerCommand("agy")}`,
+      },
+    });
+    expect(list.find((item) => item.tool === "gemini")).toMatchObject({
+      name: "Gemini CLI",
+      package: "@google/gemini-cli",
+      version: "0.70.0",
+      latest: "0.71.0",
+      updateAvailable: true,
+    });
+    const urls = fetchJson.mock.calls.map(([url]) => url);
+    expect(urls.some((url) => url.includes("gemini-cli"))).toBe(true);
+    expect(urls.filter((url) => /agy|undefined|\/-\/package\/\/|org\/\//.test(url))).toEqual([]);
+  });
+
+  it("plans the official installer for a missing agy and warns when ~/.local/bin isn't on PATH", async () => {
+    const { bin, script } = sandbox();
+    const nodeBin = bin("node/bin");
+    script(nodeBin, "npm", "exit 0");
+    const { clis, fetchJson } = manager({ loginPath: nodeBin });
+    const agy = (await clis.list()).find((item) => item.tool === "agy")!;
+    expect(agy).toMatchObject({
+      status: "notInstalled",
+      latest: null,
+      plan: { kind: "anchored", command: installerCommand("agy") },
+      binNotOnPath: path.join("/nonexistent-home", ".local/bin"),
+    });
+    expect(agy.nodeGap).toBeUndefined();
+    expect(fetchJson.mock.calls.filter(([url]) => /agy|undefined/.test(url))).toEqual([]);
   });
 });
 
@@ -783,6 +847,7 @@ describe("official installers", () => {
       opencode: "https://opencode.ai/install",
       omp: "https://omp.sh/install",
       codex: "https://chatgpt.com/codex/install.sh",
+      agy: "https://antigravity.google/cli/install.sh",
     });
     for (const tool of Object.keys(OFFICIAL_INSTALLERS) as Array<
       keyof typeof OFFICIAL_INSTALLERS
@@ -795,6 +860,7 @@ describe("official installers", () => {
       expect(command).not.toMatch(/\|\s*(ba)?sh/);
     }
     expect(installerCommand("omp")).toBe(SCRIPT("https://omp.sh/install", "sh"));
+    expect(installerCommand("agy")).toBe(SCRIPT("https://antigravity.google/cli/install.sh"));
   });
 });
 
@@ -835,11 +901,25 @@ describe("planInstall", () => {
     }
   });
 
-  it("keeps npm for codex, copilot and openclaw, and asks for Node.js without npm", () => {
+  it("installs agy with its official script only: it isn't on npm", () => {
+    for (const context of [NPM, { platform: "darwin" as const, isExecutable: exists() }]) {
+      expect(planInstall("agy", context)).toEqual({
+        kind: "anchored",
+        command: SCRIPT("https://antigravity.google/cli/install.sh"),
+      });
+    }
+    expect(planInstall("agy", { ...NPM, platform: "win32" })).toMatchObject({
+      kind: "manual",
+      reasonText: { key: "agentCli.manual.windows" },
+    });
+  });
+
+  it("keeps npm for codex, copilot, openclaw and gemini, and asks for Node.js without npm", () => {
     for (const [tool, pkg] of [
       ["codex", "@openai/codex"],
       ["copilot", "@github/copilot"],
       ["openclaw", "openclaw"],
+      ["gemini", "@google/gemini-cli"],
     ] as const) {
       expect(planInstall(tool, NPM)).toEqual({
         kind: "anchored",
@@ -887,6 +967,57 @@ describe("planUpdate fallbacks", () => {
         mac(),
       ),
     ).toMatchObject({ kind: "manual", reasonText: { key: "agentCli.manual.nix" } });
+  });
+
+  it("chains agy update to the official script wherever it is, and refuses Nix installs", () => {
+    const script = SCRIPT("https://antigravity.google/cli/install.sh");
+    expect(planUpdate("agy", install("/Users/a/.local/bin/agy"), mac())).toEqual({
+      kind: "anchored",
+      command: `'/Users/a/.local/bin/agy' update || ${script}`,
+    });
+    // 认不出来源也交给它自己的 update：它不在 npm 上，没有别的包管理器可锚定
+    expect(planUpdate("agy", install("/Users/a/bin/agy"), mac([], "/usr/local/bin/npm"))).toEqual({
+      kind: "anchored",
+      command: `'/Users/a/bin/agy' update || ${script}`,
+    });
+    expect(
+      planUpdate(
+        "agy",
+        install("/Users/a/.nix-profile/bin/agy", "/nix/store/x-agy/bin/agy"),
+        mac(),
+      ),
+    ).toMatchObject({ kind: "manual", reasonText: { key: "agentCli.manual.nix" } });
+    expect(
+      planUpdate("agy", install("/Users/a/.local/bin/agy"), { ...mac(), platform: "win32" }),
+    ).toMatchObject({ kind: "manual", reasonText: { key: "agentCli.manual.windows" } });
+  });
+
+  it("upgrades npm-installed gemini with the anchored npm, without a self-update", () => {
+    expect(
+      planUpdate(
+        "gemini",
+        install(
+          "/Users/a/.npm-global/bin/gemini",
+          "/Users/a/.npm-global/lib/node_modules/@google/gemini-cli/bundle/gemini.js",
+        ),
+        mac([], "/usr/local/bin/npm"),
+      ),
+    ).toEqual({
+      kind: "anchored",
+      command:
+        "'/usr/local/bin/npm' i -g --prefix '/Users/a/.npm-global' @google/gemini-cli@latest",
+    });
+    expect(
+      planUpdate(
+        "gemini",
+        install("/usr/local/bin/gemini", "/usr/local/Cellar/gemini-cli/0.13.0/bin/gemini"),
+        mac(["/usr/local/bin/brew"]),
+      ),
+    ).toEqual({ kind: "anchored", command: "'/usr/local/bin/brew' upgrade gemini-cli" });
+    expect(planUpdate("gemini", install("/Users/a/bin/gemini"), mac())).toMatchObject({
+      kind: "manual",
+      reasonText: { key: "agentCli.manual.unknownSource" },
+    });
   });
 
   it("never uses codex update: npm installs use npm, standalone installs rerun the installer", () => {
