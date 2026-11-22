@@ -1,140 +1,38 @@
 ---
 import HiveMark from "../assets/hive-mark.svg";
 import { getSiteConfig, withBase } from "../../scripts/site-config.mjs";
+import type { AgentKind, Scene } from "./collab-scenes";
 
+interface Props {
+  scene: Scene;
+}
+
+const { scene } = Astro.props;
+const { id, machines, steps, feed, board, ask } = scene;
 const { base } = getSiteConfig();
+const last = steps.length - 1;
 
-const marks: Record<string, string> = {
+const marks: Record<AgentKind, string> = {
   claude: "M12 2v20M2 12h20M5 5l14 14M5 19 19 5",
   codex: "m8 6-6 6 6 6m8-12 6 6-6 6M14 3l-4 18",
   omp: "M3 4h18v16H3V4Zm4 4 3 4-3 4m6 0h4",
   opencode: "M3 4h8v16H3V4Zm10 0h8v16h-8V4ZM7 8v8m10-8v8",
   copilot: "M4 14a8 8 0 0 1 16 0v3a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-3Zm5-1v2m6-2v2",
 };
-
-// 四台电脑，每人接的 Agent 数量不同；同一种 Agent 可以接多个（claude-1、claude-2）。
-// node 是连线、高亮和状态用的标识。
-const machines = [
-  {
-    label: "你的电脑",
-    nodes: [
-      { node: "you", name: "你", kind: "human", role: "定目标 · 拍板" },
-      { node: "claude-1", name: "claude-1", kind: "claude", role: "统筹" },
-      { node: "claude-2", name: "claude-2", kind: "claude", role: "前端" },
-      { node: "codex", name: "codex", kind: "codex", role: "后端" },
-    ],
-  },
-  {
-    label: "林夏的电脑",
-    nodes: [
-      { node: "lin", name: "林夏", kind: "human", role: "产品" },
-      { node: "lin-copilot", name: "lin-copilot", kind: "copilot", role: "文案" },
-    ],
-  },
-  {
-    label: "周远的电脑",
-    nodes: [
-      { node: "zhou", name: "周远", kind: "human", role: "测试" },
-      { node: "zhou-omp", name: "zhou-omp", kind: "omp", role: "接口测试" },
-      { node: "zhou-opencode", name: "zhou-opencode", kind: "opencode", role: "跑验证" },
-    ],
-  },
-  {
-    label: "陈默的电脑",
-    nodes: [
-      { node: "chen", name: "陈默", kind: "human", role: "架构" },
-      { node: "chen-codex", name: "chen-codex", kind: "codex", role: "review" },
-      { node: "chen-claude", name: "chen-claude", kind: "claude", role: "查文档" },
-    ],
-  },
-];
-
-// 轮播的七步。links 里每条从 from 经房间到 to（to 为空表示只登记到房间）；
-// 同一步可以有几条协作同时发生。status 只写这一步有变化的 Agent，状态会累积到下一步。
-type Status = "run" | "wait" | "ask" | "done";
-const steps: {
-  title: string;
-  detail: string;
-  links: { from: string; to: string[] }[];
-  status: Record<string, Status>;
-}[] = [
-  {
-    title: "派活",
-    detail: "你在房间里 @claude-1，把结算页改版交给它统筹。",
-    links: [{ from: "you", to: ["claude-1"] }],
-    status: { "claude-1": "run" },
-  },
-  {
-    title: "一次委派两个",
-    detail: "claude-1 拆成两份：前端给 claude-2，接口测试给周远电脑上的 zhou-omp。",
-    links: [{ from: "claude-1", to: ["claude-2", "zhou-omp"] }],
-    status: { "claude-1": "wait", "claude-2": "run", "zhou-omp": "run" },
-  },
-  {
-    title: "两条协作并行",
-    detail: "林夏让自己的 lin-copilot 改文案；同一时刻 zhou-omp 把测试登记到白板。",
-    links: [
-      { from: "lin", to: ["lin-copilot"] },
-      { from: "zhou-omp", to: [] },
-    ],
-    status: { "lin-copilot": "run", "zhou-omp": "done" },
-  },
-  {
-    title: "Agent 问人",
-    detail: "优惠券和满减能不能叠加？claude-2 停下来，把问题交到你手里。",
-    links: [{ from: "claude-2", to: ["you"] }],
-    status: { "claude-2": "ask" },
-  },
-  {
-    title: "人来回答",
-    detail: "你在网页里点选「不叠加」，claude-2 接着做。",
-    links: [{ from: "you", to: ["claude-2"] }],
-    status: { "claude-2": "run" },
-  },
-  {
-    title: "汇总",
-    detail: "claude-2 和 zhou-omp 都把结果交回 claude-1，由它合成一份。",
-    links: [
-      { from: "claude-2", to: ["claude-1"] },
-      { from: "zhou-omp", to: ["claude-1"] },
-    ],
-    status: { "claude-2": "done", "claude-1": "run", "lin-copilot": "done" },
-  },
-  {
-    title: "交回并 review",
-    detail: "claude-1 把提交交回给你，同时请陈默电脑上的 chen-codex review。",
-    links: [{ from: "claude-1", to: ["you", "chen-codex"] }],
-    status: { "claude-1": "done", "chen-codex": "run" },
-  },
-];
-const last = steps.length - 1;
-
-// 房间里的公开消息：at 是第几步出现；消息区只露出最近几条，像真实房间一样往上滚
-const feed = [
-  { at: 0, who: "你", text: "@claude-1 结算页改版，今天上线" },
-  { at: 1, who: "claude-1", text: "@claude-2 改前端 · @zhou-omp 补接口测试" },
-  { at: 2, who: "林夏", text: "@lin-copilot 同步改一下结算文案" },
-  { at: 3, who: "claude-2", text: "优惠券能和满减叠加吗？已提问" },
-  { at: 4, who: "你", text: "选 A：不叠加" },
-  { at: 5, who: "claude-1", text: "前端和测试都交回了，正在合并" },
-  { at: 6, who: "claude-1", text: "已完成 b7e21f0，@chen-codex 请 review" },
-];
-const board = [
-  { at: 1, on: "1", text: "结算页改版", pill: "进行中", ok: false },
-  { at: 2, on: "2", text: "接口测试", pill: "已就绪", ok: true },
-  { at: 5, on: "5", text: "结算文案", pill: "已就绪", ok: true },
-];
 ---
 
 <figure
   class="cm not-content"
-  aria-labelledby="cm-title"
-  aria-describedby="cm-desc"
+  aria-labelledby={`${id}-title`}
+  aria-describedby={`${id}-desc`}
   data-steps={JSON.stringify(steps.map(({ links, status }) => ({ links, status })))}
 >
   <div class="cm-frame">
     <div class="cm-head">
-      <p class="cm-kicker" id="cm-title">每个人带着自己的 Agent，在同一个房间里协作</p>
+      <p class="cm-kicker" id={`${id}-title`}>
+        <span class="cm-tag">{scene.tag}</span>
+        <span>{scene.title}</span>
+      </p>
       <span class="cm-head-side">
         <span class="cm-badge">示意图</span>
         <button type="button" class="cm-toggle" data-cm-toggle aria-pressed="false" hidden>
@@ -148,14 +46,7 @@ const board = [
         </button>
       </span>
     </div>
-    <p class="cm-sr" id="cm-desc">
-      示意图：你、林夏、周远、陈默四个人各自在自己的电脑上接着数量不同的 Agent，你的电脑上有
-      claude-1、claude-2 两个同种 Agent 和一个 codex。每个人、每个 Agent 都有一条线连进同一个
-      SuperHive
-      房间，房间里只有公开消息、协作白板和等人回答的问题；文件、权限和会话留在各自的电脑上。Agent
-      之间可以经过房间互相委派、并行干活再汇总。下面的七个步骤说明一次协作怎样在人和 Agent
-      之间流转。
-    </p>
+    <p class="cm-sr" id={`${id}-desc`}>{scene.description}</p>
 
     <div class="cm-stage" aria-hidden="true">
       <svg class="cm-wires" data-cm-wires></svg>
@@ -210,7 +101,7 @@ const board = [
         <div class="cm-room-head">
           <HiveMark width={26} height={26} />
           <span class="cm-room-name">
-            <strong># shop-web</strong>
+            <strong>{scene.room}</strong>
             <span>同一个 SuperHive 房间</span>
           </span>
           <span class="cm-room-note">只走公开消息</span>
@@ -241,10 +132,10 @@ const board = [
           </div>
           <div class="cm-zone cm-zone-ask">
             <span class="cm-zone-title">等你回答</span>
-            <p class="cm-line" data-on="3">优惠券能和满减叠加吗？</p>
+            <p class="cm-line" data-on={ask.on}>{ask.question}</p>
             <span class="cm-options">
-              <span class="cm-option cm-option-pick" data-on="4 5 6">A 不叠加</span>
-              <span class="cm-option">B 可以叠加</span>
+              <span class="cm-option cm-option-pick" data-on={ask.pickedOn}>{ask.pick}</span>
+              <span class="cm-option">{ask.other}</span>
             </span>
           </div>
         </div>
@@ -284,8 +175,9 @@ const board = [
 </figure>
 
 <script>
-  type Status = "run" | "wait" | "ask" | "done";
-  type Step = { links: { from: string; to: string[] }[]; status: Record<string, Status> };
+  import type { Scene, Status } from "./collab-scenes";
+
+  type Step = Pick<Scene["steps"][number], "links" | "status">;
 
   const STEP_MS = 4000;
   const SVG = "http://www.w3.org/2000/svg";
@@ -478,7 +370,7 @@ const board = [
     --cm-raised: var(--sl-color-gray-6);
     --cm-wire: var(--sl-color-gray-4);
     --cm-ms: 4000ms;
-    --cm-width: min(calc(100vw - 2.5rem), 110rem);
+    --cm-width: min(calc(100vw - 2 * clamp(1.5rem, 4vw, 5rem)), 110rem);
     min-width: 0;
     margin: 0;
   }
@@ -518,11 +410,25 @@ const board = [
   }
 
   .cm-kicker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.6rem;
     margin: 0;
     color: var(--sl-color-gray-2);
     font-size: 0.78rem;
     font-weight: 600;
     letter-spacing: 0.04em;
+  }
+
+  .cm-tag {
+    padding: 0.1rem 0.6rem;
+    border-radius: 999px;
+    background: var(--sl-color-accent-low);
+    color: var(--sl-color-accent-high);
+    font-size: 0.78rem;
+    font-weight: 650;
+    letter-spacing: 0.02em;
   }
 
   .cm-head-side {

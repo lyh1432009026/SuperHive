@@ -1,6 +1,7 @@
 ---
 import DefaultHero from "@astrojs/starlight/components/Hero.astro";
 import CollabModel from "./CollabModel.astro";
+import { soloScene, teamScene } from "./collab-scenes";
 import { getSiteConfig, withBase } from "../../scripts/site-config.mjs";
 
 const { base } = getSiteConfig();
@@ -28,7 +29,15 @@ const PAGE_TITLE_ID = "_top";
           </a>
         </div>
       </div>
-      <CollabModel />
+      <CollabModel scene={teamScene} />
+      <div class="workroom-subhead">
+        <h2>一个人，也能带一支 Agent 队伍</h2>
+        <p>
+          不用凑齐团队：你接上十个 Agent，让它们互相委派、并行干活、汇总
+          review，自己闭环，你只在关键处拍板。
+        </p>
+      </div>
+      <CollabModel scene={soloScene} />
     </section>
   ) : (
     <DefaultHero />

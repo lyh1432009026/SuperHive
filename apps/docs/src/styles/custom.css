@@ -200,6 +200,26 @@ html {
   color: var(--sl-color-white);
 }
 
+.workroom-subhead {
+  margin-top: 2.5rem;
+  color: var(--sl-color-white);
+  text-align: center;
+}
+
+.workroom-subhead h2 {
+  margin: 0;
+  font-size: clamp(1.35rem, 3vw, 1.9rem);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+}
+
+.workroom-subhead p {
+  max-width: 40rem;
+  margin: 0.6rem auto 0;
+  color: var(--sl-color-gray-2);
+  font-size: 0.95rem;
+}
+
 .workroom-footnote {
   margin-top: 0.6rem;
   color: var(--sl-color-gray-3);
