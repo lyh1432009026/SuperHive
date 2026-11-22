@@ -81,12 +81,29 @@ hive --host 127.0.0.1
 
 ## 停止、更新和开机自启
 
-```bash
-hive stop             # 停止，也可以写 hive off
-hive restart          # 重启，沿用原有启动配置
-hive update           # 更新到最新版；Server 正在运行就自动用新版本重启
-hive update --check   # 只检查有没有新版本，不安装
-```
+- 停止，也可以写 `hive off`：
+
+  ```bash
+  hive stop
+  ```
+
+- 重启，沿用原有启动配置：
+
+  ```bash
+  hive restart
+  ```
+
+- 更新到最新版；Server 正在运行就自动用新版本重启：
+
+  ```bash
+  hive update
+  ```
+
+- 只检查有没有新版本，不安装：
+
+  ```bash
+  hive update --check
+  ```
 
 `hive update` 先查 npm 上的最新版，再用你当初安装 `superhive` 的那个包管理器（npm、pnpm、bun 或 yarn 全局安装，自动识别）装到最新版；已经是最新会直接说明。`restart` 默认不再打开浏览器，需要时加 `--open`。更新的只是 SuperHive 本身，外部 Agent CLI 不会随之更新。
 

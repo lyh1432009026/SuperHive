@@ -129,12 +129,29 @@ Provider CLI 必须安装在 Agent 所在电脑，而不是 Hive Server 上。Ag
 
 `hive --skill` 会打印一份给 Agent 读的协作说明（SKILL.md）：怎么用 `hive join` 接入、能用哪些工具、房间规则是什么。推荐直接装进 Claude Code、Codex、OpenClaw 这些支持全局 skills 目录的 Agent，之后升级重跑一次即可：
 
-```bash
-hive skill install            # 装进本机检测到的所有 Agent（claude、codex、openclaw）
-hive skill install codex      # 只装指定的一个
-hive skill status             # 查看各 Agent 装的版本
-npx --yes superhive@latest skill install   # 没全局安装时用 npx
-```
+- 装进本机检测到的所有 Agent（claude、codex、openclaw）：
+
+  ```bash
+  hive skill install
+  ```
+
+- 只装指定的一个：
+
+  ```bash
+  hive skill install codex
+  ```
+
+- 查看各 Agent 装的版本：
+
+  ```bash
+  hive skill status
+  ```
+
+- 没全局安装时用 npx：
+
+  ```bash
+  npx --yes superhive@latest skill install
+  ```
 
 装好的文件带托管标记，`hive skill install` 会原地更新版本，`hive skill uninstall` 移除；如果目录里原来有一份手写的同名 SKILL.md，会先备份成 `SKILL.md.bak` 再接管，`hive skill uninstall` 时再放回原处。仓库公开后也可以用 `npx skills add wangrongding/SuperHive --skill superhive -g` 安装。
 
@@ -250,13 +267,35 @@ Server 和网页本身出的问题会自动记成故障单。在 Server 所在�
 
 推荐全局安装 `superhive`（`npm i -g superhive`，要求 Node.js 22.12 或更高），平时都用 `hive` 命令：
 
-```bash
-hive                    # 启动 Server 并打开网页，等同 hive start
-hive stop               # 停止，也可以写 hive off
-hive restart            # 重启，沿用原来的 host、port 和 public-url
-hive update             # 更新到最新版；Server 正在运行就自动用新版本重启
-hive update --check     # 只检查有没有新版本，不安装
-```
+- 启动 Server 并打开网页，等同 `hive start`：
+
+  ```bash
+  hive
+  ```
+
+- 停止，也可以写 `hive off`：
+
+  ```bash
+  hive stop
+  ```
+
+- 重启，沿用原来的 `host`、`port` 和 `public-url`：
+
+  ```bash
+  hive restart
+  ```
+
+- 更新到最新版；Server 正在运行就自动用新版本重启：
+
+  ```bash
+  hive update
+  ```
+
+- 只检查有没有新版本，不安装：
+
+  ```bash
+  hive update --check
+  ```
 
 重启时也可以覆盖配置：
 
@@ -271,10 +310,25 @@ hive restart --public-url https://hive.example.com
 hive --port 9000
 hive --public-url https://hive.example.com
 hive --data-dir /srv/superhive
-hive --foreground       # 在当前终端运行，直接看日志
-hive --no-local-agents  # 关闭网页上的「在本机启动」
-hive --no-open          # 启动后不自动打开浏览器
 ```
+
+- 在当前终端运行，直接看日志：
+
+  ```bash
+  hive --foreground
+  ```
+
+- 关闭网页上的「在本机启动」：
+
+  ```bash
+  hive --no-local-agents
+  ```
+
+- 启动后不自动打开浏览器：
+
+  ```bash
+  hive --no-open
+  ```
 
 `hive start` 默认会用浏览器打开本机网页（`http://127.0.0.1:8787`，房主身份）；SSH、CI、没有图形界面或 `BROWSER=none` 时不打开。`restart` 默认不再新开标签页，要打开加 `--open`。
 
@@ -295,12 +349,29 @@ npx superhive@latest restart
 
 ### 开机自动启动
 
-```bash
-hive autostart on       # 登录后自动在后台启动 Hive Server
-hive autostart on --port 9000 --public-url https://hive.example.com   # 指定启动配置
-hive autostart status   # 看是否已开启
-hive autostart off      # 关闭
-```
+- 登录后自动在后台启动 Hive Server：
+
+  ```bash
+  hive autostart on
+  ```
+
+- 指定启动配置：
+
+  ```bash
+  hive autostart on --port 9000 --public-url https://hive.example.com
+  ```
+
+- 看是否已开启：
+
+  ```bash
+  hive autostart status
+  ```
+
+- 关闭：
+
+  ```bash
+  hive autostart off
+  ```
 
 - macOS 写入 `~/Library/LaunchAgents/dev.superhive.server.plist`，Linux 写入 systemd 用户服务 `~/.config/systemd/user/superhive.service`，Windows 在「启动」文件夹里放一个 `SuperHive.cmd`。都只对当前用户生效，不需要管理员权限。
 - 不写 `--host`、`--port`、`--public-url`、`--no-local-agents` 时，沿用正在运行的 Server 的启动配置（所以最好在 Server 运行时开启）；Server 没在运行时用默认配置。
@@ -327,10 +398,17 @@ hive autostart off      # 关闭
 
 先升级到最新版本：
 
-```bash
-hive update                    # 全局安装时
-npx superhive@latest restart   # 用 npx 运行时
-```
+- 全局安装时：
+
+  ```bash
+  hive update
+  ```
+
+- 用 npx 运行时：
+
+  ```bash
+  npx superhive@latest restart
+  ```
 
 当前版本在 HTTPS/localhost 使用 Clipboard API，在局域网 HTTP 使用兼容复制；若浏览器策略仍禁止复制，命令区会提示手动复制。
 

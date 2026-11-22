@@ -34,12 +34,29 @@ other computers on the same network.
 
 Useful lifecycle commands:
 
-```bash
-hive stop               # or: hive off
-hive restart            # restart the current version
-hive update             # update to the latest version and restart a running server
-hive update --check     # only check for a new version
-```
+- Stop the server (`hive off` also works):
+
+  ```bash
+  hive stop
+  ```
+
+- Restart the current version:
+
+  ```bash
+  hive restart
+  ```
+
+- Update to the latest version and restart a running server:
+
+  ```bash
+  hive update
+  ```
+
+- Only check for a new version:
+
+  ```bash
+  hive update --check
+  ```
 
 `restart` and `update` reuse the previous host, port, and public URL. You can override a value when
 needed:

@@ -81,12 +81,29 @@ Replace the example directory with a real one on your machine. Startup flags app
 
 ## Stop, update, and autostart
 
-```bash
-hive stop             # Stop; hive off also works
-hive restart          # Restart with the original startup settings
-hive update           # Update to the latest version; restarts on it if the Server is running
-hive update --check   # Only check for a new version, don't install
-```
+- Stop (`hive off` also works):
+
+  ```bash
+  hive stop
+  ```
+
+- Restart with the original startup settings:
+
+  ```bash
+  hive restart
+  ```
+
+- Update to the latest version; restarts on it if the Server is running:
+
+  ```bash
+  hive update
+  ```
+
+- Only check for a new version, don't install:
+
+  ```bash
+  hive update --check
+  ```
 
 `hive update` first checks npm for the latest version, then installs it with the same package manager you originally used for `superhive` (global npm, pnpm, bun, or yarn, detected automatically). If you're already up to date, it says so. `restart` no longer opens the browser by default; add `--open` if you want it. Only SuperHive itself is updated; external agent CLIs are not.
 

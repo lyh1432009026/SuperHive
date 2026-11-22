@@ -106,11 +106,23 @@ location / {
 
 ## 更新、重启与持续运行
 
-```bash
-hive update --check   # 只检查有没有新版本
-hive update           # 用原来的包管理器装到最新版，运行中的 Server 自动用新版本重启
-hive restart          # 只重启当前版本
-```
+- 只检查有没有新版本：
+
+  ```bash
+  hive update --check
+  ```
+
+- 用原来的包管理器装到最新版，运行中的 Server 自动用新版本重启：
+
+  ```bash
+  hive update
+  ```
+
+- 只重启当前版本：
+
+  ```bash
+  hive restart
+  ```
 
 `hive update` 和 `hive restart` 都会沿用保存的启动配置，`restart` 显式传入的参数可覆盖它。用 npx 运行时没有 `hive update`，改用 `npx superhive@latest restart`。对重要环境，先备份、核对发布说明并在隔离环境验证，再更新生产；不要把开发热重载当作发布流程。
 

@@ -106,11 +106,23 @@ A Server backup does not back up project files, Git history, or provider private
 
 ## Updates, restarts, and keeping it running
 
-```bash
-hive update --check   # Only check whether a new version is available
-hive update           # Upgrade to the latest version with the original package manager; a running Server restarts on the new version automatically
-hive restart          # Restart the current version only
-```
+- Only check whether a new version is available:
+
+  ```bash
+  hive update --check
+  ```
+
+- Upgrade to the latest version with the original package manager; a running Server restarts on the new version automatically:
+
+  ```bash
+  hive update
+  ```
+
+- Restart the current version only:
+
+  ```bash
+  hive restart
+  ```
 
 Both `hive update` and `hive restart` reuse the saved startup configuration; options passed explicitly to `restart` override it. When running via npx there is no `hive update`; use `npx superhive@latest restart` instead. For important environments, back up, read the release notes, and verify in an isolated environment before updating production. Don't treat development hot reload as a release process.
 

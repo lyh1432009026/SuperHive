@@ -80,12 +80,29 @@ npx --yes superhive@latest join \
 
 ### 4. 停止、重启和更新
 
-```bash
-hive stop               # 停止，也可以写 hive off
-hive restart            # 重启，沿用原来的启动配置
-hive update             # 更新到最新版；Server 正在运行就自动用新版本重启
-hive update --check     # 只检查有没有新版本，不安装
-```
+- 停止，也可以写 `hive off`：
+
+  ```bash
+  hive stop
+  ```
+
+- 重启，沿用原来的启动配置：
+
+  ```bash
+  hive restart
+  ```
+
+- 更新到最新版；Server 正在运行就自动用新版本重启：
+
+  ```bash
+  hive update
+  ```
+
+- 只检查有没有新版本，不安装：
+
+  ```bash
+  hive update --check
+  ```
 
 `hive update` 会用你当初安装 `superhive` 的那个包管理器（npm、pnpm、bun 或 yarn 全局安装，自动识别）装到最新版。平时在终端运行 `hive` 时也会顺便检查一次新版本（最多等 1.5 秒，查不到不影响使用，结果缓存 1 小时），有新版会提示运行 `hive update`；设置 `NO_UPDATE_NOTIFIER=1` 可以关闭。
 
