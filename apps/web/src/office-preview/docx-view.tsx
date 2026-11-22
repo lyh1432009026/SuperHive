@@ -31,6 +31,7 @@ export default function DocxView({ bytes, name, compact, onError }: OfficeViewPr
   const backdrop = useThemeValue("--bg-subtle", "#f3f3f3");
   const thumb = useThemeValue("--scrollbar-thumb", "rgb(0 0 0 / 0.18)");
   const thumbHover = useThemeValue("--scrollbar-thumb-hover", "rgb(0 0 0 / 0.34)");
+  const classicScrollbars = document.documentElement.dataset.scrollbars === "classic";
   const current = doc?.bytes === bytes ? doc.value : undefined;
   const padding = compact ? 8 : 24;
   const zoom = current ? docxZoom(size.width - SCROLLBAR, current.pageWidth, padding) : 1;
@@ -40,12 +41,17 @@ export default function DocxView({ bytes, name, compact, onError }: OfficeViewPr
     `.docx-wrapper{background:transparent!important;padding:${padding}px ${padding}px 0!important}`,
     `.docx-wrapper>section.docx{box-shadow:0 1px 4px rgba(0,0,0,.18)!important;margin-bottom:${padding}px!important}`,
     "a[aria-disabled]{color:inherit;text-decoration:underline dotted;cursor:default}",
-    // iframe 里是独立文档，页面的细滚动条样式（base.css）进不来，这里照着再写一份
-    "::-webkit-scrollbar{width:10px;height:10px}",
-    "::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}",
-    `::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:999px;background:${thumb} padding-box}`,
-    `::-webkit-scrollbar-thumb:hover{background-color:${thumbHover}}`,
-    "::-webkit-scrollbar-button{display:none}",
+    // iframe 里是独立文档，页面的细滚动条样式（base.css）进不来，这里照着再写一份；
+    // 和页面一样只在常驻滚动条时写，macOS 的悬浮滚动条保持原样
+    ...(classicScrollbars
+      ? [
+          "::-webkit-scrollbar{width:10px;height:10px}",
+          "::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}",
+          `::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:999px;background:${thumb} padding-box}`,
+          `::-webkit-scrollbar-thumb:hover{background-color:${thumbHover}}`,
+          "::-webkit-scrollbar-button{display:none}",
+        ]
+      : []),
     `@supports not selector(::-webkit-scrollbar){html{scrollbar-width:thin;scrollbar-color:${thumb} transparent}}`,
   ].join("\n");
   return (

@@ -1,4 +1,5 @@
 import "./storage-migration";
+import "./scrollbar-mode";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { AccessGate } from "./access-gate";

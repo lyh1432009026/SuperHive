@@ -4,34 +4,50 @@
 }
 
 /*
- * 滚动条：各平台统一成细滚动条。Chromium、Edge、Safari 用 ::-webkit-scrollbar 画：10px 宽、滑块四周
- * 留 2px 透明边（看上去 6px）、圆角半透明、悬停加深，轨道透明，不要上下箭头；Windows 上不再是原生粗条。
+ * 滚动条：常驻滚动条的平台（Windows、Linux，以及 macOS 设成「始终显示」）统一成细滚动条：10px 宽、
+ * 滑块四周留 2px 透明边（看上去 6px）、圆角半透明、悬停加深，轨道透明，不要上下箭头。
+ * 只在 <html data-scrollbars="classic"> 下生效（scrollbar-mode.ts 启动时探测）：macOS 默认的悬浮滚动条
+ * 不滚动时隐藏，一旦写了 ::-webkit-scrollbar 就会变成常显，所以那里保持系统原样。
+ * :host(...) 那一组给 shadow root 里的消息列表用（ShadowContent 复制页面样式并同步 data- 属性到宿主）。
  * scrollbar-width / scrollbar-color 只给不认 ::-webkit-scrollbar 的 Firefox：新版 Chrome 两套都设时以
  * 标准属性为准，圆角和悬停加深都会丢，Windows 上还会带回箭头。
- * 规则对 shadow root 里的消息列表同样生效（ShadowContent 会把页面样式表复制进去）。
  */
-::-webkit-scrollbar {
+:root[data-scrollbars="classic"]::-webkit-scrollbar,
+:root[data-scrollbars="classic"] ::-webkit-scrollbar,
+:host([data-scrollbars="classic"]) ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
-::-webkit-scrollbar-track,
-::-webkit-scrollbar-corner {
+:root[data-scrollbars="classic"]::-webkit-scrollbar-track,
+:root[data-scrollbars="classic"] ::-webkit-scrollbar-track,
+:host([data-scrollbars="classic"]) ::-webkit-scrollbar-track,
+:root[data-scrollbars="classic"]::-webkit-scrollbar-corner,
+:root[data-scrollbars="classic"] ::-webkit-scrollbar-corner,
+:host([data-scrollbars="classic"]) ::-webkit-scrollbar-corner {
   background: transparent;
 }
 
-::-webkit-scrollbar-thumb {
+:root[data-scrollbars="classic"]::-webkit-scrollbar-thumb,
+:root[data-scrollbars="classic"] ::-webkit-scrollbar-thumb,
+:host([data-scrollbars="classic"]) ::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: var(--radius-pill);
   background: var(--scrollbar-thumb) padding-box;
 }
 
-::-webkit-scrollbar-thumb:hover,
-::-webkit-scrollbar-thumb:active {
+:root[data-scrollbars="classic"]::-webkit-scrollbar-thumb:hover,
+:root[data-scrollbars="classic"] ::-webkit-scrollbar-thumb:hover,
+:host([data-scrollbars="classic"]) ::-webkit-scrollbar-thumb:hover,
+:root[data-scrollbars="classic"]::-webkit-scrollbar-thumb:active,
+:root[data-scrollbars="classic"] ::-webkit-scrollbar-thumb:active,
+:host([data-scrollbars="classic"]) ::-webkit-scrollbar-thumb:active {
   background-color: var(--scrollbar-thumb-hover);
 }
 
-::-webkit-scrollbar-button {
+:root[data-scrollbars="classic"]::-webkit-scrollbar-button,
+:root[data-scrollbars="classic"] ::-webkit-scrollbar-button,
+:host([data-scrollbars="classic"]) ::-webkit-scrollbar-button {
   display: none;
 }
 

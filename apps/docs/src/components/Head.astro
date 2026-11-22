@@ -73,6 +73,18 @@ const schema = {
     .filter(({ attrs }) => !(is404 && attrs?.rel === "alternate"))
     .map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)
 }
+<script is:inline>
+  // 探测常驻滚动条还是悬浮滚动条：custom.css 的细滚动条只在 classic 下生效，macOS 默认的悬浮滚动条保持原样
+  (() => {
+    const probe = document.createElement("div");
+    probe.style.cssText =
+      "position:absolute;top:-9999px;width:100px;height:100px;overflow:scroll;visibility:hidden";
+    document.documentElement.appendChild(probe);
+    document.documentElement.dataset.scrollbars =
+      probe.offsetWidth - probe.clientWidth > 0 ? "classic" : "overlay";
+    probe.remove();
+  })();
+</script>
 <script is:inline define:vars={{ base, is404 }}>
   // 只在中文首页自动跳：还没手动选过语言、浏览器语言不是中文时，换到英文首页；选过英文的也换过去。
   // 用户打开的具体页面（正文页、英文首页）一律不跳，尊重链接本身的语言，正文页改为显示一条可关闭的提示。
