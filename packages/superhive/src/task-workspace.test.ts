@@ -66,6 +66,69 @@ describe("task workspace resolution", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
+  /** 不在线时的退避按假时钟走：sleep 推进时钟，不真的等 */
+  function reconnectRetry() {
+    let clock = 0;
+    const sleep = vi.fn(async (ms: number) => {
+      clock += ms;
+    });
+    return {
+      retry: {
+        attempts: 3,
+        timeoutMs: 50,
+        delaysMs: [2_000, 4_000],
+        reconnectMs: 60_000,
+        sleep,
+        now: () => clock,
+      },
+      sleep,
+    };
+  }
+  const offline = () => Response.json({ error: "Online local agent required" }, { status: 401 });
+
+  it("waits for the Bridge to reconnect when the server has not seen it online yet", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(offline())
+      .mockResolvedValueOnce(offline())
+      .mockResolvedValueOnce(offline())
+      .mockResolvedValueOnce(offline())
+      .mockResolvedValueOnce(
+        Response.json({
+          worktree: { path: directory, agentName: hive.username, roomId: hive.roomId },
+        }),
+      );
+    vi.stubGlobal("fetch", fetch);
+    const { retry, sleep } = reconnectRetry();
+    expect(await resolveTaskWorkspace(hive, "message", retry)).toBe(directory);
+    expect(fetch).toHaveBeenCalledTimes(5);
+    expect(sleep.mock.calls).toEqual([[2_000], [4_000], [4_000], [4_000]]);
+  });
+
+  it("reports the 401 as before once the Bridge stays offline past the reconnect window", async () => {
+    const fetch = vi.fn(async () => offline());
+    vi.stubGlobal("fetch", fetch);
+    const { retry, sleep } = reconnectRetry();
+    const failure = resolveTaskWorkspaces(hive, ["first"], retry);
+    await expect(failure).rejects.toBeInstanceOf(AgentNonRetryableError);
+    await expect(failure).rejects.toThrow(
+      "Cannot verify managed task workspace (401): Online local agent required",
+    );
+    const waited = sleep.mock.calls.reduce((sum, [ms]) => sum + ms, 0);
+    expect(waited).toBeLessThanOrEqual(60_000);
+    expect(waited).toBeGreaterThan(55_000);
+  });
+
+  it("does not wait on any other 401", async () => {
+    const fetch = vi.fn(async () => Response.json({ error: "Invalid token" }, { status: 401 }));
+    vi.stubGlobal("fetch", fetch);
+    const { retry } = reconnectRetry();
+    await expect(resolveTaskWorkspace(hive, "message", retry)).rejects.toBeInstanceOf(
+      AgentNonRetryableError,
+    );
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it("names the server's reason instead of only the status code", async () => {
     vi.stubGlobal(
       "fetch",

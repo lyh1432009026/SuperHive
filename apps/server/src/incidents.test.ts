@@ -100,6 +100,54 @@ describe("incident classification", () => {
     expect(upstream.title).toBe("claude · 上游模型服务出错");
   });
 
+  it("counts a failed task workspace check as ours, apart from other uncertain or unsafe turns", () => {
+    const verify =
+      "这一轮已执行完，但没能复核任务目录（Cannot safely select the task workspaces; confirm before retrying: Cannot verify managed task workspace (401): Online local agent required）。";
+    const uncertain = classifyInvocation(
+      invocation({ detailText: { key: "bridge.uncertain", params: { reason: verify } } }),
+      { provider: "claude" },
+    )!;
+    expect(uncertain).toMatchObject({
+      origin: "internal",
+      fingerprint: "invocation:bridge.uncertain:workspace-check:claude",
+    });
+    const unsafe = classifyInvocation(
+      invocation({
+        status: "failed",
+        detailText: {
+          key: "bridge.unsafe",
+          params: {
+            reason:
+              "Cannot safely select the task workspace; confirm before retrying: Cannot verify managed task workspace (401): Online local agent required",
+          },
+        },
+      }),
+      { provider: "claude" },
+    )!;
+    expect(unsafe).toMatchObject({
+      origin: "internal",
+      fingerprint: "invocation:bridge.unsafe:workspace-check:claude",
+    });
+    // 同键别的原因照旧：CLI 找不到算外部，模型断流说不清
+    const missing = classifyInvocation(
+      invocation({
+        status: "failed",
+        detailText: { key: "bridge.unsafe", params: { reason: "找不到 Codex 命令" } },
+      }),
+      { provider: "codex" },
+    )!;
+    expect(missing).toMatchObject({
+      origin: "external",
+      fingerprint: "invocation:bridge.unsafe:codex",
+    });
+    expect(
+      classifyInvocation(
+        invocation({ detailText: { key: "bridge.uncertain", params: { reason: "流中断。" } } }),
+        { provider: "claude" },
+      )!.origin,
+    ).toBe("unknown");
+  });
+
   it("keeps the fingerprint stable across line numbers, machines and bundle hashes", () => {
     const a = new Error("boom 42 at /Users/alice/repo/x.ts");
     a.stack =

@@ -515,6 +515,51 @@ describe("AgentBridge", () => {
     expect((await store.load())?.processedMessageIds).toContain(removed.id);
   });
 
+  it("finishes the turn normally when the post-turn workspace check waits out a Server restart", async () => {
+    // 合入后 Server 自动重启：这一轮跑完去复核任务目录时 Bridge 还没重连上，Server 先回 401
+    const { resolveTaskWorkspace } = await import("./task-workspace.js");
+    const hive = { serverUrl: "http://hive", roomId: "general", username: "writer", token: "t" };
+    let clock = 0;
+    const retry = {
+      attempts: 3,
+      timeoutMs: 50,
+      delaysMs: [2_000, 4_000],
+      reconnectMs: 60_000,
+      now: () => clock,
+      sleep: async (ms: number) => {
+        clock += ms;
+      },
+    };
+    let turnDone = false;
+    const fetch = vi.fn(async () =>
+      fetch.mock.calls.length <= 2
+        ? Response.json({ error: "Online local agent required" }, { status: 401 })
+        : Response.json({ worktree: null }),
+    );
+    taskWorkspace = {
+      resolve: async (id) => {
+        if (!turnDone) return undefined;
+        vi.stubGlobal("fetch", fetch);
+        try {
+          return await resolveTaskWorkspace(hive, id, retry);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      },
+      responder: () => responder,
+    };
+    await startBridge(baseState());
+    const message = chat();
+    room.messages.push(message);
+    room.handlers.onMention(message, message.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    turnDone = true;
+    responder.finish("done");
+    await waitUntil(() => room.statuses(message.id).includes("completed"));
+    expect(room.statuses(message.id)).not.toContain("uncertain");
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
   it("refuses to run when the managed workspace cannot be verified", async () => {
     taskWorkspace = {
       resolve: async () => {

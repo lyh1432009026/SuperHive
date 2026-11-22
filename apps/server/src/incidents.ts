@@ -76,6 +76,20 @@ export function invocationOrigin(key: string | undefined): IncidentOrigin | unde
   return (key && INVOCATION_ORIGINS[key]) || "unknown";
 }
 
+/** 结果未知、已停下这两个键原因五花八门，只有原因是 Bridge 没能向 Server 核对任务目录时才能认定是我们的问题 */
+const WORKSPACE_CHECK_KEYS = new Set(["bridge.uncertain", "bridge.unsafe"]);
+
+/** Bridge 核对任务目录失败时写进原因的固定文案（task-workspace.ts、bridge.ts） */
+const WORKSPACE_CHECK_FAILURE =
+  /没能复核任务目录|Cannot verify managed task workspace|Cannot safely select the task workspace|Online local agent required/;
+
+function workspaceCheckFailed(invocation: Invocation, detail: string | undefined): boolean {
+  const key = invocation.detailText?.key;
+  if (!key || !WORKSPACE_CHECK_KEYS.has(key)) return false;
+  const reason = invocation.detailText?.params?.reason;
+  return WORKSPACE_CHECK_FAILURE.test(typeof reason === "string" ? reason : (detail ?? ""));
+}
+
 /**
  * 一轮失败或结果未知 → 一次出现；不是失败、或按设计如此的返回 undefined。
  * 指纹按说明键 + 运行时：同一种卡住在 Claude 和 Codex 上往往是两处代码。
@@ -88,16 +102,20 @@ export function classifyInvocation(
   // 人收起、被取代的不算；撤回并停止的也不算
   if (invocation.resolution) return undefined;
   const key = invocation.detailText?.key;
-  const origin = invocationOrigin(key);
+  let origin = invocationOrigin(key);
   if (!origin) return undefined;
   const detail = invocation.detailText
     ? zhText(invocation.detailText as ServerText)
     : invocation.detail;
+  // 任务目录没核对上（含 Server 重启、Bridge 还没重连时的 401）：单独一张、算我们的问题，
+  // 不和模型断流、CLI 崩溃这类同键的外部原因混在一起
+  const workspaceCheck = workspaceCheckFailed(invocation, detail);
+  if (workspaceCheck) origin = "internal";
   const provider = context.provider ?? "agent";
   return {
     origin,
     source: "invocation",
-    fingerprint: `invocation:${key ?? `status:${invocation.status}`}:${provider}`,
+    fingerprint: `invocation:${key ?? `status:${invocation.status}`}${workspaceCheck ? ":workspace-check" : ""}:${provider}`,
     title: `${provider} · ${oneLine(firstClause(normalizeMessage(detail ?? invocation.status)), 160)}`,
     ref: `invocation:${invocation.id}:${invocation.attempts}:${invocation.status}:${key ?? ""}`,
     sample: compact({

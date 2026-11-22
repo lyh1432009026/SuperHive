@@ -71,18 +71,25 @@ export class TaskWorkspaceBusyError extends AgentTransientError {
   }
 }
 
-/** 暂时忙时的重试节奏：每次最多等 17 秒，两次之间隔 2、4 秒，三次合计约 57 秒 */
+/**
+ * 暂时忙时的重试节奏：每次最多等 17 秒，两次之间隔 2、4 秒，三次合计约 57 秒。
+ * Server 说这个 Agent 不在线（刚重启、Bridge 还没重连上）时另算：按同样的间隔、之后每 4 秒再问一次，
+ * 最多等 reconnectMs（默认 60 秒）。
+ */
 export type TaskWorkspaceRetry = {
   attempts: number;
   timeoutMs: number;
   delaysMs: number[];
+  reconnectMs?: number;
   sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
 };
 
 const DEFAULT_RETRY: TaskWorkspaceRetry = {
   attempts: 3,
   timeoutMs: 17_000,
   delaysMs: [2_000, 4_000],
+  reconnectMs: 60_000,
 };
 
 /** Server 明确说忙（503）、网关/限流类状态，或请求超时、连不上：都是等一会儿可能就好 */
@@ -96,10 +103,23 @@ function transient(error: unknown): boolean {
   return error instanceof TypeError && /fetch failed|network/i.test(error.message);
 }
 
+/**
+ * Server 回 401「Online local agent required」：它这时没看到这个 Agent 在线。合入后 Server 自动重启、
+ * Bridge 还没重连上时就是这样，等它重连上再问就好，不说明目录有什么不安全。
+ * 别的 401/403（身份不符、只读、目录被换）照旧直接拒绝。
+ */
+class AgentOfflineLookupError extends Error {}
+
+const AGENT_OFFLINE = "Online local agent required";
+
 /** 带上 Server 给的原因（目录被换了分支等），否则人只看得到一个状态码，不知道该去哪里修 */
 async function refusal(response: Response): Promise<string> {
   const body = (await response.json().catch(() => undefined)) as
     { error?: unknown; code?: unknown } | undefined;
+  return describeRefusal(body);
+}
+
+function describeRefusal(body: { error?: unknown; code?: unknown } | undefined): string {
   if (typeof body?.error !== "string" || !body.error.trim()) return "";
   const code =
     typeof body.code === "string" && /^[A-Z][A-Z0-9_]{1,63}$/.test(body.code)
@@ -114,7 +134,11 @@ async function lookup<Body>(
   retry: TaskWorkspaceRetry,
 ): Promise<Body> {
   const sleep = retry.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
-  for (let attempt = 1; ; attempt += 1) {
+  const now = retry.now ?? Date.now;
+  const reconnectBy = now() + (retry.reconnectMs ?? 0);
+  let attempt = 1;
+  let offlineWaits = 0;
+  for (;;) {
     try {
       const response = await fetch(init.url, {
         ...(init.method ? { method: init.method } : {}),
@@ -126,12 +150,28 @@ async function lookup<Body>(
       });
       if ([429, 502, 503, 504].includes(response.status))
         throw new TransientLookupError(`Hive Server is busy (${response.status})`);
+      if (response.status === 401) {
+        const body = (await response.json().catch(() => undefined)) as
+          { error?: unknown; code?: unknown } | undefined;
+        const message = `Cannot verify managed task workspace (401)${describeRefusal(body)}`;
+        throw body?.error === AGENT_OFFLINE
+          ? new AgentOfflineLookupError(message)
+          : new Error(message);
+      }
       if (!response.ok)
         throw new Error(
           `Cannot verify managed task workspace (${response.status})${await refusal(response)}`,
         );
       return (await response.json()) as Body;
     } catch (error) {
+      if (error instanceof AgentOfflineLookupError) {
+        const delay = retry.delaysMs[offlineWaits] ?? retry.delaysMs.at(-1) ?? 0;
+        // 等不到重连：按原样报，交人核对
+        if (now() + delay > reconnectBy) throw error;
+        offlineWaits += 1;
+        await sleep(delay);
+        continue;
+      }
       if (!transient(error)) throw error;
       if (attempt >= retry.attempts)
         throw new TaskWorkspaceBusyError(
@@ -139,6 +179,7 @@ async function lookup<Body>(
           { cause: error },
         );
       await sleep(retry.delaysMs[attempt - 1] ?? retry.delaysMs.at(-1) ?? 0);
+      attempt += 1;
     }
   }
 }
