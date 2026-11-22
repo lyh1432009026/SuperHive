@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs";
+import { lstatSync, readlinkSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { acpHiveMcpServer, type HiveMcpConnection } from "./hive-mcp-config.js";
@@ -128,24 +128,84 @@ function isAuthRequired(error: AcpRpcError): boolean {
   );
 }
 
-function isInsideDir(cwd: string, target: string): boolean {
-  const relative = path.relative(cwd, path.resolve(cwd, target));
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+/** Windows 上 path.relative 不分大小写，盘符不同时返回绝对路径，都按目录外处理 */
+export function isInsideDir(
+  root: string,
+  target: string,
+  paths: path.PlatformPath = path,
+): boolean {
+  const relative = paths.relative(root, target);
+  return relative === "" || (!relative.startsWith("..") && !paths.isAbsolute(relative));
+}
+
+/** 符号链接最多跟这么多次，超过当成循环（和 Linux 的 ELOOP 上限一致） */
+const MAX_SYMLINK_HOPS = 40;
+
+/** POSIX 上反斜杠是普通文件名字符，只有 Windows 两种分隔符都认 */
+function segments(input: string): string[] {
+  return input
+    .split(path.sep === "\\" ? /[\\/]+/ : "/")
+    .filter((part) => part !== "" && part !== ".");
 }
 
 /**
- * 路径在 cwd 内：cwd 本身经过符号链接时（macOS 的 /tmp → /private/tmp），Agent 报上来的常是真实路径，
- * 所以也认 cwd 的真实路径
+ * 按操作系统实际访问的方式逐段解析路径，得到真实路径；不能只按字面 path.resolve，否则：
+ * - cwd 里指向外面的软链（link → /etc），写 link/x 实际落在 /etc/x；
+ * - 末段是悬空软链时 realpath 报不存在，但写它会在链接指向处新建文件；
+ * - link/.. 在系统里是链接目标的上一级，按字面却折回了 cwd。
+ * 已存在的部分逐段 lstat、遇到软链就把链接内容展开进待解析的段；从第一个不存在的段起，剩下的按字面拼接
+ * （新建的目录不会是软链）。软链循环、无权限等异常返回 undefined，调用方按目录外处理。
+ */
+function resolveRealPath(cwd: string, target: string): string | undefined {
+  const absolute = path.isAbsolute(target) ? target : `${cwd}${path.sep}${target}`;
+  const root = path.parse(path.resolve(absolute)).root;
+  const pending = segments(absolute.slice(path.parse(absolute).root.length));
+  let resolved = root;
+  let hops = 0;
+  while (pending.length > 0) {
+    const part = pending.shift()!;
+    if (part === "..") {
+      // resolved 一直是真实路径，取上一级就是系统里的上一级
+      resolved = path.dirname(resolved);
+      continue;
+    }
+    const next = path.join(resolved, part);
+    let isLink: boolean;
+    try {
+      isLink = lstatSync(next).isSymbolicLink();
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ENOTDIR") return path.join(next, ...pending);
+      return undefined;
+    }
+    if (!isLink) {
+      resolved = next;
+      continue;
+    }
+    if (++hops > MAX_SYMLINK_HOPS) return undefined;
+    let link: string;
+    try {
+      link = readlinkSync(next);
+    } catch {
+      return undefined;
+    }
+    if (path.isAbsolute(link)) resolved = path.parse(path.resolve(link)).root;
+    pending.unshift(
+      ...segments(path.isAbsolute(link) ? link.slice(path.parse(link).root.length) : link),
+    );
+  }
+  return resolved;
+}
+
+/**
+ * 路径在 cwd 内：两边都先解析成真实路径再比较。cwd 本身经过符号链接时（macOS 的 /tmp → /private/tmp）
+ * Agent 报上来的常是真实路径，照常算在内；cwd 里指向外面的软链、悬空软链、link/.. 都按实际落点算。
+ * 解析不了（软链循环、无权限）一律算在外，工作区档会转给人批，不会放行
  */
 function isInside(cwd: string, target: string): boolean {
-  if (isInsideDir(cwd, target)) return true;
-  let real: string;
-  try {
-    real = realpathSync(cwd);
-  } catch {
-    return false;
-  }
-  return real !== cwd && isInsideDir(real, target);
+  const root = resolveRealPath(cwd, ".");
+  const real = resolveRealPath(cwd, target);
+  return root !== undefined && real !== undefined && isInsideDir(root, real);
 }
 
 /** 从工具调用里收集涉及的文件路径：locations 优先，rawInput 里常见的路径字段兜底 */

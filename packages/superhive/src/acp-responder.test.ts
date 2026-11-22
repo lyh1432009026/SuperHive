@@ -1,9 +1,14 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TraceStep } from "./hive-protocol.js";
-import { describe, expect, it, vi } from "vitest";
-import { AcpResponder, decideAcpPermission, type AcpResponderOptions } from "./acp-responder.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  AcpResponder,
+  decideAcpPermission,
+  isInsideDir,
+  type AcpResponderOptions,
+} from "./acp-responder.js";
 import {
   AgentCancelledError,
   AgentNonRetryableError,
@@ -910,5 +915,94 @@ describe("decideAcpPermission", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  describe("symlinks inside cwd", () => {
+    let root: string;
+    let cwd: string;
+    let outside: string;
+    const edit = (target: string) =>
+      decideAcpPermission("workspace", cwd, { kind: "edit", locations: [{ path: target }] });
+
+    beforeEach(() => {
+      root = realpathSync(mkdtempSync(path.join(tmpdir(), "acp-link-")));
+      cwd = path.join(root, "work");
+      outside = path.join(root, "outside");
+      mkdirSync(path.join(cwd, "src"), { recursive: true });
+      mkdirSync(outside);
+    });
+    afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+    it("rejects writes through a link that points outside cwd", () => {
+      symlinkSync(outside, path.join(cwd, "escape"));
+      writeFileSync(path.join(outside, "secret"), "x");
+      expect(edit(path.join(cwd, "escape", "secret"))).toBe("reject");
+      expect(edit("escape/new-file")).toBe("reject");
+      expect(edit("escape/new/dir/file")).toBe("reject");
+      // link/.. 在系统里是链接目标的上一级，不是 cwd
+      mkdirSync(path.join(outside, "deep"));
+      symlinkSync(path.join(outside, "deep"), path.join(cwd, "deep"));
+      expect(edit("deep/../a")).toBe("reject");
+      expect(edit("escape/../outside/a")).toBe("reject");
+    });
+
+    it("rejects a dangling link whose target would be created outside cwd", () => {
+      symlinkSync(path.join(outside, "later"), path.join(cwd, "dangling"));
+      symlinkSync("../outside/rel", path.join(cwd, "relative"));
+      expect(edit("dangling")).toBe("reject");
+      expect(edit("relative")).toBe("reject");
+    });
+
+    it("allows links that stay inside cwd", () => {
+      symlinkSync(path.join(cwd, "src"), path.join(cwd, "alias"));
+      symlinkSync("src", path.join(cwd, "relative-alias"));
+      symlinkSync(path.join(cwd, "src", "pending"), path.join(cwd, "dangling-inside"));
+      expect(edit("alias/a.ts")).toBe("allow");
+      expect(edit(path.join(cwd, "relative-alias", "b.ts"))).toBe("allow");
+      expect(edit("dangling-inside")).toBe("allow");
+      expect(edit("src/../src/c.ts")).toBe("allow");
+    });
+
+    it("allows new nested directories and paths whose parents do not exist yet", () => {
+      expect(edit("src/new/deeper/file.ts")).toBe("allow");
+      expect(edit(path.join(cwd, "missing", "also-missing", "file.ts"))).toBe("allow");
+      expect(edit("missing/../src/x.ts")).toBe("allow");
+      expect(edit("../outside/x")).toBe("reject");
+    });
+
+    it("rejects symlink loops instead of throwing", () => {
+      symlinkSync(path.join(cwd, "loop-b"), path.join(cwd, "loop-a"));
+      symlinkSync(path.join(cwd, "loop-a"), path.join(cwd, "loop-b"));
+      symlinkSync("self", path.join(cwd, "self"));
+      expect(edit("loop-a/file")).toBe("reject");
+      expect(edit("self")).toBe("reject");
+      expect(edit("src/ok.ts")).toBe("allow");
+    });
+
+    it("treats a symlinked cwd like its real path", () => {
+      const link = path.join(root, "work-link");
+      symlinkSync(cwd, link);
+      expect(
+        decideAcpPermission("workspace", link, { kind: "edit", locations: [{ path: `${cwd}/a` }] }),
+      ).toBe("allow");
+      expect(
+        decideAcpPermission("workspace", link, { kind: "edit", rawInput: { filePath: "src/a" } }),
+      ).toBe("allow");
+      expect(
+        decideAcpPermission("workspace", link, {
+          kind: "edit",
+          locations: [{ path: `${outside}/a` }],
+        }),
+      ).toBe("reject");
+    });
+  });
+
+  it("compares Windows paths case-insensitively and rejects other drives", () => {
+    expect(isInsideDir("C:\\Work\\Repo", "c:\\work\\repo\\src\\a.ts", path.win32)).toBe(true);
+    expect(isInsideDir("C:\\Work\\Repo", "C:\\Work\\Repo", path.win32)).toBe(true);
+    expect(isInsideDir("C:\\Work\\Repo", "D:\\Work\\Repo\\a.ts", path.win32)).toBe(false);
+    expect(isInsideDir("C:\\Work\\Repo", "C:\\Work\\Repo-other\\a.ts", path.win32)).toBe(false);
+    expect(isInsideDir("/w", "/w/a", path.posix)).toBe(true);
+    expect(isInsideDir("/w", "/W/a", path.posix)).toBe(false);
   });
 });
