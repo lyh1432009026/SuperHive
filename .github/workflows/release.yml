@@ -1,0 +1,75 @@
+# 发布 superhive 到 npm：推 v* 标签时自动发版；也可以手动运行做一次空跑（只检查、打包，不发布）。
+# 用 npm 可信发布（OIDC）：仓库里不存 npm token，发布时由 GitHub Actions 的身份换取一次性凭证，并附带来源证明（provenance）。
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "只检查和打包，不发布"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write # 创建 GitHub Release
+  id-token: write # npm 可信发布
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      # 可信发布需要 npm 11.5.1 以上
+      - run: npm install -g npm@latest
+
+      - run: pnpm install --frozen-lockfile
+
+      # 测试里有真实 git 仓库的集成测试，需要提交身份
+      - run: |
+          git config --global user.name "SuperHive CI"
+          git config --global user.email "ci@superhive.invalid"
+
+      - name: 标签必须和包版本一致
+        if: github.event_name == 'push'
+        run: |
+          version="v$(node -p "require('./packages/superhive/package.json').version")"
+          if [ "$version" != "$GITHUB_REF_NAME" ]; then
+            echo "标签 $GITHUB_REF_NAME 和 packages/superhive/package.json 的版本 $version 不一致" >&2
+            exit 1
+          fi
+
+      - run: pnpm lint
+      - run: pnpm test
+
+      - name: 打包检查
+        working-directory: packages/superhive
+        run: npm pack --dry-run
+
+      - name: 发布到 npm
+        if: github.event_name == 'push' || inputs.dry_run == false
+        working-directory: packages/superhive
+        run: npm publish --provenance --access public
+
+      - name: 创建 GitHub Release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "superhive ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag

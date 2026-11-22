@@ -32,6 +32,11 @@
     "agent"
   ],
   "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wangrongding/SuperHive.git",
+    "directory": "packages/superhive"
+  },
   "scripts": {
     "dev": "tsx src/cli.ts",
     "echo": "tsx src/echo.ts",
