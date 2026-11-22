@@ -546,6 +546,8 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
     --cm-raised: var(--sl-color-gray-6);
     --cm-wire: var(--sl-color-gray-4);
     --cm-ms: 4000ms;
+    /* 光点走完「发起方 → 房间 → 接收方」的时长，比步骤停留短，读字时线上已经送达 */
+    --cm-pulse-ms: 1700ms;
     --cm-width: min(calc(100vw - 2 * clamp(1.5rem, 4vw, 5rem)), 110rem);
     min-width: 0;
     margin: 0;
@@ -1676,7 +1678,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
       stroke-linecap: round;
       stroke-dasharray: 3 97;
       opacity: 0.4;
-      animation: cm-flow 5.6s linear infinite;
+      animation: cm-flow 3.2s linear infinite;
       animation-delay: var(--cm-delay, 0s);
     }
 
@@ -1684,7 +1686,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
       stroke-width: 1.75;
       stroke-dasharray: 2 98;
       animation-name: cm-flow-back;
-      animation-delay: calc(var(--cm-delay, 0s) - 2.8s);
+      animation-delay: calc(var(--cm-delay, 0s) - 1.6s);
     }
 
     .cm.is-live .cm-wires :global(:is(.is-from, .is-to) .cm-wire-flow) {
@@ -1692,11 +1694,11 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
     }
 
     .cm.is-run .cm-wires :global(.is-from .cm-wire-pulse) {
-      animation: cm-go var(--cm-ms) linear both;
+      animation: cm-go var(--cm-pulse-ms) cubic-bezier(0.45, 0, 0.25, 1) both;
     }
 
     .cm.is-run .cm-wires :global(.is-to .cm-wire-pulse) {
-      animation: cm-come var(--cm-ms) linear both;
+      animation: cm-come var(--cm-pulse-ms) cubic-bezier(0.45, 0, 0.25, 1) both;
     }
 
     .cm.is-run .cm-wires :global(.cm-wire-glow) {
