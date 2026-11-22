@@ -29,15 +29,15 @@ const PAGE_TITLE_ID = "_top";
           </a>
         </div>
       </div>
-      <CollabModel scene={teamScene} />
+      <CollabModel scene={soloScene} />
       <div class="workroom-subhead">
-        <h2>一个人，也能带一支 Agent 队伍</h2>
+        <h2>团队里，每个人都带着自己的 Agent</h2>
         <p>
-          不用凑齐团队：你接上十个 Agent，让它们互相委派、并行干活、汇总
-          review，自己闭环，你只在关键处拍板。
+          多人协作时，每个人在自己电脑上接自己的
+          Agent，大家经同一个房间派活、互相委派、交回成果；文件和权限留在各自电脑上。
         </p>
       </div>
-      <CollabModel scene={soloScene} />
+      <CollabModel scene={teamScene} />
     </section>
   ) : (
     <DefaultHero />

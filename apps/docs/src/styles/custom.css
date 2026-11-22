@@ -357,11 +357,6 @@ html {
     opacity: 0;
     translate: 0 14px;
   }
-
-  /* 协作图的连线按卡片的实际位置画，入场时只淡入不位移 */
-  .docs-reveal .cm.docs-reveal-item:not(.is-revealed) {
-    translate: none;
-  }
 }
 
 @keyframes docs-page-out {
