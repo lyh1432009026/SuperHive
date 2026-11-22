@@ -8,79 +8,130 @@ const marks: Record<string, string> = {
   claude: "M12 2v20M2 12h20M5 5l14 14M5 19 19 5",
   codex: "m8 6-6 6 6 6m8-12 6 6-6 6M14 3l-4 18",
   omp: "M3 4h18v16H3V4Zm4 4 3 4-3 4m6 0h4",
+  opencode: "M3 4h8v16H3V4Zm10 0h8v16h-8V4ZM7 8v8m10-8v8",
+  copilot: "M4 14a8 8 0 0 1 16 0v3a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-3Zm5-1v2m6-2v2",
 };
 
-// 三台电脑，每台一个人带两个 Agent；node 是连线和高亮用的标识。
+// 四台电脑，每人接的 Agent 数量不同；同一种 Agent 可以接多个（claude-1、claude-2）。
+// node 是连线、高亮和状态用的标识。
 const machines = [
   {
     label: "你的电脑",
     nodes: [
       { node: "you", name: "你", kind: "human", role: "定目标 · 拍板" },
-      { node: "claude", name: "claude", kind: "claude", role: "统筹 · review" },
-      { node: "codex", name: "codex", kind: "codex", role: "写代码" },
+      { node: "claude-1", name: "claude-1", kind: "claude", role: "统筹" },
+      { node: "claude-2", name: "claude-2", kind: "claude", role: "前端" },
+      { node: "codex", name: "codex", kind: "codex", role: "后端" },
     ],
   },
   {
     label: "林夏的电脑",
     nodes: [
-      { node: "lin", name: "林夏", kind: "human", role: "负责结算页" },
-      { node: "lin-codex", name: "lin-codex", kind: "codex", role: "修结算页" },
-      { node: "lin-omp", name: "lin-omp", kind: "omp", role: "整理文档" },
+      { node: "lin", name: "林夏", kind: "human", role: "产品" },
+      { node: "lin-copilot", name: "lin-copilot", kind: "copilot", role: "文案" },
     ],
   },
   {
     label: "周远的电脑",
     nodes: [
-      { node: "zhou", name: "周远", kind: "human", role: "负责测试" },
-      { node: "zhou-claude", name: "zhou-claude", kind: "claude", role: "补测试" },
-      { node: "zhou-omp", name: "zhou-omp", kind: "omp", role: "跑验证" },
+      { node: "zhou", name: "周远", kind: "human", role: "测试" },
+      { node: "zhou-omp", name: "zhou-omp", kind: "omp", role: "接口测试" },
+      { node: "zhou-opencode", name: "zhou-opencode", kind: "opencode", role: "跑验证" },
+    ],
+  },
+  {
+    label: "陈默的电脑",
+    nodes: [
+      { node: "chen", name: "陈默", kind: "human", role: "架构" },
+      { node: "chen-codex", name: "chen-codex", kind: "codex", role: "review" },
+      { node: "chen-claude", name: "chen-claude", kind: "claude", role: "查文档" },
     ],
   },
 ];
 
-// 轮播的六步：from 经房间到 to；房间里 data-on 包含步骤号的内容同时亮起。
-const steps = [
+// 轮播的七步。links 里每条从 from 经房间到 to（to 为空表示只登记到房间）；
+// 同一步可以有几条协作同时发生。status 只写这一步有变化的 Agent，状态会累积到下一步。
+type Status = "run" | "wait" | "ask" | "done";
+const steps: {
+  title: string;
+  detail: string;
+  links: { from: string; to: string[] }[];
+  status: Record<string, Status>;
+}[] = [
   {
     title: "派活",
-    detail: "你在房间里 @lin-codex，把结算页的修复派给林夏电脑上的 Agent。",
-    from: "you",
-    to: "lin-codex",
+    detail: "你在房间里 @claude-1，把结算页改版交给它统筹。",
+    links: [{ from: "you", to: ["claude-1"] }],
+    status: { "claude-1": "run" },
   },
   {
-    title: "Agent 委派 Agent",
-    detail: "lin-codex 拆出「补边界测试」，委派给周远电脑上的 zhou-claude。",
-    from: "lin-codex",
-    to: "zhou-claude",
+    title: "一次委派两个",
+    detail: "claude-1 拆成两份：前端给 claude-2，接口测试给周远电脑上的 zhou-omp。",
+    links: [{ from: "claude-1", to: ["claude-2", "zhou-omp"] }],
+    status: { "claude-1": "wait", "claude-2": "run", "zhou-omp": "run" },
   },
   {
-    title: "交回并登记白板",
-    detail: "zhou-claude 补好测试交回 lin-codex，并登记到白板，谁都看得到。",
-    from: "zhou-claude",
-    to: "lin-codex",
+    title: "两条协作并行",
+    detail: "林夏让自己的 lin-copilot 改文案；同一时刻 zhou-omp 把测试登记到白板。",
+    links: [
+      { from: "lin", to: ["lin-copilot"] },
+      { from: "zhou-omp", to: [] },
+    ],
+    status: { "lin-copilot": "run", "zhou-omp": "done" },
   },
   {
     title: "Agent 问人",
-    detail: "要不要重算旧订单？lin-codex 停下来，把问题交到你手里。",
-    from: "lin-codex",
-    to: "you",
+    detail: "优惠券和满减能不能叠加？claude-2 停下来，把问题交到你手里。",
+    links: [{ from: "claude-2", to: ["you"] }],
+    status: { "claude-2": "ask" },
   },
   {
     title: "人来回答",
-    detail: "你在网页里点选「只修新订单」，lin-codex 接着做。",
-    from: "you",
-    to: "lin-codex",
+    detail: "你在网页里点选「不叠加」，claude-2 接着做。",
+    links: [{ from: "you", to: ["claude-2"] }],
+    status: { "claude-2": "run" },
   },
   {
-    title: "交回成果",
-    detail: "lin-codex 交回提交和测试结果，请你的 claude review。",
-    from: "lin-codex",
-    to: "claude",
+    title: "汇总",
+    detail: "claude-2 和 zhou-omp 都把结果交回 claude-1，由它合成一份。",
+    links: [
+      { from: "claude-2", to: ["claude-1"] },
+      { from: "zhou-omp", to: ["claude-1"] },
+    ],
+    status: { "claude-2": "done", "claude-1": "run", "lin-copilot": "done" },
+  },
+  {
+    title: "交回并 review",
+    detail: "claude-1 把提交交回给你，同时请陈默电脑上的 chen-codex review。",
+    links: [{ from: "claude-1", to: ["you", "chen-codex"] }],
+    status: { "claude-1": "done", "chen-codex": "run" },
   },
 ];
 const last = steps.length - 1;
+
+// 房间里的公开消息：at 是第几步出现；消息区只露出最近几条，像真实房间一样往上滚
+const feed = [
+  { at: 0, who: "你", text: "@claude-1 结算页改版，今天上线" },
+  { at: 1, who: "claude-1", text: "@claude-2 改前端 · @zhou-omp 补接口测试" },
+  { at: 2, who: "林夏", text: "@lin-copilot 同步改一下结算文案" },
+  { at: 3, who: "claude-2", text: "优惠券能和满减叠加吗？已提问" },
+  { at: 4, who: "你", text: "选 A：不叠加" },
+  { at: 5, who: "claude-1", text: "前端和测试都交回了，正在合并" },
+  { at: 6, who: "claude-1", text: "已完成 b7e21f0，@chen-codex 请 review" },
+];
+const board = [
+  { at: 1, on: "1", text: "结算页改版", pill: "进行中", ok: false },
+  { at: 2, on: "2", text: "接口测试", pill: "已就绪", ok: true },
+  { at: 5, on: "5", text: "结算文案", pill: "已就绪", ok: true },
+];
 ---
 
-<figure class="cm not-content" aria-labelledby="cm-title" aria-describedby="cm-desc">
+<figure
+  class="cm not-content"
+  aria-labelledby="cm-title"
+  aria-describedby="cm-desc"
+  data-steps={JSON.stringify(steps.map(({ links, status }) => ({ links, status })))}
+>
   <div class="cm-frame">
     <div class="cm-head">
       <p class="cm-kicker" id="cm-title">每个人带着自己的 Agent，在同一个房间里协作</p>
@@ -98,10 +149,12 @@ const last = steps.length - 1;
       </span>
     </div>
     <p class="cm-sr" id="cm-desc">
-      示意图：你、林夏、周远三个人各自在自己的电脑上带着两个 Agent。每个人、每个 Agent
-      都有一条线连进同一个 SuperHive
+      示意图：你、林夏、周远、陈默四个人各自在自己的电脑上接着数量不同的 Agent，你的电脑上有
+      claude-1、claude-2 两个同种 Agent 和一个 codex。每个人、每个 Agent 都有一条线连进同一个
+      SuperHive
       房间，房间里只有公开消息、协作白板和等人回答的问题；文件、权限和会话留在各自的电脑上。Agent
-      之间也能经过房间互相委派。下面的六个步骤说明一次协作怎样在人和 Agent 之间流转。
+      之间可以经过房间互相委派、并行干活再汇总。下面的七个步骤说明一次协作怎样在人和 Agent
+      之间流转。
     </p>
 
     <div class="cm-stage" aria-hidden="true">
@@ -110,7 +163,10 @@ const last = steps.length - 1;
       <div class="cm-machines">
         {
           machines.map((machine, index) => (
-            <div class:list={["cm-machine", { "cm-machine-you": index === 0 }]}>
+            <div
+              class:list={["cm-machine", { "cm-machine-you": index === 0 }]}
+              style={`--cm-count: ${machine.nodes.length}`}
+            >
               <div class="cm-machine-head">
                 <strong>{machine.label}</strong>
                 <span class="cm-local">
@@ -141,6 +197,7 @@ const last = steps.length - 1;
                       <strong>{node.name}</strong>
                       <span>{node.role}</span>
                     </span>
+                    {node.kind !== "human" && <span class="cm-status" data-cm-status />}
                   </li>
                 ))}
               </ul>
@@ -161,31 +218,40 @@ const last = steps.length - 1;
         <div class="cm-zones">
           <div class="cm-zone cm-zone-msg">
             <span class="cm-zone-title">公开消息</span>
-            <p class="cm-line" data-on="0"><b>你</b> @lin-codex 修一下结算页的四舍五入</p>
-            <p class="cm-line" data-on="1"><b>lin-codex</b> @zhou-claude 帮忙补边界测试</p>
-            <p class="cm-line" data-on="2"><b>zhou-claude</b> 测试补好了，交回 lin-codex</p>
-            <p class="cm-line" data-on="5"><b>lin-codex</b> 已修复 a41c9e2，@claude 请 review</p>
+            <div class="cm-feed">
+              {
+                feed.map((item) => (
+                  <p class="cm-line" data-at={item.at} data-on={item.at}>
+                    <b>{item.who}</b> {item.text}
+                  </p>
+                ))
+              }
+            </div>
           </div>
           <div class="cm-zone cm-zone-board">
             <span class="cm-zone-title">协作白板</span>
-            <p class="cm-line" data-on="0 1">结算页修复 <span class="cm-pill">进行中</span></p>
-            <p class="cm-line" data-on="2">
-              边界测试 <span class="cm-pill cm-pill-ok">已就绪</span>
-            </p>
+            {
+              board.map((item) => (
+                <p class="cm-line" data-at={item.at} data-on={item.on}>
+                  {item.text}
+                  <span class:list={["cm-pill", { "cm-pill-ok": item.ok }]}>{item.pill}</span>
+                </p>
+              ))
+            }
           </div>
           <div class="cm-zone cm-zone-ask">
             <span class="cm-zone-title">等你回答</span>
-            <p class="cm-line" data-on="3">旧订单要一起重算吗？</p>
+            <p class="cm-line" data-on="3">优惠券能和满减叠加吗？</p>
             <span class="cm-options">
-              <span class="cm-option cm-option-pick" data-on="4">A 只修新订单</span>
-              <span class="cm-option">B 一起重算</span>
+              <span class="cm-option cm-option-pick" data-on="4 5 6">A 不叠加</span>
+              <span class="cm-option">B 可以叠加</span>
             </span>
           </div>
         </div>
       </div>
     </div>
 
-    <ol class="cm-steps" style={`--cm-steps: ${steps.length}`}>
+    <ol class="cm-steps">
       {
         steps.map((step, index) => (
           <li>
@@ -193,8 +259,6 @@ const last = steps.length - 1;
               type="button"
               class="cm-step"
               data-go={index}
-              data-from={step.from}
-              data-to={step.to}
               aria-current={index === last ? "step" : undefined}
             >
               <span class="cm-step-dot" aria-hidden="true">
@@ -220,22 +284,33 @@ const last = steps.length - 1;
 </figure>
 
 <script>
+  type Status = "run" | "wait" | "ask" | "done";
+  type Step = { links: { from: string; to: string[] }[]; status: Record<string, Status> };
+
   const STEP_MS = 4000;
   const SVG = "http://www.w3.org/2000/svg";
+  const LABELS: Record<Status, string> = {
+    run: "执行中",
+    wait: "等结果",
+    ask: "等你回答",
+    done: "已交回",
+  };
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
   // 和样式里的窄屏断点一致：窄屏时房间在左、电脑竖排在右
-  const narrow = window.matchMedia("(max-width: 40rem)");
+  const narrow = window.matchMedia("(max-width: 56rem)");
 
   for (const figure of document.querySelectorAll<HTMLElement>(".cm")) {
+    const steps: Step[] = JSON.parse(figure.dataset.steps!);
     const stage = figure.querySelector<HTMLElement>(".cm-stage")!;
     const svg = figure.querySelector<SVGSVGElement>("[data-cm-wires]")!;
     const room = figure.querySelector<HTMLElement>("[data-cm-room]")!;
     const nodes = [...figure.querySelectorAll<HTMLElement>("[data-node]")];
     const buttons = [...figure.querySelectorAll<HTMLButtonElement>("[data-go]")];
-    const lines = [...figure.querySelectorAll<HTMLElement>("[data-on]")];
+    const highlights = [...figure.querySelectorAll<HTMLElement>("[data-on]")];
+    const timed = [...figure.querySelectorAll<HTMLElement>("[data-at]")];
     const toggle = figure.querySelector<HTMLButtonElement>("[data-cm-toggle]");
     const toggleLabel = figure.querySelector<HTMLElement>("[data-cm-toggle-label]");
-    const last = buttons.length - 1;
+    const last = steps.length - 1;
     const wires = new Map<string, SVGElement>();
     let step = last;
     let timer = 0;
@@ -266,20 +341,20 @@ const last = steps.length - 1;
           port = [rect.left - box.left, rect.top + rect.height / 2 - box.top];
           inlet = [
             roomBox.right - box.left,
-            roomBox.top - box.top + roomBox.height * (0.12 + t * 0.76),
+            roomBox.top - box.top + roomBox.height * (0.08 + t * 0.84),
           ];
           const k = (port[0] - inlet[0]) * 0.7;
           d = `M${port[0]} ${port[1]}C${port[0] - k} ${port[1]} ${inlet[0] + k} ${inlet[1]} ${inlet[0]} ${inlet[1]}`;
         } else {
           port = [rect.left + rect.width / 2 - box.left, rect.bottom - box.top];
           inlet = [
-            roomBox.left - box.left + roomBox.width * (0.3 + t * 0.4),
+            roomBox.left - box.left + roomBox.width * (0.26 + t * 0.48),
             roomBox.top - box.top,
           ];
           const k = (inlet[1] - port[1]) * 0.75;
           d = `M${port[0]} ${port[1]}C${port[0]} ${port[1] + k} ${inlet[0]} ${inlet[1] - k} ${inlet[0]} ${inlet[1]}`;
         }
-        const group = make("g", { class: "cm-wire", style: `--cm-delay: ${index * -0.55}s` });
+        const group = make("g", { class: "cm-wire", style: `--cm-delay: ${index * -0.47}s` });
         group.append(
           make("path", { class: "cm-wire-base", d }),
           make("path", { class: "cm-wire-flow", d, pathLength: 100 }),
@@ -296,21 +371,34 @@ const last = steps.length - 1;
       mark();
     };
 
-    // 给发起方、接收方、对应的房间内容挂上状态；is-run 重挂一次让光点从头走
+    // 按当前步骤挂状态：发起方、接收方、累积到这一步的 Agent 状态、房间里出现和亮起的内容
     const mark = () => {
       const live = figure.classList.contains("is-live");
-      const from = buttons[step].dataset.from;
-      const to = buttons[step].dataset.to;
+      const from = new Set(steps[step].links.map((link) => link.from));
+      const to = new Set(steps[step].links.flatMap((link) => link.to));
+      const status: Record<string, Status> = {};
+      for (const past of steps.slice(0, step + 1)) Object.assign(status, past.status);
       for (const node of nodes) {
-        node.classList.toggle("is-from", live && node.dataset.node === from);
-        node.classList.toggle("is-to", live && node.dataset.node === to);
+        const name = node.dataset.node!;
+        node.classList.toggle("is-from", live && from.has(name));
+        node.classList.toggle("is-to", live && to.has(name));
+        const badge = node.querySelector<HTMLElement>("[data-cm-status]");
+        if (badge) {
+          const value = live ? status[name] : undefined;
+          badge.textContent = value ? LABELS[value] : "";
+          if (value) badge.dataset.kind = value;
+          else delete badge.dataset.kind;
+        }
       }
       for (const [name, wire] of wires) {
-        wire.classList.toggle("is-from", live && name === from);
-        wire.classList.toggle("is-to", live && name === to);
+        wire.classList.toggle("is-from", live && from.has(name));
+        wire.classList.toggle("is-to", live && to.has(name));
       }
-      for (const line of lines) {
-        line.classList.toggle("is-on", live && line.dataset.on!.split(" ").includes(String(step)));
+      for (const item of highlights) {
+        item.classList.toggle("is-on", live && item.dataset.on!.split(" ").includes(String(step)));
+      }
+      for (const item of timed) {
+        item.classList.toggle("is-later", live && Number(item.dataset.at) > step);
       }
       figure.classList.remove("is-run");
       void figure.offsetWidth;
@@ -335,7 +423,7 @@ const last = steps.length - 1;
           show(step === last ? 0 : step + 1);
           schedule();
         },
-        STEP_MS + (step === last ? 1200 : 0),
+        STEP_MS + (step === last ? 1500 : 0),
       );
     };
 
@@ -390,7 +478,7 @@ const last = steps.length - 1;
     --cm-raised: var(--sl-color-gray-6);
     --cm-wire: var(--sl-color-gray-4);
     --cm-ms: 4000ms;
-    --cm-ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --cm-width: min(calc(100vw - 2.5rem), 110rem);
     min-width: 0;
     margin: 0;
   }
@@ -403,8 +491,16 @@ const last = steps.length - 1;
     --cm-raised: #2a2a2a;
   }
 
+  /* 桌面上占满屏幕宽度，超宽屏封顶，免得线拉得太稀 */
+  @media (min-width: 56.01rem) {
+    .cm {
+      width: var(--cm-width);
+      margin-inline: calc(50% - var(--cm-width) / 2);
+    }
+  }
+
   .cm-frame {
-    padding: 1.25rem;
+    padding: 1.25rem 1.5rem;
     border: 1px solid var(--cm-line);
     border-radius: 1.25rem;
     background: var(--cm-panel);
@@ -457,7 +553,7 @@ const last = steps.length - 1;
     position: relative;
     display: grid;
     grid-template-rows: auto auto;
-    row-gap: 7.5rem;
+    row-gap: 8rem;
   }
 
   .cm-stage svg:not(.cm-wires) {
@@ -468,16 +564,17 @@ const last = steps.length - 1;
     stroke-linejoin: round;
   }
 
-  /* 三台电脑：每台一个虚线框，人和 Agent 各占一张卡片 */
+  /* 电脑：每台一个虚线框，宽度按里面的人数和 Agent 数分配 */
   .cm-machines {
     position: relative;
     z-index: 1;
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    display: flex;
     gap: 0.9rem;
   }
 
   .cm-machine {
+    flex: var(--cm-count) 1 0;
+    container-type: inline-size;
     min-width: 0;
     padding: 0.6rem;
     border: 1px dashed var(--sl-color-gray-4);
@@ -519,9 +616,20 @@ const last = steps.length - 1;
     display: none;
   }
 
+  /* 电脑框太窄时只写「留在本机」 */
+  @container (max-width: 19rem) {
+    .cm-local-long {
+      display: none;
+    }
+
+    .cm-local-short {
+      display: inline;
+    }
+  }
+
   .cm-nodes {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(var(--cm-count), minmax(0, 1fr));
     gap: 0.4rem;
     margin: 0;
     padding: 0;
@@ -606,6 +714,42 @@ const last = steps.length - 1;
   .cm-node.is-to {
     border-color: var(--sl-color-accent);
     background: var(--sl-color-accent-low);
+  }
+
+  /* Agent 卡片右上角的轻量状态：执行中 / 等结果 / 等你回答 / 已交回 */
+  .cm-status {
+    position: absolute;
+    top: -0.55rem;
+    right: 0.35rem;
+    display: none;
+    padding: 0 0.35rem;
+    border: 1px solid var(--cm-line);
+    border-radius: 999px;
+    background: var(--cm-surface);
+    color: var(--sl-color-gray-2);
+    font-size: 0.58rem;
+    font-weight: 600;
+    line-height: 1.5;
+    white-space: nowrap;
+  }
+
+  .cm-status[data-kind] {
+    display: block;
+  }
+
+  .cm-status[data-kind="run"] {
+    border-color: color-mix(in srgb, var(--sl-color-accent) 45%, var(--cm-line));
+    color: var(--sl-color-accent-high);
+  }
+
+  .cm-status[data-kind="ask"] {
+    border-color: color-mix(in srgb, var(--cm-warn) 55%, var(--cm-line));
+    color: var(--cm-warn);
+  }
+
+  .cm-status[data-kind="done"] {
+    border-color: color-mix(in srgb, var(--cm-ok) 45%, var(--cm-line));
+    color: var(--cm-ok);
   }
 
   /* 连线：底线 + 常驻的暗淡流动；当前这一步的路径整条点亮，光点走完 */
@@ -713,7 +857,7 @@ const last = steps.length - 1;
 
   .cm-zones {
     display: grid;
-    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr);
     gap: 0.6rem;
     margin-top: 0.8rem;
   }
@@ -737,7 +881,22 @@ const last = steps.length - 1;
     letter-spacing: 0.04em;
   }
 
+  /* 消息区只露出最近四条，新消息从底部进来 */
+  .cm-feed {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 0.3rem;
+    overflow: hidden;
+  }
+
+  .cm.is-live .cm-feed {
+    height: 6.6rem;
+    mask-image: linear-gradient(to bottom, transparent 0, #000 1.2rem);
+  }
+
   .cm-line {
+    flex-shrink: 0;
     margin: 0 -0.35rem;
     padding: 0.1rem 0.35rem;
     overflow: hidden;
@@ -761,9 +920,13 @@ const last = steps.length - 1;
     color: var(--sl-color-white);
   }
 
+  .cm-line.is-later {
+    display: none;
+  }
+
   .cm-pill {
     display: inline-block;
-    margin-left: 0.2rem;
+    margin-left: 0.3rem;
     padding: 0 0.4rem;
     border-radius: 999px;
     background: var(--sl-color-accent-low);
@@ -811,10 +974,10 @@ const last = steps.length - 1;
     color: var(--sl-color-black);
   }
 
-  /* 下方的六个步骤 */
+  /* 下方的步骤 */
   .cm-steps {
     display: grid;
-    grid-template-columns: repeat(var(--cm-steps), minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
     gap: 0.4rem;
     margin: 1rem 0 0;
     padding: 0;
@@ -959,26 +1122,20 @@ const last = steps.length - 1;
     text-underline-offset: 0.2em;
   }
 
-  @media (max-width: 62rem) {
-    .cm-local-long {
-      display: none;
-    }
-
-    .cm-local-short {
-      display: inline;
-    }
-
+  @media (max-width: 80rem) {
     .cm-node-text span {
       display: none;
     }
 
-    .cm-steps {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+    /* 卡片变窄时 Agent 名在连字符处折行，不截断 */
+    .cm-node-agent .cm-node-text strong {
+      overflow-wrap: anywhere;
+      white-space: normal;
     }
   }
 
-  /* 窄屏：房间在左，三台电脑竖排在右，线从卡片左侧横着弯进房间 */
-  @media (max-width: 40rem) {
+  /* 窄屏：房间在左，各台电脑竖排在右，线从卡片左侧横着弯进房间 */
+  @media (max-width: 56rem) {
     .cm-frame {
       padding: 0.8rem;
       border-radius: 1rem;
@@ -995,13 +1152,14 @@ const last = steps.length - 1;
     }
 
     .cm-machines {
+      flex-direction: column;
       grid-column: 3;
       grid-row: 1;
-      grid-template-columns: minmax(0, 1fr);
       gap: 0.6rem;
     }
 
     .cm-machine {
+      flex: none;
       padding: 0.45rem;
       border-radius: 0.75rem;
     }
@@ -1040,6 +1198,12 @@ const last = steps.length - 1;
       font-size: 0.62rem;
     }
 
+    .cm-status {
+      position: static;
+      flex-shrink: 0;
+      margin-left: auto;
+    }
+
     .cm-room {
       grid-column: 1;
       grid-row: 1;
@@ -1070,6 +1234,10 @@ const last = steps.length - 1;
       padding: 0.45rem 0.5rem;
     }
 
+    .cm.is-live .cm-feed {
+      height: 12.5rem;
+    }
+
     .cm-line {
       font-size: 0.66rem;
       white-space: normal;
@@ -1084,6 +1252,12 @@ const last = steps.length - 1;
       flex-direction: row;
       gap: 0.65rem;
       padding: 0.5rem;
+    }
+  }
+
+  @media (max-width: 30rem) {
+    .cm-node-agent .cm-node-icon {
+      display: none;
     }
   }
 
@@ -1123,6 +1297,10 @@ const last = steps.length - 1;
 
     .cm.is-idle .cm-wires :global(*) {
       animation-play-state: paused;
+    }
+
+    .cm.is-run .cm-line.is-on {
+      animation: cm-in 450ms cubic-bezier(0.22, 1, 0.36, 1) both;
     }
   }
 
@@ -1177,6 +1355,17 @@ const last = steps.length - 1;
     100% {
       opacity: 0;
       stroke-dashoffset: 5;
+    }
+  }
+
+  @keyframes cm-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
     }
   }
 </style>
