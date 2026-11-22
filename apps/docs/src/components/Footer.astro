@@ -1,0 +1,62 @@
+---
+import DefaultFooter from "@astrojs/starlight/components/Footer.astro";
+import { projectLinks } from "../../scripts/project-links.mjs";
+
+const year = new Date().getFullYear();
+---
+
+<DefaultFooter />
+
+<div class="site-footer">
+  <nav class="site-footer-links" aria-label="项目链接">
+    {
+      projectLinks.map((link) => (
+        <a href={link.href} rel="noopener">
+          {link.label}
+        </a>
+      ))
+    }
+  </nav>
+  <p class="site-footer-credit">© {year} SuperHive</p>
+</div>
+
+<style>
+  .site-footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 2rem;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 3rem;
+    padding-block: 1.5rem 2rem;
+    border-top: 1px solid var(--sl-color-gray-5);
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-sm);
+    line-height: 1.6;
+  }
+
+  .site-footer-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.25rem;
+  }
+
+  .site-footer-links a {
+    color: var(--sl-color-gray-2);
+    text-decoration: none;
+  }
+
+  .site-footer-links a:hover {
+    color: var(--sl-color-white);
+  }
+
+  .site-footer-credit {
+    margin: 0;
+  }
+
+  @media print {
+    .site-footer {
+      display: none;
+    }
+  }
+</style>

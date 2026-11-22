@@ -74,6 +74,16 @@ html {
   overflow: hidden;
 }
 
+/* 顶栏和侧栏菜单里的 GitHub 图标与搜索、主题按钮同色，不用强调色 */
+:is(.social-icons, .hive-header-social) a {
+  color: var(--sl-color-gray-2);
+}
+
+:is(.social-icons, .hive-header-social) a:hover {
+  color: var(--sl-color-white);
+  opacity: 1;
+}
+
 .sidebar-content a[aria-current="page"] {
   color: var(--sl-color-white);
   background-color: var(--sl-color-gray-5);
