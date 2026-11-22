@@ -9,6 +9,7 @@ export default tseslint.config(
       "**/coverage/**",
       "**/node_modules/**",
       "**/.astro/**",
+      ".claude/**",
       "packages/superhive/web/**",
     ],
   },
