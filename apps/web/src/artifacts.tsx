@@ -38,6 +38,7 @@ import { OfficePreview } from "./office-preview/office-preview";
 import { SheetPanel } from "./sheet-panel";
 import { SplitResizer, useSplitWidth } from "./split-resizer";
 import { formatRelativeTime } from "./whiteboard";
+import { Tooltip } from "./tooltip";
 
 /**
  * 房间「产物」面板：汇总房间里随消息发出的图片和文件，和「代码」一样是从头部打开的大面板。
@@ -826,58 +827,62 @@ export function ArtifactsPanel({
 
   const itemActions = (item: ArtifactItem) => (
     <span className="artifact-actions">
-      <button
-        type="button"
-        className="artifact-action"
-        aria-label={t("下载 {0}", { 0: item.name })}
-        title={t("下载")}
-        onClick={(event) => {
-          event.stopPropagation();
-          download(item);
-        }}
-      >
-        <DownloadIcon />
-      </button>
-      {localOpen?.canOpen(item) && (
+      <Tooltip content={t("下载")}>
         <button
           type="button"
           className="artifact-action"
-          aria-label={t("用本机应用打开 {0}", { 0: item.name })}
-          title={t("用本机应用打开")}
+          aria-label={t("下载 {0}", { 0: item.name })}
           onClick={(event) => {
             event.stopPropagation();
-            openLocally(item, "open");
+            download(item);
           }}
         >
-          <OpenLocallyIcon />
+          <DownloadIcon />
         </button>
+      </Tooltip>
+      {localOpen?.canOpen(item) && (
+        <Tooltip content={t("用本机应用打开")}>
+          <button
+            type="button"
+            className="artifact-action"
+            aria-label={t("用本机应用打开 {0}", { 0: item.name })}
+            onClick={(event) => {
+              event.stopPropagation();
+              openLocally(item, "open");
+            }}
+          >
+            <OpenLocallyIcon />
+          </button>
+        </Tooltip>
       )}
       {localOpen && (
+        <Tooltip content={revealInFolderLabel()}>
+          <button
+            type="button"
+            className="artifact-action"
+            aria-label={`${revealInFolderLabel()}：${item.name}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              openLocally(item, "reveal");
+            }}
+          >
+            <RevealInFolderIcon />
+          </button>
+        </Tooltip>
+      )}
+      <Tooltip content={t("定位到消息")}>
         <button
           type="button"
           className="artifact-action"
-          aria-label={`${revealInFolderLabel()}：${item.name}`}
-          title={revealInFolderLabel()}
+          aria-label={t("定位到 {0} 所在的消息", { 0: item.name })}
           onClick={(event) => {
             event.stopPropagation();
-            openLocally(item, "reveal");
+            locate(item);
           }}
         >
-          <RevealInFolderIcon />
+          <LocateIcon />
         </button>
-      )}
-      <button
-        type="button"
-        className="artifact-action"
-        aria-label={t("定位到 {0} 所在的消息", { 0: item.name })}
-        title={t("定位到消息")}
-        onClick={(event) => {
-          event.stopPropagation();
-          locate(item);
-        }}
-      >
-        <LocateIcon />
-      </button>
+      </Tooltip>
     </span>
   );
 
@@ -894,31 +899,32 @@ export function ArtifactsPanel({
     const isSelected = selected?.artifactId === item.id;
     return (
       <li key={item.id}>
-        <button
-          type="button"
-          className={`artifact-tile${isSelected ? " selected" : ""}`}
-          data-artifact-nav={item.id}
-          aria-pressed={isSelected}
-          onClick={() => (isSelected ? onOpen() : activate(item))}
-          onDoubleClick={onOpen}
-          aria-label={t("查看图片 {0}，{1}", { 0: item.name, 1: describe(item, now) })}
-          title={`${item.name}\n${describe(item, now)}`}
-        >
-          <span className="artifact-tile-image">
-            <Thumbnail item={item} base={base} token={token} />
-            {item.versions && (
-              <span className="artifact-version-badge">
-                {t("{0} 版", { 0: item.versions.length + 1 })}
-              </span>
-            )}
-          </span>
-          <span className="artifact-tile-caption">
-            <strong>{item.name}</strong>
-            <small>
-              {item.senderName} · {formatRelativeTime(item.createdAt, now)}
-            </small>
-          </span>
-        </button>
+        <Tooltip content={`${item.name}\n${describe(item, now)}`}>
+          <button
+            type="button"
+            className={`artifact-tile${isSelected ? " selected" : ""}`}
+            data-artifact-nav={item.id}
+            aria-pressed={isSelected}
+            onClick={() => (isSelected ? onOpen() : activate(item))}
+            onDoubleClick={onOpen}
+            aria-label={t("查看图片 {0}，{1}", { 0: item.name, 1: describe(item, now) })}
+          >
+            <span className="artifact-tile-image">
+              <Thumbnail item={item} base={base} token={token} />
+              {item.versions && (
+                <span className="artifact-version-badge">
+                  {t("{0} 版", { 0: item.versions.length + 1 })}
+                </span>
+              )}
+            </span>
+            <span className="artifact-tile-caption">
+              <strong>{item.name}</strong>
+              <small>
+                {item.senderName} · {formatRelativeTime(item.createdAt, now)}
+              </small>
+            </span>
+          </button>
+        </Tooltip>
       </li>
     );
   };
@@ -956,26 +962,27 @@ export function ArtifactsPanel({
               onDoubleClick={() => activate(artifact, true)}
             >
               <td>
-                <button
-                  type="button"
-                  className="artifact-open"
-                  data-artifact-nav={artifact.id}
-                  aria-pressed={isSelected}
-                  aria-label={t("{0}，{1}", { 0: artifact.name, 1: describe(artifact, now) })}
-                  title={artifact.name}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    activate(artifact);
-                  }}
-                >
-                  {fileIcon(artifact)}
-                  <span className="artifact-name">{artifact.name}</span>
-                  {artifact.versions && (
-                    <span className="artifact-version-chip">
-                      {t("{0} 版", { 0: artifact.versions.length + 1 })}
-                    </span>
-                  )}
-                </button>
+                <Tooltip content={artifact.name}>
+                  <button
+                    type="button"
+                    className="artifact-open"
+                    data-artifact-nav={artifact.id}
+                    aria-pressed={isSelected}
+                    aria-label={t("{0}，{1}", { 0: artifact.name, 1: describe(artifact, now) })}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      activate(artifact);
+                    }}
+                  >
+                    {fileIcon(artifact)}
+                    <span className="artifact-name">{artifact.name}</span>
+                    {artifact.versions && (
+                      <span className="artifact-version-chip">
+                        {t("{0} 版", { 0: artifact.versions.length + 1 })}
+                      </span>
+                    )}
+                  </button>
+                </Tooltip>
               </td>
               <td className="artifact-col-type">{FILTER_LABELS[artifact.category]}</td>
               <td className="artifact-col-size">{formatBytes(artifact.size)}</td>
@@ -1041,38 +1048,40 @@ export function ArtifactsPanel({
       />
       <header className="artifact-detail-header">
         <h3 title={selectedItem.name}>{selectedItem.name}</h3>
-        <button
-          type="button"
-          className="sheet-icon-button"
-          aria-label={t("关闭详情")}
-          title={t("关闭详情")}
-          onClick={closeDetail}
-        >
-          <svg
-            width="15"
-            height="15"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.9"
-            strokeLinecap="round"
-            aria-hidden="true"
+        <Tooltip content={t("关闭详情")}>
+          <button
+            type="button"
+            className="sheet-icon-button"
+            aria-label={t("关闭详情")}
+            onClick={closeDetail}
           >
-            <path d="M6 6l12 12M18 6 6 18" />
-          </svg>
-        </button>
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.9"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </Tooltip>
       </header>
       <div className="artifact-detail-scroll">
         {selectedItem.kind === "image" ? (
-          <button
-            type="button"
-            className="artifact-detail-preview image"
-            aria-label={t("查看大图 {0}", { 0: selectedItem.name })}
-            title={t("查看大图")}
-            onClick={() => open(selectedItem, selectedArtifact)}
-          >
-            <DetailImage key={selectedItem.id} item={selectedItem} base={base} token={token} />
-          </button>
+          <Tooltip content={t("查看大图")}>
+            <button
+              type="button"
+              className="artifact-detail-preview image"
+              aria-label={t("查看大图 {0}", { 0: selectedItem.name })}
+              onClick={() => open(selectedItem, selectedArtifact)}
+            >
+              <DetailImage key={selectedItem.id} item={selectedItem} base={base} token={token} />
+            </button>
+          </Tooltip>
         ) : previewKind(selectedItem) === "office" &&
           token &&
           selectedItem.size <= DETAIL_OFFICE_LIMIT ? (
@@ -1270,22 +1279,22 @@ export function ArtifactsPanel({
                 <span className="artifact-filter-label">{t("所有人")}</span>
               </button>
               {senders.map((item) => (
-                <button
-                  type="button"
-                  key={item.id}
-                  className="artifact-filter"
-                  aria-pressed={sender === item.id}
-                  onClick={() => setSender(item.id)}
-                  title={item.name}
-                >
-                  <span className="artifact-filter-label">{item.name}</span>
-                  {item.type === "agent" && (
-                    <span className="artifact-detail-tag" aria-hidden="true">
-                      Agent
-                    </span>
-                  )}
-                  <span className="artifact-filter-count">{item.count}</span>
-                </button>
+                <Tooltip key={item.id} content={item.name}>
+                  <button
+                    type="button"
+                    className="artifact-filter"
+                    aria-pressed={sender === item.id}
+                    onClick={() => setSender(item.id)}
+                  >
+                    <span className="artifact-filter-label">{item.name}</span>
+                    {item.type === "agent" && (
+                      <span className="artifact-detail-tag" aria-hidden="true">
+                        Agent
+                      </span>
+                    )}
+                    <span className="artifact-filter-count">{item.count}</span>
+                  </button>
+                </Tooltip>
               ))}
             </div>
           )}
@@ -1325,16 +1334,16 @@ export function ArtifactsPanel({
             {!fileFilter && (
               <div className="artifact-view-toggle" role="group" aria-label={t("图片显示方式")}>
                 {(["grid", "list"] as const).map((value) => (
-                  <button
-                    type="button"
-                    key={value}
-                    aria-pressed={view === value}
-                    aria-label={value === "grid" ? t("网格") : t("列表")}
-                    title={value === "grid" ? t("网格") : t("列表")}
-                    onClick={() => setView(value)}
-                  >
-                    <ViewIcon view={value} />
-                  </button>
+                  <Tooltip key={value} content={value === "grid" ? t("网格") : t("列表")}>
+                    <button
+                      type="button"
+                      aria-pressed={view === value}
+                      aria-label={value === "grid" ? t("网格") : t("列表")}
+                      onClick={() => setView(value)}
+                    >
+                      <ViewIcon view={value} />
+                    </button>
+                  </Tooltip>
                 ))}
               </div>
             )}
@@ -1425,29 +1434,31 @@ export function ArtifactsPanel({
             return (
               <>
                 {item.versions && lightbox.source !== "versions" && (
+                  <Tooltip content={t("在这几个版本之间切换")}>
+                    <button
+                      type="button"
+                      className="attachment-lightbox-text"
+                      onClick={() =>
+                        setLightbox({
+                          source: "versions",
+                          items: [item, ...item.versions!],
+                          index: 0,
+                        })
+                      }
+                    >
+                      {t("历史版本（{0}）", { 0: item.versions.length })}
+                    </button>
+                  </Tooltip>
+                )}
+                <Tooltip content={t("下载")}>
                   <button
                     type="button"
                     className="attachment-lightbox-text"
-                    title={t("在这几个版本之间切换")}
-                    onClick={() =>
-                      setLightbox({
-                        source: "versions",
-                        items: [item, ...item.versions!],
-                        index: 0,
-                      })
-                    }
+                    onClick={() => download(item)}
                   >
-                    {t("历史版本（{0}）", { 0: item.versions.length })}
+                    {t("下载")}
                   </button>
-                )}
-                <button
-                  type="button"
-                  className="attachment-lightbox-text"
-                  title={t("下载")}
-                  onClick={() => download(item)}
-                >
-                  {t("下载")}
-                </button>
+                </Tooltip>
                 {localOpen?.canOpen(item) && (
                   <button
                     type="button"
@@ -1466,14 +1477,15 @@ export function ArtifactsPanel({
                     {revealInFolderLabel()}
                   </button>
                 )}
-                <button
-                  type="button"
-                  className="attachment-lightbox-text"
-                  title={t("定位到消息")}
-                  onClick={() => locate(item)}
-                >
-                  {t("定位到消息")}
-                </button>
+                <Tooltip content={t("定位到消息")}>
+                  <button
+                    type="button"
+                    className="attachment-lightbox-text"
+                    onClick={() => locate(item)}
+                  >
+                    {t("定位到消息")}
+                  </button>
+                </Tooltip>
               </>
             );
           }}

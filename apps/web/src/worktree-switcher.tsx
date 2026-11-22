@@ -313,44 +313,47 @@ export function WorktreeSwitcher({
               <ul className="worktree-switcher-list">
                 {rows.map((row) => (
                   <li key={row.id}>
-                    <button
-                      type="button"
-                      className={`worktree-switcher-row${row.current ? " current" : ""}`}
-                      disabled={row.missing}
-                      aria-current={row.current ? "true" : undefined}
-                      title={
+                    <Tooltip
+                      content={
                         row.missing ? undefined : t("在「代码」面板里打开 {0}", { 0: row.branch })
                       }
-                      onClick={() => {
-                        close(false);
-                        onOpenSource(row.id);
-                      }}
                     >
-                      <span className="worktree-switcher-line">
-                        <code>{row.branch}</code>
-                        {row.current && (
-                          <span className="worktree-switcher-current">{t("当前")}</span>
-                        )}
-                        {row.time && (
-                          <time
-                            dateTime={row.time.iso}
-                            title={new Date(row.time.iso).toLocaleString()}
-                          >
-                            {row.time.created
-                              ? t("{0}建立", { 0: formatRelativeTime(row.time.iso, now) })
-                              : formatRelativeTime(row.time.iso, now)}
-                          </time>
-                        )}
-                      </span>
-                      <span className="worktree-switcher-meta">
-                        <span className="worktree-switcher-owner">{row.owner}</span>
-                        {row.chips.map((chip) => (
-                          <span key={chip.label} className={chip.tone}>
-                            {chip.label}
-                          </span>
-                        ))}
-                      </span>
-                    </button>
+                      <button
+                        type="button"
+                        className={`worktree-switcher-row${row.current ? " current" : ""}`}
+                        disabled={row.missing}
+                        aria-current={row.current ? "true" : undefined}
+                        onClick={() => {
+                          close(false);
+                          onOpenSource(row.id);
+                        }}
+                      >
+                        <span className="worktree-switcher-line">
+                          <code>{row.branch}</code>
+                          {row.current && (
+                            <span className="worktree-switcher-current">{t("当前")}</span>
+                          )}
+                          {row.time && (
+                            <time
+                              dateTime={row.time.iso}
+                              title={new Date(row.time.iso).toLocaleString()}
+                            >
+                              {row.time.created
+                                ? t("{0}建立", { 0: formatRelativeTime(row.time.iso, now) })
+                                : formatRelativeTime(row.time.iso, now)}
+                            </time>
+                          )}
+                        </span>
+                        <span className="worktree-switcher-meta">
+                          <span className="worktree-switcher-owner">{row.owner}</span>
+                          {row.chips.map((chip) => (
+                            <span key={chip.label} className={chip.tone}>
+                              {chip.label}
+                            </span>
+                          ))}
+                        </span>
+                      </button>
+                    </Tooltip>
                   </li>
                 ))}
                 {rows.length === 1 && (

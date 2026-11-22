@@ -11,6 +11,7 @@ import { t } from "./i18n";
 import type { AgentCliWithAgents, LocalAgentsState } from "./local-agents";
 import { RuntimeConfigPanel, type RuntimeConfigApi } from "./runtime-config-panel";
 import "./styles/agent-clis.css";
+import { Tooltip } from "./tooltip";
 
 /**
  * 这台电脑装了哪些 Agent CLI（只在 Server 所在电脑上的本机房主页面显示）：版本、安装位置与来源、
@@ -316,24 +317,27 @@ function AgentCliCard({
             </button>
           )}
           {(offered || mine) && (
-            <button
-              type="button"
-              ref={buttonRef}
-              className="settings-action agent-cli-button"
-              aria-expanded={confirming}
-              disabled={Boolean(activity) || submitting}
-              title={
+            <Tooltip
+              content={
                 other
                   ? other.action === "install"
                     ? t("正在安装 {0}，完成后再试", { 0: other.name })
                     : t("正在升级 {0}，完成后再试", { 0: other.name })
                   : undefined
               }
-              onClick={() => setConfirming(true)}
             >
-              {mine && <span className="agent-cli-spinner" aria-hidden />}
-              {label}
-            </button>
+              <button
+                type="button"
+                ref={buttonRef}
+                className="settings-action agent-cli-button"
+                aria-expanded={confirming}
+                disabled={Boolean(activity) || submitting}
+                onClick={() => setConfirming(true)}
+              >
+                {mine && <span className="agent-cli-spinner" aria-hidden />}
+                {label}
+              </button>
+            </Tooltip>
           )}
         </div>
       </div>

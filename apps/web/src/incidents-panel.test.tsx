@@ -230,7 +230,7 @@ describe("incident entry", () => {
     const group = screen.getByRole("region", { name: "需要你处理" });
     expect(group.textContent).toContain("故障单");
     expect(group.textContent).toContain("规则提议");
-    fireEvent.click(screen.getByTitle("TypeError: escalated"));
+    fireEvent.click(screen.getByRole("button", { name: /TypeError: escalated/ }));
     expect(onOpenIncident).toHaveBeenCalledWith(expect.objectContaining({ id: "i1" }));
   });
 });

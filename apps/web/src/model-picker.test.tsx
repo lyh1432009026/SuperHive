@@ -74,10 +74,12 @@ describe("换个模型重试", () => {
     expect(
       screen.getByRole("button", { name: /^重试 @rd-codex/ }).getAttribute("aria-describedby"),
     ).toBe(note.id);
+    // 悬停提示的说明接在后果后面
     expect(
       screen
         .getByRole("button", { name: "换个模型重试 @rd-codex" })
-        .getAttribute("aria-describedby"),
+        .getAttribute("aria-describedby")
+        ?.split(" ")[0],
     ).toBe(note.id);
   });
 

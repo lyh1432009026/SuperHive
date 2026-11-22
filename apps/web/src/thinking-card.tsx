@@ -19,6 +19,7 @@ import {
   useTraceClock,
 } from "./live-trace";
 import "./styles/thinking-card.css";
+import { Tooltip } from "./tooltip";
 
 // 和消息正文共用同一个 Markdown 渲染器（独立 chunk，App 启动时已在预加载）；没加载好之前先按纯文本显示
 type MarkdownComponent = (typeof import("./message-markdown"))["MessageMarkdown"];
@@ -386,15 +387,16 @@ export function ThinkingCard({
           </span>
           {detail === "line" && trigger && (
             // 只留一行时，在处理哪条消息缩成一个序号，点了照样跳过去
-            <button
-              type="button"
-              className="thinking-card-trigger-chip"
-              disabled={!onJumpToTrigger}
-              title={t("回应 #{0}：{1}", { 0: trigger.seq, 1: trigger.preview })}
-              onClick={onJumpToTrigger}
-            >
-              #{trigger.seq}
-            </button>
+            <Tooltip content={t("回应 #{0}：{1}", { 0: trigger.seq, 1: trigger.preview })}>
+              <button
+                type="button"
+                className="thinking-card-trigger-chip"
+                disabled={!onJumpToTrigger}
+                onClick={onJumpToTrigger}
+              >
+                #{trigger.seq}
+              </button>
+            </Tooltip>
           )}
           <span className="thinking-card-current" title={currentText}>
             {currentText}
@@ -409,31 +411,34 @@ export function ThinkingCard({
           {observable && (
             <span className="thinking-card-detail" role="group" aria-label={t("显示多少")}>
               {detailOptions().map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  aria-pressed={detail === option.id}
-                  title={option.title}
-                  onClick={() => setUserDetail(option.id)}
-                >
-                  {option.label}
-                </button>
+                <Tooltip key={option.id} content={option.title}>
+                  <button
+                    type="button"
+                    aria-pressed={detail === option.id}
+                    onClick={() => setUserDetail(option.id)}
+                  >
+                    {option.label}
+                  </button>
+                </Tooltip>
               ))}
             </span>
           )}
         </header>
         {detail !== "line" && trigger && (
           // 在处理哪个问题：引用触发消息的开头，点了跳到那条消息
-          <button
-            type="button"
-            className="thinking-card-trigger"
-            disabled={!onJumpToTrigger}
-            title={onJumpToTrigger ? t("跳到 #{0}", { 0: trigger.seq }) : undefined}
-            onClick={onJumpToTrigger}
-          >
-            <span className="thinking-card-trigger-seq">{t("回应 #{0}", { 0: trigger.seq })}</span>
-            <span className="thinking-card-trigger-text">{trigger.preview}</span>
-          </button>
+          <Tooltip content={onJumpToTrigger ? t("跳到 #{0}", { 0: trigger.seq }) : undefined}>
+            <button
+              type="button"
+              className="thinking-card-trigger"
+              disabled={!onJumpToTrigger}
+              onClick={onJumpToTrigger}
+            >
+              <span className="thinking-card-trigger-seq">
+                {t("回应 #{0}", { 0: trigger.seq })}
+              </span>
+              <span className="thinking-card-trigger-text">{trigger.preview}</span>
+            </button>
+          </Tooltip>
         )}
         {detail === "recent" && observable && (
           <>

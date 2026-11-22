@@ -162,8 +162,9 @@ describe("WhiteboardPanel lifecycle", () => {
     );
     const pick = screen.getByRole("button", { name: "选择可归档事项" });
     // 「哪些不能归档」的说明不单独占行，挂在按钮上：悬停提示 + 读屏描述
-    expect(pick.getAttribute("title")).toBe("仍占用工作区的事项不可归档；每次最多选择 200 条。");
-    expect(pick.getAttribute("aria-describedby")).toBeTruthy();
+    expect(pick.hasAttribute("title")).toBe(false);
+    const description = document.getElementById(pick.getAttribute("aria-describedby")!);
+    expect(description?.textContent).toBe("仍占用工作区的事项不可归档；每次最多选择 200 条。");
     expect(screen.queryByRole("group", { name: "批量操作" })).toBeNull();
     await user.click(pick);
     expect(screen.getByText("已选择 2 条")).toBeTruthy();

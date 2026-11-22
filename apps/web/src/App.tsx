@@ -129,6 +129,7 @@ import { ChatHeader, ChatNotices } from "./chat-header";
 import { MessageList } from "./message-list";
 import { ShareBar, useShareSelection } from "./share-bar";
 import { Composer } from "./composer";
+import { Tooltip } from "./tooltip";
 
 export function App({
   guest,
@@ -469,19 +470,20 @@ export function App({
     if (!agent) return null;
     return (
       <span className="guest-actions">
-        <button
-          type="button"
-          className="guest-actions-trigger agent-settings-trigger"
-          aria-label={t("{0} 的设置", { 0: agent.name })}
-          title={t("设置（重启、停止、MCP 等）")}
-          onClick={(event) => {
-            event.stopPropagation();
-            setSettingsAgentId(agent.id);
-          }}
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <SettingsGlyph />
-        </button>
+        <Tooltip content={t("设置（重启、停止、MCP 等）")}>
+          <button
+            type="button"
+            className="guest-actions-trigger agent-settings-trigger"
+            aria-label={t("{0} 的设置", { 0: agent.name })}
+            onClick={(event) => {
+              event.stopPropagation();
+              setSettingsAgentId(agent.id);
+            }}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <SettingsGlyph />
+          </button>
+        </Tooltip>
       </span>
     );
   }
@@ -808,23 +810,24 @@ export function App({
     return newest;
   }, [dockedPreview, messages]);
   const dockedNewerNotice = dockedNewerVersion && (
-    <button
-      type="button"
-      className="file-preview-newer"
-      title={t("换成最新发的 {0}", { 0: dockedPreview?.attachment.name ?? "" })}
-      onClick={() =>
-        setDockedPreview(
-          (current) =>
-            current && {
-              ...current,
-              attachment: dockedNewerVersion.attachment,
-              seq: dockedNewerVersion.seq,
-            },
-        )
-      }
-    >
-      {t("有新版本")}
-    </button>
+    <Tooltip content={t("换成最新发的 {0}", { 0: dockedPreview?.attachment.name ?? "" })}>
+      <button
+        type="button"
+        className="file-preview-newer"
+        onClick={() =>
+          setDockedPreview(
+            (current) =>
+              current && {
+                ...current,
+                attachment: dockedNewerVersion.attachment,
+                seq: dockedNewerVersion.seq,
+              },
+          )
+        }
+      >
+        {t("有新版本")}
+      </button>
+    </Tooltip>
   );
 
   useEffect(() => {
@@ -2202,7 +2205,6 @@ export function App({
             connectionState={connectionState}
             sendShortcut={sendShortcut}
             richComposer={richComposer}
-            modifierKeyLabel={modifierKeyLabel}
             currentRoomId={currentRoomId}
           />
         </section>

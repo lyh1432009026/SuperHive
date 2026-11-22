@@ -89,7 +89,7 @@ describe("sidebar incident entry", () => {
         })}
       />,
     );
-    fireEvent.click(screen.getByTitle("TypeError: escalated"));
+    fireEvent.click(screen.getByRole("button", { name: /TypeError: escalated/ }));
     expect(open).toHaveBeenCalledWith(undefined, "i1");
   });
 });

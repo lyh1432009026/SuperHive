@@ -4,6 +4,7 @@ import { FilePreview } from "./attachments";
 import { fitSideTabs } from "./ui-utils";
 import { sidePanelTabs, type MobilePanel, type SidePanelTab } from "./app-storage";
 import { Icon } from "./app-icons";
+import { Tooltip } from "./tooltip";
 import { SchedulePanel } from "./schedules";
 import {
   ProgressPanel,
@@ -186,76 +187,82 @@ export function SidePanel({
                 event.currentTarget.querySelector<HTMLButtonElement>(`#side-tab-${next}`)?.focus();
               }}
             >
-              <button
-                type="button"
-                role="tab"
-                id="side-tab-members"
-                title={t("成员")}
-                aria-selected={sidePanelTab === "members"}
-                aria-controls="side-panel-members"
-                tabIndex={sidePanelTab === "members" ? 0 : -1}
-                className={sidePanelTab === "members" ? "active" : ""}
-                onClick={() => setSidePanelTab("members")}
-              >
-                <Icon name="users" size={15} />
-                <span className="side-tab-label">{t("成员")}</span>
-                <span className="side-tab-count" aria-label={t("{0} 位在线", { 0: online.length })}>
-                  {online.length}
-                </span>
-              </button>
-              <button
-                type="button"
-                role="tab"
-                id="side-tab-whiteboard"
-                title={t("进展")}
-                aria-selected={sidePanelTab === "whiteboard"}
-                aria-controls="side-panel-whiteboard"
-                tabIndex={sidePanelTab === "whiteboard" ? 0 : -1}
-                className={sidePanelTab === "whiteboard" ? "active" : ""}
-                onClick={() => setSidePanelTab("whiteboard")}
-              >
-                <Icon name="board" size={15} />
-                <span className="side-tab-label">{t("进展")}</span>
-                {progressGroups.attention.length > 0 ? (
-                  <span
-                    className="side-tab-count warning"
-                    aria-label={t("{0} 件等你处理", { 0: progressGroups.attention.length })}
-                  >
-                    {progressGroups.attention.length}
-                  </span>
-                ) : (
-                  doingCount > 0 && (
-                    <span
-                      className="side-tab-count"
-                      aria-label={t("{0} 件在做", { 0: doingCount })}
-                    >
-                      {doingCount}
-                    </span>
-                  )
-                )}
-              </button>
-              <button
-                type="button"
-                role="tab"
-                id="side-tab-schedules"
-                title={t("定时")}
-                aria-selected={sidePanelTab === "schedules"}
-                aria-controls="side-panel-schedules"
-                tabIndex={sidePanelTab === "schedules" ? 0 : -1}
-                className={sidePanelTab === "schedules" ? "active" : ""}
-                onClick={() => setSidePanelTab("schedules")}
-              >
-                <Icon name="clock" size={15} />
-                <span className="side-tab-label">{t("定时")}</span>
-                {pendingScheduleCount > 0 && (
+              <Tooltip content={t("成员")}>
+                <button
+                  type="button"
+                  role="tab"
+                  id="side-tab-members"
+                  aria-selected={sidePanelTab === "members"}
+                  aria-controls="side-panel-members"
+                  tabIndex={sidePanelTab === "members" ? 0 : -1}
+                  className={sidePanelTab === "members" ? "active" : ""}
+                  onClick={() => setSidePanelTab("members")}
+                >
+                  <Icon name="users" size={15} />
+                  <span className="side-tab-label">{t("成员")}</span>
                   <span
                     className="side-tab-count"
-                    aria-label={t("{0} 个待执行", { 0: pendingScheduleCount })}
+                    aria-label={t("{0} 位在线", { 0: online.length })}
                   >
-                    {pendingScheduleCount}
+                    {online.length}
                   </span>
-                )}
-              </button>
+                </button>
+              </Tooltip>
+              <Tooltip content={t("进展")}>
+                <button
+                  type="button"
+                  role="tab"
+                  id="side-tab-whiteboard"
+                  aria-selected={sidePanelTab === "whiteboard"}
+                  aria-controls="side-panel-whiteboard"
+                  tabIndex={sidePanelTab === "whiteboard" ? 0 : -1}
+                  className={sidePanelTab === "whiteboard" ? "active" : ""}
+                  onClick={() => setSidePanelTab("whiteboard")}
+                >
+                  <Icon name="board" size={15} />
+                  <span className="side-tab-label">{t("进展")}</span>
+                  {progressGroups.attention.length > 0 ? (
+                    <span
+                      className="side-tab-count warning"
+                      aria-label={t("{0} 件等你处理", { 0: progressGroups.attention.length })}
+                    >
+                      {progressGroups.attention.length}
+                    </span>
+                  ) : (
+                    doingCount > 0 && (
+                      <span
+                        className="side-tab-count"
+                        aria-label={t("{0} 件在做", { 0: doingCount })}
+                      >
+                        {doingCount}
+                      </span>
+                    )
+                  )}
+                </button>
+              </Tooltip>
+              <Tooltip content={t("定时")}>
+                <button
+                  type="button"
+                  role="tab"
+                  id="side-tab-schedules"
+                  aria-selected={sidePanelTab === "schedules"}
+                  aria-controls="side-panel-schedules"
+                  tabIndex={sidePanelTab === "schedules" ? 0 : -1}
+                  className={sidePanelTab === "schedules" ? "active" : ""}
+                  onClick={() => setSidePanelTab("schedules")}
+                >
+                  <Icon name="clock" size={15} />
+                  <span className="side-tab-label">{t("定时")}</span>
+                  {pendingScheduleCount > 0 && (
+                    <span
+                      className="side-tab-count"
+                      aria-label={t("{0} 个待执行", { 0: pendingScheduleCount })}
+                    >
+                      {pendingScheduleCount}
+                    </span>
+                  )}
+                </button>
+              </Tooltip>
             </div>
             <button
               ref={membersCloseRef}
@@ -326,104 +333,99 @@ export function SidePanel({
                     if (task) openAgentTask(participant.username);
                     else appendMention(participant.username);
                   };
-                  const hintId = `member-task-hint-${participant.id}`;
                   return (
                     <div
                       key={participant.id}
                       className="member-row"
                       onContextMenu={(event) => openMemberMenu(event, participant)}
                     >
-                      {/* 用 div 承载点击：访客行里还要嵌入「⋯」按钮，button 不能嵌套 button */}
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        className={`member${task ? " has-task" : ""}`}
-                        aria-describedby={task ? hintId : undefined}
-                        onClick={activate}
-                        onKeyDown={(event) => {
-                          if (event.target !== event.currentTarget) return;
-                          if (event.key !== "Enter" && event.key !== " ") return;
-                          event.preventDefault();
-                          activate();
-                        }}
-                      >
-                        <span
-                          className={`avatar ${participant.type}`}
-                          style={
-                            participant.type === "human"
-                              ? avatarHueStyle(participant.username)
-                              : undefined
-                          }
-                          aria-hidden="true"
+                      {/* 用 div 承载点击：访客行里还要嵌入「⋯」按钮，button 不能嵌套 button。
+                          忙碌时悬停提示它在做哪条、点击会跳过去，读屏聚焦时作为描述念出 */}
+                      <Tooltip content={task ? memberTaskHint(task) : undefined}>
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          className={`member${task ? " has-task" : ""}`}
+                          onClick={activate}
+                          onKeyDown={(event) => {
+                            if (event.target !== event.currentTarget) return;
+                            if (event.key !== "Enter" && event.key !== " ") return;
+                            event.preventDefault();
+                            activate();
+                          }}
                         >
-                          <AvatarGlyph
-                            type={participant.type}
-                            name={participant.username}
-                            provider={participant.provider}
-                          />
-                        </span>
-                        <span className="member-copy">
-                          <strong>
-                            {participant.username}
-                            {isLeadAgent(participant) && (
-                              <span
-                                className="member-lead-badge"
-                                title={t("主 Agent：没有 @ 任何人的消息由它接话、调度其他 Agent")}
-                              >
-                                {t("主")}
-                              </span>
-                            )}
-                            <OutdatedBadge participant={participant} />
-                            {participant.type === "agent" &&
-                              localAgentNames.has(participant.username.toLocaleLowerCase()) && (
-                                <>
-                                  <span
-                                    className="member-local-badge"
-                                    title={
-                                      local.mode === "device"
-                                        ? t("由 {0} 上的 Hive Server 启动", {
-                                            0: local.hostLabel ?? t("Server 所在电脑"),
-                                          })
-                                        : t("由本机 Hive Server 启动")
-                                    }
-                                  >
-                                    {local.mode === "device" ? t("主机") : t("本机")}
-                                  </span>
-                                  {agentSettingsButton(participant.username)}
-                                </>
-                              )}
-                            {task && (
-                              <span className="guest-actions">
-                                <button
-                                  type="button"
-                                  className="guest-actions-trigger member-mention-trigger"
-                                  aria-label={t("在输入框里 @{0}", { 0: participant.username })}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    closeMobilePanel(false);
-                                    appendMention(participant.username);
-                                  }}
-                                  onKeyDown={(event) => event.stopPropagation()}
+                          <span
+                            className={`avatar ${participant.type}`}
+                            style={
+                              participant.type === "human"
+                                ? avatarHueStyle(participant.username)
+                                : undefined
+                            }
+                            aria-hidden="true"
+                          >
+                            <AvatarGlyph
+                              type={participant.type}
+                              name={participant.username}
+                              provider={participant.provider}
+                            />
+                          </span>
+                          <span className="member-copy">
+                            <strong>
+                              {participant.username}
+                              {isLeadAgent(participant) && (
+                                <span
+                                  className="member-lead-badge"
+                                  title={t("主 Agent：没有 @ 任何人的消息由它接话、调度其他 Agent")}
                                 >
-                                  @
-                                </button>
-                              </span>
-                            )}
-                            {isOwner && authToken && participant.access && (
-                              <GuestMemberActions
-                                participant={participant}
-                                base={base}
-                                adminToken={authToken}
-                                now={accessNow}
-                                onError={setError}
-                              />
-                            )}
-                          </strong>
-                          {task ? (
-                            <small className="member-task" id={hintId}>
-                              {memberTaskHint(task)}
-                            </small>
-                          ) : (
+                                  {t("主")}
+                                </span>
+                              )}
+                              <OutdatedBadge participant={participant} />
+                              {participant.type === "agent" &&
+                                localAgentNames.has(participant.username.toLocaleLowerCase()) && (
+                                  <>
+                                    <span
+                                      className="member-local-badge"
+                                      title={
+                                        local.mode === "device"
+                                          ? t("由 {0} 上的 Hive Server 启动", {
+                                              0: local.hostLabel ?? t("Server 所在电脑"),
+                                            })
+                                          : t("由本机 Hive Server 启动")
+                                      }
+                                    >
+                                      {local.mode === "device" ? t("主机") : t("本机")}
+                                    </span>
+                                    {agentSettingsButton(participant.username)}
+                                  </>
+                                )}
+                              {task && (
+                                <span className="guest-actions">
+                                  <button
+                                    type="button"
+                                    className="guest-actions-trigger member-mention-trigger"
+                                    aria-label={t("在输入框里 @{0}", { 0: participant.username })}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      closeMobilePanel(false);
+                                      appendMention(participant.username);
+                                    }}
+                                    onKeyDown={(event) => event.stopPropagation()}
+                                  >
+                                    @
+                                  </button>
+                                </span>
+                              )}
+                              {isOwner && authToken && participant.access && (
+                                <GuestMemberActions
+                                  participant={participant}
+                                  base={base}
+                                  adminToken={authToken}
+                                  now={accessNow}
+                                  onError={setError}
+                                />
+                              )}
+                            </strong>
                             <small>
                               {participant.access ? (
                                 <>
@@ -438,14 +440,14 @@ export function SidePanel({
                                 "Human"
                               )}
                             </small>
-                          )}
-                        </span>
-                        <span
-                          className={`status-dot ${participant.status}`}
-                          title={participantStatusLabel(participant.status)}
-                          aria-label={participantStatusLabel(participant.status)}
-                        />
-                      </div>
+                          </span>
+                          <span
+                            className={`status-dot ${participant.status}`}
+                            title={participantStatusLabel(participant.status)}
+                            aria-label={participantStatusLabel(participant.status)}
+                          />
+                        </div>
+                      </Tooltip>
                     </div>
                   );
                 })}
@@ -520,49 +522,52 @@ export function SidePanel({
               {/* 成员栏底部只留一行：邀请成员、接入 Agent 并排，说明放到悬停提示里 */}
               <div className="member-invite" role="group" aria-label={t("添加成员")}>
                 {isOwner ? (
-                  <button
-                    type="button"
-                    className="member-invite-action"
-                    aria-haspopup="dialog"
-                    title={t("生成限时链接，到期后自动失效")}
-                    onClick={() => setInviteDialogOpen(true)}
-                  >
-                    <Icon name="user-plus" size={16} />
-                    <span>
-                      <strong>{t("邀请成员")}</strong>
-                    </span>
-                  </button>
-                ) : (
-                  guest && (
+                  <Tooltip content={t("生成限时链接，到期后自动失效")}>
                     <button
                       type="button"
                       className="member-invite-action"
                       aria-haspopup="dialog"
-                      title={t("只能进本房间，和你同时到期")}
-                      onClick={() => setGuestAgentDialogOpen(true)}
+                      onClick={() => setInviteDialogOpen(true)}
                     >
-                      <Icon name="plug" size={16} />
+                      <Icon name="user-plus" size={16} />
                       <span>
-                        <strong>{t("带入我的 Agent")}</strong>
+                        <strong>{t("邀请成员")}</strong>
                       </span>
                     </button>
+                  </Tooltip>
+                ) : (
+                  guest && (
+                    <Tooltip content={t("只能进本房间，和你同时到期")}>
+                      <button
+                        type="button"
+                        className="member-invite-action"
+                        aria-haspopup="dialog"
+                        onClick={() => setGuestAgentDialogOpen(true)}
+                      >
+                        <Icon name="plug" size={16} />
+                        <span>
+                          <strong>{t("带入我的 Agent")}</strong>
+                        </span>
+                      </button>
+                    </Tooltip>
                   )
                 )}
                 {isOwner && (
-                  <button
-                    type="button"
-                    className="member-invite-action sidebar-agent-entry"
-                    aria-label={t("接入 Agent")}
-                    aria-haspopup="dialog"
-                    aria-expanded={agentDialogOpen}
-                    title={t("选择运行时并复制接入命令")}
-                    onClick={(event) => openAgentDialog(event.currentTarget)}
-                  >
-                    <Icon name="plug" size={16} />
-                    <span>
-                      <strong>{t("接入 Agent")}</strong>
-                    </span>
-                  </button>
+                  <Tooltip content={t("选择运行时并复制接入命令")}>
+                    <button
+                      type="button"
+                      className="member-invite-action sidebar-agent-entry"
+                      aria-label={t("接入 Agent")}
+                      aria-haspopup="dialog"
+                      aria-expanded={agentDialogOpen}
+                      onClick={(event) => openAgentDialog(event.currentTarget)}
+                    >
+                      <Icon name="plug" size={16} />
+                      <span>
+                        <strong>{t("接入 Agent")}</strong>
+                      </span>
+                    </button>
+                  </Tooltip>
                 )}
               </div>
             </>
@@ -573,7 +578,7 @@ export function SidePanel({
   );
 }
 
-/** 忙碌 Agent 行的副标题：它在做哪条、在哪个房间，并说明点击会跳过去 */
+/** 忙碌 Agent 行的悬停提示：它在做哪条、在哪个房间，并说明点击会跳过去 */
 function memberTaskHint({
   count,
   seq,

@@ -51,6 +51,7 @@ import type { useMessageJump, useMessageWindow } from "./use-message-timeline";
 import type { ShareSelection } from "./share-bar";
 import type { ComposerState } from "./use-composer";
 import type { MessageActions } from "./use-message-actions";
+import { Tooltip } from "./tooltip";
 
 type SenderMenuOpener = (
   event: ReactMouseEvent<HTMLElement>,
@@ -395,28 +396,31 @@ export function MessageList({
                       const canJump = Boolean(target && loadedMessageIds.has(target));
                       return (
                         <li key={row.participant.id}>
-                          <button
-                            type="button"
-                            className={`typing-agent ${row.state}`}
-                            disabled={!canJump}
-                            title={
+                          <Tooltip
+                            content={
                               canJump
                                 ? t("{0}，点击跳到它正在处理的消息", {
                                     0: row.participant.username,
                                   })
                                 : row.participant.username
                             }
-                            onClick={() => target && jumpToMessage(target)}
                           >
-                            <span className="mention-avatar agent" aria-hidden="true">
-                              <AvatarGlyph
-                                type="agent"
-                                name={row.participant.username}
-                                provider={row.participant.provider}
-                              />
-                            </span>
-                            <strong>{row.participant.username}</strong>
-                          </button>
+                            <button
+                              type="button"
+                              className={`typing-agent ${row.state}`}
+                              disabled={!canJump}
+                              onClick={() => target && jumpToMessage(target)}
+                            >
+                              <span className="mention-avatar agent" aria-hidden="true">
+                                <AvatarGlyph
+                                  type="agent"
+                                  name={row.participant.username}
+                                  provider={row.participant.provider}
+                                />
+                              </span>
+                              <strong>{row.participant.username}</strong>
+                            </button>
+                          </Tooltip>
                         </li>
                       );
                     })}
@@ -606,18 +610,19 @@ function MessageItem({
               </span>
             )}
             <time dateTime={message.createdAt}>{formatMessageTime(message.createdAt)}</time>
-            <button
-              type="button"
-              className="message-seq"
-              title={t("复制序号引用（可用于在聊天中引用这条消息）")}
-              aria-label={t("复制消息序号 #{0}", { 0: message.seq })}
-              onClick={(event) => {
-                event.stopPropagation();
-                void copySeqReference(message);
-              }}
-            >
-              {copiedMessageId === `seq:${message.id}` ? t("已复制") : `#${message.seq}`}
-            </button>
+            <Tooltip content={t("复制序号引用（可用于在聊天中引用这条消息）")}>
+              <button
+                type="button"
+                className="message-seq"
+                aria-label={t("复制消息序号 #{0}", { 0: message.seq })}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void copySeqReference(message);
+                }}
+              >
+                {copiedMessageId === `seq:${message.id}` ? t("已复制") : `#${message.seq}`}
+              </button>
+            </Tooltip>
           </header>
         )}
         {message.deletedAt ? (
@@ -630,32 +635,33 @@ function MessageItem({
           (() => {
             const preview = machinePreview(message);
             return (
-              <button
-                type="button"
-                className="message-machine-card"
-                title={t("Agent 之间的往来，点开看全文")}
-                aria-expanded={false}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setOpenMachineIds((current) => new Set(current).add(message.id));
-                }}
-              >
-                <span className="message-machine-label">
-                  <span>
-                    {splitMentions(preview.label).map((part, index) =>
-                      part.mention ? <mark key={index}>{part.text}</mark> : part.text,
-                    )}
+              <Tooltip content={t("Agent 之间的往来，点开看全文")}>
+                <button
+                  type="button"
+                  className="message-machine-card"
+                  aria-expanded={false}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setOpenMachineIds((current) => new Set(current).add(message.id));
+                  }}
+                >
+                  <span className="message-machine-label">
+                    <span>
+                      {splitMentions(preview.label).map((part, index) =>
+                        part.mention ? <mark key={index}>{part.text}</mark> : part.text,
+                      )}
+                    </span>
+                    <small>{t("展开")}</small>
                   </span>
-                  <small>{t("展开")}</small>
-                </span>
-                {preview.text && (
-                  <span className="message-machine-text">
-                    {splitMentions(preview.text).map((part, index) =>
-                      part.mention ? <mark key={index}>{part.text}</mark> : part.text,
-                    )}
-                  </span>
-                )}
-              </button>
+                  {preview.text && (
+                    <span className="message-machine-text">
+                      {splitMentions(preview.text).map((part, index) =>
+                        part.mention ? <mark key={index}>{part.text}</mark> : part.text,
+                      )}
+                    </span>
+                  )}
+                </button>
+              </Tooltip>
             );
           })()
         ) : (
@@ -798,35 +804,38 @@ function MessageItem({
       ) : (
         <div className="message-actions">
           {grouped && (
-            <button
-              type="button"
-              className="message-action seq"
-              title={t("复制序号引用")}
-              aria-label={t("复制消息序号 #{0}", { 0: message.seq })}
-              onClick={() => void copySeqReference(message)}
-            >
-              {copiedMessageId === `seq:${message.id}` ? "✓" : `#${message.seq}`}
-            </button>
+            <Tooltip content={t("复制序号引用")}>
+              <button
+                type="button"
+                className="message-action seq"
+                aria-label={t("复制消息序号 #{0}", { 0: message.seq })}
+                onClick={() => void copySeqReference(message)}
+              >
+                {copiedMessageId === `seq:${message.id}` ? "✓" : `#${message.seq}`}
+              </button>
+            </Tooltip>
           )}
-          <button
-            type="button"
-            className="message-action"
-            aria-label={t("复制消息原文")}
-            title={t("复制消息")}
-            onClick={() => void copyMessageContent(message)}
-          >
-            <Icon name={copiedMessageId === message.id ? "check" : "copy"} size={13} />
-          </button>
-          {message.senderName.toLocaleLowerCase() !== username.toLocaleLowerCase() ? (
+          <Tooltip content={t("复制消息")}>
             <button
               type="button"
               className="message-action"
-              aria-label={t("在输入框中提及 {0}", { 0: message.senderName })}
-              title={`@${message.senderName}`}
-              onClick={() => appendMention(message.senderName)}
+              aria-label={t("复制消息原文")}
+              onClick={() => void copyMessageContent(message)}
             >
-              @
+              <Icon name={copiedMessageId === message.id ? "check" : "copy"} size={13} />
             </button>
+          </Tooltip>
+          {message.senderName.toLocaleLowerCase() !== username.toLocaleLowerCase() ? (
+            <Tooltip content={`@${message.senderName}`}>
+              <button
+                type="button"
+                className="message-action"
+                aria-label={t("在输入框中提及 {0}", { 0: message.senderName })}
+                onClick={() => appendMention(message.senderName)}
+              >
+                @
+              </button>
+            </Tooltip>
           ) : recallCandidateId === message.id ? (
             (() => {
               // 这条消息派出、还没结束的任务：撤回时默认一起停掉
@@ -867,13 +876,11 @@ function MessageItem({
                       {t("取消")}
                     </button>
                     {started && (
-                      <button
-                        type="button"
-                        title={t("消息撤回，正在做的照常做完，只是不再回复")}
-                        onClick={() => recallMessage(message.id)}
-                      >
-                        {t("只撤回")}
-                      </button>
+                      <Tooltip content={t("消息撤回，正在做的照常做完，只是不再回复")}>
+                        <button type="button" onClick={() => recallMessage(message.id)}>
+                          {t("只撤回")}
+                        </button>
+                      </Tooltip>
                     )}
                     <button
                       type="button"
@@ -887,15 +894,16 @@ function MessageItem({
               );
             })()
           ) : (
-            <button
-              type="button"
-              className="message-action danger"
-              aria-label={t("撤回这条消息")}
-              title={t("撤回")}
-              onClick={() => setRecallCandidateId(message.id)}
-            >
-              <Icon name="undo" size={13} />
-            </button>
+            <Tooltip content={t("撤回")}>
+              <button
+                type="button"
+                className="message-action danger"
+                aria-label={t("撤回这条消息")}
+                onClick={() => setRecallCandidateId(message.id)}
+              >
+                <Icon name="undo" size={13} />
+              </button>
+            </Tooltip>
           )}
         </div>
       )}

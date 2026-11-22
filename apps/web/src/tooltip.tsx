@@ -11,6 +11,7 @@ import {
   type PointerEvent,
   type ReactElement,
   type ReactNode,
+  type Ref,
 } from "react";
 import { createPortal } from "react-dom";
 import { KeyCombo } from "./key-combo";
@@ -24,8 +25,11 @@ const VIEWPORT_MARGIN = 8;
 const GAP = 6;
 
 let lastHiddenAt = -Infinity;
+/** 同一时间只显示一个提示：嵌套的触发元素（比如成员行里的设置按钮）出提示时收起外层的 */
+let hideActive: (() => void) | undefined;
 
 type TriggerProps = {
+  ref?: Ref<HTMLElement>;
   "aria-label"?: string;
   "aria-describedby"?: string;
   onPointerEnter?: (event: PointerEvent<HTMLElement>) => void;
@@ -69,6 +73,24 @@ export function Tooltip({
   const [anchor, setAnchor] = useState<HTMLElement>();
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const props = children.props;
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const childRef = props.ref;
+  const ref = useCallback(
+    (node: HTMLElement | null) => {
+      triggerRef.current = node;
+      if (typeof childRef === "function") childRef(node);
+      else if (childRef) childRef.current = node;
+    },
+    [childRef],
+  );
+  // 提示只是把名字里已有的文字再写一遍（比如被截断的文件名）时不挂说明，读屏不会念两遍
+  const [repeatsName, setRepeatsName] = useState(false);
+  useLayoutEffect(() => {
+    const element = triggerRef.current;
+    const text = typeof content === "string" ? content.trim() : "";
+    const name = element?.getAttribute("aria-label") || element?.textContent || "";
+    setRepeatsName(Boolean(text) && name.replace(/\s+/g, " ").includes(text));
+  });
 
   const hide = useCallback(() => {
     clearTimeout(timer.current);
@@ -91,6 +113,8 @@ export function Tooltip({
 
   useEffect(() => {
     if (!anchor) return;
+    if (hideActive !== hide) hideActive?.();
+    hideActive = hide;
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") hide();
     };
@@ -103,6 +127,7 @@ export function Tooltip({
       window.removeEventListener("resize", hide);
       window.removeEventListener("blur", hide);
       window.removeEventListener("keydown", onKey, true);
+      if (hideActive === hide) hideActive = undefined;
     };
   }, [anchor, hide]);
 
@@ -110,10 +135,11 @@ export function Tooltip({
 
   // 提示文字就是元素的名字时不再挂 describedby，读屏不会念两遍。说明一直留在 DOM 里（隐藏），
   // 读屏聚焦时就能念到，不用等气泡出来
-  const describes = Boolean(shortcut?.length) || content !== props["aria-label"];
+  const describes = Boolean(shortcut?.length) || (content !== props["aria-label"] && !repeatsName);
   const describedBy = describes ? id : undefined;
 
   const trigger = cloneElement(children, {
+    ref,
     "aria-describedby":
       [props["aria-describedby"], describedBy].filter(Boolean).join(" ") || undefined,
     onPointerEnter: (event: PointerEvent<HTMLElement>) => {

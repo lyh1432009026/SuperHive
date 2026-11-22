@@ -18,6 +18,7 @@ import { ProviderLogo } from "./provider-logos";
 import { ConfirmPopover } from "./confirm-popover";
 import { HostManageNotice } from "./host-settings";
 import type { RefObject, Dispatch, SetStateAction } from "react";
+import { Tooltip } from "./tooltip";
 
 /** 接入 Agent 弹窗：选 Agent、设置权限、复制命令 */
 export function AgentSetupDialog({
@@ -446,16 +447,19 @@ export function AgentSetupDialog({
               </button>
             )}
             {agentStep < 3 ? (
-              <button
-                type="button"
-                className="primary"
-                disabled={agentStep === 1 && !agentProviderChosen}
-                title={agentStep === 1 && !agentProviderChosen ? t("先选一个 Agent") : undefined}
-                onClick={() => goToAgentStep((agentStep + 1) as AgentSetupStep)}
+              <Tooltip
+                content={agentStep === 1 && !agentProviderChosen ? t("先选一个 Agent") : undefined}
               >
-                <span>{t("下一步")}</span>
-                <Icon name="arrow-right" size={16} />
-              </button>
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={agentStep === 1 && !agentProviderChosen}
+                  onClick={() => goToAgentStep((agentStep + 1) as AgentSetupStep)}
+                >
+                  <span>{t("下一步")}</span>
+                  <Icon name="arrow-right" size={16} />
+                </button>
+              </Tooltip>
             ) : (
               agentConnected && (
                 <button type="button" className="primary" onClick={closeAgentDialog}>

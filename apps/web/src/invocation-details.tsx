@@ -6,6 +6,7 @@ import { stateExplanation } from "./invocation-state";
 import { TraceLog } from "./live-trace";
 import "./styles/invocation-details.css";
 import { getLocale, t } from "./i18n";
+import { Tooltip } from "./tooltip";
 
 function activeElement(): Element | null {
   let element = document.activeElement;
@@ -330,28 +331,32 @@ export function InvocationDetails({
       {(onJump || onOpenTerminal || onViewChanges) && (
         <footer className="invocation-details-footer">
           {onViewChanges && (
-            <button
-              type="button"
-              className="invocation-details-reply secondary"
-              title={t("在「代码」面板里打开它的任务线，看它改了什么")}
-              onClick={onViewChanges}
-            >
-              {t("看改动")}
-            </button>
+            <Tooltip content={t("在「代码」面板里打开它的任务线，看它改了什么")}>
+              <button
+                type="button"
+                className="invocation-details-reply secondary"
+                onClick={onViewChanges}
+              >
+                {t("看改动")}
+              </button>
+            </Tooltip>
           )}
           {onOpenTerminal && (
-            <button
-              type="button"
-              className="invocation-details-reply secondary"
-              title={
+            <Tooltip
+              content={
                 invocation.status === "running" || invocation.status === "cancelling"
                   ? t("它正在执行：打开后能看到到目前为止的会话记录，别在终端里发消息")
                   : t("在终端里接着它在这个房间的会话")
               }
-              onClick={onOpenTerminal}
             >
-              {t("在终端打开会话")}
-            </button>
+              <button
+                type="button"
+                className="invocation-details-reply secondary"
+                onClick={onOpenTerminal}
+              >
+                {t("在终端打开会话")}
+              </button>
+            </Tooltip>
           )}
           {onJump && (
             <button type="button" className="invocation-details-reply" onClick={onJump}>

@@ -11,6 +11,7 @@ import { MessageMarkdown } from "./message-markdown-lazy";
 import type { SendShortcut } from "./app-storage";
 import type { ComposerState } from "./use-composer";
 import { t } from "./i18n";
+import { Tooltip } from "./tooltip";
 
 /** 所见即所得输入框（Tiptap）单独打包，用到时才加载；加载完之前先用纯文本输入框顶着 */
 const RichComposer = lazy(() => import("./rich-composer"));
@@ -24,7 +25,6 @@ export function Composer({
   connectionState,
   sendShortcut,
   richComposer,
-  modifierKeyLabel,
   currentRoomId,
 }: {
   composer: ComposerState;
@@ -34,7 +34,6 @@ export function Composer({
   connectionState: "connecting" | "online" | "offline";
   sendShortcut: SendShortcut;
   richComposer: boolean;
-  modifierKeyLabel: string;
   currentRoomId: string;
 }) {
   const {
@@ -171,15 +170,16 @@ export function Composer({
   return (
     <div className="composer">
       {showJumpToBottom && !mentionContext && (
-        <button
-          type="button"
-          className="jump-to-bottom"
-          aria-label={t("滚动到底部")}
-          title={t("回到最新消息")}
-          onClick={jumpToLatest}
-        >
-          <Icon name="arrow-down" size={16} />
-        </button>
+        <Tooltip content={t("回到最新消息")}>
+          <button
+            type="button"
+            className="jump-to-bottom"
+            aria-label={t("滚动到底部")}
+            onClick={jumpToLatest}
+          >
+            <Icon name="arrow-down" size={16} />
+          </button>
+        </Tooltip>
       )}
       {pendingNewMessages > 0 && !mentionContext && (
         <button type="button" className="jump-pill" onClick={jumpToLatest}>
@@ -258,14 +258,15 @@ export function Composer({
         <div className="composer-answering" role="status">
           <strong>{t("回答 @{0} 的提问", { 0: answering.senderName })}</strong>
           <span>{answering.content.replace(/\s+/g, " ")}</span>
-          <button
-            type="button"
-            aria-label={t("取消回答")}
-            title={t("取消回答，改为普通消息")}
-            onClick={() => setAnswering(undefined)}
-          >
-            ×
-          </button>
+          <Tooltip content={t("取消回答，改为普通消息")}>
+            <button
+              type="button"
+              aria-label={t("取消回答")}
+              onClick={() => setAnswering(undefined)}
+            >
+              ×
+            </button>
+          </Tooltip>
         </div>
       )}
       <div
@@ -362,15 +363,16 @@ export function Composer({
           )}
         </div>
         <div className="composer-footer">
-          <button
-            type="button"
-            className="composer-attach"
-            onClick={() => fileInputRef.current?.click()}
-            aria-label={t("添加附件")}
-            title={t("添加图片或文件（也可以粘贴截图、拖入文件）")}
-          >
-            <PaperclipIcon />
-          </button>
+          <Tooltip content={t("添加图片或文件（也可以粘贴截图、拖入文件）")}>
+            <button
+              type="button"
+              className="composer-attach"
+              onClick={() => fileInputRef.current?.click()}
+              aria-label={t("添加附件")}
+            >
+              <PaperclipIcon />
+            </button>
+          </Tooltip>
           <input
             ref={fileInputRef}
             type="file"
@@ -387,43 +389,46 @@ export function Composer({
             </span>
           )}
           {!richComposer && (draft.trim() || composerPreview) && (
-            <button
-              type="button"
-              className={`composer-tool ${composerPreview ? "active" : ""}`}
-              aria-pressed={composerPreview}
-              onClick={() => {
-                setComposerPreview((value) => !value);
-                if (composerPreview) {
-                  window.requestAnimationFrame(() => textareaRef.current?.focus());
-                }
-              }}
-              title={
-                composerPreview
-                  ? t("回到编辑（{0}）", { 0: `${modifierKeyLabel}+Shift+E` })
-                  : t("预览 Markdown 效果（{0}）", { 0: `${modifierKeyLabel}+Shift+E` })
-              }
+            <Tooltip
+              content={composerPreview ? t("回到编辑") : t("预览 Markdown 效果")}
+              shortcut={["Mod", "Shift", "E"]}
             >
-              {composerPreview ? t("编辑") : t("预览")}
-            </button>
+              <button
+                type="button"
+                className={`composer-tool ${composerPreview ? "active" : ""}`}
+                aria-pressed={composerPreview}
+                onClick={() => {
+                  setComposerPreview((value) => !value);
+                  if (composerPreview) {
+                    window.requestAnimationFrame(() => textareaRef.current?.focus());
+                  }
+                }}
+              >
+                {composerPreview ? t("编辑") : t("预览")}
+              </button>
+            </Tooltip>
           )}
-          <button
-            type="button"
-            className={`composer-tool composer-expand ${composerExpanded ? "active" : ""}`}
-            aria-pressed={composerExpanded}
-            aria-label={composerExpanded ? t("收起输入框") : t("展开输入框")}
-            title={
+          <Tooltip
+            content={
               composerExpanded
                 ? t("收起输入框，回到普通高度")
                 : t("把输入框拉高到约半屏，写长内容更方便；发送后自动收回")
             }
-            onClick={() => {
-              setComposerExpanded((value) => !value);
-              window.requestAnimationFrame(() => textareaRef.current?.focus());
-            }}
           >
-            <Icon name={composerExpanded ? "minimize" : "maximize"} size={15} />
-            <span>{composerExpanded ? t("收起") : t("展开")}</span>
-          </button>
+            <button
+              type="button"
+              className={`composer-tool composer-expand ${composerExpanded ? "active" : ""}`}
+              aria-pressed={composerExpanded}
+              aria-label={composerExpanded ? t("收起输入框") : t("展开输入框")}
+              onClick={() => {
+                setComposerExpanded((value) => !value);
+                window.requestAnimationFrame(() => textareaRef.current?.focus());
+              }}
+            >
+              <Icon name={composerExpanded ? "minimize" : "maximize"} size={15} />
+              <span>{composerExpanded ? t("收起") : t("展开")}</span>
+            </button>
+          </Tooltip>
           <span className="composer-hint">
             {/* 按当前发送方式显示：⌘↵ 发送 · ↵ 换行，或 ↵ 发送 · ⇧↵ 换行 */}
             {t("{0} 发送 · {1} 换行")
@@ -455,28 +460,35 @@ export function Composer({
               )
             )}
             {steerTargets.length > 0 && (
-              <button
-                type="button"
-                className="composer-steer"
-                onClick={() => sendMessage(true)}
-                disabled={!canSend || connectionState !== "online"}
-                title={t("{0} 正在执行任务：发出后直接用来引导它当前的任务，不排队", {
+              <Tooltip
+                content={t("{0} 正在执行任务：发出后直接用来引导它当前的任务，不排队", {
                   0: steerTargets.map((name) => `@${name}`).join(t("、")),
                 })}
               >
-                {t("引导")}
-              </button>
+                <button
+                  type="button"
+                  className="composer-steer"
+                  onClick={() => sendMessage(true)}
+                  disabled={!canSend || connectionState !== "online"}
+                >
+                  {t("引导")}
+                </button>
+              </Tooltip>
             )}
-            <button
-              type="button"
-              className="composer-send"
-              onClick={() => sendMessage()}
-              disabled={!canSend || connectionState !== "online"}
-              title={t("发送")}
+            <Tooltip
+              content={t("发送")}
+              shortcut={sendShortcut === "modifier-enter" ? ["Mod", "Enter"] : ["Enter"]}
             >
-              <span className="sr-only">{t("发送")}</span>
-              <Icon name="arrow-up" size={18} />
-            </button>
+              <button
+                type="button"
+                className="composer-send"
+                aria-label={t("发送")}
+                onClick={() => sendMessage()}
+                disabled={!canSend || connectionState !== "online"}
+              >
+                <Icon name="arrow-up" size={18} />
+              </button>
+            </Tooltip>
           </div>
         </div>
       </div>

@@ -214,8 +214,9 @@
   white-space: nowrap;
 }
 
-.jump-pill + .jump-to-bottom,
-.jump-to-bottom + .jump-pill {
+/* 用 ~ 不用 +：「回到底部」按钮后面跟着悬停提示的隐藏说明 */
+.jump-pill ~ .jump-to-bottom,
+.jump-to-bottom ~ .jump-pill {
   bottom: calc(100% + 56px);
 }
 

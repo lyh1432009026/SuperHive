@@ -4,6 +4,7 @@ import { useElementSize } from "./hooks";
 import { IsolatedFrame } from "./isolated-frame";
 import { renderPptx, type RenderedSlide } from "./pptx-render";
 import type { OfficeViewProps } from "./types";
+import { Tooltip } from "../tooltip";
 
 const SLIDE_CSS = "html,body{margin:0;overflow:hidden;background:#fff}";
 /** 面板至少这么宽才在左边放缩略图栏 */
@@ -174,27 +175,29 @@ export default function PptxView({ bytes, name, compact, onError }: OfficeViewPr
         </div>
       </div>
       <div className="office-pptx-bar">
-        <button
-          type="button"
-          onClick={() => go(index - 1)}
-          disabled={index === 0}
-          aria-label={t("上一页")}
-          title={t("上一页")}
-        >
-          ‹
-        </button>
+        <Tooltip content={t("上一页")}>
+          <button
+            type="button"
+            onClick={() => go(index - 1)}
+            disabled={index === 0}
+            aria-label={t("上一页")}
+          >
+            ‹
+          </button>
+        </Tooltip>
         <span className="office-pptx-count" aria-live="polite">
           {index + 1} / {count}
         </span>
-        <button
-          type="button"
-          onClick={() => go(index + 1)}
-          disabled={index >= count - 1}
-          aria-label={t("下一页")}
-          title={t("下一页")}
-        >
-          ›
-        </button>
+        <Tooltip content={t("下一页")}>
+          <button
+            type="button"
+            onClick={() => go(index + 1)}
+            disabled={index >= count - 1}
+            aria-label={t("下一页")}
+          >
+            ›
+          </button>
+        </Tooltip>
         {!compact && typeof document.documentElement.requestFullscreen === "function" && (
           <button
             type="button"

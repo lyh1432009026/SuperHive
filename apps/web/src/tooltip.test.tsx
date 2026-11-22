@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { createRef } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TOOLTIP_DELAY, Tooltip, tooltipPosition } from "./tooltip";
@@ -140,6 +141,71 @@ describe("Tooltip", () => {
     expect(onFocus).toHaveBeenCalledOnce();
     expect(button.hasAttribute("aria-describedby")).toBe(false);
     expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
+  it("skips the description when the visible text already says it", () => {
+    render(
+      <>
+        <Tooltip content="report-final-v2.md">
+          <button type="button">
+            <span>report-final-v2.md</span>
+            <small>12 KB</small>
+          </button>
+        </Tooltip>
+        <Tooltip content="下载">
+          <button type="button" aria-label="下载 report.md">
+            ↓
+          </button>
+        </Tooltip>
+        <Tooltip content="跳到这条任务">
+          <button type="button">@helper · #general</button>
+        </Tooltip>
+      </>,
+    );
+    const [file, download, jump] = screen.getAllByRole("button");
+    expect(file!.hasAttribute("aria-describedby")).toBe(false);
+    expect(download!.hasAttribute("aria-describedby")).toBe(false);
+    expect(document.getElementById(jump!.getAttribute("aria-describedby")!)?.textContent).toBe(
+      "跳到这条任务",
+    );
+    // 悬停照样出提示
+    hover(file!);
+    wait(TOOLTIP_DELAY);
+    expect(screen.getByRole("tooltip").textContent).toBe("report-final-v2.md");
+  });
+
+  it("shows one tooltip at a time, so a nested button replaces its row's", () => {
+    render(
+      <Tooltip content="正在处理 #5 · 点击跳过去">
+        <div role="button" tabIndex={0}>
+          helper
+          <Tooltip content="设置">
+            <button type="button" aria-label="helper 的设置">
+              ⚙
+            </button>
+          </Tooltip>
+        </div>
+      </Tooltip>,
+    );
+    const row = document.querySelector<HTMLElement>("div[role=button]")!;
+    hover(row);
+    wait(TOOLTIP_DELAY);
+    expect(screen.getByRole("tooltip").textContent).toBe("正在处理 #5 · 点击跳过去");
+    hover(screen.getByRole("button", { name: "helper 的设置" }));
+    wait(TOOLTIP_DELAY);
+    expect(screen.getAllByRole("tooltip").map((tip) => tip.textContent)).toEqual(["设置"]);
+  });
+
+  it("keeps the trigger's own ref", () => {
+    const ref = createRef<HTMLButtonElement>();
+    render(
+      <Tooltip content="关闭">
+        <button ref={ref} type="button" aria-label="关闭">
+          ×
+        </button>
+      </Tooltip>,
+    );
+    expect(ref.current).toBe(screen.getByRole("button"));
   });
 });
 

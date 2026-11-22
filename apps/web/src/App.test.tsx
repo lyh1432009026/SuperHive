@@ -3419,10 +3419,11 @@ describe("App mention autocomplete", () => {
       )!;
     await waitFor(() => expect(memberRow("helper").classList.contains("has-task")).toBe(true));
     const row = memberRow("helper");
-    // 副标题和读屏描述都说明点击会跳过去
-    const hint = row.querySelector(".member-task")!;
+    // 悬停提示和读屏描述说明点击会跳过去，副标题照旧是 Agent 的描述
+    const hint = document.getElementById(row.getAttribute("aria-describedby")!)!;
     expect(hint.textContent).toBe("正在处理 #2 等 2 条 · 点击跳过去");
-    expect(row.getAttribute("aria-describedby")).toBe(hint.id);
+    expect(row.querySelector("small")?.textContent).toContain("通用协作 Agent");
+    expect(row.hasAttribute("title")).toBe(false);
     expect(memberRow("idle-bot").classList.contains("has-task")).toBe(false);
 
     const shadow = () => document.querySelector(".message-list")!.shadowRoot!;
@@ -3500,13 +3501,15 @@ describe("App mention autocomplete", () => {
         latestSeq: 0,
       }),
     );
-    const hint = await waitFor(() => {
-      const element = document.querySelector<HTMLElement>(".member-list .member-task");
+    const row = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>(".member-list .member.has-task");
       expect(element).toBeTruthy();
       return element!;
     });
-    expect(hint.textContent).toBe("正在处理 #frontend #42 · 点击跳过去");
-    await user.click(hint.closest<HTMLElement>(".member")!);
+    expect(document.getElementById(row.getAttribute("aria-describedby")!)?.textContent).toBe(
+      "正在处理 #frontend #42 · 点击跳过去",
+    );
+    await user.click(row);
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2));
     act(() => FakeWebSocket.instances[1]!.open());
     expect(JSON.parse(FakeWebSocket.instances[1]!.sent[0]!)).toMatchObject({

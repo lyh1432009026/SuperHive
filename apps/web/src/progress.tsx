@@ -8,6 +8,7 @@ import {
 import { attentionKind, attentionLabels, type AttentionKind } from "./attention";
 import { t } from "./i18n";
 import { formatRelativeTime } from "./whiteboard";
+import { Tooltip } from "./tooltip";
 
 /**
  * 「进展」：右侧栏给人看的那一面。白板原文是 Agent 之间的协作记录（提交号、测试数、目录），
@@ -237,14 +238,11 @@ function ProgressRow({
   return (
     <li className={`progress-item ${item.group}`} data-stale={item.stale || undefined}>
       {target ? (
-        <button
-          type="button"
-          className="progress-row"
-          title={detail ? `${detail}\n\n${t("点击跳到聊天里的这段")}` : undefined}
-          onClick={() => onLocate(target)}
-        >
-          {body}
-        </button>
+        <Tooltip content={detail ? `${detail}\n\n${t("点击跳到聊天里的这段")}` : undefined}>
+          <button type="button" className="progress-row" onClick={() => onLocate(target)}>
+            {body}
+          </button>
+        </Tooltip>
       ) : (
         <div className="progress-row" title={detail || undefined}>
           {body}

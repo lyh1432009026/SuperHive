@@ -5,6 +5,7 @@ import { AvatarGlyph } from "./avatar";
 import { DirectoryPicker, type LocalAgentsState } from "./local-agents";
 import type { RefObject, Dispatch, SetStateAction } from "react";
 import type { RoomSummary } from "@superhive/protocol";
+import { Tooltip } from "./tooltip";
 
 /** 新建房间 / 房间设置弹窗 */
 export function RoomDialog({
@@ -316,23 +317,26 @@ export function RoomDialog({
           )}
           <footer className="room-dialog-footer">
             {roomDialog.mode === "manage" && local.enabled && !roomDialog.room.archivedAt && (
-              <button
-                type="button"
-                className="room-archive"
-                disabled={roomDialogBusy || !local.canManage}
-                title={
+              <Tooltip
+                content={
                   local.canManage
                     ? t("仅房主可用，不可恢复")
                     : t("这台设备只能查看。要清空，先申请管理权。")
                 }
-                onClick={() => {
-                  setArchiveConfirmOpen(false);
-                  setClearWhiteboard(true);
-                  setClearConfirmOpen(true);
-                }}
               >
-                {t("清空房间")}
-              </button>
+                <button
+                  type="button"
+                  className="room-archive"
+                  disabled={roomDialogBusy || !local.canManage}
+                  onClick={() => {
+                    setArchiveConfirmOpen(false);
+                    setClearWhiteboard(true);
+                    setClearConfirmOpen(true);
+                  }}
+                >
+                  {t("清空房间")}
+                </button>
+              </Tooltip>
             )}
             {roomDialog.mode === "manage" &&
               (roomDialog.room.archivedAt ? (
@@ -345,18 +349,21 @@ export function RoomDialog({
                   {t("恢复房间")}
                 </button>
               ) : (
-                <button
-                  type="button"
-                  className="room-archive"
-                  disabled={roomDialogBusy || roomDialog.room.id === "general"}
-                  title={roomDialog.room.id === "general" ? t("默认房间不能归档") : undefined}
-                  onClick={() => {
-                    setClearConfirmOpen(false);
-                    setArchiveConfirmOpen(true);
-                  }}
+                <Tooltip
+                  content={roomDialog.room.id === "general" ? t("默认房间不能归档") : undefined}
                 >
-                  {t("归档房间")}
-                </button>
+                  <button
+                    type="button"
+                    className="room-archive"
+                    disabled={roomDialogBusy || roomDialog.room.id === "general"}
+                    onClick={() => {
+                      setClearConfirmOpen(false);
+                      setArchiveConfirmOpen(true);
+                    }}
+                  >
+                    {t("归档房间")}
+                  </button>
+                </Tooltip>
               ))}
             <button type="submit" disabled={roomDialogBusy}>
               {roomDialog.mode === "create" ? t("创建房间") : t("保存")}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Invocation, Schedule } from "@superhive/protocol";
 import { getLocale, t } from "./i18n";
+import { Tooltip } from "./tooltip";
 
 export function upsertSchedule(
   current: ReadonlyMap<string, Schedule>,
@@ -211,19 +212,22 @@ export function SchedulePanel({
                       </button>
                     )}
                     {schedule.status === "scheduled" && (
-                      <button
-                        type="button"
-                        className="danger"
-                        aria-label={t("取消定时任务：{0}", { 0: schedule.task })}
-                        title={
+                      <Tooltip
+                        content={
                           schedule.everyMinutes
                             ? t("取消后整个周期结束，后面的不再执行")
                             : undefined
                         }
-                        onClick={() => onCancel(schedule)}
                       >
-                        {schedule.everyMinutes ? t("结束周期") : t("取消")}
-                      </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          aria-label={t("取消定时任务：{0}", { 0: schedule.task })}
+                          onClick={() => onCancel(schedule)}
+                        >
+                          {schedule.everyMinutes ? t("结束周期") : t("取消")}
+                        </button>
+                      </Tooltip>
                     )}
                   </p>
                 </li>

@@ -12,6 +12,7 @@ import {
 import { localized, t } from "./i18n";
 import type { IncidentAttentionItem } from "./incidents-panel";
 import "./styles/attention.css";
+import { Tooltip } from "./tooltip";
 
 /**
  * 「需要你处理」的提醒：跨房间、按调用状态提醒（不只是当前房间的新消息）。
@@ -393,20 +394,21 @@ function AttentionToastItem({
   return (
     <div className={`attention-toast ${toast.kind}`} role="status">
       {/* 整条提示都能点：跳到对应任务；只有右边的 × 是关闭 */}
-      <button
-        type="button"
-        className="attention-toast-open"
-        title={t("跳到这条任务")}
-        onClick={() => onOpen(toast.invocation)}
-      >
-        <span className="attention-toast-icon" aria-hidden="true">
-          {toastIcons[toast.kind]}
-        </span>
-        <span className="attention-toast-text">
-          <strong>{attentionTitle(toast.kind, toast.invocation)}</strong>
-          <span>{attentionBody(toast.invocation, roomName(toast.invocation.roomId))}</span>
-        </span>
-      </button>
+      <Tooltip content={t("跳到这条任务")}>
+        <button
+          type="button"
+          className="attention-toast-open"
+          onClick={() => onOpen(toast.invocation)}
+        >
+          <span className="attention-toast-icon" aria-hidden="true">
+            {toastIcons[toast.kind]}
+          </span>
+          <span className="attention-toast-text">
+            <strong>{attentionTitle(toast.kind, toast.invocation)}</strong>
+            <span>{attentionBody(toast.invocation, roomName(toast.invocation.roomId))}</span>
+          </span>
+        </button>
+      </Tooltip>
       <button
         type="button"
         className="attention-toast-close"
@@ -449,32 +451,34 @@ export function AttentionRoomGroup({
       <ul>
         {shown.map((item) => (
           <li key={item.invocation.id}>
-            <button
-              type="button"
-              className={`attention-row ${item.kind}`}
-              title={attentionTitle(item.kind, item.invocation)}
-              onClick={() => onOpen(item.invocation)}
-            >
-              <span className="attention-kind">{attentionLabels[item.kind]}</span>
-              <span className="attention-row-text">
-                {item.invocation.agentName} · # {roomName(item.roomId)}
-              </span>
-            </button>
+            <Tooltip content={attentionTitle(item.kind, item.invocation)}>
+              <button
+                type="button"
+                className={`attention-row ${item.kind}`}
+                onClick={() => onOpen(item.invocation)}
+              >
+                <span className="attention-kind">{attentionLabels[item.kind]}</span>
+                <span className="attention-row-text">
+                  {item.invocation.agentName} · # {roomName(item.roomId)}
+                </span>
+              </button>
+            </Tooltip>
           </li>
         ))}
         {shownIncidents.map((item) => (
           <li key={item.id}>
-            <button
-              type="button"
-              className={`attention-row ${item.kind === "incident" ? "escalated-incident" : "rule-proposal"}`}
-              title={item.title}
-              onClick={() => onOpenIncident?.(item)}
-            >
-              <span className="attention-kind">
-                {item.kind === "incident" ? t("故障单") : t("规则提议")}
-              </span>
-              <span className="attention-row-text">{item.title}</span>
-            </button>
+            <Tooltip content={item.title}>
+              <button
+                type="button"
+                className={`attention-row ${item.kind === "incident" ? "escalated-incident" : "rule-proposal"}`}
+                onClick={() => onOpenIncident?.(item)}
+              >
+                <span className="attention-kind">
+                  {item.kind === "incident" ? t("故障单") : t("规则提议")}
+                </span>
+                <span className="attention-row-text">{item.title}</span>
+              </button>
+            </Tooltip>
           </li>
         ))}
       </ul>

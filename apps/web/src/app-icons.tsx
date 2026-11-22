@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { localized, t } from "./i18n";
 import { ThemePreference } from "./app-storage";
+import { Tooltip } from "./tooltip";
 
 export type IconName =
   | "alert"
@@ -226,18 +227,18 @@ export function ThemeSwitcher({
     >
       <span className="theme-switcher-indicator" aria-hidden="true" />
       {themeOptions.map((option) => (
-        <button
-          type="button"
-          role="radio"
-          aria-checked={value === option.value}
-          aria-label={option.label}
-          title={option.label}
-          className={value === option.value ? "active" : ""}
-          onClick={() => onChange(option.value)}
-          key={option.value}
-        >
-          <ThemeGlyph theme={option.value} />
-        </button>
+        <Tooltip key={option.value} content={option.label}>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={value === option.value}
+            aria-label={option.label}
+            className={value === option.value ? "active" : ""}
+            onClick={() => onChange(option.value)}
+          >
+            <ThemeGlyph theme={option.value} />
+          </button>
+        </Tooltip>
       ))}
     </div>
   );

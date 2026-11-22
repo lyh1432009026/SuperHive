@@ -5,6 +5,7 @@ import { t } from "./i18n";
 import { OfficePreview } from "./office-preview/office-preview";
 import { officeKind } from "./office-preview/office-kind";
 import { formatBytes } from "./workspace-diff";
+import { Tooltip } from "./tooltip";
 
 /**
  * 工作区面板里的图片、音视频、PDF 预览，以及图片改动的改前 / 改后对照。
@@ -316,25 +317,26 @@ export function MediaView({
     );
   else if (kind === "image")
     body = (
-      <button
-        type="button"
-        className="workspace-media-image"
-        title={t("点击放大查看")}
-        aria-label={t("放大查看 {0}", { 0: name })}
-        onClick={() => setZoomed(true)}
-      >
-        <img
-          src={raw.data.src}
-          alt={name}
-          onLoad={(event) =>
-            setSize({
-              width: event.currentTarget.naturalWidth,
-              height: event.currentTarget.naturalHeight,
-            })
-          }
-          onError={setFailed}
-        />
-      </button>
+      <Tooltip content={t("点击放大查看")}>
+        <button
+          type="button"
+          className="workspace-media-image"
+          aria-label={t("放大查看 {0}", { 0: name })}
+          onClick={() => setZoomed(true)}
+        >
+          <img
+            src={raw.data.src}
+            alt={name}
+            onLoad={(event) =>
+              setSize({
+                width: event.currentTarget.naturalWidth,
+                height: event.currentTarget.naturalHeight,
+              })
+            }
+            onError={setFailed}
+          />
+        </button>
+      </Tooltip>
     );
   else if (kind === "video")
     body = (

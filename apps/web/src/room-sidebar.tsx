@@ -15,6 +15,7 @@ import type { RoomSummary } from "@superhive/protocol";
 import type { ActivityView } from "./activity";
 import type { IncidentAttentionItem } from "./incidents-panel";
 import type { useRoomReorder } from "./room-reorder";
+import { Tooltip } from "./tooltip";
 
 /** 左侧栏：房间列表、需要处理的事项与当前用户 */
 export function RoomSidebar({
@@ -214,38 +215,40 @@ export function RoomSidebar({
           )}
         </button>
         {incidentEntry && (
-          <button
-            type="button"
-            className="sidebar-action"
-            aria-label={
-              incidentEntry.count > 0
-                ? t("故障，{0} 条待处理", { 0: incidentEntry.count })
-                : t("故障")
-            }
-            aria-haspopup="dialog"
-            title={t("故障单和慢操作")}
-            onClick={(event) => incidentEntry.open(event.currentTarget)}
-          >
-            <Icon name="alert" size={16} />
-            <span>{t("故障")}</span>
-            {incidentEntry.count > 0 && (
-              <span className="sidebar-badge warning" aria-hidden="true">
-                {incidentEntry.count > 99 ? "99+" : incidentEntry.count}
-              </span>
-            )}
-          </button>
+          <Tooltip content={t("故障单和慢操作")}>
+            <button
+              type="button"
+              className="sidebar-action"
+              aria-label={
+                incidentEntry.count > 0
+                  ? t("故障，{0} 条待处理", { 0: incidentEntry.count })
+                  : t("故障")
+              }
+              aria-haspopup="dialog"
+              onClick={(event) => incidentEntry.open(event.currentTarget)}
+            >
+              <Icon name="alert" size={16} />
+              <span>{t("故障")}</span>
+              {incidentEntry.count > 0 && (
+                <span className="sidebar-badge warning" aria-hidden="true">
+                  {incidentEntry.count > 99 ? "99+" : incidentEntry.count}
+                </span>
+              )}
+            </button>
+          </Tooltip>
         )}
         {isOwner && (
-          <button
-            type="button"
-            className="sidebar-action"
-            aria-haspopup="dialog"
-            title={t("扫码接入飞书或微信，在手机上给房间发消息")}
-            onClick={() => setImDialogOpen(true)}
-          >
-            <Icon name="message" size={16} />
-            <span>{t("连接 IM")}</span>
-          </button>
+          <Tooltip content={t("扫码接入飞书或微信，在手机上给房间发消息")}>
+            <button
+              type="button"
+              className="sidebar-action"
+              aria-haspopup="dialog"
+              onClick={() => setImDialogOpen(true)}
+            >
+              <Icon name="message" size={16} />
+              <span>{t("连接 IM")}</span>
+            </button>
+          </Tooltip>
         )}
       </nav>
       {attentionGroup && (

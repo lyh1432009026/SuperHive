@@ -282,9 +282,11 @@ describe("AgentClisGroup", () => {
     expect(
       confirmButton?.hasAttribute("disabled") || confirmButton?.getAttribute("aria-busy"),
     ).toBeTruthy();
-    const install = screen.getByRole("button", { name: "安装" });
+    const install = screen.getByRole("button", {
+      name: "安装",
+      description: "正在升级 Codex，完成后再试",
+    });
     expect(install.hasAttribute("disabled")).toBe(true);
-    expect(install.getAttribute("title")).toBe("正在升级 Codex，完成后再试");
     expect(screen.getByText("正在升级 Codex，完成后才能操作其它 CLI。")).toBeTruthy();
     expect(screen.getByRole("button", { name: "重新检测" }).hasAttribute("disabled")).toBe(true);
 

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { t } from "./i18n";
+import { Tooltip } from "./tooltip";
 
 /**
  * 聊天消息、白板里出现的提交号（7–40 位十六进制）和任务分支名（feat/xxx 这类）变成可点的链接：
@@ -110,21 +111,24 @@ export function RefLink({
   const target = context?.resolver.get(token);
   if (!context || !target) return <>{children ?? token}</>;
   return (
-    <button
-      type="button"
-      className="md-ref-link"
-      title={
+    <Tooltip
+      content={
         target.kind === "commit"
           ? t("在「代码」面板里查看提交 {0}", { 0: target.hash.slice(0, 7) })
           : t("在「代码」面板里打开任务线 {0}", { 0: token })
       }
-      onClick={(event) => {
-        event.stopPropagation();
-        context.open(target);
-      }}
     >
-      {children ?? token}
-    </button>
+      <button
+        type="button"
+        className="md-ref-link"
+        onClick={(event) => {
+          event.stopPropagation();
+          context.open(target);
+        }}
+      >
+        {children ?? token}
+      </button>
+    </Tooltip>
   );
 }
 

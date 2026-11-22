@@ -5,6 +5,7 @@ import { t } from "./i18n";
 import { localAgentStatusLabels, type LocalAgentsState } from "./local-agents";
 import { SettingsSwitch } from "./settings-switch";
 import "./styles/local-agent-updates.css";
+import { Tooltip } from "./tooltip";
 
 const POLL_MS = 5_000;
 
@@ -181,14 +182,15 @@ export function LocalAgentUpdatesGroup({ local }: { local: LocalAgentsState }) {
                 </span>
                 {live && (
                   <span className="agent-update-actions">
-                    <button
-                      type="button"
-                      disabled={!local.canManage || acting === agent.id || agent.restartWhenIdle}
-                      title={t("等手上的任务都做完再重启")}
-                      onClick={() => restartWhenIdle(agent)}
-                    >
-                      {t("重启")}
-                    </button>
+                    <Tooltip content={t("等手上的任务都做完再重启")}>
+                      <button
+                        type="button"
+                        disabled={!local.canManage || acting === agent.id || agent.restartWhenIdle}
+                        onClick={() => restartWhenIdle(agent)}
+                      >
+                        {t("重启")}
+                      </button>
+                    </Tooltip>
                     <RestartNowButton
                       agent={agent}
                       local={local}

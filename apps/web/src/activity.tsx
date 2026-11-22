@@ -11,6 +11,7 @@ import { delegationSummary, invocationStatusLabel } from "./invocations";
 import { formatRelativeTime } from "./whiteboard";
 import { localized, t } from "./i18n";
 import { UsageSection } from "./usage";
+import { Tooltip } from "./tooltip";
 
 export type ActivityView = "search" | "mentions" | "tasks";
 
@@ -620,24 +621,27 @@ export function ActivityPanel({
                     <h3 className="activity-section-label">
                       {t("需要处理 ·")} {taskItems.attention.length}
                       {onDismiss && (
-                        <button
-                          type="button"
-                          className="activity-section-action"
-                          title={t(
+                        <Tooltip
+                          content={t(
                             "把这些失败、被拦、结果未知的调用都标为已处理，记录仍可在消息下查看",
                           )}
-                          onClick={() =>
-                            onDismiss(
-                              invocations.filter(
-                                (invocation) =>
-                                  needsAttention(invocation) &&
-                                  invocation.status !== "waiting_human",
-                              ),
-                            )
-                          }
                         >
-                          {t("全部忽略")}
-                        </button>
+                          <button
+                            type="button"
+                            className="activity-section-action"
+                            onClick={() =>
+                              onDismiss(
+                                invocations.filter(
+                                  (invocation) =>
+                                    needsAttention(invocation) &&
+                                    invocation.status !== "waiting_human",
+                                ),
+                              )
+                            }
+                          >
+                            {t("全部忽略")}
+                          </button>
+                        </Tooltip>
                       )}
                     </h3>
                     <ResultList

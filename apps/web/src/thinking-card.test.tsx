@@ -340,8 +340,10 @@ describe("groupLiveCards", () => {
         onJumpToTrigger={() => jumps.push(1899)}
       />,
     );
-    const chip = screen.getByRole("button", { name: "#1899" });
-    expect(chip.getAttribute("title")).toBe("回应 #1899：为什么不能每 5 分钟定时一次");
+    const chip = screen.getByRole("button", {
+      name: "#1899",
+      description: "回应 #1899：为什么不能每 5 分钟定时一次",
+    });
     fireEvent.click(chip);
     expect(screen.queryByText("先看看")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "最近" }));

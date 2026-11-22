@@ -6,6 +6,7 @@ import { SheetPanel } from "./sheet-panel";
 import { BranchGlyph } from "./worktree-switcher";
 import { t } from "./i18n";
 import { DocsLink } from "./docs-link";
+import { Tooltip } from "./tooltip";
 
 type WorktreeApi = Pick<
   LocalAgentsState,
@@ -216,28 +217,29 @@ export function WorktreePanel({
       closeLabel={t("关闭任务目录面板")}
       onClose={onClose}
       actions={
-        <button
-          type="button"
-          className="sheet-icon-button"
-          aria-label={t("刷新")}
-          title={t("刷新")}
-          disabled={busy}
-          onClick={() => void refresh()}
-        >
-          <svg
-            width="15"
-            height="15"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.9"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
+        <Tooltip content={t("刷新")}>
+          <button
+            type="button"
+            className="sheet-icon-button"
+            aria-label={t("刷新")}
+            disabled={busy}
+            onClick={() => void refresh()}
           >
-            <path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" />
-          </svg>
-        </button>
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.9"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" />
+            </svg>
+          </button>
+        </Tooltip>
       }
     >
       <section className="worktree-panel">

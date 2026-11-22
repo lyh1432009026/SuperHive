@@ -54,6 +54,7 @@ import {
   type DiffLine,
   type Token,
 } from "./workspace-diff";
+import { Tooltip } from "./tooltip";
 
 /**
  * 房间工作区面板：从聊天头部「代码」打开的宽抽屉，只读。
@@ -596,27 +597,28 @@ export function WorkspacePanel({
         closeLabel={t("关闭工作区面板")}
         onClose={onClose}
         actions={
-          <button
-            type="button"
-            className="sheet-icon-button"
-            aria-label={t("刷新")}
-            title={t("刷新")}
-            onClick={() => setRefreshTick((value) => value + 1)}
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.9"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
+          <Tooltip content={t("刷新")}>
+            <button
+              type="button"
+              className="sheet-icon-button"
+              aria-label={t("刷新")}
+              onClick={() => setRefreshTick((value) => value + 1)}
             >
-              <path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" />
-            </svg>
-          </button>
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.9"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" />
+              </svg>
+            </button>
+          </Tooltip>
         }
       >
         {overview.data?.configured && (
@@ -823,19 +825,20 @@ function ChangesView({
               >
                 {t("未提交")}
               </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={mode === "base"}
-                className={mode === "base" ? "active" : ""}
-                title={t("从和 {0} 分叉起的全部改动，含未提交的", { 0: base })}
-                onClick={() => {
-                  setMode("base");
-                  setSelected(undefined);
-                }}
-              >
-                {t("相对 {0}", { 0: base })}
-              </button>
+              <Tooltip content={t("从和 {0} 分叉起的全部改动，含未提交的", { 0: base })}>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={mode === "base"}
+                  className={mode === "base" ? "active" : ""}
+                  onClick={() => {
+                    setMode("base");
+                    setSelected(undefined);
+                  }}
+                >
+                  {t("相对 {0}", { 0: base })}
+                </button>
+              </Tooltip>
             </div>
           )}
           {mode === "base" && compare.data?.commits && (
@@ -948,31 +951,36 @@ function ChangeList({
               const slash = entry.change.path.lastIndexOf("/");
               return (
                 <li key={key}>
-                  <button
-                    type="button"
-                    className={`workspace-change ${active ? "active" : ""}`}
-                    aria-current={active ? "true" : undefined}
-                    title={
+                  <Tooltip
+                    content={
                       entry.change.oldPath
                         ? `${entry.change.oldPath} → ${entry.change.path}`
                         : entry.change.path
                     }
-                    onClick={() => onSelect(entry)}
                   >
-                    <StatusBadge status={entry.change.status} />
-                    <span className="workspace-change-name">
-                      <span>{entry.change.path.slice(slash + 1)}</span>
-                      {slash > 0 && (
-                        <span className="workspace-muted">{entry.change.path.slice(0, slash)}</span>
-                      )}
-                    </span>
-                    {entry.change.sensitive && (
-                      <span className="workspace-lock" title={t("可能含密钥")}>
-                        🔒<span className="sr-only">{t("可能含密钥")}</span>
+                    <button
+                      type="button"
+                      className={`workspace-change ${active ? "active" : ""}`}
+                      aria-current={active ? "true" : undefined}
+                      onClick={() => onSelect(entry)}
+                    >
+                      <StatusBadge status={entry.change.status} />
+                      <span className="workspace-change-name">
+                        <span>{entry.change.path.slice(slash + 1)}</span>
+                        {slash > 0 && (
+                          <span className="workspace-muted">
+                            {entry.change.path.slice(0, slash)}
+                          </span>
+                        )}
                       </span>
-                    )}
-                    <Counts {...entry.change} />
-                  </button>
+                      {entry.change.sensitive && (
+                        <span className="workspace-lock" title={t("可能含密钥")}>
+                          🔒<span className="sr-only">{t("可能含密钥")}</span>
+                        </span>
+                      )}
+                      <Counts {...entry.change} />
+                    </button>
+                  </Tooltip>
                 </li>
               );
             })}
@@ -1648,35 +1656,38 @@ function TreeRow({
     : "";
   return (
     <li>
-      <button
-        type="button"
-        className={`workspace-tree-row ${statusClass} ${selected ? "active" : ""} ${entry.ignored ? "ignored" : ""}`}
-        style={{ paddingLeft: 8 + depth * 14 }}
-        aria-expanded={directory && !disabled ? open : undefined}
-        aria-current={selected ? "true" : undefined}
-        disabled={disabled}
-        title={
+      <Tooltip
+        content={
           entry.outside
             ? t("{0} 指向工作区外面或已失效，不能查看", { 0: entry.name })
             : entry.ignored
               ? t("{0}（被 .gitignore 忽略）", { 0: entry.path })
               : entry.path
         }
-        onClick={directory ? onToggle : onOpen}
       >
-        {directory ? <Chevron open={open} /> : <span className="workspace-chevron-space" />}
-        <FileGlyph directory={directory} />
-        <span className="workspace-tree-name">
-          {entry.name}
-          {entry.symlink && <span className="workspace-muted"> ↗</span>}
-        </span>
-        {entry.sensitive && (
-          <span className="workspace-lock" title={t("可能含密钥")}>
-            🔒<span className="sr-only">{t("可能含密钥")}</span>
+        <button
+          type="button"
+          className={`workspace-tree-row ${statusClass} ${selected ? "active" : ""} ${entry.ignored ? "ignored" : ""}`}
+          style={{ paddingLeft: 8 + depth * 14 }}
+          aria-expanded={directory && !disabled ? open : undefined}
+          aria-current={selected ? "true" : undefined}
+          disabled={disabled}
+          onClick={directory ? onToggle : onOpen}
+        >
+          {directory ? <Chevron open={open} /> : <span className="workspace-chevron-space" />}
+          <FileGlyph directory={directory} />
+          <span className="workspace-tree-name">
+            {entry.name}
+            {entry.symlink && <span className="workspace-muted"> ↗</span>}
           </span>
-        )}
-        {entry.status && <StatusBadge status={entry.status} />}
-      </button>
+          {entry.sensitive && (
+            <span className="workspace-lock" title={t("可能含密钥")}>
+              🔒<span className="sr-only">{t("可能含密钥")}</span>
+            </span>
+          )}
+          {entry.status && <StatusBadge status={entry.status} />}
+        </button>
+      </Tooltip>
       {children}
     </li>
   );

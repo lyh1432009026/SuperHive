@@ -3,6 +3,7 @@ import { filterGoToItems, type GoToFilter, type GoToItem } from "./goto";
 import { t } from "./i18n";
 import { keyLabel } from "./shortcuts";
 import "./styles/goto.css";
+import { Tooltip } from "./tooltip";
 
 const filters: { value: GoToFilter; label: string }[] = [
   { value: "all", label: "全部" },
@@ -132,19 +133,20 @@ export function GoToPalette({
             </button>
           ))}
           {onNextAttention && attentionTotal > 0 && (
-            <button
-              type="button"
-              className="goto-next"
-              title={t("跳到下一个要你处理的任务")}
-              onClick={() => {
-                onNextAttention();
-                onClose();
-              }}
-            >
-              {t("下一个要处理的")}
-              <kbd>{keyLabel("Mod")}</kbd>
-              <kbd>J</kbd>
-            </button>
+            <Tooltip content={t("跳到下一个要你处理的任务")}>
+              <button
+                type="button"
+                className="goto-next"
+                onClick={() => {
+                  onNextAttention();
+                  onClose();
+                }}
+              >
+                {t("下一个要处理的")}
+                <kbd>{keyLabel("Mod")}</kbd>
+                <kbd>J</kbd>
+              </button>
+            </Tooltip>
           )}
         </div>
         <div className="activity-body">

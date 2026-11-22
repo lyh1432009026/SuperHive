@@ -14,6 +14,7 @@ import {
   retryConsequence,
   UPSTREAM_FAILURE_PREFIX,
 } from "./attention";
+import { Tooltip } from "./tooltip";
 
 /** 人点一次「继续」为当前 Agent 对话追加的轮数，同时放宽连续轮数、转交深度和单链条数 */
 export const BUDGET_EXTEND_TURNS = 10;
@@ -614,46 +615,51 @@ export function InvocationChips({
                 </button>
               ) : (
                 canRetry && (
-                  <button
-                    type="button"
-                    className={`invocation-action ${invocation.blockReason === "guest_approval" || needsDecision(invocation) ? "primary" : ""}`}
-                    aria-label={`${retryLabel(invocation)} @${invocation.agentName}`}
-                    aria-describedby={consequenceId}
-                    title={
+                  <Tooltip
+                    content={
                       needsDecision(invocation)
                         ? t("接着原会话从中断处继续，不会从头重做")
                         : undefined
                     }
-                    onClick={() => onRetry(invocation)}
                   >
-                    {retryLabel(invocation)}
-                  </button>
+                    <button
+                      type="button"
+                      className={`invocation-action ${invocation.blockReason === "guest_approval" || needsDecision(invocation) ? "primary" : ""}`}
+                      aria-label={`${retryLabel(invocation)} @${invocation.agentName}`}
+                      aria-describedby={consequenceId}
+                      onClick={() => onRetry(invocation)}
+                    >
+                      {retryLabel(invocation)}
+                    </button>
+                  </Tooltip>
                 )
               )}
               {canRetryWithModel && (
-                <button
-                  type="button"
-                  className="invocation-action subtle"
-                  aria-label={t("换个模型重试 @{0}", { 0: invocation.agentName })}
-                  aria-describedby={consequenceId}
-                  title={t("选一个模型，只对这一次重试生效")}
-                  onClick={() => onRetryWithModel!(invocation)}
-                >
-                  {t("换个模型重试")}
-                </button>
+                <Tooltip content={t("选一个模型，只对这一次重试生效")}>
+                  <button
+                    type="button"
+                    className="invocation-action subtle"
+                    aria-label={t("换个模型重试 @{0}", { 0: invocation.agentName })}
+                    aria-describedby={consequenceId}
+                    onClick={() => onRetryWithModel!(invocation)}
+                  >
+                    {t("换个模型重试")}
+                  </button>
+                </Tooltip>
               )}
               {onDismiss &&
                 canDismissInvocation(invocation) &&
                 (invocation.blockReason !== "guest_approval" || isOwner) && (
-                  <button
-                    type="button"
-                    className="invocation-action subtle"
-                    aria-label={t("忽略 @{0} 的这次调用", { 0: invocation.agentName })}
-                    title={t("标为已处理，不再算作需要处理；记录仍保留")}
-                    onClick={() => onDismiss(invocation)}
-                  >
-                    {t("忽略")}
-                  </button>
+                  <Tooltip content={t("标为已处理，不再算作需要处理；记录仍保留")}>
+                    <button
+                      type="button"
+                      className="invocation-action subtle"
+                      aria-label={t("忽略 @{0} 的这次调用", { 0: invocation.agentName })}
+                      onClick={() => onDismiss(invocation)}
+                    >
+                      {t("忽略")}
+                    </button>
+                  </Tooltip>
                 )}
               {onSteer &&
                 canSteerInvocation(
@@ -662,15 +668,16 @@ export function InvocationChips({
                   participants.find((participant) => participant.id === invocation.agentId)
                     ?.provider,
                 ) && (
-                  <button
-                    type="button"
-                    className="invocation-action primary"
-                    aria-label={t("用这条引导 @{0} 正在执行的任务", { 0: invocation.agentName })}
-                    title={t("不排队，让它在当前这一轮里接着处理这条")}
-                    onClick={() => onSteer(invocation)}
-                  >
-                    {t("引导")}
-                  </button>
+                  <Tooltip content={t("不排队，让它在当前这一轮里接着处理这条")}>
+                    <button
+                      type="button"
+                      className="invocation-action primary"
+                      aria-label={t("用这条引导 @{0} 正在执行的任务", { 0: invocation.agentName })}
+                      onClick={() => onSteer(invocation)}
+                    >
+                      {t("引导")}
+                    </button>
+                  </Tooltip>
                 )}
               {onPreempt &&
                 isOwner &&
@@ -678,15 +685,18 @@ export function InvocationChips({
                 invocation.requesterType === "human" &&
                 !invocation.resolution &&
                 hasRunningTask(invocation, allInvocations?.values() ?? invocations) && (
-                  <button
-                    type="button"
-                    className="invocation-action subtle"
-                    aria-label={t("停下 @{0} 当前的任务，改做这条", { 0: invocation.agentName })}
-                    title={t("先停下正在执行的任务（它会变成已停止或结果未知），停下后先做这条")}
-                    onClick={() => onPreempt(invocation)}
+                  <Tooltip
+                    content={t("先停下正在执行的任务（它会变成已停止或结果未知），停下后先做这条")}
                   >
-                    {t("停下当前，改做这条")}
-                  </button>
+                    <button
+                      type="button"
+                      className="invocation-action subtle"
+                      aria-label={t("停下 @{0} 当前的任务，改做这条", { 0: invocation.agentName })}
+                      onClick={() => onPreempt(invocation)}
+                    >
+                      {t("停下当前，改做这条")}
+                    </button>
+                  </Tooltip>
                 )}
               {canCancelInvocation(invocation) && (
                 <button
