@@ -1,8 +1,45 @@
 /* 基础排版、通用控件与工具类 */
 * {
   box-sizing: border-box;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-heavy) transparent;
+}
+
+/*
+ * 滚动条：各平台统一成细滚动条。Chromium、Edge、Safari 用 ::-webkit-scrollbar 画：10px 宽、滑块四周
+ * 留 2px 透明边（看上去 6px）、圆角半透明、悬停加深，轨道透明，不要上下箭头；Windows 上不再是原生粗条。
+ * scrollbar-width / scrollbar-color 只给不认 ::-webkit-scrollbar 的 Firefox：新版 Chrome 两套都设时以
+ * 标准属性为准，圆角和悬停加深都会丢，Windows 上还会带回箭头。
+ * 规则对 shadow root 里的消息列表同样生效（ShadowContent 会把页面样式表复制进去）。
+ */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--radius-pill);
+  background: var(--scrollbar-thumb) padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover,
+::-webkit-scrollbar-thumb:active {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
 }
 
 html {

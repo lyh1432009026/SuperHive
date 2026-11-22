@@ -31,6 +31,9 @@
   --border-heavy: rgb(0 0 0 / 0.15);
   /* 只给键盘 Tab 导航用的中性灰框；鼠标点击、输入框都不画（见 base.css） */
   --focus-ring: rgb(0 0 0 / 0.22);
+  /* 滚动条滑块：半透明，压在侧栏、正文、代码块各种底色上都看得清；悬停加深 */
+  --scrollbar-thumb: rgb(0 0 0 / 0.18);
+  --scrollbar-thumb-hover: rgb(0 0 0 / 0.34);
 
   --accent: #0169cc;
   --accent-hover: #0158ad;
@@ -110,6 +113,8 @@
   --border-light: rgb(255 255 255 / 0.06);
   --border-heavy: rgb(255 255 255 / 0.2);
   --focus-ring: rgb(255 255 255 / 0.3);
+  --scrollbar-thumb: rgb(255 255 255 / 0.18);
+  --scrollbar-thumb-hover: rgb(255 255 255 / 0.34);
 
   --accent: #48aaff;
   --accent-hover: #6cbaff;

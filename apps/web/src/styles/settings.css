@@ -593,6 +593,11 @@
     scrollbar-width: none;
   }
 
+  /* 旧版 Safari 不认 scrollbar-width */
+  .settings-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
   .settings-tabs button {
     width: auto;
     min-height: 36px;

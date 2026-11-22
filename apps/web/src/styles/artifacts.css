@@ -909,6 +909,12 @@ tr.selected .artifact-actions,
     scrollbar-width: none;
   }
 
+  /* 旧版 Safari 不认 scrollbar-width */
+  .artifact-filter-group::-webkit-scrollbar,
+  .artifact-subfilters::-webkit-scrollbar {
+    display: none;
+  }
+
   .artifact-subfilters {
     margin: 0;
     padding-left: 4px;

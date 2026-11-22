@@ -190,6 +190,8 @@
   flex: 1;
   overflow-y: auto;
   padding-bottom: 8px;
+  /* 展开归档、置顶变多出现滚动条时，房间名和右侧在线数不跟着挪 */
+  scrollbar-gutter: stable;
 }
 
 /* 置顶区：和按活跃度排的房间之间隔一条线 */
@@ -853,6 +855,7 @@
   flex: 1;
   overflow-y: auto;
   padding: 4px 8px 12px;
+  scrollbar-gutter: stable;
 }
 
 .member {

@@ -6,6 +6,8 @@
   overflow-y: auto;
   padding: 8px 20px 24px;
   scroll-behavior: smooth;
+  /* 两侧都留出滚动条的位置：消息多到出现滚动条时，居中的对话栏不会左移 */
+  scrollbar-gutter: stable both-edges;
 }
 
 /* shadow root 内的内容容器 */
