@@ -1598,8 +1598,8 @@ export const serverTexts = {
     en: "@{requester} 🩺 Incident {short} came back after the fix: {title} ({count} times in total; sent by Hive for {agent})\nFix commit {commit} is in the running code but the same error is still happening, so it's been reopened. Consider reverting that commit; Hive won't revert it automatically.",
   },
   "incident.escalated": {
-    zh: "@{requester} 🩺 故障单 {short} 需要你处理：{title}（共 {count} 次；Hive 代 {agent} 发出）\n{reason}。自动修复已停下，在「这台电脑 → 故障单」里看现场，决定重新派修、忽略或手动处理。",
-    en: "@{requester} 🩺 Incident {short} needs you: {title} ({count} times in total; sent by Hive for {agent})\n{reason}. Automatic fixing has stopped. See the details under This computer → Incidents and choose to reassign, ignore, or handle it yourself.",
+    zh: "@{requester} 🩺 故障单 {short} 需要你处理：{title}（共 {count} 次；Hive 代 {agent} 发出）\n{reason}。自动修复已停下，在网页左侧「故障」面板里看现场，决定重新派修、忽略或手动处理。",
+    en: "@{requester} 🩺 Incident {short} needs you: {title} ({count} times in total; sent by Hive for {agent})\n{reason}. Automatic fixing has stopped. See the details in the Incidents panel on the left of the web page and choose to reassign, ignore, or handle it yourself.",
   },
   "incident.note.recurred": {
     zh: "修复 {commit} 合入后又出现",
@@ -1628,8 +1628,8 @@ export const serverTexts = {
     en: "Can't assign this now: {reason}",
   },
   "error.incident.memberMissing": {
-    zh: "派修设置里的人或 Agent 不在这个房间，先在「这台电脑 → 故障单」里改设置。",
-    en: "The person or agent in the incident settings isn't in that room. Update the settings under This computer → Incidents first.",
+    zh: "派修设置里的人或 Agent 不在这个房间，先在网页左侧「故障」面板顶部的「派修设置」里改。",
+    en: "The person or agent in the incident settings isn't in that room. Change this under Fixing settings at the top of the Incidents panel on the left of the web page first.",
   },
   "error.incident.fieldRequired": {
     zh: "缺少 {name}。",
