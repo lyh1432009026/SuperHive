@@ -415,7 +415,9 @@
 
 .onboarding-guide footer {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: row-reverse;
+  align-items: center;
+  justify-content: space-between;
   padding: 8px 24px 20px;
 }
 

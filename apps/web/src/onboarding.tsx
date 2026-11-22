@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from "react";
+import { DocsLink } from "./docs-link";
 import { t } from "./i18n";
 
 /**
@@ -105,10 +106,12 @@ export function OnboardingGuide({
           </li>
         ))}
       </ol>
+      {/* 文档链接放在底部、排在按钮后面：打开时焦点仍落在要做的那一步（或「开始使用」）上，样式里反向排到左边 */}
       <footer>
         <button type="button" className={allDone ? "primary" : ""} onClick={onClose}>
           {allDone ? t("开始使用") : t("跳过，以后再说")}
         </button>
+        <DocsLink to="home">{t("看完整文档")}</DocsLink>
       </footer>
     </dialog>
   );

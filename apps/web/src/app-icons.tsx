@@ -19,6 +19,7 @@ export type IconName =
   | "external"
   | "files"
   | "hash"
+  | "help"
   | "logout"
   | "maximize"
   | "minimize"
@@ -101,6 +102,9 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
     ),
     external: (
       <path d="M14 5h5v5m0-5-8 8M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
+    ),
+    help: (
+      <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm-2.6-11.6a2.7 2.7 0 0 1 5.2.9c0 1.8-2.6 2.4-2.6 4M12 17v.1" />
     ),
     bell: <path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2H4.5L6 16Zm4 4a2 2 0 0 0 4 0" />,
     undo: <path d="M9 14 4 9l5-5M4 9h9.5a6.5 6.5 0 0 1 0 13H11" />,

@@ -1,6 +1,7 @@
 import type { MetaResponse } from "@superhive/protocol";
 import { t } from "./i18n";
 import { Icon } from "./app-icons";
+import { DocsLink } from "./docs-link";
 import {
   agentSetupSteps,
   agentProviderLabel,
@@ -166,10 +167,16 @@ export function AgentSetupDialog({
                     : t("复制命令，到终端运行")}
             </h3>
             {agentStep === 1 && (
-              <p>{t("选好后点「下一步」；接入命令会按所选 Agent 的运行环境自动调整。")}</p>
+              <p>
+                {t("选好后点「下一步」；接入命令会按所选 Agent 的运行环境自动调整。")}{" "}
+                <DocsLink to="agentSetup">{t("接入指南")}</DocsLink>
+              </p>
             )}
             {agentStep === 2 && (
-              <p>{t("权限只在 Agent 所在电脑生效，Hive Server 始终只转发消息。默认工作区档。")}</p>
+              <p>
+                {t("权限只在 Agent 所在电脑生效，Hive Server 始终只转发消息。默认工作区档。")}{" "}
+                <DocsLink to="permissions">{t("权限说明")}</DocsLink>
+              </p>
             )}
             {agentStep === 3 && (
               <p>

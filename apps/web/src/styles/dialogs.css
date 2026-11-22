@@ -889,7 +889,8 @@
   animation: pop-in var(--duration-fast) var(--ease-out);
 }
 
-.user-menu > button {
+.user-menu > button,
+.user-menu > a {
   min-height: 36px;
   display: flex;
   align-items: center;
@@ -906,16 +907,29 @@
     color var(--duration-fast);
 }
 
-.user-menu > button .icon {
+.user-menu > button .icon,
+.user-menu > a .icon {
   color: var(--text-secondary);
 }
 
-.user-menu > button:hover {
+.user-menu > button:hover,
+.user-menu > a:hover {
   background: var(--bg-hover);
 }
 
-.user-menu > button:focus-visible {
+.user-menu > button:focus-visible,
+.user-menu > a:focus-visible {
   outline-offset: -2px;
+}
+
+.user-menu > a {
+  text-decoration: none;
+}
+
+/* 外链：右侧的小箭头提示会在新标签页打开 */
+.user-menu .user-menu-docs .icon:last-of-type {
+  margin-left: auto;
+  color: var(--text-tertiary);
 }
 
 .user-menu .user-menu-logout {

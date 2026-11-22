@@ -9,6 +9,7 @@ import {
   type ThemePreference,
 } from "./app-storage";
 import { avatarHueStyle } from "./avatar";
+import { docsHref } from "./docs-link";
 import type { RefObject, Dispatch, SetStateAction, ReactNode } from "react";
 import type { RoomSummary } from "@superhive/protocol";
 import type { ActivityView } from "./activity";
@@ -348,6 +349,21 @@ export function RoomSidebar({
                 <span>{t("在其他设备登录")}</span>
               </button>
             )}
+            <a
+              role="menuitem"
+              className="user-menu-docs"
+              href={docsHref("home")}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => {
+                setUserMenuOpen(false);
+                setMobilePanel(undefined);
+              }}
+            >
+              <Icon name="help" size={15} />
+              <span>{t("帮助与文档")}</span>
+              <Icon name="external" size={13} />
+            </a>
             <button
               type="button"
               role="menuitem"

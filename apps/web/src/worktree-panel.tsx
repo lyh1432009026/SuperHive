@@ -5,6 +5,7 @@ import { ConfirmPopover } from "./confirm-popover";
 import { SheetPanel } from "./sheet-panel";
 import { BranchGlyph } from "./worktree-switcher";
 import { t } from "./i18n";
+import { DocsLink } from "./docs-link";
 
 type WorktreeApi = Pick<
   LocalAgentsState,
@@ -241,7 +242,8 @@ export function WorktreePanel({
     >
       <section className="worktree-panel">
         <p className="worktree-intro">
-          {t("一条开发任务一个目录；合入后安全回收，不删除聊天记录。")}
+          {t("一条开发任务一个目录；合入后安全回收，不删除聊天记录。")}{" "}
+          <DocsLink to="worktrees">{t("任务目录指南")}</DocsLink>
         </p>
         {/* 这个房间的自动清理开关，管的就是下面这份清单，所以放在清单上面。
             开启要确认：就地弹一个轻量确认气泡，确认后才勾上；关闭不用确认 */}

@@ -7,6 +7,7 @@ import {
 } from "./incidents-panel";
 import { SlowOpsList, thresholdNote, type SlowOpsState } from "./slow-ops";
 import { t } from "./i18n";
+import { DocsLink } from "./docs-link";
 
 export type IncidentsTab = "incidents" | "slow-ops";
 
@@ -124,7 +125,8 @@ export function IncidentsDialog({
                       <path d="m6 9 6 6 6-6" />
                     </svg>
                   </button>
-                )}
+                )}{" "}
+                <DocsLink to="incidents">{t("故障排查指南")}</DocsLink>
               </p>
               {data && settingsOpen && (
                 <section

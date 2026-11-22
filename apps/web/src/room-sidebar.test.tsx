@@ -2,6 +2,8 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createRef, type ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DOCS_BASE_URL } from "@superhive/protocol";
+import { setLocalePreference } from "./i18n";
 import { RoomSidebar } from "./room-sidebar";
 
 afterEach(cleanup);
@@ -104,5 +106,27 @@ describe("sidebar user menu", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "在其他设备登录" }));
     expect(openOwnerDevices).toHaveBeenCalled();
     expect(setUserMenuOpen).toHaveBeenCalledWith(false);
+  });
+
+  it("links 「帮助与文档」 to the docs site in a new tab, in the interface language", () => {
+    const setUserMenuOpen = vi.fn();
+    const { rerender } = render(
+      <RoomSidebar {...props({ userMenuOpen: true, setUserMenuOpen })} />,
+    );
+    const docs = screen.getByRole("menuitem", { name: /帮助与文档/ });
+    expect(docs.getAttribute("href")).toBe(DOCS_BASE_URL);
+    expect(docs.getAttribute("target")).toBe("_blank");
+    fireEvent.click(docs);
+    expect(setUserMenuOpen).toHaveBeenCalledWith(false);
+
+    setLocalePreference("en");
+    try {
+      rerender(<RoomSidebar {...props({ userMenuOpen: true })} />);
+      expect(screen.getByRole("menuitem", { name: /Help & docs/ }).getAttribute("href")).toBe(
+        `${DOCS_BASE_URL}en/`,
+      );
+    } finally {
+      setLocalePreference("zh-CN");
+    }
   });
 });

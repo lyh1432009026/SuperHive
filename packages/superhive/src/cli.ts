@@ -4,6 +4,7 @@ import "./socket-tos-guard.js";
 import { createRequire } from "module";
 import { fileURLToPath } from "node:url";
 import { autostartCommand } from "./autostart.js";
+import { DOCS_URL } from "./docs-url.js";
 import { mcpCommand } from "./mcp-command.js";
 import { modelsCommand } from "./models-command.js";
 import { run } from "./run.js";
@@ -50,6 +51,7 @@ SuperHive（命令：hive；未全局安装时用 npx superhive 代替 hive）
                       移除装进去的 SKILL.md（缺省=全部）
 
 运行 hive <命令> --help 查看详细选项。
+文档：${DOCS_URL}
 `;
 
 const packageRoot = packageRootOf(fileURLToPath(import.meta.url));

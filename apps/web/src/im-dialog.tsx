@@ -19,6 +19,7 @@ import {
 } from "./im-api";
 import { LOCALE_OPTIONS, getLocale, localized, t } from "./i18n";
 import { Select } from "./select";
+import { DocsLink } from "./docs-link";
 
 function CloseGlyph() {
   return (
@@ -320,7 +321,8 @@ export function ImDialog({
                   ? t("扫码一次就好。之后在 IM 里发的消息以 {0} 的身份进房间。", { 0: ownerName })
                   : t(
                       "在飞书、微信里给房间发消息、收推送。这里是你的全部连接，和从哪个房间打开无关。",
-                    )}
+                    )}{" "}
+                <DocsLink to="im">{t("飞书和微信指南")}</DocsLink>
               </p>
             </div>
           </div>

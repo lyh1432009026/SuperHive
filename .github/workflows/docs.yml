@@ -1,5 +1,6 @@
 # 文档站自动部署到 GitHub Pages：main 上文档有改动就重新构建发布，也可以手动运行。
-# 地址 https://wangrongding.github.io/SuperHive/ ；换自有域名时改 DOCS_SITE_URL，并把 DOCS_BASE_PATH 改成 /。
+# 地址 https://wangrongding.github.io/SuperHive/ ；换自有域名时改 DOCS_SITE_URL，并把 DOCS_BASE_PATH 改成 /；
+# 网页和 CLI 里的文档链接也要跟着改 packages/protocol/src/docs-links.ts 的 DOCS_BASE_URL（apps/docs 的测试会核对）。
 name: Docs
 
 on:

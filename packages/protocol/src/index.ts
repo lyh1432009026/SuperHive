@@ -1856,3 +1856,4 @@ export * from "./attachment-open.js";
 export * from "./server-text.js";
 export * from "./agent-version.js";
 export * from "./incidents.js";
+export * from "./docs-links.js";

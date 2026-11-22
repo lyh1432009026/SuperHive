@@ -1834,5 +1834,13 @@
   "正在处理 {0}": "Working on {0}",
   "正在处理任务": "Working on a task",
   "{0} 等 {1} 条 · 点击跳过去": "{0} ({1} tasks) · click to jump",
-  "{0} · 点击跳过去": "{0} · click to jump"
+  "{0} · 点击跳过去": "{0} · click to jump",
+  "（在新标签页打开）": " (opens in a new tab)",
+  "帮助与文档": "Help & docs",
+  "接入指南": "Setup guide",
+  "权限说明": "About permissions",
+  "飞书和微信指南": "Feishu & WeChat guide",
+  "故障排查指南": "Troubleshooting guide",
+  "任务目录指南": "Task directory guide",
+  "看完整文档": "Read the full docs"
 }

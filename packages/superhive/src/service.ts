@@ -7,6 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { DOCS_URL } from "./docs-url.js";
 import { superhiveHome } from "./home-dir.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -194,6 +195,7 @@ function printStarted(state: ServiceState, alreadyRunning = false): void {
   console.log(`[hive] 日志：${state.logPath}`);
   console.log(`[hive] 重启：${restartCommand}`);
   console.log(`[hive] 停止：${stopCommand}`);
+  console.log(`[hive] 文档：${DOCS_URL}`);
 }
 
 /**
