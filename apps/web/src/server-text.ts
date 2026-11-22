@@ -1,4 +1,9 @@
-import { renderServerText, type WireServerText } from "@superhive/protocol";
+import {
+  questionBodyText,
+  renderServerText,
+  type ChatMessage,
+  type WireServerText,
+} from "@superhive/protocol";
 import { getLocale } from "./i18n";
 
 /**
@@ -73,6 +78,15 @@ function isQuestionWithOptions(
     value !== null &&
     Array.isArray((value as { options?: unknown }).options)
   );
+}
+
+/**
+ * 气泡里显示的正文：带选项卡片的提问只留问题本身（选项和作答提示由卡片显示），其余照旧。
+ * 只改显示；复制、导出、引用仍用 message.content 的完整原文。
+ */
+export function messageBodyContent(message: ChatMessage): string {
+  if (!message.question?.options.length) return message.content;
+  return serverString(questionBodyText(message.text), message.content);
 }
 
 /** 失败响应的说明：优先用结构化文案 */

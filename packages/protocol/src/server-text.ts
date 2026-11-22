@@ -532,6 +532,12 @@ export const serverTexts = {
     zh: "{asker}🔐 {agent} 申请权限（{tool}）：{summary}{detail}\nA. 允许\nB. 拒绝\n（点选，或回复这条消息「允许 / 拒绝」；{minutes} 分钟内没人批按拒绝处理）",
     en: "{asker}🔐 {agent} is requesting permission ({tool}): {summary}{detail}\nA. Allow\nB. Deny\n(Pick one, or reply Allow / Deny to this message. It's denied if no one decides within {minutes} min.)",
   },
+  /* 网页气泡正文：选项已渲染成卡片，正文只留问题本身，见 questionBodyText */
+  "question.body": { zh: "{asker}❓ {question}", en: "{asker}❓ {question}" },
+  "approval.body": {
+    zh: "{asker}🔐 {agent} 申请权限（{tool}）：{summary}{detail}\n（{minutes} 分钟内没人批按拒绝处理）",
+    en: "{asker}🔐 {agent} is requesting permission ({tool}): {summary}{detail}\n(It's denied if no one decides within {minutes} min.)",
+  },
   "approval.allow": { zh: "允许", en: "Allow" },
   "approval.deny": { zh: "拒绝", en: "Deny" },
 
@@ -1727,6 +1733,27 @@ export function fillTemplate(template: string, value: (name: string) => string):
 /** 英文的所有写法（测试用：每种写法都要和中文占位符一致、不夹中文） */
 export function englishForms(entry: ServerTextEntry): string[] {
   return typeof entry.en === "string" ? [entry.en] : [entry.en.one, entry.en.other];
+}
+
+/**
+ * 带选项卡片的提问（hive_ask_human 带选项、权限申请）在网页气泡里只显示问题本身：
+ * 完整正文里的单选 / 多选标记、逐行选项和作答提示已由选项卡片表达，再写一遍就重复了。
+ * 复制、导出、IM 卡片和给 Agent 的上下文仍用完整正文；不是这两种提问时返回 undefined。
+ */
+export function questionBodyText(text: WireServerText | undefined): ServerText | undefined {
+  const params = text?.params ?? {};
+  const pick = (names: string[]) =>
+    Object.fromEntries(
+      names.flatMap((name) => (params[name] === undefined ? [] : [[name, params[name]!]])),
+    );
+  if (text?.key === "question.ask") return serverText("question.body", pick(["asker", "question"]));
+  if (text?.key === "approval.request") {
+    return serverText(
+      "approval.body",
+      pick(["asker", "agent", "tool", "summary", "detail", "minutes"]),
+    );
+  }
+  return undefined;
 }
 
 /** 服务端写中文兼容字段用 */

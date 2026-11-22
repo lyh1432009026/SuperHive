@@ -3,6 +3,7 @@ import {
   englishForms,
   fillTemplate,
   placeholders,
+  questionBodyText,
   serverTextTemplate,
   renderServerText,
   serverText,
@@ -90,5 +91,48 @@ describe("renderServerText", () => {
     ).toBe(true);
     expect(serverTextSchema.safeParse({ key: "a.b", extra: 1 }).success).toBe(false);
     expect(serverTextSchema.safeParse({ key: "" }).success).toBe(false);
+  });
+});
+
+describe("questionBodyText", () => {
+  const ask = serverText("question.ask", {
+    asker: "@rd ",
+    question: "用哪个方案？",
+    choices: serverText("question.choices", {
+      mode: serverText("question.single"),
+      options: "A. 甲\nB. 乙",
+    }),
+    hint: serverText("question.hintOptions", { agent: "rd-claude" }),
+  });
+
+  it("keeps only the question for asks with options, in both languages", () => {
+    // 完整正文照旧带选项和作答提示，供复制、IM、Agent 上下文用
+    expect(zhText(ask)).toContain("A. 甲");
+    const body = questionBodyText(ask);
+    expect(renderServerText(body, "zh-CN")).toBe("@rd ❓ 用哪个方案？");
+    expect(renderServerText(body, "en")).toBe("@rd ❓ 用哪个方案？");
+  });
+
+  it("drops the Allow / Deny lines from approval requests but keeps the timeout", () => {
+    const approval = serverText("approval.request", {
+      asker: "@rd ",
+      agent: "rd-codex",
+      tool: "Bash",
+      summary: "rm -rf dist",
+      detail: "\ncwd: /tmp",
+      minutes: 10,
+    });
+    const body = questionBodyText(approval);
+    expect(renderServerText(body, "zh-CN")).toBe(
+      "@rd 🔐 rd-codex 申请权限（Bash）：rm -rf dist\ncwd: /tmp\n（10 分钟内没人批按拒绝处理）",
+    );
+    expect(renderServerText(body, "en")).toBe(
+      "@rd 🔐 rd-codex is requesting permission (Bash): rm -rf dist\ncwd: /tmp\n(It's denied if no one decides within 10 min.)",
+    );
+  });
+
+  it("leaves other texts alone", () => {
+    expect(questionBodyText(undefined)).toBeUndefined();
+    expect(questionBodyText(serverText("question.single"))).toBeUndefined();
   });
 });

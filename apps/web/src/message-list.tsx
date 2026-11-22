@@ -35,6 +35,7 @@ import { isMachineMessage, machinePreview, splitMentions } from "./machine-messa
 import { ShadowContent } from "./shadow-content";
 import { CollapsibleMessage } from "./collapsible-message";
 import { QuestionOptions } from "./question-options";
+import { messageBodyContent } from "./server-text";
 import type { GuestAccess } from "./access-gate";
 import { MessageAttachments } from "./attachments";
 import { agentActivity } from "./agent-activity";
@@ -522,6 +523,7 @@ function MessageItem({
     steerInvocation,
     preemptInvocation,
   } = actions;
+  const bodyContent = messageBodyContent(message);
   return (
     <article
       className={`message ${message.senderType} ${
@@ -677,16 +679,16 @@ function MessageItem({
                 </button>
               )}
               <CollapsibleMessage
-                content={message.content}
+                content={bodyContent}
                 enabled={message.senderType === "agent"}
                 storageKey={`superhive.message-expanded:${message.roomId}:${message.id}`}
                 expandOnLocate={pendingJumpId === message.id || highlightedMessageId === message.id}
                 forceExpanded={shareMode}
                 onToggle={releaseBottomPin}
               >
-                <Suspense fallback={<p className="message-body-fallback">{message.content}</p>}>
+                <Suspense fallback={<p className="message-body-fallback">{bodyContent}</p>}>
                   <MessageMarkdown
-                    content={message.content}
+                    content={bodyContent}
                     onLocateMessage={locateMessageFromMarkdown}
                   />
                 </Suspense>

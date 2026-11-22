@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { serverText, zhText, type ChatMessage, type Invocation } from "@superhive/protocol";
 import { setLocalePreference } from "./i18n";
 import { machinePreview } from "./machine-message";
-import { localizeServerPayload, serverError } from "./server-text";
+import { localizeServerPayload, messageBodyContent, serverError } from "./server-text";
 
 afterEach(() => setLocalePreference("zh-CN"));
 
@@ -98,5 +98,87 @@ describe("server texts in the web UI", () => {
     // 标签里的「子任务回执」「结果见」来自 en.json（另有人在润色），这里只核对服务端那部分
     expect(preview.label).toMatch(/→ @rd-claude · Completed · .*1678/);
     expect(preview.text).toBe("可以合");
+  });
+});
+
+describe("question bubble body", () => {
+  const ask = (choices: boolean) =>
+    serverText("question.ask", {
+      asker: "@rd ",
+      question: "用哪个方案？",
+      choices: choices
+        ? serverText("question.choices", {
+            mode: serverText("question.multiple"),
+            options: "A. 甲\nB. 乙",
+          })
+        : "",
+      hint: serverText(choices ? "question.hintOptions" : "question.hintReply", {
+        agent: "rd-claude",
+      }),
+    });
+  const message = (text: ReturnType<typeof ask>, withSpec: boolean) =>
+    localizeServerPayload({
+      content: zhText(text),
+      text,
+      kind: "question",
+      ...(withSpec
+        ? {
+            question: {
+              multiple: true,
+              options: [
+                { key: "A", label: "甲" },
+                { key: "B", label: "乙" },
+              ],
+            },
+          }
+        : {}),
+    } as unknown as ChatMessage);
+
+  it("shows only the question when options render as a card, keeping the full content", () => {
+    for (const locale of ["zh-CN", "en"] as const) {
+      setLocalePreference(locale);
+      const localized = message(ask(true), true);
+      expect(messageBodyContent(localized)).toBe("@rd ❓ 用哪个方案？");
+      // 复制、导出仍用完整原文
+      expect(localized.content).toContain("A. 甲");
+      expect(localized.content).toContain(locale === "en" ? "(Pick one or more)" : "（可多选）");
+    }
+  });
+
+  it("keeps the reply hint for free-form questions and falls back to content without text", () => {
+    const free = message(ask(false), false);
+    expect(messageBodyContent(free)).toBe(free.content);
+    expect(free.content).toContain("回复这条消息");
+    const legacy = { ...message(ask(true), true), text: undefined } as ChatMessage;
+    expect(messageBodyContent(legacy)).toBe(legacy.content);
+  });
+
+  it("drops Allow / Deny lines from approval requests", () => {
+    setLocalePreference("en");
+    const text = serverText("approval.request", {
+      asker: "",
+      agent: "rd-codex",
+      tool: "Bash",
+      summary: "pnpm test",
+      detail: "",
+      minutes: 10,
+    });
+    const approval = localizeServerPayload({
+      content: zhText(text),
+      text,
+      kind: "question",
+      question: {
+        multiple: false,
+        options: [
+          { key: "A", label: "允许" },
+          { key: "B", label: "拒绝" },
+        ],
+      },
+      approval: { requestId: "00000000-0000-4000-8000-000000000000", tool: "Bash" },
+    } as unknown as ChatMessage);
+    expect(messageBodyContent(approval)).toBe(
+      "🔐 rd-codex is requesting permission (Bash): pnpm test\n(It's denied if no one decides within 10 min.)",
+    );
+    expect(approval.content).toContain("A. Allow");
   });
 });
