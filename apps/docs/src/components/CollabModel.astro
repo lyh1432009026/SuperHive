@@ -10,51 +10,77 @@ const marks: Record<string, string> = {
   omp: "M3 4h18v16H3V4Zm4 4 3 4-3 4m6 0h4",
 };
 
-// 三个人各自的电脑；node 是动画里高亮用的标识，样式里按步骤引用。
+// 三台电脑，每台一个人带两个 Agent；node 是连线和高亮用的标识。
 const machines = [
   {
-    owner: "你",
-    node: "you",
-    agents: [
-      { name: "claude", kind: "claude", task: "统筹 · review" },
-      { name: "codex", kind: "codex", task: "写代码" },
+    label: "你的电脑",
+    nodes: [
+      { node: "you", name: "你", kind: "human", role: "定目标 · 拍板" },
+      { node: "claude", name: "claude", kind: "claude", role: "统筹 · review" },
+      { node: "codex", name: "codex", kind: "codex", role: "写代码" },
     ],
   },
   {
-    owner: "林夏",
-    node: "lin",
-    agents: [
-      { name: "lin-codex", kind: "codex", task: "修结算页" },
-      { name: "lin-omp", kind: "omp", task: "整理文档" },
+    label: "林夏的电脑",
+    nodes: [
+      { node: "lin", name: "林夏", kind: "human", role: "负责结算页" },
+      { node: "lin-codex", name: "lin-codex", kind: "codex", role: "修结算页" },
+      { node: "lin-omp", name: "lin-omp", kind: "omp", role: "整理文档" },
     ],
   },
   {
-    owner: "周远",
-    node: "zhou",
-    agents: [
-      { name: "zhou-claude", kind: "claude", task: "补测试" },
-      { name: "zhou-omp", kind: "omp", task: "跑验证" },
+    label: "周远的电脑",
+    nodes: [
+      { node: "zhou", name: "周远", kind: "human", role: "负责测试" },
+      { node: "zhou-claude", name: "zhou-claude", kind: "claude", role: "补测试" },
+      { node: "zhou-omp", name: "zhou-omp", kind: "omp", role: "跑验证" },
     ],
   },
 ];
 
-// 五种协作关系；动画按这个顺序轮播，样式里的 data-step 选择器与之对应。
+// 轮播的六步：from 经房间到 to；房间里 data-on 包含步骤号的内容同时亮起。
 const steps = [
-  { title: "派活", detail: "你在房间里 @lin-codex，把结算页的修复派给林夏电脑上的 Agent。" },
-  { title: "跨电脑委派", detail: "lin-codex 拆出「补边界测试」，委派给周远电脑上的 zhou-claude。" },
-  { title: "登记白板", detail: "zhou-claude 补好测试后登记到白板，谁都看得到它已就绪。" },
-  { title: "回到人手里", detail: "要不要重算旧订单？lin-codex 停下来问你，你点选后它继续。" },
-  { title: "交回成果", detail: "lin-codex 交回提交和测试结果，你的 claude 接着 review。" },
+  {
+    title: "派活",
+    detail: "你在房间里 @lin-codex，把结算页的修复派给林夏电脑上的 Agent。",
+    from: "you",
+    to: "lin-codex",
+  },
+  {
+    title: "Agent 委派 Agent",
+    detail: "lin-codex 拆出「补边界测试」，委派给周远电脑上的 zhou-claude。",
+    from: "lin-codex",
+    to: "zhou-claude",
+  },
+  {
+    title: "交回并登记白板",
+    detail: "zhou-claude 补好测试交回 lin-codex，并登记到白板，谁都看得到。",
+    from: "zhou-claude",
+    to: "lin-codex",
+  },
+  {
+    title: "Agent 问人",
+    detail: "要不要重算旧订单？lin-codex 停下来，把问题交到你手里。",
+    from: "lin-codex",
+    to: "you",
+  },
+  {
+    title: "人来回答",
+    detail: "你在网页里点选「只修新订单」，lin-codex 接着做。",
+    from: "you",
+    to: "lin-codex",
+  },
+  {
+    title: "交回成果",
+    detail: "lin-codex 交回提交和测试结果，请你的 claude review。",
+    from: "lin-codex",
+    to: "claude",
+  },
 ];
 const last = steps.length - 1;
 ---
 
-<figure
-  class="cm not-content"
-  data-step={last}
-  aria-labelledby="cm-title"
-  aria-describedby="cm-desc"
->
+<figure class="cm not-content" aria-labelledby="cm-title" aria-describedby="cm-desc">
   <div class="cm-frame">
     <div class="cm-head">
       <p class="cm-kicker" id="cm-title">每个人带着自己的 Agent，在同一个房间里协作</p>
@@ -72,60 +98,58 @@ const last = steps.length - 1;
       </span>
     </div>
     <p class="cm-sr" id="cm-desc">
-      示意图：你、林夏、周远三个人各自在自己的电脑上运行两个 Agent。三台电脑都连到同一个 SuperHive
-      房间，房间里只有公开消息、协作白板和等人回答的问题；文件、权限和会话留在各自的电脑上。下面的五个步骤说明大家怎样通过房间协作。
+      示意图：你、林夏、周远三个人各自在自己的电脑上带着两个 Agent。每个人、每个 Agent
+      都有一条线连进同一个 SuperHive
+      房间，房间里只有公开消息、协作白板和等人回答的问题；文件、权限和会话留在各自的电脑上。Agent
+      之间也能经过房间互相委派。下面的六个步骤说明一次协作怎样在人和 Agent 之间流转。
     </p>
 
     <div class="cm-stage" aria-hidden="true">
+      <svg class="cm-wires" data-cm-wires></svg>
+
       <div class="cm-machines">
         {
           machines.map((machine, index) => (
             <div class:list={["cm-machine", { "cm-machine-you": index === 0 }]}>
-              <div class="cm-owner" data-node={machine.node}>
-                <span class="cm-avatar">{machine.owner.slice(0, 1)}</span>
-                <span class="cm-owner-text">
-                  <strong>{machine.owner}</strong>
-                  <span>{index === 0 ? "你的电脑" : `${machine.owner}的电脑`}</span>
+              <div class="cm-machine-head">
+                <strong>{machine.label}</strong>
+                <span class="cm-local">
+                  <svg viewBox="0 0 16 16">
+                    <rect x="3" y="7" width="10" height="7" rx="1.5" />
+                    <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
+                  </svg>
+                  <span class="cm-local-long">文件 · 权限 · 会话留在本机</span>
+                  <span class="cm-local-short">留在本机</span>
                 </span>
               </div>
-              <ul class="cm-agents">
-                {machine.agents.map((agent) => (
-                  <li data-node={agent.name}>
-                    <svg viewBox="0 0 24 24">
-                      <path d={marks[agent.kind]} />
-                    </svg>
-                    <span class="cm-agent-text">
-                      <strong>{agent.name}</strong>
-                      <span>{agent.task}</span>
+              <ul class="cm-nodes">
+                {machine.nodes.map((node) => (
+                  <li
+                    class:list={["cm-node", `cm-node-${node.kind === "human" ? "human" : "agent"}`]}
+                    data-node={node.node}
+                  >
+                    <span class="cm-node-icon">
+                      {node.kind === "human" ? (
+                        node.name.slice(0, 1)
+                      ) : (
+                        <svg viewBox="0 0 24 24">
+                          <path d={marks[node.kind]} />
+                        </svg>
+                      )}
+                    </span>
+                    <span class="cm-node-text">
+                      <strong>{node.name}</strong>
+                      <span>{node.role}</span>
                     </span>
                   </li>
                 ))}
               </ul>
-              <div class="cm-local">
-                <svg viewBox="0 0 16 16">
-                  <rect x="3" y="7" width="10" height="7" rx="1.5" />
-                  <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
-                </svg>
-                <span class="cm-local-long">文件 · 权限 · 会话留在本机</span>
-                <span class="cm-local-short">留在本机</span>
-              </div>
             </div>
           ))
         }
       </div>
 
-      <div class="cm-wires">
-        {
-          machines.map((_, index) => (
-            <span class:list={["cm-wire", `cm-wire-${index}`]}>
-              <span class="cm-dot cm-dot-down" />
-              <span class="cm-dot cm-dot-up" />
-            </span>
-          ))
-        }
-      </div>
-
-      <div class="cm-room">
+      <div class="cm-room" data-cm-room>
         <div class="cm-room-head">
           <HiveMark width={26} height={26} />
           <span class="cm-room-name">
@@ -137,24 +161,23 @@ const last = steps.length - 1;
         <div class="cm-zones">
           <div class="cm-zone cm-zone-msg">
             <span class="cm-zone-title">公开消息</span>
-            <p class="cm-line cm-l0"><b>你</b> @lin-codex 修一下结算页的四舍五入</p>
-            <p class="cm-line cm-l1"><b>lin-codex</b> @zhou-claude 帮忙补边界测试</p>
-            <p class="cm-line cm-l4"><b>lin-codex</b> 已修复，提交 a41c9e2，请 review</p>
+            <p class="cm-line" data-on="0"><b>你</b> @lin-codex 修一下结算页的四舍五入</p>
+            <p class="cm-line" data-on="1"><b>lin-codex</b> @zhou-claude 帮忙补边界测试</p>
+            <p class="cm-line" data-on="2"><b>zhou-claude</b> 测试补好了，交回 lin-codex</p>
+            <p class="cm-line" data-on="5"><b>lin-codex</b> 已修复 a41c9e2，@claude 请 review</p>
           </div>
           <div class="cm-zone cm-zone-board">
             <span class="cm-zone-title">协作白板</span>
-            <p class="cm-line cm-l01">
-              结算页修复 <span class="cm-pill">进行中</span>
-            </p>
-            <p class="cm-line cm-l2">
+            <p class="cm-line" data-on="0 1">结算页修复 <span class="cm-pill">进行中</span></p>
+            <p class="cm-line" data-on="2">
               边界测试 <span class="cm-pill cm-pill-ok">已就绪</span>
             </p>
           </div>
           <div class="cm-zone cm-zone-ask">
             <span class="cm-zone-title">等你回答</span>
-            <p class="cm-line cm-l3">旧订单要一起重算吗？</p>
+            <p class="cm-line" data-on="3">旧订单要一起重算吗？</p>
             <span class="cm-options">
-              <span class="cm-option cm-option-pick">A 只修新订单</span>
+              <span class="cm-option cm-option-pick" data-on="4">A 只修新订单</span>
               <span class="cm-option">B 一起重算</span>
             </span>
           </div>
@@ -162,7 +185,7 @@ const last = steps.length - 1;
       </div>
     </div>
 
-    <ol class="cm-steps">
+    <ol class="cm-steps" style={`--cm-steps: ${steps.length}`}>
       {
         steps.map((step, index) => (
           <li>
@@ -170,6 +193,8 @@ const last = steps.length - 1;
               type="button"
               class="cm-step"
               data-go={index}
+              data-from={step.from}
+              data-to={step.to}
               aria-current={index === last ? "step" : undefined}
             >
               <span class="cm-step-dot" aria-hidden="true">
@@ -195,34 +220,115 @@ const last = steps.length - 1;
 </figure>
 
 <script>
-  const STEP_MS = 3600;
+  const STEP_MS = 4000;
+  const SVG = "http://www.w3.org/2000/svg";
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
+  // 和样式里的窄屏断点一致：窄屏时房间在左、电脑竖排在右
+  const narrow = window.matchMedia("(max-width: 40rem)");
 
   for (const figure of document.querySelectorAll<HTMLElement>(".cm")) {
+    const stage = figure.querySelector<HTMLElement>(".cm-stage")!;
+    const svg = figure.querySelector<SVGSVGElement>("[data-cm-wires]")!;
+    const room = figure.querySelector<HTMLElement>("[data-cm-room]")!;
+    const nodes = [...figure.querySelectorAll<HTMLElement>("[data-node]")];
     const buttons = [...figure.querySelectorAll<HTMLButtonElement>("[data-go]")];
+    const lines = [...figure.querySelectorAll<HTMLElement>("[data-on]")];
     const toggle = figure.querySelector<HTMLButtonElement>("[data-cm-toggle]");
     const toggleLabel = figure.querySelector<HTMLElement>("[data-cm-toggle-label]");
     const last = buttons.length - 1;
+    const wires = new Map<string, SVGElement>();
     let step = last;
     let timer = 0;
     let paused = reduce.matches;
     let visible = false;
 
+    const make = (name: string, attrs: Record<string, string | number>) => {
+      const el = document.createElementNS(SVG, name);
+      for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, String(value));
+      return el;
+    };
+
+    // 每个人、每个 Agent 从自己的连接口拉一条曲线进房间；入口按顺序排开，线不互相打结
+    const draw = () => {
+      const box = stage.getBoundingClientRect();
+      const roomBox = room.getBoundingClientRect();
+      svg.setAttribute("viewBox", `0 0 ${box.width} ${box.height}`);
+      svg.replaceChildren();
+      wires.clear();
+      const count = nodes.length;
+      nodes.forEach((node, index) => {
+        const rect = node.getBoundingClientRect();
+        const t = count === 1 ? 0.5 : index / (count - 1);
+        let d: string;
+        let port: [number, number];
+        let inlet: [number, number];
+        if (narrow.matches) {
+          port = [rect.left - box.left, rect.top + rect.height / 2 - box.top];
+          inlet = [
+            roomBox.right - box.left,
+            roomBox.top - box.top + roomBox.height * (0.12 + t * 0.76),
+          ];
+          const k = (port[0] - inlet[0]) * 0.7;
+          d = `M${port[0]} ${port[1]}C${port[0] - k} ${port[1]} ${inlet[0] + k} ${inlet[1]} ${inlet[0]} ${inlet[1]}`;
+        } else {
+          port = [rect.left + rect.width / 2 - box.left, rect.bottom - box.top];
+          inlet = [
+            roomBox.left - box.left + roomBox.width * (0.3 + t * 0.4),
+            roomBox.top - box.top,
+          ];
+          const k = (inlet[1] - port[1]) * 0.75;
+          d = `M${port[0]} ${port[1]}C${port[0]} ${port[1] + k} ${inlet[0]} ${inlet[1] - k} ${inlet[0]} ${inlet[1]}`;
+        }
+        const group = make("g", { class: "cm-wire", style: `--cm-delay: ${index * -0.55}s` });
+        group.append(
+          make("path", { class: "cm-wire-base", d }),
+          make("path", { class: "cm-wire-flow", d, pathLength: 100 }),
+          make("path", { class: "cm-wire-flow cm-wire-back", d, pathLength: 100 }),
+          make("path", { class: "cm-wire-hot", d }),
+          make("path", { class: "cm-wire-pulse cm-wire-glow", d, pathLength: 100 }),
+          make("path", { class: "cm-wire-pulse", d, pathLength: 100 }),
+          make("circle", { class: "cm-port", cx: port[0], cy: port[1], r: 3 }),
+          make("circle", { class: "cm-port", cx: inlet[0], cy: inlet[1], r: 2.5 }),
+        );
+        svg.append(group);
+        wires.set(node.dataset.node!, group);
+      });
+      mark();
+    };
+
+    // 给发起方、接收方、对应的房间内容挂上状态；is-run 重挂一次让光点从头走
+    const mark = () => {
+      const live = figure.classList.contains("is-live");
+      const from = buttons[step].dataset.from;
+      const to = buttons[step].dataset.to;
+      for (const node of nodes) {
+        node.classList.toggle("is-from", live && node.dataset.node === from);
+        node.classList.toggle("is-to", live && node.dataset.node === to);
+      }
+      for (const [name, wire] of wires) {
+        wire.classList.toggle("is-from", live && name === from);
+        wire.classList.toggle("is-to", live && name === to);
+      }
+      for (const line of lines) {
+        line.classList.toggle("is-on", live && line.dataset.on!.split(" ").includes(String(step)));
+      }
+      figure.classList.remove("is-run");
+      void figure.offsetWidth;
+      figure.classList.toggle("is-run", live && !paused);
+    };
+
     const show = (next: number) => {
       step = next;
-      figure.dataset.step = String(step);
       buttons.forEach((button, index) => {
         if (index === step) button.setAttribute("aria-current", "step");
         else button.removeAttribute("aria-current");
       });
-      // 重新挂上 is-run，让这一步的连线动画从头播放
-      figure.classList.remove("is-run");
-      void figure.offsetWidth;
-      figure.classList.toggle("is-run", !paused);
+      mark();
     };
 
     const schedule = () => {
       clearTimeout(timer);
+      figure.classList.toggle("is-idle", paused || !visible || document.hidden);
       if (paused || !visible || document.hidden) return;
       timer = window.setTimeout(
         () => {
@@ -254,10 +360,11 @@ const last = steps.length - 1;
       if (!paused) show(step === last ? 0 : step + 1);
     });
 
+    new ResizeObserver(draw).observe(stage);
+    narrow.addEventListener("change", draw);
     new IntersectionObserver(([entry]) => {
       const wasVisible = visible;
       visible = entry.isIntersecting;
-      figure.classList.toggle("is-offscreen", !visible);
       // 重新进入视野时从第一步讲起
       if (visible && !wasVisible && !paused) show(0);
       schedule();
@@ -269,6 +376,7 @@ const last = steps.length - 1;
       if (toggle) toggle.hidden = false;
       figure.classList.add("is-live");
     }
+    draw();
   }
 </script>
 
@@ -280,8 +388,8 @@ const last = steps.length - 1;
     --cm-panel: var(--sl-color-bg-sidebar);
     --cm-surface: var(--sl-color-bg);
     --cm-raised: var(--sl-color-gray-6);
-    --cm-wire-h: 3.25rem;
-    --cm-ms: 3600ms;
+    --cm-wire: var(--sl-color-gray-4);
+    --cm-ms: 4000ms;
     --cm-ease: cubic-bezier(0.22, 1, 0.36, 1);
     min-width: 0;
     margin: 0;
@@ -321,8 +429,14 @@ const last = steps.length - 1;
     letter-spacing: 0.04em;
   }
 
-  .cm-badge {
+  .cm-head-side {
+    display: flex;
     flex-shrink: 0;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .cm-badge {
     padding: 0.05rem 0.5rem;
     border: 1px solid var(--cm-line);
     border-radius: 999px;
@@ -339,7 +453,14 @@ const last = steps.length - 1;
     white-space: nowrap;
   }
 
-  .cm-stage svg {
+  .cm-stage {
+    position: relative;
+    display: grid;
+    grid-template-rows: auto auto;
+    row-gap: 7.5rem;
+  }
+
+  .cm-stage svg:not(.cm-wires) {
     fill: none;
     stroke: currentColor;
     stroke-width: 1.8;
@@ -347,132 +468,50 @@ const last = steps.length - 1;
     stroke-linejoin: round;
   }
 
-  /* 三台电脑 */
-  .cm-machines,
-  .cm-wires {
+  /* 三台电脑：每台一个虚线框，人和 Agent 各占一张卡片 */
+  .cm-machines {
+    position: relative;
+    z-index: 1;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.9rem;
   }
 
   .cm-machine {
-    display: flex;
-    flex-direction: column;
     min-width: 0;
-    padding: 0.8rem;
-    border: 1px solid var(--cm-line);
+    padding: 0.6rem;
+    border: 1px dashed var(--sl-color-gray-4);
     border-radius: 0.9rem;
-    background: var(--cm-surface);
   }
 
-  .cm-machine-you {
-    border-color: var(--sl-color-gray-4);
-  }
-
-  .cm-owner {
+  .cm-machine-head {
     display: flex;
-    align-items: center;
-    gap: 0.55rem;
-    min-width: 0;
-  }
-
-  .cm-avatar {
-    display: grid;
-    flex-shrink: 0;
-    place-items: center;
-    width: 1.9rem;
-    height: 1.9rem;
-    border-radius: 50%;
-    background: var(--cm-raised);
-    color: var(--sl-color-gray-2);
-    font-size: 0.75rem;
-    font-weight: 650;
-    transition:
-      background-color 250ms ease,
-      color 250ms ease,
-      box-shadow 250ms ease;
-  }
-
-  .cm-machine-you .cm-avatar {
-    background: var(--sl-color-white);
-    color: var(--sl-color-black);
-  }
-
-  .cm-owner-text,
-  .cm-agent-text {
-    display: grid;
-    min-width: 0;
-  }
-
-  .cm-owner-text strong {
-    font-size: 0.85rem;
-    font-weight: 650;
-  }
-
-  .cm-owner-text span,
-  .cm-agent-text span {
-    overflow: hidden;
-    color: var(--sl-color-gray-3);
-    font-size: 0.68rem;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .cm-agents {
-    display: grid;
-    gap: 0.4rem;
-    margin: 0.75rem 0 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .cm-agents li {
-    display: flex;
-    align-items: center;
+    align-items: baseline;
+    justify-content: space-between;
     gap: 0.5rem;
-    margin: 0;
-    padding: 0.45rem 0.55rem;
-    border: 1px solid var(--cm-line);
-    border-radius: 0.55rem;
-    background: var(--cm-panel);
-    transition:
-      border-color 250ms ease,
-      background-color 250ms ease;
+    margin: 0 0.15rem 0.5rem;
   }
 
-  .cm-agents svg {
-    flex-shrink: 0;
-    width: 0.95rem;
-    height: 0.95rem;
-    color: var(--sl-color-accent);
-  }
-
-  .cm-agent-text strong {
-    overflow: hidden;
-    font-family: var(--sl-font-mono);
-    font-size: 0.72rem;
-    font-weight: 600;
-    text-overflow: ellipsis;
+  .cm-machine-head strong {
+    font-size: 0.78rem;
+    font-weight: 650;
     white-space: nowrap;
   }
 
   .cm-local {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 0.3rem;
-    margin-top: 0.75rem;
-    padding-top: 0.6rem;
-    border-top: 1px dashed var(--cm-line);
+    gap: 0.25rem;
+    overflow: hidden;
     color: var(--sl-color-gray-3);
-    font-size: 0.66rem;
+    font-size: 0.64rem;
     white-space: nowrap;
   }
 
   .cm-local svg {
     flex-shrink: 0;
-    width: 0.8rem;
-    height: 0.8rem;
+    width: 0.75rem;
+    height: 0.75rem;
     stroke-width: 1.5;
   }
 
@@ -480,48 +519,155 @@ const last = steps.length - 1;
     display: none;
   }
 
-  /* 电脑与房间之间的连线 */
-  .cm-wire {
+  .cm-nodes {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .cm-node {
     position: relative;
-    height: var(--cm-wire-h);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+    min-width: 0;
+    margin: 0;
+    padding: 0.55rem 0.3rem 0.6rem;
+    border: 1px solid var(--cm-line);
+    border-radius: 0.65rem;
+    background: var(--cm-surface);
+    text-align: center;
+    transition:
+      border-color 250ms ease,
+      background-color 250ms ease;
   }
 
-  .cm-wire::before {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 50%;
-    border-left: 1.5px dashed var(--sl-color-gray-4);
-    content: "";
-    transition: border-color 250ms ease;
+  .cm-node-icon {
+    display: grid;
+    flex-shrink: 0;
+    place-items: center;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 0.5rem;
+    background: var(--cm-raised);
+    color: var(--sl-color-accent);
+    font-size: 0.75rem;
+    font-weight: 650;
   }
 
-  .cm-wire::after {
-    position: absolute;
-    top: 50%;
-    left: calc(50% + 0.6rem);
-    color: var(--sl-color-accent-high);
-    font-size: 0.68rem;
-    font-weight: 600;
-    white-space: nowrap;
-    transform: translateY(-50%);
+  .cm-node-icon svg {
+    width: 1rem;
+    height: 1rem;
   }
 
-  .cm-dot {
-    position: absolute;
-    top: 0;
-    left: 50%;
-    width: 0.55rem;
-    height: 0.55rem;
-    margin: -0.275rem 0 0 calc(-0.275rem + 0.75px);
+  .cm-node-human .cm-node-icon {
     border-radius: 50%;
-    background: var(--sl-color-accent);
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--sl-color-accent) 22%, transparent);
+    color: var(--sl-color-gray-2);
+  }
+
+  .cm-machine-you .cm-node-human .cm-node-icon {
+    background: var(--sl-color-white);
+    color: var(--sl-color-black);
+  }
+
+  .cm-node-text {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .cm-node-text strong,
+  .cm-node-text span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .cm-node-text strong {
+    font-size: 0.74rem;
+    font-weight: 600;
+  }
+
+  .cm-node-agent .cm-node-text strong {
+    font-family: var(--sl-font-mono);
+    font-size: 0.68rem;
+  }
+
+  .cm-node-text span {
+    color: var(--sl-color-gray-3);
+    font-size: 0.62rem;
+  }
+
+  .cm-node.is-from,
+  .cm-node.is-to {
+    border-color: var(--sl-color-accent);
+    background: var(--sl-color-accent-low);
+  }
+
+  /* 连线：底线 + 常驻的暗淡流动；当前这一步的路径整条点亮，光点走完 */
+  .cm-wires {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+    fill: none;
+  }
+
+  .cm-wires :global(.cm-wire-base) {
+    stroke: var(--cm-wire);
+    stroke-width: 1;
+    opacity: 0.7;
+  }
+
+  .cm-wires :global(.cm-port) {
+    fill: var(--cm-wire);
+    stroke: var(--cm-panel);
+    stroke-width: 1.5;
+  }
+
+  .cm-wires :global(.cm-wire-flow),
+  .cm-wires :global(.cm-wire-hot),
+  .cm-wires :global(.cm-wire-pulse) {
     opacity: 0;
+  }
+
+  .cm-wires :global(.cm-wire-hot) {
+    stroke: var(--sl-color-accent);
+    stroke-width: 1.75;
+  }
+
+  .cm-wires :global(:is(.is-from, .is-to) .cm-wire-hot) {
+    opacity: 1;
+  }
+
+  .cm-wires :global(:is(.is-from, .is-to) .cm-port) {
+    fill: var(--sl-color-accent);
+  }
+
+  .cm-wires :global(.cm-wire-pulse) {
+    stroke: var(--sl-color-accent);
+    stroke-width: 5;
+    stroke-linecap: round;
+    stroke-dasharray: 5 200;
+    stroke-dashoffset: 5;
+  }
+
+  .cm-wires :global(.cm-wire-glow) {
+    stroke-width: 12;
+    stroke-dasharray: 9 200;
   }
 
   /* 房间 */
   .cm-room {
+    position: relative;
+    z-index: 1;
     padding: 0.9rem;
     border: 1px solid var(--sl-color-gray-4);
     border-radius: 0.9rem;
@@ -537,7 +683,6 @@ const last = steps.length - 1;
 
   .cm-room-head > svg {
     flex-shrink: 0;
-    stroke-width: 2.4;
   }
 
   .cm-room-name {
@@ -593,11 +738,10 @@ const last = steps.length - 1;
   }
 
   .cm-line {
-    margin: 0;
+    margin: 0 -0.35rem;
     padding: 0.1rem 0.35rem;
-    margin-inline: -0.35rem;
-    border-radius: 0.35rem;
     overflow: hidden;
+    border-radius: 0.35rem;
     color: var(--sl-color-gray-2);
     font-size: 0.74rem;
     text-overflow: ellipsis;
@@ -610,6 +754,11 @@ const last = steps.length - 1;
   .cm-line b {
     color: var(--sl-color-white);
     font-weight: 600;
+  }
+
+  .cm-line.is-on {
+    background: var(--sl-color-accent-low);
+    color: var(--sl-color-white);
   }
 
   .cm-pill {
@@ -656,17 +805,16 @@ const last = steps.length - 1;
   }
 
   .cm:not(.is-live) .cm-option-pick,
-  .cm.is-live[data-step="3"] .cm-option-pick,
-  .cm.is-live[data-step="4"] .cm-option-pick {
+  .cm-option-pick.is-on {
     border-color: var(--sl-color-accent);
     background: var(--sl-color-accent);
     color: var(--sl-color-black);
   }
 
-  /* 下方的五种协作关系 */
+  /* 下方的六个步骤 */
   .cm-steps {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(var(--cm-steps), minmax(0, 1fr));
     gap: 0.4rem;
     margin: 1rem 0 0;
     padding: 0;
@@ -747,13 +895,6 @@ const last = steps.length - 1;
     color: var(--sl-color-black);
   }
 
-  .cm-head-side {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
   .cm-toggle {
     display: inline-flex;
     align-items: center;
@@ -797,78 +938,6 @@ const last = steps.length - 1;
     fill: currentColor;
   }
 
-  /*
-   * 每一步的高亮：发起方、经过的房间区域、接收方。
-   * 步骤与 frontmatter 里的 steps 一一对应。
-   */
-  .cm.is-live[data-step="0"] [data-node="you"] .cm-avatar,
-  .cm.is-live[data-step="3"] [data-node="you"] .cm-avatar,
-  .cm.is-live[data-step="4"] [data-node="you"] .cm-avatar {
-    box-shadow:
-      0 0 0 2px var(--cm-surface),
-      0 0 0 4px var(--sl-color-accent);
-  }
-
-  .cm.is-live[data-step="0"] [data-node="lin-codex"],
-  .cm.is-live[data-step="1"] [data-node="lin-codex"],
-  .cm.is-live[data-step="1"] [data-node="zhou-claude"],
-  .cm.is-live[data-step="2"] [data-node="zhou-claude"],
-  .cm.is-live[data-step="3"] [data-node="lin-codex"],
-  .cm.is-live[data-step="4"] [data-node="lin-codex"],
-  .cm.is-live[data-step="4"] [data-node="claude"] {
-    border-color: var(--sl-color-accent);
-    background: var(--sl-color-accent-low);
-  }
-
-  .cm.is-live[data-step="0"] .cm-l0,
-  .cm.is-live[data-step="1"] .cm-l1,
-  .cm.is-live[data-step="2"] .cm-l2,
-  .cm.is-live[data-step="3"] .cm-l3,
-  .cm.is-live[data-step="4"] .cm-l4 {
-    background: var(--sl-color-accent-low);
-    color: var(--sl-color-white);
-  }
-
-  .cm.is-live[data-step="0"] .cm-wire-0::before,
-  .cm.is-live[data-step="0"] .cm-wire-1::before,
-  .cm.is-live[data-step="1"] .cm-wire-1::before,
-  .cm.is-live[data-step="1"] .cm-wire-2::before,
-  .cm.is-live[data-step="2"] .cm-wire-2::before,
-  .cm.is-live[data-step="3"] .cm-wire-1::before,
-  .cm.is-live[data-step="3"] .cm-wire-0::before,
-  .cm.is-live[data-step="4"] .cm-wire-1::before,
-  .cm.is-live[data-step="4"] .cm-wire-0::before {
-    border-left-style: solid;
-    border-color: var(--sl-color-accent);
-  }
-
-  .cm.is-live[data-step="0"] .cm-wire-0::after,
-  .cm.is-live[data-step="0"] .cm-wire-1::after {
-    content: "派活";
-  }
-
-  .cm.is-live[data-step="1"] .cm-wire-1::after,
-  .cm.is-live[data-step="1"] .cm-wire-2::after {
-    content: "委派";
-  }
-
-  .cm.is-live[data-step="2"] .cm-wire-2::after {
-    content: "登记";
-  }
-
-  .cm.is-live[data-step="3"] .cm-wire-1::after {
-    content: "提问";
-  }
-
-  .cm.is-live[data-step="3"] .cm-wire-0::after {
-    content: "等你决定";
-  }
-
-  .cm.is-live[data-step="4"] .cm-wire-1::after,
-  .cm.is-live[data-step="4"] .cm-wire-0::after {
-    content: "交回";
-  }
-
   figcaption {
     display: flex;
     justify-content: space-between;
@@ -890,21 +959,7 @@ const last = steps.length - 1;
     text-underline-offset: 0.2em;
   }
 
-  @media (max-width: 50rem) {
-    .cm-frame {
-      padding: 0.9rem;
-      border-radius: 1rem;
-    }
-
-    .cm-machines,
-    .cm-wires {
-      gap: 0.5rem;
-    }
-
-    .cm-machine {
-      padding: 0.6rem;
-    }
-
+  @media (max-width: 62rem) {
     .cm-local-long {
       display: none;
     }
@@ -913,12 +968,111 @@ const last = steps.length - 1;
       display: inline;
     }
 
-    .cm-zones {
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    .cm-node-text span {
+      display: none;
     }
 
-    .cm-zone-msg {
-      grid-column: 1 / -1;
+    .cm-steps {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  /* 窄屏：房间在左，三台电脑竖排在右，线从卡片左侧横着弯进房间 */
+  @media (max-width: 40rem) {
+    .cm-frame {
+      padding: 0.8rem;
+      border-radius: 1rem;
+    }
+
+    .cm-head {
+      align-items: flex-start;
+    }
+
+    .cm-stage {
+      grid-template-columns: minmax(0, 1fr) 2.75rem minmax(0, 1.05fr);
+      grid-template-rows: auto;
+      row-gap: 0;
+    }
+
+    .cm-machines {
+      grid-column: 3;
+      grid-row: 1;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.6rem;
+    }
+
+    .cm-machine {
+      padding: 0.45rem;
+      border-radius: 0.75rem;
+    }
+
+    .cm-machine-head {
+      flex-direction: column;
+      gap: 0;
+      margin-bottom: 0.35rem;
+    }
+
+    .cm-nodes {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.3rem;
+    }
+
+    .cm-node {
+      flex-direction: row;
+      gap: 0.4rem;
+      padding: 0.3rem 0.4rem;
+      border-radius: 0.5rem;
+      text-align: left;
+    }
+
+    .cm-node-icon {
+      width: 1.35rem;
+      height: 1.35rem;
+      font-size: 0.64rem;
+    }
+
+    .cm-node-icon svg {
+      width: 0.8rem;
+      height: 0.8rem;
+    }
+
+    .cm-node-agent .cm-node-text strong {
+      font-size: 0.62rem;
+    }
+
+    .cm-room {
+      grid-column: 1;
+      grid-row: 1;
+      align-self: center;
+      padding: 0.6rem;
+    }
+
+    .cm-room-head {
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
+    .cm-room-head > svg {
+      width: 1.3rem;
+      height: 1.3rem;
+    }
+
+    .cm-room-note {
+      margin-left: 0;
+    }
+
+    .cm-zones {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.45rem;
+    }
+
+    .cm-zone {
+      padding: 0.45rem 0.5rem;
+    }
+
+    .cm-line {
+      font-size: 0.66rem;
+      white-space: normal;
     }
 
     .cm-steps {
@@ -933,150 +1087,96 @@ const last = steps.length - 1;
     }
   }
 
-  @media (max-width: 35rem) {
-    .cm-head {
-      align-items: flex-start;
-    }
-
-    .cm-machine {
-      padding: 0.5rem;
-      border-radius: 0.7rem;
-    }
-
-    .cm-owner {
-      gap: 0.4rem;
-    }
-
-    .cm-avatar {
-      width: 1.5rem;
-      height: 1.5rem;
-      font-size: 0.66rem;
-    }
-
-    .cm-owner-text strong {
-      font-size: 0.78rem;
-    }
-
-    .cm-owner-text span,
-    .cm-agent-text span,
-    .cm-agents svg {
-      display: none;
-    }
-
-    .cm-agents {
-      gap: 0.3rem;
-      margin-top: 0.5rem;
-    }
-
-    .cm-agents li {
-      padding: 0.3rem 0.4rem;
-      border-radius: 0.45rem;
-    }
-
-    .cm-agent-text strong {
-      font-size: 0.64rem;
-    }
-
-    .cm-local {
-      margin-top: 0.5rem;
-      padding-top: 0.45rem;
-      font-size: 0.62rem;
-    }
-
-    .cm-wire::after {
-      left: calc(50% + 0.45rem);
-      font-size: 0.62rem;
-    }
-
-    .cm-room {
-      padding: 0.7rem;
-    }
-
-    .cm-zones {
-      grid-template-columns: minmax(0, 1fr);
-    }
-
-    .cm-line {
-      white-space: normal;
-    }
-  }
-
   @media (prefers-reduced-motion: no-preference) {
-    .cm.is-run .cm-wire .cm-dot {
-      animation-duration: var(--cm-ms);
-      animation-timing-function: linear;
-      animation-fill-mode: both;
+    .cm.is-live .cm-wires :global(.cm-wire-flow) {
+      stroke: var(--sl-color-accent);
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-dasharray: 3 97;
+      opacity: 0.4;
+      animation: cm-flow 5.6s linear infinite;
+      animation-delay: var(--cm-delay, 0s);
     }
 
-    .cm.is-run[data-step="0"] .cm-wire-0 .cm-dot-down,
-    .cm.is-run[data-step="1"] .cm-wire-1 .cm-dot-down,
-    .cm.is-run[data-step="2"] .cm-wire-2 .cm-dot-down,
-    .cm.is-run[data-step="3"] .cm-wire-1 .cm-dot-down,
-    .cm.is-run[data-step="4"] .cm-wire-1 .cm-dot-down {
-      animation-name: cm-down;
+    .cm.is-live .cm-wires :global(.cm-wire-back) {
+      stroke-width: 1.75;
+      stroke-dasharray: 2 98;
+      animation-name: cm-flow-back;
+      animation-delay: calc(var(--cm-delay, 0s) - 2.8s);
     }
 
-    .cm.is-run[data-step="0"] .cm-wire-1 .cm-dot-up,
-    .cm.is-run[data-step="1"] .cm-wire-2 .cm-dot-up,
-    .cm.is-run[data-step="3"] .cm-wire-0 .cm-dot-up,
-    .cm.is-run[data-step="4"] .cm-wire-0 .cm-dot-up {
-      animation-name: cm-up;
+    .cm.is-live .cm-wires :global(:is(.is-from, .is-to) .cm-wire-flow) {
+      opacity: 0;
     }
 
-    .cm.is-offscreen .cm-dot {
+    .cm.is-run .cm-wires :global(.is-from .cm-wire-pulse) {
+      animation: cm-go var(--cm-ms) linear both;
+    }
+
+    .cm.is-run .cm-wires :global(.is-to .cm-wire-pulse) {
+      animation: cm-come var(--cm-ms) linear both;
+    }
+
+    .cm.is-run .cm-wires :global(.cm-wire-glow) {
+      filter: blur(2px);
+    }
+
+    .cm.is-idle .cm-wires :global(*) {
       animation-play-state: paused;
     }
-
-    .cm.is-run .cm-wire::after {
-      animation: cm-fade 400ms var(--cm-ease) both;
-    }
   }
 
-  @keyframes cm-down {
-    0% {
-      opacity: 0;
-      transform: translateY(0);
-    }
-    6% {
-      opacity: 1;
-    }
-    36% {
-      opacity: 1;
-      transform: translateY(var(--cm-wire-h));
-    }
-    42%,
-    100% {
-      opacity: 0;
-      transform: translateY(var(--cm-wire-h));
-    }
-  }
-
-  @keyframes cm-up {
-    0%,
-    44% {
-      opacity: 0;
-      transform: translateY(var(--cm-wire-h));
-    }
-    50% {
-      opacity: 1;
-    }
-    80% {
-      opacity: 1;
-      transform: translateY(0);
-    }
-    86%,
-    100% {
-      opacity: 0;
-      transform: translateY(0);
-    }
-  }
-
-  @keyframes cm-fade {
+  @keyframes cm-flow {
     from {
-      opacity: 0;
+      stroke-dashoffset: 100;
     }
     to {
-      opacity: 1;
+      stroke-dashoffset: 0;
+    }
+  }
+
+  @keyframes cm-flow-back {
+    from {
+      stroke-dashoffset: 0;
+    }
+    to {
+      stroke-dashoffset: 100;
+    }
+  }
+
+  @keyframes cm-go {
+    0% {
+      opacity: 0.9;
+      stroke-dashoffset: 5;
+    }
+    42% {
+      opacity: 0.9;
+      stroke-dashoffset: -100;
+    }
+    44%,
+    100% {
+      opacity: 0;
+      stroke-dashoffset: -100;
+    }
+  }
+
+  @keyframes cm-come {
+    0%,
+    46% {
+      opacity: 0;
+      stroke-dashoffset: -100;
+    }
+    48% {
+      opacity: 0.9;
+    }
+    88% {
+      opacity: 0.9;
+      stroke-dashoffset: 5;
+    }
+    90%,
+    100% {
+      opacity: 0;
+      stroke-dashoffset: 5;
     }
   }
 </style>
