@@ -838,7 +838,7 @@
   "执行中": "Running",
   "停止中": "Stopping",
   "{0}，点击跳到它正在处理的消息": "{0} — click to jump to the message it's working on",
-  "在其他设备上登录": "Sign in on another device",
+  "在其他设备登录": "Sign in on another device",
   "手机或另一台电脑扫码（或打开链接）后，直接以房主身份进入，不用填令牌。每台设备单独登录，可以随时退出。飞书卡片上的「在网页查看」也会自动登录。": "Scan the code (or open the link) on your phone or another computer to sign in as the owner — no token needed. Each device signs in separately and can be signed out anytime. “View on web” in Feishu cards signs you in too.",
   "登录二维码": "Sign-in QR code",
   "用手机相机或飞书扫码，5 分钟内有效，只能用一次。设备要和这台电脑在同一个网络里。": "Scan with your phone camera or Feishu. Valid for 5 minutes, single use. The device must be on the same network as this computer.",
@@ -1817,9 +1817,8 @@
   "派修设置": "Fixing settings",
   "最近没有慢操作。": "No recent slow operations.",
   "还没收到 Server 的慢操作记录。": "No slow operation records from the Server yet.",
-  "故障自动派修": "Automatic incident fixing",
   "我们自己的问题按同一种错误合并计数，到次数后自动派给 Agent 先写复现测试再修，合入仍要人 review。外部原因（模型服务、凭证、Agent 自己崩溃）只重试和提示，不派修。": "Our own problems are counted per error. Once one recurs enough times, an agent is asked to write a reproducing test and fix it; merging still needs a human review. External causes (model service, credentials, the agent's own crash) are only retried and reported, never sent for fixing.",
-  "故障单和慢操作在左侧「故障」里查看": "Incidents and slow operations are under Incidents in the sidebar",
   "故障，{0} 条待处理": "Incidents, {0} to handle",
-  "故障单和慢操作": "Incidents and slow operations"
+  "故障单和慢操作": "Incidents and slow operations",
+  "这台设备是以房主身份登录的。下面是所有已登录的设备，可以随时退出。": "This device is signed in as the owner. All signed-in devices are listed below; you can sign any of them out at any time."
 }

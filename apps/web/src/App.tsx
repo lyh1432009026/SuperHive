@@ -59,6 +59,7 @@ import { copyTextToClipboard } from "./clipboard";
 import type { GuestAccess } from "./access-gate";
 import { GuestAgentDialog, InviteDialog } from "./invite-dialog";
 import { ImDialog } from "./im-dialog";
+import { OwnerDevicesDialog } from "./owner-devices-dialog";
 import { AgentSettingsDialog, SettingsGlyph } from "./agent-settings-dialog";
 import { RetryModelDialog } from "./model-picker";
 import { AttachmentLocalOpenContext, FilePreview } from "./attachments";
@@ -162,6 +163,7 @@ export function App({
   const isOwner = Boolean(meta?.joinToken);
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [imDialogOpen, setImDialogOpen] = useState(false);
+  const [ownerDevicesOpen, setOwnerDevicesOpen] = useState(false);
   const [guestAgentDialogOpen, setGuestAgentDialogOpen] = useState(false);
   const [accessNow, setAccessNow] = useState(() => Date.now());
   useEffect(() => {
@@ -1978,6 +1980,7 @@ export function App({
           connectionState={connectionState}
           freezeRoomList={freezeRoomList}
           incidentAttention={incidents.attentionItems}
+          openOwnerDevices={local.enabled ? () => setOwnerDevicesOpen(true) : undefined}
           incidentEntry={
             incidents.enabled
               ? {
@@ -2295,12 +2298,10 @@ export function App({
           focusId={incidentsView.focusId}
           incidents={incidents}
           slowOps={slowOpsState}
+          rooms={rooms}
+          currentRoomId={currentRoomId}
+          username={username}
           onTab={(tab) => setIncidentsView({ tab })}
-          onOpenSettings={() => {
-            setIncidentsView(undefined);
-            setSettingsTab("computer");
-            setSettingsOpen(true);
-          }}
           onClose={() => {
             setIncidentsView(undefined);
             incidentsTriggerRef.current?.focus();
@@ -2438,6 +2439,16 @@ export function App({
         />
       )}
 
+      {ownerDevicesOpen && local.enabled && (
+        <OwnerDevicesDialog
+          local={local}
+          onClose={() => {
+            setOwnerDevicesOpen(false);
+            settingsTriggerRef.current?.focus();
+          }}
+        />
+      )}
+
       {settingsOpen && (
         <SettingsDialog
           attentionDelivery={attentionDelivery}
@@ -2477,12 +2488,6 @@ export function App({
           settingsCloseRef={settingsCloseRef}
           settingsDialogRef={settingsDialogRef}
           settingsTab={settingsTab}
-          incidents={incidents}
-          onOpenIncidents={() => {
-            closeSettings();
-            setIncidentsView({ tab: "incidents" });
-          }}
-          rooms={rooms}
           themePreference={themePreference}
           threadWidth={threadWidth}
           timeFormat={timeFormat}

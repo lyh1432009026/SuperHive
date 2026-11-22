@@ -167,64 +167,47 @@ export function useIncidents(
 }
 
 /**
- * 「这台电脑」设置里和故障单有关的只有自动派修这一组设置；
- * 故障单、规则提议、经验库和慢操作在左侧「故障」入口里看。
+ * 自动派修怎么派：在「故障」面板顶部点「派修设置」展开，不放进偏好设置。
+ * 故障单、规则提议、经验库和慢操作就在同一个面板里看。
  */
-export function IncidentSettingsGroup({
-  state,
+export function IncidentDispatchSettings({
+  data,
   rooms,
   currentRoomId,
   username,
-  onOpenIncidents,
+  onSave,
 }: {
-  state: IncidentsState;
+  data: IncidentsResponse;
   rooms: ReadonlyArray<{ id: string; name: string }>;
   currentRoomId: string;
   username: string;
-  onOpenIncidents: () => void;
+  onSave: (patch: Partial<IncidentSettings>) => void;
 }) {
-  if (!state.enabled) return null;
-  const { data } = state;
   return (
-    <div className="settings-group">
-      <div className="settings-section-heading">
-        <div>
-          <h4>{t("故障自动派修")}</h4>
-          <p>
-            {t(
-              "我们自己的问题按同一种错误合并计数，到次数后自动派给 Agent 先写复现测试再修，合入仍要人 review。外部原因（模型服务、凭证、Agent 自己崩溃）只重试和提示，不派修。",
-            )}
-          </p>
-        </div>
-      </div>
-      {state.error && <p className="settings-note error">{state.error}</p>}
-      {data && (
-        <>
-          <IncidentSettingsForm
-            settings={data.settings}
-            dispatchedToday={data.dispatchedToday}
-            canDispatch={Boolean(data.runningCommit)}
-            rooms={rooms}
-            currentRoomId={currentRoomId}
-            username={username}
-            onSave={state.updateSettings}
-          />
-          <details className="incident-more">
-            <summary>
-              {t("自动修复不许改的代码（{0} 处）", { 0: data.protectedPaths.length })}
-            </summary>
-            <p className="settings-note">
-              {t("权限、协作规则、门禁、审计和故障单系统本身；修复动了这些会直接升级给你：{0}", {
-                0: data.protectedPaths.join(t("、")),
-              })}
-            </p>
-          </details>
-        </>
-      )}
-      <button type="button" className="incident-link" onClick={onOpenIncidents}>
-        {t("故障单和慢操作在左侧「故障」里查看")}
-      </button>
-    </div>
+    <>
+      <p className="settings-note">
+        {t(
+          "我们自己的问题按同一种错误合并计数，到次数后自动派给 Agent 先写复现测试再修，合入仍要人 review。外部原因（模型服务、凭证、Agent 自己崩溃）只重试和提示，不派修。",
+        )}
+      </p>
+      <IncidentSettingsForm
+        settings={data.settings}
+        dispatchedToday={data.dispatchedToday}
+        canDispatch={Boolean(data.runningCommit)}
+        rooms={rooms}
+        currentRoomId={currentRoomId}
+        username={username}
+        onSave={onSave}
+      />
+      <details className="incident-more">
+        <summary>{t("自动修复不许改的代码（{0} 处）", { 0: data.protectedPaths.length })}</summary>
+        <p className="settings-note">
+          {t("权限、协作规则、门禁、审计和故障单系统本身；修复动了这些会直接升级给你：{0}", {
+            0: data.protectedPaths.join(t("、")),
+          })}
+        </p>
+      </details>
+    </>
   );
 }
 

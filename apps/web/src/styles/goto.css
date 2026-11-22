@@ -5,7 +5,8 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  padding: 8px 12px;
+  /* 筛选按钮自带 10px 内边距，文字和标题一样离面板边 --activity-inset */
+  padding: 8px calc(var(--activity-inset) - 10px);
   border-bottom: 1px solid var(--border-light);
 }
 
@@ -67,7 +68,8 @@
   align-items: center;
   gap: 10px;
   min-height: 44px;
-  padding: 6px 12px;
+  margin-inline: calc(-1 * var(--activity-row-pad));
+  padding: 6px var(--activity-row-pad);
   border-radius: var(--radius-md);
   cursor: pointer;
 }
@@ -129,7 +131,7 @@
   display: flex;
   flex: 0 0 auto;
   gap: 14px;
-  padding: 8px 14px 10px;
+  padding: 8px var(--activity-inset) 10px;
   border-top: 1px solid var(--border-light);
   color: var(--text-tertiary);
   font-size: 11px;
@@ -137,7 +139,7 @@
 
 .shortcuts-list {
   margin: 0;
-  padding: 0 6px 6px;
+  padding: 0 0 6px;
 }
 
 .shortcuts-list > div {
@@ -145,7 +147,7 @@
   align-items: center;
   gap: 12px;
   min-height: 34px;
-  padding: 4px 6px;
+  padding: 4px 0;
 }
 
 .shortcuts-list dt {

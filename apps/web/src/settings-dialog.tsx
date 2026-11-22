@@ -32,9 +32,8 @@ import {
   type AttentionDelivery,
 } from "./attention-alerts";
 import { playNotificationTone, type BrowserNotificationPermission } from "./browser-notify";
-import { HostManageNotice, KeepAwakeSettingsGroup, OwnerDevicesGroup } from "./host-settings";
+import { HostManageNotice, KeepAwakeSettingsGroup } from "./host-settings";
 import { LocalAgentUpdatesGroup } from "./local-agent-updates";
-import { IncidentSettingsGroup, type IncidentsState } from "./incidents-panel";
 import { AgentRuntimesPanel } from "./agent-runtimes-panel";
 import type { RefObject, Dispatch, SetStateAction } from "react";
 import type { LocalAgentsState } from "./local-agents";
@@ -79,9 +78,6 @@ export function SettingsDialog({
   settingsCloseRef,
   settingsDialogRef,
   settingsTab,
-  incidents,
-  onOpenIncidents,
-  rooms,
   themePreference,
   threadWidth,
   timeFormat,
@@ -128,9 +124,6 @@ export function SettingsDialog({
   settingsCloseRef: RefObject<HTMLButtonElement | null>;
   settingsDialogRef: RefObject<HTMLDivElement | null>;
   settingsTab: SettingsTab;
-  incidents: IncidentsState;
-  onOpenIncidents: () => void;
-  rooms: ReadonlyArray<{ id: string; name: string }>;
   themePreference: ThemePreference;
   threadWidth: ThreadWidth;
   timeFormat: TimeFormat;
@@ -492,14 +485,6 @@ export function SettingsDialog({
                 <HostManageNotice local={local} />
                 <LocalAgentUpdatesGroup local={local} />
                 <KeepAwakeSettingsGroup local={local} />
-                <OwnerDevicesGroup local={local} />
-                <IncidentSettingsGroup
-                  state={incidents}
-                  rooms={rooms}
-                  currentRoomId={currentRoomId}
-                  username={username}
-                  onOpenIncidents={onOpenIncidents}
-                />
               </section>
             )}
             {settingsTab === "runtimes" && local.mode === "local" && (

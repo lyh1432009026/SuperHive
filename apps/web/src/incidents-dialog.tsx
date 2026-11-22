@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { IncidentsPanel, type IncidentsState } from "./incidents-panel";
+import { useEffect, useRef, useState } from "react";
+import { IncidentDispatchSettings, IncidentsPanel, type IncidentsState } from "./incidents-panel";
 import { SlowOpsList, thresholdNote, type SlowOpsState } from "./slow-ops";
 import { t } from "./i18n";
 
@@ -8,15 +8,17 @@ export type IncidentsTab = "incidents" | "slow-ops";
 /**
  * 左侧「故障」入口弹出的面板，和「Agent 任务」同款：
  * 「故障单」看我们自己的问题、规则提议和经验库，手动派修或关闭；「慢操作」排查卡顿。
- * 自动派修怎么派是设置，留在「设置 → 这台电脑」里。
+ * 自动派修怎么派在「故障单」顶部点「派修设置」展开，不进偏好设置。
  */
 export function IncidentsDialog({
   tab,
   focusId,
   incidents,
   slowOps,
+  rooms,
+  currentRoomId,
+  username,
   onTab,
-  onOpenSettings,
   onClose,
 }: {
   tab: IncidentsTab;
@@ -24,13 +26,17 @@ export function IncidentsDialog({
   focusId?: string;
   incidents: IncidentsState;
   slowOps: SlowOpsState;
+  /** 派修设置里选在哪个房间派活、以谁的名义派 */
+  rooms: ReadonlyArray<{ id: string; name: string }>;
+  currentRoomId: string;
+  username: string;
   onTab: (tab: IncidentsTab) => void;
-  onOpenSettings: () => void;
   onClose: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const { data, error, refresh } = incidents;
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     panelRef.current?.focus();
@@ -98,10 +104,36 @@ export function IncidentsDialog({
                       0: data.settings.fixer || t("指定的 Agent"),
                     })
                   : t("自动派修没打开，只记录和归类，可以手动派修。")}{" "}
-                <button type="button" className="incident-link" onClick={onOpenSettings}>
-                  {t("派修设置")}
-                </button>
+                {data && (
+                  <button
+                    type="button"
+                    className="incident-link incidents-dispatch-toggle"
+                    aria-expanded={settingsOpen}
+                    aria-controls="incidents-dispatch-settings"
+                    onClick={() => setSettingsOpen((open) => !open)}
+                  >
+                    {t("派修设置")}
+                    <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </button>
+                )}
               </p>
+              {data && settingsOpen && (
+                <section
+                  id="incidents-dispatch-settings"
+                  className="incidents-dispatch"
+                  aria-label={t("派修设置")}
+                >
+                  <IncidentDispatchSettings
+                    data={data}
+                    rooms={rooms}
+                    currentRoomId={currentRoomId}
+                    username={username}
+                    onSave={incidents.updateSettings}
+                  />
+                </section>
+              )}
               {error && <p className="settings-note error">{error}</p>}
               {data ? (
                 <IncidentsPanel

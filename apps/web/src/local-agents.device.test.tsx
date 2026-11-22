@@ -3,7 +3,7 @@
 import { act, cleanup, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LocalAgent } from "@superhive/protocol";
-import { HostManageNotice, OwnerDevicesGroup } from "./host-settings";
+import { HostManageNotice, OwnerDevicesPanel } from "./host-settings";
 import { AgentSettingsDialog } from "./agent-settings-dialog";
 import { useLocalAgents, type LocalAgentsState } from "./local-agents";
 
@@ -195,7 +195,7 @@ describe("房主设备上的本机功能", () => {
       ownerDevices: async () => devices,
       hostApprovers: async () => [],
     } as unknown as LocalAgentsState;
-    render(<OwnerDevicesGroup local={local} />);
+    render(<OwnerDevicesPanel local={local} />);
     expect(await screen.findByText("iPhone（这台）")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "显示登录二维码" })).toBeNull();
     expect(screen.queryByText("房主接入令牌（高级）")).toBeNull();

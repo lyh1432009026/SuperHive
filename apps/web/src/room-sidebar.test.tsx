@@ -91,3 +91,18 @@ describe("sidebar incident entry", () => {
     expect(open).toHaveBeenCalledWith(undefined, "i1");
   });
 });
+
+describe("sidebar user menu", () => {
+  it("offers 「在其他设备登录」 only when the page can manage owner devices", () => {
+    const openOwnerDevices = vi.fn();
+    const setUserMenuOpen = vi.fn();
+    const { rerender } = render(<RoomSidebar {...props({ userMenuOpen: true })} />);
+    expect(screen.getByRole("menuitem", { name: "设置" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "在其他设备登录" })).toBeNull();
+
+    rerender(<RoomSidebar {...props({ userMenuOpen: true, openOwnerDevices, setUserMenuOpen })} />);
+    fireEvent.click(screen.getByRole("menuitem", { name: "在其他设备登录" }));
+    expect(openOwnerDevices).toHaveBeenCalled();
+    expect(setUserMenuOpen).toHaveBeenCalledWith(false);
+  });
+});

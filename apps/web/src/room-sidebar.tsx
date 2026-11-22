@@ -29,6 +29,7 @@ export function RoomSidebar({
   mobilePanel,
   modifierKeyLabel,
   openActivity,
+  openOwnerDevices,
   openRoomDialog,
   panelWidths,
   renderRoomItem,
@@ -70,6 +71,8 @@ export function RoomSidebar({
   mobilePanel: MobilePanel | undefined;
   modifierKeyLabel: string;
   openActivity: (view: ActivityView, trigger?: HTMLElement | null) => void;
+  /** 用户菜单「在其他设备登录」：只在这台电脑（或已登录的设备）上给房主 */
+  openOwnerDevices?: (() => void) | undefined;
   openRoomDialog: (
     dialog: { mode: "create" } | { mode: "manage"; room: RoomSummary },
     trigger: HTMLButtonElement,
@@ -331,6 +334,20 @@ export function RoomSidebar({
               <Icon name="settings" size={15} />
               <span>{t("设置")}</span>
             </button>
+            {openOwnerDevices && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setUserMenuOpen(false);
+                  setMobilePanel(undefined);
+                  openOwnerDevices();
+                }}
+              >
+                <Icon name="devices" size={15} />
+                <span>{t("在其他设备登录")}</span>
+              </button>
+            )}
             <button
               type="button"
               role="menuitem"

@@ -216,8 +216,8 @@ export function KeepAwakeSettingsGroup({ local }: { local: LocalAgentsState }) {
   );
 }
 
-/** 在其他设备上登录：二维码 / 一次性链接、已登录设备、复制总令牌 */
-export function OwnerDevicesGroup({ local }: { local: LocalAgentsState }) {
+/** 在其他设备上登录：二维码 / 一次性链接、已登录设备、复制总令牌；在用户菜单的弹窗里 */
+export function OwnerDevicesPanel({ local }: { local: LocalAgentsState }) {
   const [devices, setDevices] = useState<OwnerDevice[]>();
   const [pair, setPair] = useState<{ url: string; expiresAt: string; qrDataUrl: string }>();
   const [error, setError] = useState<string>();
@@ -249,17 +249,7 @@ export function OwnerDevicesGroup({ local }: { local: LocalAgentsState }) {
     }, fail);
   };
   return (
-    <div className="settings-group">
-      <div className="settings-section-heading">
-        <div>
-          <h4>{t("在其他设备上登录")}</h4>
-          <p>
-            {t(
-              "手机或另一台电脑扫码（或打开链接）后，直接以房主身份进入，不用填令牌。每台设备单独登录，可以随时退出。飞书卡片上的「在网页查看」也会自动登录。",
-            )}
-          </p>
-        </div>
-      </div>
+    <div className="settings-group owner-devices-panel">
       {local.mode === "device" ? null : pair ? (
         <div className="owner-pair">
           <img src={pair.qrDataUrl} alt={t("登录二维码")} width={160} height={160} />

@@ -1,4 +1,4 @@
-/* 故障单：左侧「故障」入口弹出的面板；「设置 → 这台电脑」里只有自动派修的设置 */
+/* 故障单：左侧「故障」入口弹出的面板，派修设置也在这里点开 */
 .incidents {
   display: grid;
   gap: 12px;
@@ -224,14 +224,6 @@
   text-decoration: underline;
 }
 
-.settings-group > .incident-link {
-  margin-top: 8px;
-}
-
-.incidents-dialog-body {
-  padding: 10px 16px 16px;
-}
-
 .incidents-dialog-body > .incidents {
   margin-top: 0;
 }
@@ -250,4 +242,44 @@
 
 :root[data-theme="dark"] .incidents-dialog .activity-filter button[aria-selected="true"] {
   background: var(--bg-active);
+}
+
+/* 「故障单」顶部的派修设置：点了才展开 */
+.incidents-dispatch-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.incidents-dispatch-toggle svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform var(--duration-fast);
+}
+
+.incidents-dispatch-toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.incidents-dispatch {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+}
+
+.incidents-dispatch > .settings-note {
+  margin: 0;
+}
+
+/* 外面已经有一层底色框，表单本身不再画虚线框 */
+.incidents-dispatch .incident-settings {
+  padding: 0;
+  border: 0;
 }

@@ -8,7 +8,6 @@ import {
   type RuleProposal,
 } from "@superhive/protocol";
 import {
-  IncidentSettingsGroup,
   IncidentsPanel,
   groupIncidents,
   incidentsAvailable,
@@ -155,69 +154,6 @@ function state(patch: Partial<IncidentsState> = {}): IncidentsState {
   };
 }
 
-describe("IncidentSettingsGroup", () => {
-  it("keeps only the dispatch settings and links to the sidebar entry", () => {
-    const current = state({
-      data: response({
-        incidents: [incident({ title: "TypeError: not here" })],
-        proposals: [proposal()],
-      }),
-    });
-    const onOpenIncidents = vi.fn();
-    render(
-      <IncidentSettingsGroup
-        state={current}
-        rooms={[{ id: "build", name: "build" }]}
-        currentRoomId="build"
-        username="rd"
-        onOpenIncidents={onOpenIncidents}
-      />,
-    );
-    expect(screen.queryByText("TypeError: not here")).toBeNull();
-    expect(screen.queryByText("合入前先跑全量测试")).toBeNull();
-    expect(screen.queryByText("最近慢操作")).toBeNull();
-    fireEvent.change(screen.getByLabelText("修的 Agent"), { target: { value: "rd-claude2" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-    expect(current.updateSettings).toHaveBeenCalledWith(
-      expect.objectContaining({ roomId: "build", requester: "rd", fixer: "rd-claude2" }),
-    );
-    fireEvent.click(screen.getByRole("switch", { name: /自动派修/ }));
-    expect(current.updateSettings).toHaveBeenCalledWith({ autoDispatch: true });
-    fireEvent.click(screen.getByRole("button", { name: /在左侧「故障」里查看/ }));
-    expect(onOpenIncidents).toHaveBeenCalled();
-  });
-
-  it("can't switch on automatic fixing when the server doesn't run from a checkout", () => {
-    const data = response();
-    delete data.runningCommit;
-    render(
-      <IncidentSettingsGroup
-        state={state({ data })}
-        rooms={[]}
-        currentRoomId="build"
-        username="rd"
-        onOpenIncidents={vi.fn()}
-      />,
-    );
-    expect((screen.getByRole("switch", { name: /自动派修/ }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
-  });
-
-  it("isn't shown on other devices", () => {
-    const { container } = render(
-      <IncidentSettingsGroup
-        state={state({ enabled: false, data: undefined })}
-        rooms={[]}
-        currentRoomId="build"
-        username="rd"
-        onOpenIncidents={vi.fn()}
-      />,
-    );
-    expect(container.textContent).toBe("");
-  });
-});
-
 describe("incident entry", () => {
   it("is only for the owner on this computer, like the worktree switcher", () => {
     expect(incidentsAvailable(true, { enabled: true, mode: "local" })).toBe(true);
@@ -326,8 +262,10 @@ describe("IncidentsDialog", () => {
         tab="incidents"
         incidents={current}
         slowOps={slowOps}
+        rooms={[]}
+        currentRoomId="build"
+        username="rd"
         onTab={onTab}
-        onOpenSettings={vi.fn()}
         onClose={vi.fn()}
       />,
     );
@@ -344,8 +282,10 @@ describe("IncidentsDialog", () => {
         tab="slow-ops"
         incidents={current}
         slowOps={slowOps}
+        rooms={[]}
+        currentRoomId="build"
+        username="rd"
         onTab={onTab}
-        onOpenSettings={vi.fn()}
         onClose={vi.fn()}
       />,
     );
@@ -354,24 +294,63 @@ describe("IncidentsDialog", () => {
     expect(screen.getByText(/记录超过 3 秒（请求 5 秒）的操作/)).toBeTruthy();
   });
 
-  it("links to the dispatch settings and closes on Escape", () => {
-    const onOpenSettings = vi.fn();
+  it("unfolds the dispatch settings in place and closes on Escape", () => {
     const onClose = vi.fn();
+    const current = state({ data: response() });
     render(
       <IncidentsDialog
         tab="incidents"
-        incidents={state()}
+        incidents={current}
         slowOps={{ ...slowOps, operations: [] }}
+        rooms={[{ id: "build", name: "build" }]}
+        currentRoomId="build"
+        username="rd"
         onTab={vi.fn()}
-        onOpenSettings={onOpenSettings}
         onClose={onClose}
       />,
     );
     expect(screen.getByText(/自动派修没打开/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "派修设置" }));
-    expect(onOpenSettings).toHaveBeenCalled();
+    const toggle = screen.getByRole("button", { name: "派修设置" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByLabelText("修的 Agent")).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const settings = screen.getByRole("region", { name: "派修设置" });
+    fireEvent.change(screen.getByLabelText("修的 Agent"), { target: { value: "rd-claude2" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(current.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ roomId: "build", requester: "rd", fixer: "rd-claude2" }),
+    );
+    fireEvent.click(screen.getByRole("switch", { name: /自动派修/ }));
+    expect(current.updateSettings).toHaveBeenCalledWith({ autoDispatch: true });
+    expect(settings.textContent).toContain("自动修复不许改的代码");
+
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("region", { name: "派修设置" })).toBeNull();
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("can't switch on automatic fixing when the server doesn't run from a checkout", () => {
+    const data = response();
+    delete data.runningCommit;
+    render(
+      <IncidentsDialog
+        tab="incidents"
+        incidents={state({ data })}
+        slowOps={{ ...slowOps, operations: [] }}
+        rooms={[]}
+        currentRoomId="build"
+        username="rd"
+        onTab={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "派修设置" }));
+    expect((screen.getByRole("switch", { name: /自动派修/ }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
   });
 });
 

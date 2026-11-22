@@ -99,6 +99,16 @@
         ...(autoUpdate !== undefined ? { currentVersion: current } : {}),
       });
     }
+    // 用户菜单「在其他设备登录」：两台已登录的设备
+    if (url === "/api/local/owner-devices" && method === "GET") {
+      return json({
+        devices: [
+          { id: "d1", name: "iPhone", source: "pair", createdAt: now, lastSeenAt: now },
+          { id: "d2", name: "MacBook Air", source: "im", createdAt: now, lastSeenAt: now },
+        ],
+      });
+    }
+    if (url === "/api/local/host-approvers" && method === "GET") return json({ approvers: [] });
     if (url === "/api/local/agents/auto-update") {
       autoUpdate = JSON.parse(String(init.body ?? "{}")).enabled ?? autoUpdate;
       return json({ autoUpdate });

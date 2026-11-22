@@ -15,6 +15,7 @@ export type IconName =
   | "clock"
   | "close"
   | "copy"
+  | "devices"
   | "external"
   | "files"
   | "hash"
@@ -89,6 +90,13 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
       <>
         <rect x="8" y="8" width="11" height="11" rx="2" />
         <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+      </>
+    ),
+    devices: (
+      <>
+        <rect x="3" y="5" width="13" height="10" rx="1.5" />
+        <path d="M6.5 19h6" />
+        <rect x="16" y="9" width="5" height="10" rx="1.2" />
       </>
     ),
     external: (
