@@ -1,5 +1,5 @@
 # 发布 superhive 到 npm：推 v* 标签时自动发版；也可以手动运行做一次空跑（只检查、打包，不发布）。
-# 用 npm 可信发布（OIDC）：仓库里不存 npm token，发布时由 GitHub Actions 的身份换取一次性凭证，并附带来源证明（provenance）。
+# 用 npm 可信发布（OIDC）：仓库里不存 npm token，发布时由 GitHub Actions 的身份换取一次性凭证。来源证明（provenance）只支持公开仓库，仓库公开后 npm 会自动附带，私有期间不能加 --provenance（npm 会拒收）。
 name: Release
 
 on:
@@ -66,7 +66,7 @@ jobs:
       - name: 发布到 npm
         if: github.event_name == 'push' || inputs.dry_run == false
         working-directory: packages/superhive
-        run: npm publish --provenance --access public
+        run: npm publish --access public
 
       - name: 创建 GitHub Release
         if: github.event_name == 'push'
