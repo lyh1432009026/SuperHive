@@ -55,6 +55,7 @@ import {
 } from "./onboarding";
 import { useLocalAgents } from "./local-agents";
 import type { SelectableAgentProvider } from "./agent-name";
+import { agentTasks, nextAgentTaskIndex } from "./agent-tasks";
 import { copyTextToClipboard } from "./clipboard";
 import type { GuestAccess } from "./access-gate";
 import { GuestAgentDialog, InviteDialog } from "./invite-dialog";
@@ -764,6 +765,7 @@ export function App({
     setHighlightedMessageId,
     setPendingJumpId,
     setCrossRoomJumpId,
+    setCrossRoomJump,
     jumpToMessage,
     locateProgress,
     locateMessage,
@@ -1210,6 +1212,69 @@ export function App({
     }
     setCrossRoomJumpId(message.id);
     switchRoom(message.roomId);
+  }
+
+  // 成员列表里点忙碌的 Agent：跳到它在做的事；短时间内再点同一个，循环到下一条
+  const agentTasksByName = useMemo(() => {
+    // 跨房间的在办调用 + 当前房间实时的（后者更新，同一条以它为准）
+    const all = [...activeInvocations.values(), ...invocations.values()];
+    const byName = new Map<string, Invocation[]>();
+    for (const name of new Set(all.map((invocation) => invocation.agentName.toLocaleLowerCase()))) {
+      const tasks = agentTasks(all, name, currentRoomId);
+      if (tasks.length) byName.set(name, tasks);
+    }
+    return byName;
+  }, [activeInvocations, invocations, currentRoomId]);
+  const lastAgentTaskRef = useRef<{ agent: string; id: string; at: number } | undefined>(undefined);
+  function agentTaskSummary(name: string) {
+    const tasks = agentTasksByName.get(name.toLocaleLowerCase());
+    if (!tasks) return undefined;
+    const first = tasks[0]!;
+    return {
+      count: tasks.length,
+      seq: taskMessageSeq(first),
+      roomName: first.roomId === currentRoomId ? undefined : roomNameOf(first.roomId),
+    };
+  }
+  function taskMessageSeq(invocation: Invocation) {
+    return (
+      messages.find((message) => message.id === invocation.messageId)?.seq ??
+      invocationMessages.get(invocation.messageId)?.seq
+    );
+  }
+  function openAgentTask(name: string) {
+    const key = name.toLocaleLowerCase();
+    const tasks = agentTasksByName.get(key);
+    if (!tasks) return;
+    const last = lastAgentTaskRef.current;
+    const index = nextAgentTaskIndex(
+      tasks,
+      last?.agent === key && Date.now() - last.at < 30_000 ? last.id : undefined,
+    );
+    const task = tasks[index]!;
+    lastAgentTaskRef.current = { agent: key, id: task.id, at: Date.now() };
+    if (tasks.length > 1) {
+      setGotoNotice(
+        t("@{0} 在办的第 {1}/{2} 条", { 0: name, 1: index + 1, 2: tasks.length }) +
+          (task.roomId === currentRoomId ? "" : ` · #${roomNameOf(task.roomId)}`),
+      );
+    }
+    const messageSeq = taskMessageSeq(task);
+    if (task.roomId !== currentRoomId) {
+      setCrossRoomJump(
+        messageSeq === undefined
+          ? { messageId: task.messageId }
+          : { messageId: task.messageId, messageSeq },
+      );
+      switchRoom(task.roomId);
+    } else if (
+      messageSeq !== undefined &&
+      !messages.some((message) => message.id === task.messageId)
+    ) {
+      void locateMessage({ messageId: task.messageId, messageSeq });
+    } else {
+      jumpToMessage(task.messageId);
+    }
   }
 
   // 全局快捷键：⌘K 搜索、⌘P 跳转、⌘J 下一个要处理的、? 或 ⌘/ 快捷键帮助（定义见 shortcuts.ts）
@@ -2208,6 +2273,7 @@ export function App({
           accessNow={accessNow}
           agentDialogOpen={agentDialogOpen}
           agentSettingsButton={agentSettingsButton}
+          agentTaskSummary={agentTaskSummary}
           appendMention={appendMention}
           authToken={authToken}
           base={base}
@@ -2234,6 +2300,7 @@ export function App({
           online={online}
           onlineAgentNames={onlineAgentNames}
           openAgentDialog={openAgentDialog}
+          openAgentTask={openAgentTask}
           openMemberMenu={openMemberMenu}
           panelWidths={panelWidths}
           pendingScheduleCount={pendingScheduleCount}

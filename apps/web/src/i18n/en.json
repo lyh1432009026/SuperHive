@@ -1828,5 +1828,11 @@
   "次": "times",
   "已保存": "Saved",
   "已选为修的 Agent": "Already doing the fix",
-  "忙碌中": "Busy"
+  "忙碌中": "Busy",
+  "@{0} 在办的第 {1}/{2} 条": "@{0}: task {1} of {2}",
+  "在输入框里 @{0}": "Mention @{0} in the message box",
+  "正在处理 {0}": "Working on {0}",
+  "正在处理任务": "Working on a task",
+  "{0} 等 {1} 条 · 点击跳过去": "{0} ({1} tasks) · click to jump",
+  "{0} · 点击跳过去": "{0} · click to jump"
 }

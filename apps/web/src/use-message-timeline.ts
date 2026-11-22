@@ -94,8 +94,10 @@ export function useMessageJump({
   const [pendingJumpId, setPendingJumpId] = useState<string>();
   /** 产物面板「定位到消息」：目标消息还没载入时先补拉，载入后再跳 */
   const [pendingLocate, setPendingLocate] = useState<string>();
-  // 切换房间后待定位的消息（在新房间快照到达后再滚动过去）
-  const [crossRoomJumpId, setCrossRoomJumpId] = useState<string>();
+  // 切换房间后待定位的消息（在新房间快照到达后再滚动过去）；带序号的不在最近记录里时先补拉
+  const [crossRoomJump, setCrossRoomJump] = useState<{ messageId: string; messageSeq?: number }>();
+  const setCrossRoomJumpId = (messageId: string | undefined) =>
+    setCrossRoomJump(messageId ? { messageId } : undefined);
 
   // 点击已完成的调用跳到 Agent 回复：等目标消息挂载（可能需要先扩大渲染窗口）后再滚动并短暂高亮
   useEffect(() => {
@@ -123,14 +125,17 @@ export function useMessageJump({
 
   // 切到目标房间并拿到快照后再定位；不在最近加载的记录里时给出提示
   useEffect(() => {
-    if (!crossRoomJumpId || messages.length === 0) return;
-    setCrossRoomJumpId(undefined);
-    if (messages.some((message) => message.id === crossRoomJumpId)) {
-      jumpToMessage(crossRoomJumpId);
+    if (!crossRoomJump || messages.length === 0) return;
+    setCrossRoomJump(undefined);
+    const { messageId, messageSeq } = crossRoomJump;
+    if (messages.some((message) => message.id === messageId)) {
+      jumpToMessage(messageId);
+    } else if (messageSeq !== undefined) {
+      void locateMessage({ messageId, messageSeq });
     } else {
       setError(t("这条消息较早，不在最近加载的记录里。"));
     }
-  }, [crossRoomJumpId, messages]);
+  }, [crossRoomJump, messages]);
 
   // 补拉的消息合进来之后再跳
   useEffect(() => {
@@ -211,6 +216,7 @@ export function useMessageJump({
     pendingJumpId,
     setPendingJumpId,
     setCrossRoomJumpId,
+    setCrossRoomJump,
     jumpToMessage,
     locateProgress,
     locateMessage,

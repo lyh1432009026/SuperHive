@@ -3358,6 +3358,180 @@ describe("App mention autocomplete", () => {
     await waitFor(() => expect(list().getByText("先看一下改动")).toBeTruthy());
   });
 
+  it("clicking a busy agent in the member list jumps to what it is working on instead of mentioning it", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    const busy = { ...participant("00000000-0000-4000-8000-000000000002", "helper", "agent") };
+    busy.status = "busy";
+    const idle = participant("00000000-0000-4000-8000-000000000003", "idle-bot", "agent");
+    const now = new Date().toISOString();
+    const ask = (seq: number, content: string): ChatMessage => ({
+      id: `00000000-0000-4000-8000-0000000001${String(seq).padStart(2, "0")}`,
+      roomId: "general",
+      seq,
+      senderId: self.id,
+      senderName: "Alice",
+      senderType: "human",
+      content,
+      mentions: ["helper"],
+      traceId: "00000000-0000-4000-8000-0000000000f1",
+      hopCount: 0,
+      createdAt: now,
+    });
+    const queuedAsk = ask(1, "@helper 排队的那件");
+    const runningAsk = ask(2, "@helper 正在做的那件");
+    const task = (id: string, message: ChatMessage, status: "running" | "queued") => ({
+      id,
+      roomId: "general",
+      messageId: message.id,
+      agentId: busy.id,
+      agentName: "helper",
+      requesterId: self.id,
+      requesterName: "Alice",
+      requesterType: "human" as const,
+      status,
+      attempts: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self, busy, idle],
+        messages: [queuedAsk, runningAsk],
+        latestSeq: 2,
+        invocations: [
+          task("00000000-0000-4000-8000-0000000002a1", queuedAsk, "queued"),
+          task("00000000-0000-4000-8000-0000000002a2", runningAsk, "running"),
+        ],
+      }),
+    );
+    const memberRow = (name: string) =>
+      [...document.querySelectorAll<HTMLElement>(".member-list .member")].find(
+        (row) => row.querySelector("strong")?.firstChild?.textContent === name,
+      )!;
+    await waitFor(() => expect(memberRow("helper").classList.contains("has-task")).toBe(true));
+    const row = memberRow("helper");
+    // 副标题和读屏描述都说明点击会跳过去
+    const hint = row.querySelector(".member-task")!;
+    expect(hint.textContent).toBe("正在处理 #2 等 2 条 · 点击跳过去");
+    expect(row.getAttribute("aria-describedby")).toBe(hint.id);
+    expect(memberRow("idle-bot").classList.contains("has-task")).toBe(false);
+
+    const shadow = () => document.querySelector(".message-list")!.shadowRoot!;
+    const highlighted = (message: ChatMessage) =>
+      shadow()
+        .querySelector(`[data-message-id="${message.id}"]`)
+        ?.classList.contains("highlighted");
+    const composer = screen.getByRole("textbox", { name: "消息" }) as HTMLTextAreaElement;
+
+    // 先跳正在执行的那条，有多条时提示第几条
+    await user.click(row);
+    await waitFor(() => expect(highlighted(runningAsk)).toBe(true));
+    expect(await screen.findByText("@helper 在办的第 1/2 条")).toBeTruthy();
+    expect(composer.value).toBe("");
+    // 再点一次循环到下一条（键盘也行）
+    row.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(highlighted(queuedAsk)).toBe(true));
+    expect(await screen.findByText("@helper 在办的第 2/2 条")).toBeTruthy();
+    expect(composer.value).toBe("");
+
+    // 忙碌时 @ 它走名字旁的按钮
+    await user.click(within(row).getByRole("button", { name: "在输入框里 @helper" }));
+    expect(composer.value).toBe("@helper ");
+    // 空闲的 Agent 照旧点一下 @ 它
+    await user.click(memberRow("idle-bot"));
+    expect(composer.value).toContain("@idle-bot");
+  });
+
+  it("jumps to the room where a busy agent is working when its task is elsewhere", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    const elsewhere: ChatMessage = {
+      id: "00000000-0000-4000-8000-000000000301",
+      roomId: "frontend",
+      seq: 42,
+      senderId: "00000000-0000-4000-8000-000000000302",
+      senderName: "Bob",
+      senderType: "human",
+      content: "@helper 改一下登录页",
+      mentions: ["helper"],
+      traceId: "00000000-0000-4000-8000-000000000303",
+      hopCount: 0,
+      createdAt: new Date().toISOString(),
+    };
+    crossRoom.invocationMessages = [elsewhere];
+    crossRoom.invocations = [
+      {
+        id: "00000000-0000-4000-8000-000000000304",
+        roomId: "frontend",
+        messageId: elsewhere.id,
+        agentId: "00000000-0000-4000-8000-000000000305",
+        agentName: "helper",
+        requesterName: "Bob",
+        requesterType: "human",
+        status: "running",
+        attempts: 1,
+        createdAt: elsewhere.createdAt,
+        updatedAt: elsewhere.createdAt,
+      },
+    ];
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    const helper = participant("00000000-0000-4000-8000-000000000002", "helper", "agent");
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self, helper],
+        messages: [],
+        latestSeq: 0,
+      }),
+    );
+    const hint = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>(".member-list .member-task");
+      expect(element).toBeTruthy();
+      return element!;
+    });
+    expect(hint.textContent).toBe("正在处理 #frontend #42 · 点击跳过去");
+    await user.click(hint.closest<HTMLElement>(".member")!);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2));
+    act(() => FakeWebSocket.instances[1]!.open());
+    expect(JSON.parse(FakeWebSocket.instances[1]!.sent[0]!)).toMatchObject({
+      type: "participant.join",
+      roomId: "frontend",
+    });
+    act(() =>
+      FakeWebSocket.instances[1]!.serverEvent({
+        type: "room.snapshot",
+        self: { ...self, roomId: "frontend" },
+        participants: [{ ...self, roomId: "frontend" }],
+        messages: [elsewhere],
+        latestSeq: 42,
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        document
+          .querySelector(".message-list")!
+          .shadowRoot!.querySelector(`[data-message-id="${elsewhere.id}"]`)
+          ?.classList.contains("highlighted"),
+      ).toBe(true),
+    );
+  });
+
   it("offers send-and-insert only when the draft mentions an agent that is running", async () => {
     localStorage.setItem("superhive.username", "Alice");
     localStorage.setItem("superhive.notify-prompt-dismissed", "true");

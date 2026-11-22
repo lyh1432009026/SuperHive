@@ -908,6 +908,24 @@ div.member[role="button"] {
   font-size: var(--text-xs);
 }
 
+/* 忙碌 Agent：副标题写它在做哪条，悬停时提示可点过去 */
+.member-copy small.member-task {
+  color: var(--text-secondary);
+}
+
+.member.has-task:hover .member-task,
+.member.has-task:focus-visible .member-task {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.member-mention-trigger {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+}
+
 /* 主 Agent 标记 */
 .member-lead-badge {
   display: inline-block;

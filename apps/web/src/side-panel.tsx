@@ -38,6 +38,7 @@ export function SidePanel({
   accessNow,
   agentDialogOpen,
   agentSettingsButton,
+  agentTaskSummary,
   appendMention,
   authToken,
   base,
@@ -64,6 +65,7 @@ export function SidePanel({
   online,
   onlineAgentNames,
   openAgentDialog,
+  openAgentTask,
   openMemberMenu,
   panelWidths,
   pendingScheduleCount,
@@ -84,6 +86,10 @@ export function SidePanel({
   accessNow: number;
   agentDialogOpen: boolean;
   agentSettingsButton: (name: string) => ReactNode;
+  /** Agent 手上在办的事：有的话点成员行跳过去，而不是 @ 它 */
+  agentTaskSummary: (
+    name: string,
+  ) => { count: number; seq: number | undefined; roomName: string | undefined } | undefined;
   appendMention: (usernameToMention: string) => void;
   authToken: string | undefined;
   base: string;
@@ -112,6 +118,7 @@ export function SidePanel({
   online: Participant[];
   onlineAgentNames: Set<string>;
   openAgentDialog: (trigger: HTMLButtonElement) => void;
+  openAgentTask: (name: string) => void;
   openMemberMenu: (event: ReactMouseEvent<HTMLElement>, participant: Participant) => void;
   panelWidths: { rooms: number; members: number; preview: number };
   pendingScheduleCount: number;
@@ -308,107 +315,140 @@ export function SidePanel({
                 id="side-panel-members"
                 aria-labelledby="side-tab-members"
               >
-                {online.map((participant) => (
-                  <div
-                    key={participant.id}
-                    className="member-row"
-                    onContextMenu={(event) => openMemberMenu(event, participant)}
-                  >
-                    {/* 用 div 承载点击：访客行里还要嵌入「⋯」按钮，button 不能嵌套 button */}
+                {online.map((participant) => {
+                  // 忙碌的 Agent 点击跳到它在做的事，@ 它改由名字旁的「@」按钮
+                  const task =
+                    participant.type === "agent"
+                      ? agentTaskSummary(participant.username)
+                      : undefined;
+                  const activate = () => {
+                    closeMobilePanel(false);
+                    if (task) openAgentTask(participant.username);
+                    else appendMention(participant.username);
+                  };
+                  const hintId = `member-task-hint-${participant.id}`;
+                  return (
                     <div
-                      role="button"
-                      tabIndex={0}
-                      className="member"
-                      onClick={() => {
-                        closeMobilePanel(false);
-                        appendMention(participant.username);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.target !== event.currentTarget) return;
-                        if (event.key !== "Enter" && event.key !== " ") return;
-                        event.preventDefault();
-                        closeMobilePanel(false);
-                        appendMention(participant.username);
-                      }}
+                      key={participant.id}
+                      className="member-row"
+                      onContextMenu={(event) => openMemberMenu(event, participant)}
                     >
-                      <span
-                        className={`avatar ${participant.type}`}
-                        style={
-                          participant.type === "human"
-                            ? avatarHueStyle(participant.username)
-                            : undefined
-                        }
-                        aria-hidden="true"
+                      {/* 用 div 承载点击：访客行里还要嵌入「⋯」按钮，button 不能嵌套 button */}
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className={`member${task ? " has-task" : ""}`}
+                        aria-describedby={task ? hintId : undefined}
+                        onClick={activate}
+                        onKeyDown={(event) => {
+                          if (event.target !== event.currentTarget) return;
+                          if (event.key !== "Enter" && event.key !== " ") return;
+                          event.preventDefault();
+                          activate();
+                        }}
                       >
-                        <AvatarGlyph
-                          type={participant.type}
-                          name={participant.username}
-                          provider={participant.provider}
-                        />
-                      </span>
-                      <span className="member-copy">
-                        <strong>
-                          {participant.username}
-                          {isLeadAgent(participant) && (
-                            <span
-                              className="member-lead-badge"
-                              title={t("主 Agent：没有 @ 任何人的消息由它接话、调度其他 Agent")}
-                            >
-                              {t("主")}
-                            </span>
-                          )}
-                          <OutdatedBadge participant={participant} />
-                          {participant.type === "agent" &&
-                            localAgentNames.has(participant.username.toLocaleLowerCase()) && (
-                              <>
-                                <span
-                                  className="member-local-badge"
-                                  title={
-                                    local.mode === "device"
-                                      ? t("由 {0} 上的 Hive Server 启动", {
-                                          0: local.hostLabel ?? t("Server 所在电脑"),
-                                        })
-                                      : t("由本机 Hive Server 启动")
-                                  }
-                                >
-                                  {local.mode === "device" ? t("主机") : t("本机")}
-                                </span>
-                                {agentSettingsButton(participant.username)}
-                              </>
+                        <span
+                          className={`avatar ${participant.type}`}
+                          style={
+                            participant.type === "human"
+                              ? avatarHueStyle(participant.username)
+                              : undefined
+                          }
+                          aria-hidden="true"
+                        >
+                          <AvatarGlyph
+                            type={participant.type}
+                            name={participant.username}
+                            provider={participant.provider}
+                          />
+                        </span>
+                        <span className="member-copy">
+                          <strong>
+                            {participant.username}
+                            {isLeadAgent(participant) && (
+                              <span
+                                className="member-lead-badge"
+                                title={t("主 Agent：没有 @ 任何人的消息由它接话、调度其他 Agent")}
+                              >
+                                {t("主")}
+                              </span>
                             )}
-                          {isOwner && authToken && participant.access && (
-                            <GuestMemberActions
-                              participant={participant}
-                              base={base}
-                              adminToken={authToken}
-                              now={accessNow}
-                              onError={setError}
-                            />
-                          )}
-                        </strong>
-                        <small>
-                          {participant.access ? (
-                            <>
-                              {participant.type === "agent"
-                                ? `${agentProviderLabel(participant.provider)} · `
-                                : ""}
-                              <GuestAccessBadge participant={participant} now={accessNow} />
-                            </>
-                          ) : participant.type === "agent" ? (
-                            `${agentProviderLabel(participant.provider)} · ${participant.persona || t("通用协作 Agent")}`
+                            <OutdatedBadge participant={participant} />
+                            {participant.type === "agent" &&
+                              localAgentNames.has(participant.username.toLocaleLowerCase()) && (
+                                <>
+                                  <span
+                                    className="member-local-badge"
+                                    title={
+                                      local.mode === "device"
+                                        ? t("由 {0} 上的 Hive Server 启动", {
+                                            0: local.hostLabel ?? t("Server 所在电脑"),
+                                          })
+                                        : t("由本机 Hive Server 启动")
+                                    }
+                                  >
+                                    {local.mode === "device" ? t("主机") : t("本机")}
+                                  </span>
+                                  {agentSettingsButton(participant.username)}
+                                </>
+                              )}
+                            {task && (
+                              <span className="guest-actions">
+                                <button
+                                  type="button"
+                                  className="guest-actions-trigger member-mention-trigger"
+                                  aria-label={t("在输入框里 @{0}", { 0: participant.username })}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    closeMobilePanel(false);
+                                    appendMention(participant.username);
+                                  }}
+                                  onKeyDown={(event) => event.stopPropagation()}
+                                >
+                                  @
+                                </button>
+                              </span>
+                            )}
+                            {isOwner && authToken && participant.access && (
+                              <GuestMemberActions
+                                participant={participant}
+                                base={base}
+                                adminToken={authToken}
+                                now={accessNow}
+                                onError={setError}
+                              />
+                            )}
+                          </strong>
+                          {task ? (
+                            <small className="member-task" id={hintId}>
+                              {memberTaskHint(task)}
+                            </small>
                           ) : (
-                            "Human"
+                            <small>
+                              {participant.access ? (
+                                <>
+                                  {participant.type === "agent"
+                                    ? `${agentProviderLabel(participant.provider)} · `
+                                    : ""}
+                                  <GuestAccessBadge participant={participant} now={accessNow} />
+                                </>
+                              ) : participant.type === "agent" ? (
+                                `${agentProviderLabel(participant.provider)} · ${participant.persona || t("通用协作 Agent")}`
+                              ) : (
+                                "Human"
+                              )}
+                            </small>
                           )}
-                        </small>
-                      </span>
-                      <span
-                        className={`status-dot ${participant.status}`}
-                        title={participantStatusLabel(participant.status)}
-                        aria-label={participantStatusLabel(participant.status)}
-                      />
+                        </span>
+                        <span
+                          className={`status-dot ${participant.status}`}
+                          title={participantStatusLabel(participant.status)}
+                          aria-label={participantStatusLabel(participant.status)}
+                        />
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {offline.length > 0 && (
                   <p className="offline-label">{t("离线 · {0}", { 0: offline.length })}</p>
                 )}
@@ -531,4 +571,23 @@ export function SidePanel({
       )}
     </aside>
   );
+}
+
+/** 忙碌 Agent 行的副标题：它在做哪条、在哪个房间，并说明点击会跳过去 */
+function memberTaskHint({
+  count,
+  seq,
+  roomName,
+}: {
+  count: number;
+  seq: number | undefined;
+  roomName: string | undefined;
+}) {
+  const where = [roomName && `#${roomName}`, seq !== undefined && `#${seq}`]
+    .filter(Boolean)
+    .join(" ");
+  const doing = where ? t("正在处理 {0}", { 0: where }) : t("正在处理任务");
+  return count > 1
+    ? t("{0} 等 {1} 条 · 点击跳过去", { 0: doing, 1: count })
+    : t("{0} · 点击跳过去", { 0: doing });
 }
