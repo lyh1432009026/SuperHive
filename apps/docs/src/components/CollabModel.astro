@@ -216,8 +216,8 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
           </div>
           <div class="cm-zone cm-zone-ask">
             <span class="cm-zone-title">等你回答</span>
-            <p class="cm-line" data-on={ask.on}>{ask.question}</p>
-            <span class="cm-options">
+            <p class="cm-line" data-at={ask.on} data-on={ask.on}>{ask.question}</p>
+            <span class="cm-options" data-at={ask.on}>
               <span class="cm-option cm-option-pick" data-on={ask.pickedOn}>{ask.pick}</span>
               <span class="cm-option">{ask.other}</span>
             </span>
@@ -304,14 +304,21 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
     const toggleLabel = figure.querySelector<HTMLElement>("[data-cm-toggle-label]");
     const last = steps.length - 1;
     const wires = new Map<string, SVGElement>();
-    let step = last;
+    figure.dataset.cmReady = "1";
+    // 有出场动画时，等它播完再点亮路径、开始轮播；出场期间房间停在第 1 步开始前的样子，
+    // 播完直接接第 1 步，不先露出结局
+    let introDone = !figure.classList.contains("cm-intro-pending");
+    let introRunning = false;
+    let step = introDone ? last : 0;
     let timer = 0;
     let paused = reduce.matches;
     let visible = false;
-    figure.dataset.cmReady = "1";
-    // 有出场动画时，等它播完再点亮路径、开始轮播
-    let introDone = !figure.classList.contains("cm-intro-pending");
-    let introRunning = false;
+    if (!introDone) {
+      buttons.forEach((button, index) => {
+        if (index === step) button.setAttribute("aria-current", "step");
+        else button.removeAttribute("aria-current");
+      });
+    }
 
     const centerOf = (rect: DOMRect, box: DOMRect): [number, number] => [
       rect.left + rect.width / 2 - box.left,
@@ -404,36 +411,38 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
 
     // 按当前步骤挂状态：发起方、接收方、累积到这一步的 Agent 状态、房间里出现和亮起的内容
     const mark = () => {
-      const live = figure.classList.contains("is-live") && introDone;
+      // live：轮播模式，房间内容按步骤出现；lit：出场播完，开始点亮路径和状态
+      const live = figure.classList.contains("is-live");
+      const lit = live && introDone;
       const from = new Set(steps[step].links.map((link) => link.from));
       const to = new Set(steps[step].links.flatMap((link) => link.to));
       const status: Record<string, Status> = {};
       for (const past of steps.slice(0, step + 1)) Object.assign(status, past.status);
       for (const node of nodes) {
         const name = node.dataset.node!;
-        node.classList.toggle("is-from", live && from.has(name));
-        node.classList.toggle("is-to", live && to.has(name));
+        node.classList.toggle("is-from", lit && from.has(name));
+        node.classList.toggle("is-to", lit && to.has(name));
         const badge = node.querySelector<HTMLElement>("[data-cm-status]");
         if (badge) {
-          const value = live ? status[name] : undefined;
+          const value = lit ? status[name] : undefined;
           badge.textContent = value ? LABELS[value] : "";
           if (value) badge.dataset.kind = value;
           else delete badge.dataset.kind;
         }
       }
       for (const [name, wire] of wires) {
-        wire.classList.toggle("is-from", live && from.has(name));
-        wire.classList.toggle("is-to", live && to.has(name));
+        wire.classList.toggle("is-from", lit && from.has(name));
+        wire.classList.toggle("is-to", lit && to.has(name));
       }
       for (const item of highlights) {
-        item.classList.toggle("is-on", live && item.dataset.on!.split(" ").includes(String(step)));
+        item.classList.toggle("is-on", lit && item.dataset.on!.split(" ").includes(String(step)));
       }
       for (const item of timed) {
-        item.classList.toggle("is-later", live && Number(item.dataset.at) > step);
+        item.classList.toggle("is-later", live && Number(item.dataset.at) > (lit ? step : -1));
       }
       figure.classList.remove("is-run");
       void figure.offsetWidth;
-      figure.classList.toggle("is-run", live && !paused);
+      figure.classList.toggle("is-run", lit && !paused);
     };
 
     const show = (next: number) => {
@@ -1001,8 +1010,13 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
   }
 
   /* 白板条目还没到那一步时只隐藏不收起，免得房间高度跟着变 */
-  .cm-zone-board .cm-line.is-later {
+  .cm-zone-board .cm-line.is-later,
+  .cm-zone-ask .cm-line.is-later {
     display: block;
+    visibility: hidden;
+  }
+
+  .cm-zone-ask .cm-options.is-later {
     visibility: hidden;
   }
 
