@@ -101,7 +101,19 @@ export async function launchBrowser({
     ],
     { stdio: "ignore" },
   );
+  // 录屏进程异常退出（出错、被 Ctrl-C、被 kill）时也把 Chrome 带走，不留孤儿进程
+  const killNow = () => {
+    if (child.exitCode === null) child.kill("SIGKILL");
+    fs.rmSync(profile, { recursive: true, force: true });
+  };
+  process.once("exit", killNow);
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"])
+    process.once(signal, () => {
+      killNow();
+      process.exit(130);
+    });
   const close = async () => {
+    process.off("exit", killNow);
     if (child.exitCode === null) {
       await new Promise((resolve) => {
         const force = setTimeout(() => child.kill("SIGKILL"), 5_000);
@@ -256,6 +268,19 @@ export const DIRECTOR = String.raw`
       }
       const r = el.getBoundingClientRect();
       return { x: r.left, y: r.top, width: r.width, height: r.height };
+    },
+    /** 所有匹配元素（含 shadow DOM、可见的）合起来的矩形 */
+    unionRect(selector) {
+      const rects = [];
+      for (const root of roots())
+        for (const el of root.querySelectorAll(selector)) {
+          const r = el.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < innerHeight) rects.push(r);
+        }
+      if (!rects.length) throw new Error("没找到元素：" + selector);
+      const left = Math.min(...rects.map((r) => r.left)), top = Math.min(...rects.map((r) => r.top));
+      const right = Math.max(...rects.map((r) => r.right)), bottom = Math.max(...rects.map((r) => r.bottom));
+      return { x: left, y: top, width: right - left, height: bottom - top };
     },
     /** 镜头推近：把视口里的 rect 放大到铺满（留边），null 复位 */
     camera(rect, ms = 900, pad = 40) {
@@ -433,8 +458,8 @@ export class Director {
   }
 
   /**
-   * js: true 时不发鼠标事件，直接在页面里 el.click()（画面上照样有点击波纹）：
-   * 个别按钮（如邀请弹窗的「生成并复制链接」）被无头 Chrome 的鼠标事件点下去后，页面的输入会一直卡住。
+   * js: true 时不发鼠标事件，直接在页面里 el.click()（画面上照样有点击波纹），
+   * 留给真实鼠标点不到的元素用。
    */
   async click(selector, options = {}) {
     await this.hover(selector, options);
@@ -476,9 +501,13 @@ export class Director {
     }
   }
 
-  async key(key, code = key, keyCode) {
+  /**
+   * 不带 windowsVirtualKeyCode：无头 Chrome 收到带键码 27 的 Esc 后会停止出帧，之后鼠标事件都不返回。
+   * 网页照样收到 event.key。
+   */
+  async key(key, code = key) {
     if (process.env.PROMO_DEBUG) console.log(`[promo]   ⌨ ${key}`);
-    const base = { key, code, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode };
+    const base = { key, code };
     await this.cdp.send("Input.dispatchKeyEvent", {
       type: "keyDown",
       ...base,

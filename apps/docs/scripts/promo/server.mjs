@@ -756,7 +756,7 @@ export function scenes(members) {
           ["command", "Bash", "pnpm vitest run src/checkout"],
         ],
         reply: "移动端改好了：合计和优惠都走 formatPrice，新增 8 个用例全部通过。",
-        delay: 900,
+        delay: 2400,
       },
       {
         agent: "copilot-1",
@@ -766,14 +766,14 @@ export function scenes(members) {
           ["read", "Read", "src/checkout/price.ts"],
         ],
         reply: "接口 review 完：建议 discount 字段统一用分，舍入差额记到最后一件，其余没问题。",
-        delay: 1500,
+        delay: 3200,
       },
       {
         agent: "opencode-1",
         task: "更新结算页文档和变更说明。",
         steps: [["write", "Edit", "docs/checkout.md"]],
         reply: "文档更新好了：补了金额显示规则和优惠明细的截图说明。",
-        delay: 600,
+        delay: 1800,
       },
     ];
     const delegations = [];
@@ -794,7 +794,7 @@ export function scenes(members) {
         bot.report(job.id, "running");
         bot.typing(true);
         const tr = tracer(bot, job.id);
-        for (const [tool, name, summary] of sub.steps) await tr.tool(tool, name, summary, 700);
+        for (const [tool, name, summary] of sub.steps) await tr.tool(tool, name, summary, 1000);
         await sleep(sub.delay);
         bot.typing(false);
         const reply = await bot.say(sub.reply, { parentMessageId: job.id });
@@ -878,7 +878,44 @@ export function scenes(members) {
     bot.report(answer.id, "completed", { replyMessageId: reply.id });
   }
 
-  return { delegate, designs };
+  /** 实时执行：一步步推执行过程，同时在白板上登记、做完改成待验收 */
+  async function live() {
+    const bot = m("codex-3");
+    const task = await bot.mentioned((message) => message.content.includes("单元测试"), 120_000);
+    bot.report(task.id, "running");
+    bot.typing(true);
+    const t = tracer(bot, task.id);
+    t.think("先看 formatPrice 和 splitDiscount 现在有哪些用例");
+    await sleep(700);
+    await bot.tool("hive_board_update", {
+      key: "price-tests",
+      slot: "in_progress",
+      summary: "金额格式化补单元测试，跑覆盖率",
+    });
+    await t.tool("search", "rg", "formatPrice|splitDiscount", 700);
+    await t.tool("read", "Read", "src/checkout/price.ts", 700);
+    t.say("现有用例只覆盖了正数，负数、零和优惠分摊的差额都没测。补 12 个用例。");
+    await sleep(900);
+    await t.tool("write", "Write", "src/checkout/price.test.ts", 900);
+    await t.tool("command", "Bash", "pnpm vitest run src/checkout", 1800);
+    t.say("12 个用例全部通过。");
+    await sleep(600);
+    await t.tool("command", "Bash", "pnpm vitest run --coverage src/checkout", 1800);
+    await sleep(700);
+    await bot.tool("hive_board_update", {
+      key: "price-tests",
+      slot: "ready",
+      summary: "金额格式化单元测试补完：12 个用例，覆盖率 96%",
+    });
+    bot.typing(false);
+    const reply = await bot.say(
+      "补完了：`price.test.ts` 新增 12 个用例（负数、零、优惠分摊差额），全部通过；`src/checkout` 覆盖率 96%。",
+      { parentMessageId: task.id },
+    );
+    bot.report(task.id, "completed", { replyMessageId: reply.id });
+  }
+
+  return { delegate, designs, live };
 }
 
 /* ---------------- 假的飞书驱动 ---------------- */

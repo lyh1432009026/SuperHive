@@ -9,6 +9,8 @@ export const appStorage = (owner) => ({
   "superhive.notify-prompt-dismissed": "true",
   "superhive.reduce-motion": "false",
   "superhive.room": "shop-web",
+  // 每个镜头都从中文界面开始（「中英文切换」镜头会切到英文）
+  "superhive.locale": "zh-CN",
 });
 
 /** 页面文字里的演示 HOME 换成 ~；之后新渲染的也换 */
@@ -106,12 +108,17 @@ export const APP_SHOTS = [
       await send(d, "claude-1", " 结算页改版：金额格式、优惠明细接口、文档，拆给大家并行做。");
       await d.move(900, 450, 900);
       await waitText(d, ".message-machine-card, article.message", /委派/, 30000);
-      await d.wait(2500);
+      // 三张委派卡都出来后推近，看清派给了谁
+      await d.wait(1100);
+      const cards = await d.eval(`__promo.unionRect(".message-machine-card")`);
+      await d.camera(cards, { pad: 70, ms: 900 });
+      await d.wait(2600);
+      await d.camera(null, { ms: 800 });
       await play;
       await waitText(d, "article.message", /三路都交回了/);
       await d.wait(600);
       await d.camera("article.message", { match: text(/三路都交回了/), pad: 60 });
-      await d.wait(2600);
+      await d.wait(3400);
       return rec.stop();
     },
   },
@@ -148,7 +155,7 @@ export const APP_SHOTS = [
       await d.click(".message-image", { after: 1500 });
       await d.eval(`__promo.find(".attachment-lightbox", null, 5000)`);
       await d.click(".attachment-lightbox-nav.next", { after: 1600 });
-      await d.key("Escape", "Escape", 27);
+      await d.key("Escape");
       await d.wait(700);
       await d.hover(".question-options", { ms: 700 });
       await d.wait(300);
@@ -161,7 +168,37 @@ export const APP_SHOTS = [
       await d.camera(null, { ms: 700 });
       await play;
       await waitText(d, "article.message", /按方案 B 开工|按\s*方案 B/);
-      await d.wait(2500);
+      await d.wait(500);
+      // 选完之后 Agent 接着做的结果推近看
+      await d.camera("article.message", { match: text(/按\s*方案 B/), pad: 60 });
+      await d.wait(3200);
+      return rec.stop();
+    },
+  },
+  {
+    // 实时执行过程 + 白板登记、进展里的状态自动变化
+    name: "live",
+    async run(d, demo, dir) {
+      await open(d, demo);
+      await d.click("#side-tab-whiteboard", { after: 300 });
+      await d.place(800, 700);
+      const play = demo.scenes.live();
+      const rec = await d.record(dir);
+      await send(d, "codex-3", " 给金额格式化补上单元测试，跑一遍覆盖率。");
+      await d.move(760, 520, 900);
+      await d.eval(`__promo.find("article.thinking-card", null, 20000)`);
+      await d.wait(900);
+      await d.camera("article.thinking-card", { pad: 50, ms: 900 });
+      await waitText(d, "article.thinking-card", /coverage/, 30000);
+      await d.wait(1800);
+      await d.camera(null, { ms: 800 });
+      const id = await d.highlight(".progress-item", "白板：codex-3 自己登记进展", {
+        match: text(/单元测试/),
+      });
+      await play;
+      await d.wait(2600);
+      await d.unhighlight(id);
+      await d.wait(800);
       return rec.stop();
     },
   },
@@ -200,7 +237,7 @@ export const APP_SHOTS = [
       await d.click(".workspace-change", { match: text(/price\.ts/), after: 1400 });
       await d.scroll(".workspace-viewer", 260, 1000);
       await d.wait(1200);
-      await d.key("Escape", "Escape", 27);
+      await d.key("Escape");
       await d.wait(500);
       await d.click(".worktree-switcher-toggle", { after: 1600 });
       await d.hover(".worktree-switcher-row", { match: text(/price-format/), ms: 800 });
@@ -223,32 +260,50 @@ export const APP_SHOTS = [
   },
   {
     // 邀请人、接入 Agent
+    // 邀请同事 → 关掉 → 接入 Agent：选 CLI → 权限 → 一键启动，一个镜头连着录
     name: "invite",
     async run(d, demo, dir) {
       await open(d, demo);
       await d.place(900, 600);
       const rec = await d.record(dir);
       await d.click(".member-invite-action", { match: text(/邀请/), after: 1000 });
-      await d.click(".invite-submit", { js: true, after: 900 });
+      await d.click(".invite-submit", { after: 900 });
       await d.camera("[role=dialog]", { pad: 24, ms: 800 });
-      await d.highlight(".invite-link-row", "邀请链接，发给同事就能进房间");
+      const id = await d.highlight(".invite-link-row", "邀请链接，发给同事就能进房间");
       await d.wait(2400);
-      return rec.stop();
-    },
-  },
-  {
-    // 接入 Agent：选 CLI → 权限 → 复制命令。单独一个镜头：先开过邀请弹窗再开它，无头 Chrome 里页面会卡住
-    name: "agent",
-    async run(d, demo, dir) {
-      await open(d, demo);
-      await d.place(900, 600);
-      const rec = await d.record(dir);
+      await d.unhighlight(id);
+      await d.camera(null, { ms: 600 });
+      await d.key("Escape");
+      await d.wait(500);
       await d.click(".sidebar-agent-entry", { after: 1000 });
       await d.click('.provider-selector [role="radio"]', { match: text(/Codex/), after: 700 });
       await d.click(".agent-dialog-nav button.primary", { after: 900 });
       await d.click(".agent-dialog-nav button.primary", { after: 700 });
       await d.camera("[role=dialog]", { pad: 24, ms: 800 });
       await d.wait(2600);
+      return rec.stop();
+    },
+  },
+  {
+    // 界面中英文切换
+    name: "i18n",
+    async run(d, demo, dir) {
+      await open(d, demo);
+      await d.place(900, 600);
+      const rec = await d.record(dir);
+      // 悬停头像就会展开用户菜单（再点一下反而会收起）
+      await d.hover(".sidebar-user-chip", { ms: 800 });
+      await d.wait(600);
+      await d.click('[role="menuitem"]', { match: text(/设置/), after: 900 });
+      await d.click('[aria-controls="settings-panel-appearance"]', { after: 900 });
+      await d.camera("#settings-panel-appearance .compact-choice", { pad: 220, ms: 800 });
+      await d.click('.compact-choice [role="radio"]', { match: text(/^English$/), after: 1800 });
+      await d.camera(null, { ms: 700 });
+      await d.key("Escape");
+      await d.wait(900);
+      await d.hover("#side-tab-whiteboard", { ms: 900 });
+      await d.hover(".composer-send", { ms: 900 });
+      await d.wait(2000);
       return rec.stop();
     },
   },

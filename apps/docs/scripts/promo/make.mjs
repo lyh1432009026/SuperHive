@@ -157,6 +157,28 @@ async function render() {
       "+faststart",
       mainAudio,
     ]);
+    // 聊天里发附件用的压缩版（20 MB 以内）：30fps、码率低一些
+    await run("ffmpeg", [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-y",
+      "-i",
+      main.file,
+      "-c:v",
+      "libx264",
+      "-preset",
+      "slow",
+      "-crf",
+      "27",
+      "-r",
+      "30",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
+      path.join(out, "superhive-promo-share.mp4"),
+    ]);
     const short = await cut(SHORT, "superhive-promo-30s", cdp);
     const header = path.join(out, "work", "vertical-header.png");
     fs.writeFileSync(header, await renderTransparentPng(cdp, verticalHeaderHtml(), 1080, 1920));
