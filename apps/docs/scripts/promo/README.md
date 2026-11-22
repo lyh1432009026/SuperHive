@@ -33,7 +33,7 @@ pnpm --filter @superhive/docs promo --only delegate,im  # 只重录这几个镜�
 | `make.mjs`       | 入口：构建 → 录屏（子进程）→ 合成                                                                                    |
 | `record.mjs`     | 录屏：起文档站静态服务和演示 Server，按镜头驱动无头 Chrome                                                           |
 | `server.mjs`     | 宣传片用的演示 Server：8 个房间、12 个 Agent、4 位成员，另有委派、设计稿点选两段现场戏，以及假的飞书驱动             |
-| `docs-shots.mjs` | 文档站镜头：首页出场、两张协作图（轮播间隔缩短）                                                                     |
+| `docs-shots.mjs` | 文档站镜头：首页出场、两张协作图（按页面自己的轮播节奏）                                                             |
 | `app-shots.mjs`  | 真实界面镜头：总览、派活委派、实时执行和白板、进展、附件和点选、产物、代码、定时、邀请和接入 Agent、中英文切换、飞书 |
 | `outro-shot.mjs` | 结尾卡                                                                                                               |
 | `browser.mjs`    | 录屏浏览器：可见的鼠标指针、平滑移动和点击、逐字输入、镜头推近、高亮框、录屏                                         |
