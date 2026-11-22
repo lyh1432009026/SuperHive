@@ -11,12 +11,19 @@ permissions on its own computer.
 
 ### Start the server
 
-Requires Node.js 22.12 or newer. Install it globally, then use the `hive` command:
+Requires Node.js 22.12 or newer. Install it globally, in two steps:
 
-```bash
-npm i -g superhive
-hive
-```
+1. **Install** (once per computer; this gives you the `hive` command):
+
+   ```bash
+   npm i -g superhive
+   ```
+
+2. **Run** (starts Hive Server and opens the web UI; use this every time you start it):
+
+   ```bash
+   hive
+   ```
 
 This starts the server in the background and opens the Web UI in your browser; running it again
 just opens the browser. Pass start options directly, e.g. `hive --port 9000`. To try it without a

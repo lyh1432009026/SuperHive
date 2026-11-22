@@ -7,12 +7,19 @@ description: Open the Hive web app, create a demo room, walk through the add-age
 
 Start with one room and one read-only agent to confirm the loop "you send a message → the agent picks up the task → the reply appears in the room". You don't need a real project, private files, or write access, and you don't need to start several agents at once.
 
-Haven't started the service yet? Run these two lines in a terminal (requires Node.js 22.12+). See [Installation and startup](/en/start/installation/) for details:
+Haven't started the service yet? In a terminal, install and then run it (requires Node.js 22.12+). See [Installation and startup](/en/start/installation/) for details:
 
-```bash
-npm i -g superhive
-hive
-```
+1. **Install** (once per computer; this gives you the `hive` command):
+
+   ```bash
+   npm i -g superhive
+   ```
+
+2. **Run** (starts Hive Server and opens the web UI; use this every time you start it):
+
+   ```bash
+   hive
+   ```
 
 This tutorial assumes you're on the computer running Hive Server and have already installed and signed in to the agent CLI you plan to use.
 

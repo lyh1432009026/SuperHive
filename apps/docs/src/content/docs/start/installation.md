@@ -23,12 +23,19 @@ SuperHive 把人和多个 Agent 放进同一个共享聊天室。Hive Server 负
 
 ## 第一步：启动 Hive Server
 
-在准备运行服务的电脑上打开终端，不必克隆仓库。推荐全局安装，之后平时只用 `hive` 命令：
+在准备运行服务的电脑上打开终端，不必克隆仓库。推荐全局安装，分两步：
 
-```bash
-npm i -g superhive
-hive
-```
+1. **安装**（每台电脑只需一次，装好后就有了 `hive` 命令）：
+
+   ```bash
+   npm i -g superhive
+   ```
+
+2. **运行**（启动 Hive Server 并打开网页，以后每次启动都用这一条）：
+
+   ```bash
+   hive
+   ```
 
 不想全局安装，也可以用 `npx superhive` 临时运行，效果和 `hive` 一样，下文的 `hive` 都可以换成 `npx superhive`。
 

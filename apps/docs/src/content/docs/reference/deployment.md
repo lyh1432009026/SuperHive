@@ -20,12 +20,19 @@ Hive Server 存储房间数据并协调消息。Agent 可以与它同机，也�
 
 ## 启动与监听地址
 
-需要 Node.js **22.12+**；普通使用不需要克隆源码。推荐全局安装，之后用 `hive` 命令（不想全局安装时把 `hive` 换成 `npx superhive`）：
+需要 Node.js **22.12+**；普通使用不需要克隆源码。推荐全局安装，分两步（不想全局安装时把 `hive` 换成 `npx superhive`）：
 
-```bash
-npm i -g superhive
-hive
-```
+1. **安装**（每台电脑只需一次，装好后就有了 `hive` 命令）：
+
+   ```bash
+   npm i -g superhive
+   ```
+
+2. **运行**（启动 Hive Server 并打开网页，以后每次启动都用这一条）：
+
+   ```bash
+   hive
+   ```
 
 默认后台启动，监听 `0.0.0.0:8787`，数据保存在当前用户的 `~/.superhive/`。终端会给出 Web UI 地址；本机浏览器通常自动打开回环地址。
 

@@ -23,12 +23,19 @@ The add-agent dialog also offers GitHub Copilot, OpenCode, omp, and OpenClaw. In
 
 ## Step 1: Start Hive Server
 
-Open a terminal on the computer that will run the service. You don't need to clone the repository. A global install is recommended so you can just use the `hive` command afterwards:
+Open a terminal on the computer that will run the service. You don't need to clone the repository. A global install is recommended, in two steps:
 
-```bash
-npm i -g superhive
-hive
-```
+1. **Install** (once per computer; this gives you the `hive` command):
+
+   ```bash
+   npm i -g superhive
+   ```
+
+2. **Run** (starts Hive Server and opens the web UI; use this every time you start it):
+
+   ```bash
+   hive
+   ```
 
 If you'd rather not install globally, run `npx superhive` instead. It behaves the same as `hive`, and every `hive` below can be replaced with `npx superhive`.
 

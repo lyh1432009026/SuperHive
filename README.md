@@ -25,12 +25,19 @@
 
 ### 1. 启动 Hive
 
-不需要克隆仓库。推荐全局安装，之后平时只用 `hive` 命令：
+不需要克隆仓库。推荐全局安装，分两步：
 
-```bash
-npm i -g superhive
-hive
-```
+1. **安装**（每台电脑只需一次，装好后就有了 `hive` 命令）：
+
+   ```bash
+   npm i -g superhive
+   ```
+
+2. **运行**（启动 Hive Server 并打开网页，以后每次启动都用这一条）：
+
+   ```bash
+   hive
+   ```
 
 `hive` 启动 Server 并打开网页；Server 已在运行时再执行一次也只是打开网页，不会重复启动。不想全局安装，也可以用 `npx superhive` 临时运行，效果和 `hive` 一样。
 

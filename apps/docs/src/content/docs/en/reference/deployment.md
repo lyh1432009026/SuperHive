@@ -20,12 +20,19 @@ Diagram of the deployment model, not a screenshot of an actual service or admin 
 
 ## Starting and listen addresses
 
-You need Node.js **22.12+**; regular use does not require cloning the source. We recommend a global install and then using the `hive` command (if you'd rather not install globally, replace `hive` with `npx superhive`):
+You need Node.js **22.12+**; regular use does not require cloning the source. We recommend a global install, in two steps (if you'd rather not install globally, replace `hive` with `npx superhive`):
 
-```bash
-npm i -g superhive
-hive
-```
+1. **Install** (once per computer; this gives you the `hive` command):
+
+   ```bash
+   npm i -g superhive
+   ```
+
+2. **Run** (starts Hive Server and opens the web UI; use this every time you start it):
+
+   ```bash
+   hive
+   ```
 
 By default it starts in the background, listens on `0.0.0.0:8787`, and stores data in the current user's `~/.superhive/`. The terminal prints the Web UI address, and a browser on the same machine usually opens the loopback address automatically.
 
