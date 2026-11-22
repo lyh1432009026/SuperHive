@@ -39,7 +39,7 @@ export function ChatHeader({
   loadRoomWorktrees,
   loadWorkspaceDetail,
   openWorkspaceSource,
-  openRoomDialog,
+  openWorktrees,
   setSettingsTab,
   setSettingsOpen,
   startNewTopic,
@@ -72,10 +72,8 @@ export function ChatHeader({
   loadRoomWorktrees: () => ReturnType<LocalAgentsState["worktrees"]>;
   loadWorkspaceDetail: () => Promise<WorkspaceOverview>;
   openWorkspaceSource: (source: string) => void;
-  openRoomDialog: (
-    dialog: { mode: "create" } | { mode: "manage"; room: RoomSummary },
-    trigger: HTMLButtonElement,
-  ) => void;
+  /** 打开「任务目录」面板；trigger 是关掉面板后焦点要回去的按钮 */
+  openWorktrees: (trigger: HTMLButtonElement) => void;
   setSettingsTab: Dispatch<SetStateAction<SettingsTab>>;
   setSettingsOpen: Dispatch<SetStateAction<boolean>>;
   startNewTopic: () => void;
@@ -146,9 +144,7 @@ export function ChatHeader({
                     loadWorktrees={loadRoomWorktrees}
                     loadOverview={loadWorkspaceDetail}
                     onOpenSource={openWorkspaceSource}
-                    onManage={(trigger) =>
-                      openRoomDialog({ mode: "manage", room: currentRoom }, trigger)
-                    }
+                    onManage={openWorktrees}
                   />
                 ) : (
                   <span className="chat-title-branch" title={t("当前分支")}>

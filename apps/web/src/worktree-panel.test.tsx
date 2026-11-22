@@ -60,6 +60,26 @@ const api = (canManage = true) => ({
 });
 
 describe("WorktreePanel", () => {
+  it("opens as the 任务目录 sheet with the room name, and closes on Escape unless a confirmation is open", async () => {
+    const client = api();
+    const onClose = vi.fn();
+    render(<WorktreePanel roomId="general" roomName="general" api={client} onClose={onClose} />);
+    const sheet = screen.getByRole("dialog", { name: "任务目录" });
+    expect(sheet.textContent).toContain("general");
+    await screen.findByText("feat/clean");
+    // 本机没记过时用侧边抽屉：这是一列清单，铺满太空
+    expect(sheet.className).not.toContain("maximized");
+    fireEvent.click(screen.getByRole("checkbox", { name: /自动清理已合入的任务目录/ }));
+    const confirm = await screen.findByRole("dialog", { name: "确认开启自动清理" });
+    fireEvent.keyDown(confirm, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "确认开启自动清理" })).toBeNull();
+    fireEvent.keyDown(sheet, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "关闭任务目录面板" }));
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
   it("lists the ignored files that block cleanup", async () => {
     const client = api();
     client.worktrees.mockResolvedValue({
@@ -69,7 +89,7 @@ describe("WorktreePanel", () => {
       autoCleanup: false,
       cleanupBatch: null,
     });
-    render(<WorktreePanel roomId="general" api={client} />);
+    render(<WorktreePanel roomId="general" api={client} onClose={() => undefined} />);
     expect((await screen.findByText("有忽略文件，需先自行处理")).className).toBe("warning");
     expect(screen.getByText("挡住清理的忽略文件：.env、output/")).toBeTruthy();
   });
@@ -97,7 +117,7 @@ describe("WorktreePanel", () => {
       autoCleanup: false,
       cleanupBatch: null,
     });
-    render(<WorktreePanel roomId="general" api={client} />);
+    render(<WorktreePanel roomId="general" api={client} onClose={() => undefined} />);
     expect(await screen.findAllByText("依赖已安装")).toHaveLength(2);
     expect(screen.getByText("依赖软链自主目录").getAttribute("title")).toBe(
       "pnpm 没成功，已退回软链",
@@ -124,7 +144,7 @@ describe("WorktreePanel", () => {
         cleanupBatch: null,
       })
       .mockResolvedValue({ worktrees: [switched(false)], autoCleanup: false, cleanupBatch: null });
-    render(<WorktreePanel roomId="general" api={client} />);
+    render(<WorktreePanel roomId="general" api={client} onClose={() => undefined} />);
     await screen.findByText("分支已被切换：登记 feat/slow-ops，当前 feat/card-tiers");
     // 有未提交文件：不能切回，但能按当前分支重新登记；原始报错不再重复显示
     expect(screen.getByRole("button", { name: "切回登记分支" })).toHaveProperty("disabled", true);
@@ -162,7 +182,7 @@ describe("WorktreePanel", () => {
       autoCleanup: false,
       cleanupBatch: null,
     });
-    render(<WorktreePanel roomId="general" api={client} />);
+    render(<WorktreePanel roomId="general" api={client} onClose={() => undefined} />);
     await screen.findByText("还有任务在用这个目录，结束后才能处理。");
     expect(screen.getByRole("button", { name: "切回登记分支" })).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "按当前分支重新登记" })).toHaveProperty(
@@ -188,7 +208,7 @@ describe("WorktreePanel", () => {
 
   it("only selects eligible checkouts and requires confirmation with an exact commit snapshot", async () => {
     const client = api();
-    render(<WorktreePanel roomId="general" api={client} />);
+    render(<WorktreePanel roomId="general" api={client} onClose={() => undefined} />);
     await screen.findByText("feat/clean");
     expect((screen.getByLabelText("选择目录 feat/dirty") as HTMLInputElement).disabled).toBe(true);
     fireEvent.click(screen.getByText("选择可清理项（1）"));
@@ -206,9 +226,9 @@ describe("WorktreePanel", () => {
 
   it("keeps automatic cleanup off until explicitly confirmed", async () => {
     const client = api();
-    render(<WorktreePanel roomId="general" api={client} />);
+    render(<WorktreePanel roomId="general" api={client} onClose={() => undefined} />);
     await screen.findByText("feat/clean");
-    const checkbox = screen.getByRole("checkbox", { name: /自动清理已合入的 worktree/ });
+    const checkbox = screen.getByRole("checkbox", { name: /自动清理已合入的任务目录/ });
     // 点勾选框：就地弹出确认气泡，确认前不勾上、不调接口
     fireEvent.click(checkbox);
     const popover = screen.getByRole("dialog", { name: "确认开启自动清理" });
@@ -231,7 +251,7 @@ describe("WorktreePanel", () => {
 
   it("invalidates a selection when a branch tip changes during review", async () => {
     const client = api();
-    render(<WorktreePanel roomId="general" api={client} />);
+    render(<WorktreePanel roomId="general" api={client} onClose={() => undefined} />);
     await screen.findByText("feat/clean");
     fireEvent.click(screen.getByText("选择可清理项（1）"));
     fireEvent.click(screen.getByText("清理选中（1）"));
@@ -240,7 +260,7 @@ describe("WorktreePanel", () => {
       autoCleanup: false,
       cleanupBatch: null,
     });
-    fireEvent.click(screen.getByText("刷新"));
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
     await waitFor(() =>
       expect((screen.getByText("确认清理") as HTMLButtonElement).disabled).toBe(true),
     );
@@ -249,7 +269,7 @@ describe("WorktreePanel", () => {
 
   it("does not allow a device without management approval to mutate", async () => {
     const client = api(false);
-    render(<WorktreePanel roomId="general" api={client} />);
+    render(<WorktreePanel roomId="general" api={client} onClose={() => undefined} />);
     await screen.findByText("feat/clean");
     expect((screen.getByLabelText("选择目录 feat/clean") as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByText("选择可清理项（1）") as HTMLButtonElement).disabled).toBe(true);
@@ -268,7 +288,7 @@ describe("WorktreePanel", () => {
       cleaned = true;
       return { results: [{ id: "clean", removed: true, branchDeleted: true }] };
     });
-    render(<WorktreePanel roomId="general" api={client} />);
+    render(<WorktreePanel roomId="general" api={client} onClose={() => undefined} />);
     await screen.findByText("清理这批目录");
     fireEvent.click(screen.getByText("选择可清理项（1）"));
     fireEvent.click(screen.getByText("清理选中（1）"));
@@ -296,7 +316,9 @@ describe("WorktreePanel", () => {
       autoCleanup: false,
       cleanupBatch: null,
     });
-    const { unmount } = render(<WorktreePanel roomId="general" api={client} />);
+    const { unmount } = render(
+      <WorktreePanel roomId="general" api={client} onClose={() => undefined} />,
+    );
     await screen.findByText("feat/rebased");
     expect(screen.getAllByRole("button", { name: "丢弃并删除" })).toHaveLength(1);
     unmount();
@@ -307,7 +329,7 @@ describe("WorktreePanel", () => {
       autoCleanup: false,
       cleanupBatch: null,
     });
-    render(<WorktreePanel roomId="general" api={device} />);
+    render(<WorktreePanel roomId="general" api={device} onClose={() => undefined} />);
     await screen.findByText("feat/rebased");
     expect(screen.queryByRole("button", { name: "丢弃并删除" })).toBeNull();
   });
@@ -326,7 +348,7 @@ describe("WorktreePanel", () => {
       discarded = true;
       return { branchDeleted: true, discarded: Array.from({ length: 22 }, () => "e".repeat(40)) };
     });
-    render(<WorktreePanel roomId="general" api={client} />);
+    render(<WorktreePanel roomId="general" api={client} onClose={() => undefined} />);
     fireEvent.click(await screen.findByRole("button", { name: "丢弃并删除" }));
     await screen.findByText("确认丢弃 feat/rebased？");
     expect(client.worktreeDiscardPreview).toHaveBeenCalledWith("general", "rebased");
@@ -355,7 +377,7 @@ describe("WorktreePanel", () => {
       cleanupBatch: null,
     });
     client.discardWorktree.mockRejectedValueOnce(new Error("分支在你确认后又有了新提交"));
-    render(<WorktreePanel roomId="general" api={client} />);
+    render(<WorktreePanel roomId="general" api={client} onClose={() => undefined} />);
     fireEvent.click(await screen.findByRole("button", { name: "丢弃并删除" }));
     fireEvent.click(await screen.findByRole("button", { name: "确认丢弃并删除" }));
     await screen.findByText("分支在你确认后又有了新提交");

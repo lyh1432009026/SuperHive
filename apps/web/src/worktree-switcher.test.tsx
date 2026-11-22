@@ -177,7 +177,7 @@ describe("WorktreeSwitcher", () => {
     fireEvent.keyDown(dialog, { key: "ArrowDown" });
     expect(document.activeElement?.textContent).toContain("feat/a");
     fireEvent.keyDown(dialog, { key: "End" });
-    expect(document.activeElement?.textContent).toBe("在 Worktree 列表里管理");
+    expect(document.activeElement?.textContent).toBe("管理任务目录");
     fireEvent.keyDown(dialog, { key: "ArrowDown" });
     expect(document.activeElement?.textContent).toContain("main");
     fireEvent.keyDown(dialog, { key: "Escape" });
@@ -193,10 +193,10 @@ describe("WorktreeSwitcher", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("hands off to the full Worktree list for management", async () => {
+  it("opens the task directories panel for management", async () => {
     const { props, toggle } = setup();
     fireEvent.click(toggle);
-    fireEvent.click(await screen.findByRole("button", { name: "在 Worktree 列表里管理" }));
+    fireEvent.click(await screen.findByRole("button", { name: "管理任务目录" }));
     expect(props.onManage).toHaveBeenCalledWith(toggle);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -205,7 +205,7 @@ describe("WorktreeSwitcher", () => {
     const { toggle } = setup({ fail: true });
     fireEvent.click(toggle);
     expect((await screen.findByRole("alert")).textContent).toBe("没能读取任务目录：boom");
-    // 读不到也能去完整列表
-    expect(screen.getByRole("button", { name: "在 Worktree 列表里管理" })).toBeTruthy();
+    // 读不到也能打开任务目录面板
+    expect(screen.getByRole("button", { name: "管理任务目录" })).toBeTruthy();
   });
 });

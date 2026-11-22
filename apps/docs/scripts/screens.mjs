@@ -75,12 +75,13 @@ export const SHOTS = [
   {
     name: "worktrees",
     room: "shop-web",
+    // 顶栏「⎇ 分支」下拉底部「管理任务目录」打开的大面板，默认是右侧抽屉
     prepare: [
-      `__shot.click('.room-item-manage[aria-label$=" shop-web"]')`,
-      `__shot.find(".worktree-panel .worktree-entry")`,
-      `__shot.scrollIntoView(".worktree-panel")`,
+      `__shot.click(".worktree-switcher-toggle")`,
+      `__shot.click(".worktree-switcher-manage")`,
+      `__shot.find(".worktree-sheet .worktree-entry")`,
     ],
-    clip: `__shot.from(".worktree-panel", "[role=dialog]", 18)`,
+    clip: `__shot.until(".worktree-sheet", ".worktree-panel > .worktree-toolbar", 24)`,
   },
   {
     name: "onboard",

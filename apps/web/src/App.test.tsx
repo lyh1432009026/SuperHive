@@ -1214,6 +1214,65 @@ describe("App mention autocomplete", () => {
     }
   });
 
+  it("本机房主从顶栏「⎇ 分支」下拉打开「任务目录」面板；房间设置里不再放任务目录清单", async () => {
+    const user = userEvent.setup();
+    localApi.enabled = true;
+    localStorage.setItem("superhive.username", "Alice");
+    localStorage.setItem("superhive.notify-prompt-dismissed", "true");
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self],
+        messages: [],
+        latestSeq: 0,
+      }),
+    );
+    const roomsPanel = screen.getByLabelText("房间列表");
+    await waitFor(() => expect(within(roomsPanel).getByText("# frontend")).toBeTruthy());
+    act(() =>
+      socket.serverEvent({
+        type: "rooms.changed",
+        room: { ...roomSummary("general"), workspace: "/repo/web", branch: "main" },
+      }),
+    );
+    await waitFor(() =>
+      expect(localApi.requests.some((request) => request.url.endsWith("/api/local/session"))).toBe(
+        true,
+      ),
+    );
+    const toggle = await screen.findByRole("button", { name: /^main/ });
+    await user.click(toggle);
+    await user.click(await screen.findByRole("button", { name: "管理任务目录" }));
+    const sheet = await screen.findByRole("dialog", { name: "任务目录" });
+    expect(within(sheet).getByRole("checkbox", { name: /自动清理已合入的任务目录/ })).toBeTruthy();
+    expect(
+      localApi.requests.some((request) => request.url.includes("/api/local/worktrees/general")),
+    ).toBe(true);
+    await user.click(within(sheet).getByRole("button", { name: "关闭任务目录面板" }));
+    expect(screen.queryByRole("dialog", { name: "任务目录" })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(toggle));
+
+    // 打开「产物」时任务目录面板让位：大面板同时只开一个
+    await user.click(toggle);
+    await user.click(await screen.findByRole("button", { name: "管理任务目录" }));
+    await screen.findByRole("dialog", { name: "任务目录" });
+    const artifacts = screen.getByRole("button", { name: /^产物/ });
+    await user.click(artifacts);
+    expect(screen.queryByRole("dialog", { name: "任务目录" })).toBeNull();
+    await user.click(artifacts);
+
+    await user.click(screen.getByRole("button", { name: "管理房间 general" }));
+    const dialog = screen.getByRole("dialog", { name: "房间设置 · # general" });
+    expect(within(dialog).queryByRole("checkbox", { name: /自动清理/ })).toBeNull();
+    expect(within(dialog).queryByText("清理选中（0）")).toBeNull();
+  });
+
   it("shows the workspace's git branch under the room name and keeps it updated", async () => {
     localStorage.setItem("superhive.username", "Alice");
     render(<App />);

@@ -3,7 +3,6 @@ import { Icon } from "./app-icons";
 import { Select } from "./select";
 import { AvatarGlyph } from "./avatar";
 import { DirectoryPicker, type LocalAgentsState } from "./local-agents";
-import { WorktreePanel } from "./worktree-panel";
 import type { RefObject, Dispatch, SetStateAction } from "react";
 import type { RoomSummary } from "@superhive/protocol";
 
@@ -250,12 +249,6 @@ export function RoomDialog({
               onClose={() => setRoomWorkspacePicking(false)}
             />
           )}
-          {isOwner &&
-            local.enabled &&
-            roomDialog.mode === "manage" &&
-            roomDialog.room.workspace && (
-              <WorktreePanel key={roomDialog.room.id} roomId={roomDialog.room.id} api={local} />
-            )}
           {roomDialogError && (
             <p className="room-dialog-error" role="alert">
               {roomDialogError}

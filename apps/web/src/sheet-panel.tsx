@@ -10,7 +10,7 @@ import {
 import { t } from "./i18n";
 
 /**
- * 从聊天头部打开的大面板外壳（「代码」「产物」共用）：
+ * 从聊天头部打开的大面板外壳（「代码」「产物」「任务目录」共用）：
  * - 默认从右侧滑出、铺满整个窗口；点「还原为侧边面板」、拖动或双击左边缘变成可拖宽的侧边抽屉；
  * - 铺满还是抽屉、抽屉宽度都记在本机，每个面板用自己的键名；
  * - Esc 关闭（里面的弹层、搜索框先处理 Esc 时会 preventDefault，这里就不关）；窄屏一律全屏。
@@ -46,6 +46,8 @@ export type SheetPanelProps = {
   closeLabel: string;
   onClose: () => void;
   panelRef?: RefObject<HTMLElement | null>;
+  /** 本机没记过时是否铺满；内容是一列清单的面板默认用侧边抽屉 */
+  defaultMaximized?: boolean;
   children: ReactNode;
 };
 
@@ -60,6 +62,7 @@ export function SheetPanel({
   closeLabel,
   onClose,
   panelRef: externalRef,
+  defaultMaximized = true,
   children,
 }: SheetPanelProps) {
   const ownRef = useRef<HTMLElement>(null);
@@ -68,7 +71,10 @@ export function SheetPanel({
   const maximizedKey = `${storageKey}-maximized`;
   const titleId = `${storageKey.replace(/[^a-z0-9-]/gi, "-")}-title`;
   const [width, setWidth] = useState(() => readWidth(widthKey));
-  const [maximized, setMaximized] = useState(() => localStorage.getItem(maximizedKey) !== "false");
+  const [maximized, setMaximized] = useState(() => {
+    const stored = localStorage.getItem(maximizedKey);
+    return stored === null ? defaultMaximized : stored !== "false";
+  });
 
   useEffect(() => {
     localStorage.setItem(maximizedKey, String(maximized));

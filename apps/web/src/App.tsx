@@ -11,6 +11,7 @@ import { BranchGlyph } from "./worktree-switcher";
 import { useSlowOps } from "./slow-ops";
 import { incidentsAvailable, useIncidents } from "./incidents-panel";
 import { IncidentsDialog, type IncidentsTab } from "./incidents-dialog";
+import { WorktreePanel } from "./worktree-panel";
 import { installErrorReporter } from "./error-report";
 import { WorkspacePanel, workspaceApi, type WorkspaceFocus } from "./workspace-panel";
 import { RefResolver, WorkspaceRefsContext, type RefTarget } from "./workspace-refs";
@@ -533,6 +534,23 @@ export function App({
     () => workspaceRequest("", { detail: "1" }) as Promise<WorkspaceOverview>,
     [workspaceRequest],
   );
+  // 「任务目录」面板：从「⎇ 分支」下拉底部打开，和「代码」「产物」一样是大面板，同时只开一个
+  const [worktreesOpen, setWorktreesOpen] = useState(false);
+  const worktreesTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const canManageWorktrees = isOwner && local.enabled && Boolean(currentRoomWorkspace);
+  const openWorktrees = useCallback((trigger: HTMLButtonElement) => {
+    worktreesTriggerRef.current = trigger;
+    setArtifactsOpen(false);
+    setWorkspaceOpen(false);
+    setWorktreesOpen(true);
+  }, []);
+  useEffect(() => {
+    if (workspaceOpen || artifactsOpen) setWorktreesOpen(false);
+  }, [workspaceOpen, artifactsOpen]);
+  // 换房间、或这个房间不再满足条件（不是本机房主、仓库被去掉）时收起
+  useEffect(() => {
+    setWorktreesOpen(false);
+  }, [currentRoomId, canManageWorktrees]);
   const openWorkspaceSource = useCallback((source: string) => {
     setArtifactsOpen(false);
     setWorkspaceFocus({ source, nonce: Date.now() });
@@ -2020,7 +2038,7 @@ export function App({
             loadRoomWorktrees={loadRoomWorktrees}
             loadWorkspaceDetail={loadWorkspaceDetail}
             openWorkspaceSource={openWorkspaceSource}
-            openRoomDialog={openRoomDialog}
+            openWorktrees={openWorktrees}
             setSettingsTab={setSettingsTab}
             setSettingsOpen={setSettingsOpen}
             startNewTopic={startNewTopic}
@@ -2154,6 +2172,19 @@ export function App({
             onClose={() => {
               setArtifactsOpen(false);
               window.requestAnimationFrame(() => artifactsButtonRef.current?.focus());
+            }}
+          />
+        )}
+
+        {worktreesOpen && canManageWorktrees && (
+          <WorktreePanel
+            key={currentRoomId}
+            roomId={currentRoomId}
+            roomName={currentRoomName}
+            api={local}
+            onClose={() => {
+              setWorktreesOpen(false);
+              window.requestAnimationFrame(() => worktreesTriggerRef.current?.focus());
             }}
           />
         )}

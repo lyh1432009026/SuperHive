@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorktreeDiscardPreview, WorktreeStatus } from "@superhive/protocol";
 import type { LocalAgentsState } from "./local-agents";
 import { ConfirmPopover } from "./confirm-popover";
+import { SheetPanel } from "./sheet-panel";
+import { BranchGlyph } from "./worktree-switcher";
 import { t } from "./i18n";
 
 type WorktreeApi = Pick<
@@ -29,7 +31,21 @@ function dependencyLabel(state: NonNullable<WorktreeStatus["dependencies"]>["sta
   }
 }
 
-export function WorktreePanel({ roomId, api }: { roomId: string; api: WorktreeApi }) {
+/**
+ * 「任务目录」面板：从顶栏「⎇ 分支」下拉底部打开，只给本机房主、房间有仓库时用。
+ * 列 Hive 登记的任务目录，清理、修复换过的分支、丢弃没合入的、这个房间的自动清理开关都在这里。
+ */
+export function WorktreePanel({
+  roomId,
+  roomName,
+  api,
+  onClose,
+}: {
+  roomId: string;
+  roomName?: string;
+  api: WorktreeApi;
+  onClose: () => void;
+}) {
   const [rows, setRows] = useState<WorktreeStatus[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [automatic, setAutomatic] = useState(false);
@@ -189,291 +205,327 @@ export function WorktreePanel({ roomId, api }: { roomId: string; api: WorktreeAp
     }
   };
   return (
-    <section className="worktree-panel" aria-label="Worktree">
-      <div className="worktree-panel-heading">
-        <div>
-          <h3>Worktree</h3>
-          <p>{t("一条开发任务一个目录；合入后安全回收，不删除聊天记录。")}</p>
-        </div>
-        <button type="button" disabled={busy} onClick={() => void refresh()}>
-          {t("刷新")}
-        </button>
-      </div>
-      {batch && (
-        <div className="worktree-batch" role="status">
-          <span>{t("{0} 个 worktree 已合入，可清理。", { 0: batch.count })}</span>
-          <button
-            type="button"
-            disabled={busy || !api.canManage}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                await api.cleanWorktreeBatch(roomId, batch.id);
-                setResult(t("已提交批量清理请求，完成后通知。"));
-                setBatch(null);
-              } catch (reason) {
-                setError(String(reason));
-              } finally {
-                setBusy(false);
-              }
-            }}
+    <SheetPanel
+      storageKey="superhive.worktrees"
+      className="worktree-sheet"
+      defaultMaximized={false}
+      icon={<BranchGlyph size={15} />}
+      title={t("任务目录")}
+      subtitle={roomName}
+      closeLabel={t("关闭任务目录面板")}
+      onClose={onClose}
+      actions={
+        <button
+          type="button"
+          className="sheet-icon-button"
+          aria-label={t("刷新")}
+          title={t("刷新")}
+          disabled={busy}
+          onClick={() => void refresh()}
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.9"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
           >
-            {t("清理这批目录")}
-          </button>
-        </div>
-      )}
-      {loading && <p role="status">{t("正在核对 worktree…")}</p>}
-      {!loading && rows.length === 0 && !error && (
-        <p className="worktree-empty">
-          {t("还没有 Hive 管理的 worktree。手工建立的目录不会被接管或删除。")}
+            <path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" />
+          </svg>
+        </button>
+      }
+    >
+      <section className="worktree-panel">
+        <p className="worktree-intro">
+          {t("一条开发任务一个目录；合入后安全回收，不删除聊天记录。")}
         </p>
-      )}
-      <div className="worktree-rows">
-        {rows.map((item) => (
-          <div className="worktree-entry" key={item.worktree.id}>
-            <label className={`worktree-row ${item.removable ? "eligible" : ""}`}>
-              <input
-                type="checkbox"
-                aria-label={`${t("选择目录")} ${item.worktree.branch}`}
-                checked={selected.includes(item.worktree.id)}
-                disabled={!item.removable || busy || !api.canManage}
-                onChange={(event) =>
-                  setSelected((current) =>
-                    event.target.checked
-                      ? [...current, item.worktree.id]
-                      : current.filter((id) => id !== item.worktree.id),
-                  )
+        {/* 这个房间的自动清理开关，管的就是下面这份清单，所以放在清单上面。
+            开启要确认：就地弹一个轻量确认气泡，确认后才勾上；关闭不用确认 */}
+        <div className="worktree-auto-setting">
+          <label className="worktree-auto">
+            <input
+              ref={autoRef}
+              type="checkbox"
+              checked={automatic}
+              aria-expanded={confirmAuto}
+              disabled={busy || !api.canManage}
+              onChange={(event) =>
+                event.target.checked ? setConfirmAuto(true) : void configure(false)
+              }
+            />
+            <span>
+              <strong>{t("自动清理已合入的任务目录")}</strong>
+              <small>
+                {t(
+                  "默认关闭；只回收已登记、干净且无任务占用的目录。node_modules 和构建产物随目录一起删，其他忽略文件会阻止删除。",
+                )}
+              </small>
+            </span>
+          </label>
+          {confirmAuto && (
+            <ConfirmPopover
+              ariaLabel={t("确认开启自动清理")}
+              message={t("开启后符合安全条件的目录会直接回收，不再逐次询问。")}
+              confirmLabel={t("开启")}
+              cancelLabel={t("取消")}
+              anchorRef={autoRef}
+              busy={busy}
+              onConfirm={() => void configure(true)}
+              onCancel={closeAutoConfirm}
+            />
+          )}
+        </div>
+        {batch && (
+          <div className="worktree-batch" role="status">
+            <span>{t("{0} 个 worktree 已合入，可清理。", { 0: batch.count })}</span>
+            <button
+              type="button"
+              disabled={busy || !api.canManage}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await api.cleanWorktreeBatch(roomId, batch.id);
+                  setResult(t("已提交批量清理请求，完成后通知。"));
+                  setBatch(null);
+                } catch (reason) {
+                  setError(String(reason));
+                } finally {
+                  setBusy(false);
                 }
-              />
-              <div className="worktree-identity">
-                <strong>
-                  <code>{item.worktree.branch}</code>
-                </strong>
-                <small>
-                  {item.worktree.agentName} · {item.worktree.slug}
-                </small>
-                <code className="worktree-path">{item.worktree.path}</code>
-                <div className="worktree-statuses">
-                  {/* 换了分支时没法判断登记的分支合没合入，不显示 */}
-                  {!item.branchSwitched && (
-                    <span className={item.merged ? "passed" : ""}>
-                      {item.merged ? t("已合入") : t("尚未合入")}
-                    </span>
-                  )}
-                  <span>{item.dirty || item.untracked ? t("有未提交文件") : t("工作区干净")}</span>
-                  {item.ignored && <span className="warning">{t("有忽略文件，需先自行处理")}</span>}
-                  {item.dependencies && item.dependencies.state !== "skipped" && (
-                    <span
-                      className={item.dependencies.state === "failed" ? "warning" : ""}
-                      title={item.dependencies.message}
-                    >
-                      {dependencyLabel(item.dependencies.state)}
-                    </span>
-                  )}
-                  {item.activeInvocationIds.length > 0 && <span>{t("有任务占用")}</span>}
-                  {item.removable && <span className="passed">{t("可清理")}</span>}
-                </div>
-                {item.ignoredFiles && item.ignoredFiles.length > 0 && (
-                  <small className="worktree-ignored">
-                    {t("挡住清理的忽略文件：{0}", { 0: item.ignoredFiles.join(t("、")) })}
-                  </small>
-                )}
-                {item.error && !item.branchSwitched && <small role="alert">{item.error}</small>}
-              </div>
-            </label>
-            {item.discardable && api.canManage && (
-              <div className="worktree-toolbar worktree-discard">
-                <button
-                  type="button"
-                  className="danger"
-                  disabled={busy || Boolean(discarding)}
-                  onClick={() => void previewDiscard(item)}
-                >
-                  {t("丢弃并删除")}
-                </button>
-                <small>
-                  {t("还没合入：变基或解过冲突后合入的，git 认不出来，确认内容已进主分支再丢弃。")}
-                </small>
-              </div>
-            )}
-            {discarding?.item.worktree.id === item.worktree.id && (
-              <div className="worktree-confirmation worktree-discard-confirm" role="alert">
-                <strong>{t("确认丢弃 {0}？", { 0: item.worktree.branch })}</strong>
-                <p>
-                  {t(
-                    "下面这些提交不在主分支上，会随目录和分支一起删掉，找不回来。删除前会重新核对：有改动、任务占用或分支又有新提交就不删。",
-                  )}
-                </p>
-                <ul className="worktree-discard-commits">
-                  {discarding.preview.commits.map((commit) => (
-                    <li key={commit.hash}>
-                      <code>{commit.hash.slice(0, 7)}</code> {commit.subject}
-                    </li>
-                  ))}
-                </ul>
-                {discarding.preview.total > discarding.preview.commits.length && (
+              }}
+            >
+              {t("清理这批目录")}
+            </button>
+          </div>
+        )}
+        {loading && <p role="status">{t("正在核对任务目录…")}</p>}
+        {!loading && rows.length === 0 && !error && (
+          <p className="worktree-empty">
+            {t("还没有 Hive 登记的任务目录。手工建立的目录不会被接管或删除。")}
+          </p>
+        )}
+        <div className="worktree-rows">
+          {rows.map((item) => (
+            <div className="worktree-entry" key={item.worktree.id}>
+              <label className={`worktree-row ${item.removable ? "eligible" : ""}`}>
+                <input
+                  type="checkbox"
+                  aria-label={`${t("选择目录")} ${item.worktree.branch}`}
+                  checked={selected.includes(item.worktree.id)}
+                  disabled={!item.removable || busy || !api.canManage}
+                  onChange={(event) =>
+                    setSelected((current) =>
+                      event.target.checked
+                        ? [...current, item.worktree.id]
+                        : current.filter((id) => id !== item.worktree.id),
+                    )
+                  }
+                />
+                <div className="worktree-identity">
+                  <strong>
+                    <code>{item.worktree.branch}</code>
+                  </strong>
                   <small>
-                    {t("还有 {0} 个提交没列出。", {
-                      0: discarding.preview.total - discarding.preview.commits.length,
-                    })}
+                    {item.worktree.agentName} · {item.worktree.slug}
                   </small>
-                )}
-                <div className="worktree-toolbar">
-                  <button type="button" disabled={busy} onClick={() => setDiscarding(undefined)}>
-                    {t("取消")}
-                  </button>
+                  <code className="worktree-path">{item.worktree.path}</code>
+                  <div className="worktree-statuses">
+                    {/* 换了分支时没法判断登记的分支合没合入，不显示 */}
+                    {!item.branchSwitched && (
+                      <span className={item.merged ? "passed" : ""}>
+                        {item.merged ? t("已合入") : t("尚未合入")}
+                      </span>
+                    )}
+                    <span>
+                      {item.dirty || item.untracked ? t("有未提交文件") : t("工作区干净")}
+                    </span>
+                    {item.ignored && (
+                      <span className="warning">{t("有忽略文件，需先自行处理")}</span>
+                    )}
+                    {item.dependencies && item.dependencies.state !== "skipped" && (
+                      <span
+                        className={item.dependencies.state === "failed" ? "warning" : ""}
+                        title={item.dependencies.message}
+                      >
+                        {dependencyLabel(item.dependencies.state)}
+                      </span>
+                    )}
+                    {item.activeInvocationIds.length > 0 && <span>{t("有任务占用")}</span>}
+                    {item.removable && <span className="passed">{t("可清理")}</span>}
+                  </div>
+                  {item.ignoredFiles && item.ignoredFiles.length > 0 && (
+                    <small className="worktree-ignored">
+                      {t("挡住清理的忽略文件：{0}", { 0: item.ignoredFiles.join(t("、")) })}
+                    </small>
+                  )}
+                  {item.error && !item.branchSwitched && <small role="alert">{item.error}</small>}
+                </div>
+              </label>
+              {item.discardable && api.canManage && (
+                <div className="worktree-toolbar worktree-discard">
                   <button
                     type="button"
                     className="danger"
-                    disabled={busy || !api.canManage}
-                    onClick={() => void discard()}
+                    disabled={busy || Boolean(discarding)}
+                    onClick={() => void previewDiscard(item)}
                   >
-                    {t("确认丢弃并删除")}
+                    {t("丢弃并删除")}
                   </button>
-                </div>
-              </div>
-            )}
-            {item.branchSwitched && (
-              <div className="worktree-switched" role="alert">
-                <strong>
-                  {t("分支已被切换：登记 {0}，当前 {1}", {
-                    0: item.branchSwitched.registered,
-                    1: item.branchSwitched.current,
-                  })}
-                </strong>
-                <p>
-                  {t(
-                    "处理前 Agent 不会再沿用这个目录，也不会自动清理。切回只在没有未提交文件时可用；重新登记要求新分支没被别的任务线占用。两种都要等占用它的任务结束。",
-                  )}
-                </p>
-                <div className="worktree-toolbar">
-                  <button
-                    type="button"
-                    disabled={
-                      busy ||
-                      !api.canManage ||
-                      item.dirty ||
-                      item.untracked ||
-                      item.activeInvocationIds.length > 0
-                    }
-                    onClick={() => void repair(item, "restore")}
-                  >
-                    {t("切回登记分支")}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy || !api.canManage || item.activeInvocationIds.length > 0}
-                    onClick={() => void repair(item, "adopt")}
-                  >
-                    {t("按当前分支重新登记")}
-                  </button>
-                </div>
-                {(item.dirty || item.untracked) && (
                   <small>
-                    {t("目录里有未提交或未跟踪的文件，不能切回；可以按当前分支重新登记。")}
+                    {t(
+                      "还没合入：变基或解过冲突后合入的，git 认不出来，确认内容已进主分支再丢弃。",
+                    )}
                   </small>
-                )}
-                {item.activeInvocationIds.length > 0 && (
-                  <small>{t("还有任务在用这个目录，结束后才能处理。")}</small>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-      {rows.length > 0 && (
-        <div className="worktree-toolbar">
-          <button
-            type="button"
-            disabled={!eligible.length || busy || !api.canManage}
-            onClick={() => setSelected(eligible.map((item) => item.worktree.id))}
-          >
-            {t("选择可清理项（{0}）", { 0: eligible.length })}
-          </button>
-          <button
-            type="button"
-            disabled={!picked.length || busy || !api.canManage}
-            onClick={() => setConfirmCleanup(true)}
-          >
-            {t("清理选中（{0}）", { 0: picked.length })}
-          </button>
-        </div>
-      )}
-      {confirmCleanup && (
-        <div className="worktree-confirmation" role="alert">
-          <strong>{t("确认移除这些目录？")}</strong>
-          <p>{t("删除前重新核对文件、合入证据和任务占用；检查不通过就保留，不强删。")}</p>
-          {picked.map((item) => (
-            <code key={item.worktree.id}>{item.worktree.path}</code>
+                </div>
+              )}
+              {discarding?.item.worktree.id === item.worktree.id && (
+                <div className="worktree-confirmation worktree-discard-confirm" role="alert">
+                  <strong>{t("确认丢弃 {0}？", { 0: item.worktree.branch })}</strong>
+                  <p>
+                    {t(
+                      "下面这些提交不在主分支上，会随目录和分支一起删掉，找不回来。删除前会重新核对：有改动、任务占用或分支又有新提交就不删。",
+                    )}
+                  </p>
+                  <ul className="worktree-discard-commits">
+                    {discarding.preview.commits.map((commit) => (
+                      <li key={commit.hash}>
+                        <code>{commit.hash.slice(0, 7)}</code> {commit.subject}
+                      </li>
+                    ))}
+                  </ul>
+                  {discarding.preview.total > discarding.preview.commits.length && (
+                    <small>
+                      {t("还有 {0} 个提交没列出。", {
+                        0: discarding.preview.total - discarding.preview.commits.length,
+                      })}
+                    </small>
+                  )}
+                  <div className="worktree-toolbar">
+                    <button type="button" disabled={busy} onClick={() => setDiscarding(undefined)}>
+                      {t("取消")}
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      disabled={busy || !api.canManage}
+                      onClick={() => void discard()}
+                    >
+                      {t("确认丢弃并删除")}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {item.branchSwitched && (
+                <div className="worktree-switched" role="alert">
+                  <strong>
+                    {t("分支已被切换：登记 {0}，当前 {1}", {
+                      0: item.branchSwitched.registered,
+                      1: item.branchSwitched.current,
+                    })}
+                  </strong>
+                  <p>
+                    {t(
+                      "处理前 Agent 不会再沿用这个目录，也不会自动清理。切回只在没有未提交文件时可用；重新登记要求新分支没被别的任务线占用。两种都要等占用它的任务结束。",
+                    )}
+                  </p>
+                  <div className="worktree-toolbar">
+                    <button
+                      type="button"
+                      disabled={
+                        busy ||
+                        !api.canManage ||
+                        item.dirty ||
+                        item.untracked ||
+                        item.activeInvocationIds.length > 0
+                      }
+                      onClick={() => void repair(item, "restore")}
+                    >
+                      {t("切回登记分支")}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy || !api.canManage || item.activeInvocationIds.length > 0}
+                      onClick={() => void repair(item, "adopt")}
+                    >
+                      {t("按当前分支重新登记")}
+                    </button>
+                  </div>
+                  {(item.dirty || item.untracked) && (
+                    <small>
+                      {t("目录里有未提交或未跟踪的文件，不能切回；可以按当前分支重新登记。")}
+                    </small>
+                  )}
+                  {item.activeInvocationIds.length > 0 && (
+                    <small>{t("还有任务在用这个目录，结束后才能处理。")}</small>
+                  )}
+                </div>
+              )}
+            </div>
           ))}
-          <label>
-            <input
-              type="checkbox"
-              checked={keepBranch}
-              onChange={(event) => setKeepBranch(event.target.checked)}
-            />
-            {t("保留分支")}
-          </label>
-          <p>{t("不保留时也只用安全删除；squash 后 Git 拒绝删分支就保留并告知。")}</p>
+        </div>
+        {rows.length > 0 && (
           <div className="worktree-toolbar">
-            <button type="button" disabled={busy} onClick={() => setConfirmCleanup(false)}>
-              {t("取消")}
+            <button
+              type="button"
+              disabled={!eligible.length || busy || !api.canManage}
+              onClick={() => setSelected(eligible.map((item) => item.worktree.id))}
+            >
+              {t("选择可清理项（{0}）", { 0: eligible.length })}
             </button>
             <button
               type="button"
-              disabled={busy || !picked.length || !api.canManage}
-              onClick={() => void clean()}
+              disabled={!picked.length || busy || !api.canManage}
+              onClick={() => setConfirmCleanup(true)}
             >
-              {t("确认清理")}
+              {t("清理选中（{0}）", { 0: picked.length })}
             </button>
           </div>
-        </div>
-      )}
-      {/* 开启自动清理要确认：就地弹一个轻量确认气泡，确认后才勾上；关闭不用确认 */}
-      <div>
-        <label className="worktree-auto">
-          <input
-            ref={autoRef}
-            type="checkbox"
-            checked={automatic}
-            aria-expanded={confirmAuto}
-            disabled={busy || !api.canManage}
-            onChange={(event) =>
-              event.target.checked ? setConfirmAuto(true) : void configure(false)
-            }
-          />
-          <span>
-            <strong>{t("自动清理已合入的 worktree")}</strong>
-            <small>
-              {t(
-                "默认关闭；只回收已登记、干净且无任务占用的目录。node_modules 和构建产物随目录一起删，其他忽略文件会阻止删除。",
-              )}
-            </small>
-          </span>
-        </label>
-        {confirmAuto && (
-          <ConfirmPopover
-            ariaLabel={t("确认开启自动清理")}
-            message={t("开启后符合安全条件的目录会直接回收，不再逐次询问。")}
-            confirmLabel={t("开启")}
-            cancelLabel={t("取消")}
-            anchorRef={autoRef}
-            busy={busy}
-            onConfirm={() => void configure(true)}
-            onCancel={closeAutoConfirm}
-          />
         )}
-      </div>
-      {error && (
-        <p role="alert" className="room-dialog-error">
-          {error}
-        </p>
-      )}
-      {result && (
-        <p role="status" className="worktree-result">
-          {result}
-        </p>
-      )}
-    </section>
+        {confirmCleanup && (
+          <div className="worktree-confirmation" role="alert">
+            <strong>{t("确认移除这些目录？")}</strong>
+            <p>{t("删除前重新核对文件、合入证据和任务占用；检查不通过就保留，不强删。")}</p>
+            {picked.map((item) => (
+              <code key={item.worktree.id}>{item.worktree.path}</code>
+            ))}
+            <label>
+              <input
+                type="checkbox"
+                checked={keepBranch}
+                onChange={(event) => setKeepBranch(event.target.checked)}
+              />
+              {t("保留分支")}
+            </label>
+            <p>{t("不保留时也只用安全删除；squash 后 Git 拒绝删分支就保留并告知。")}</p>
+            <div className="worktree-toolbar">
+              <button type="button" disabled={busy} onClick={() => setConfirmCleanup(false)}>
+                {t("取消")}
+              </button>
+              <button
+                type="button"
+                disabled={busy || !picked.length || !api.canManage}
+                onClick={() => void clean()}
+              >
+                {t("确认清理")}
+              </button>
+            </div>
+          </div>
+        )}
+        {error && (
+          <p role="alert" className="room-dialog-error">
+            {error}
+          </p>
+        )}
+        {result && (
+          <p role="status" className="worktree-result">
+            {result}
+          </p>
+        )}
+      </section>
+    </SheetPanel>
   );
 }

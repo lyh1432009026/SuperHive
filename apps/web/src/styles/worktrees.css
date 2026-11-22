@@ -1,11 +1,24 @@
-.worktree-panel {
-  border-top: 1px solid var(--border);
-  padding-top: 20px;
-  display: grid;
-  gap: 14px;
+.worktree-sheet {
+  min-width: 0;
 }
 
-.worktree-panel-heading,
+/* 「任务目录」面板的正文：在大面板里单独滚动；铺满时限宽居中，免得一行拉得太长 */
+.worktree-panel {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  align-content: start;
+  gap: 14px;
+  overflow: auto;
+  padding: 16px 20px 24px;
+}
+
+.worktree-sheet.maximized .worktree-panel {
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
 .worktree-toolbar,
 .worktree-batch {
   display: flex;
@@ -15,16 +28,17 @@
   flex-wrap: wrap;
 }
 
-.worktree-panel-heading h3 {
-  margin: 0 0 5px;
-  font-size: 15px;
-}
-
 .worktree-panel p {
   margin: 0;
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.6;
+}
+
+.worktree-auto-setting {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 
 .worktree-row {
@@ -202,3 +216,7 @@
 }
 
 /* 自动清理的确认气泡样式已抽到 confirm-popover.css（与接入 Agent 的完全访问确认共用） */
+
+.worktree-panel .worktree-batch span {
+  font-size: 13px;
+}

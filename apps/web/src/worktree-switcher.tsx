@@ -12,9 +12,9 @@ import { t } from "./i18n";
 import { formatRelativeTime } from "./whiteboard";
 import "./styles/worktree-switcher.css";
 
-export function BranchGlyph() {
+export function BranchGlyph({ size = 11 }: { size?: number }) {
   return (
-    <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
+    <svg viewBox="0 0 16 16" width={size} height={size} aria-hidden="true">
       <circle cx="4.5" cy="3.5" r="1.6" fill="none" stroke="currentColor" strokeWidth="1.4" />
       <circle cx="4.5" cy="12.5" r="1.6" fill="none" stroke="currentColor" strokeWidth="1.4" />
       <circle cx="11.5" cy="5.5" r="1.6" fill="none" stroke="currentColor" strokeWidth="1.4" />
@@ -46,7 +46,7 @@ export type SwitcherRow = {
   removable: boolean;
 };
 
-/** 一条任务线的合入、改动、清理情况；和房间设置里的 Worktree 列表同一套判断 */
+/** 一条任务线的合入、改动、清理情况；和「任务目录」面板同一套判断 */
 function worktreeChips(item: WorktreeStatus): Chip[] {
   const chips: Chip[] = [];
   if (item.missing) return [{ label: t("目录已不存在"), tone: "warning" }];
@@ -125,7 +125,7 @@ type Anchor = { top: number; left: number };
 
 /**
  * 顶栏的「⎇ 分支」：本机房主点开看这个仓库的任务目录（谁的、什么分支、合没合入、多久前改的），
- * 点一行在「代码」面板里打开那条任务线；清理等管理动作留在房间设置的 Worktree 列表里。
+ * 点一行在「代码」面板里打开那条任务线；清理等管理动作在底部「管理任务目录」打开的「任务目录」面板里。
  * 每次打开重新拉一次，不在后台轮询。
  */
 export function WorktreeSwitcher({
@@ -139,7 +139,7 @@ export function WorktreeSwitcher({
   loadWorktrees: () => Promise<{ worktrees: WorktreeStatus[] }>;
   loadOverview: () => Promise<WorkspaceOverview>;
   onOpenSource: (source: string) => void;
-  /** 打开房间设置里完整的 Worktree 列表；trigger 用来在关掉设置后把焦点还回来 */
+  /** 打开「任务目录」面板；trigger 用来在关掉面板后把焦点还回来 */
   onManage: (trigger: HTMLButtonElement) => void;
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -363,19 +363,10 @@ export function WorktreeSwitcher({
                 onClick={() => {
                   const trigger = buttonRef.current;
                   close(false);
-                  if (!trigger) return;
-                  onManage(trigger);
-                  // 房间设置很长，Worktree 列表在后半段：打开后直接滚到那里
-                  window.requestAnimationFrame(() =>
-                    window.requestAnimationFrame(() =>
-                      document
-                        .querySelector(".worktree-panel")
-                        ?.scrollIntoView({ block: "start", behavior: "smooth" }),
-                    ),
-                  );
+                  if (trigger) onManage(trigger);
                 }}
               >
-                {t("在 Worktree 列表里管理")}
+                {t("管理任务目录")}
               </button>
             </footer>
           </div>,
