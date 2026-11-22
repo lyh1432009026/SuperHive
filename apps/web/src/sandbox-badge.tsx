@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { t } from "./i18n";
 
 /**
@@ -22,7 +22,9 @@ export function SandboxBadge({ base }: { base: string }) {
     };
   }, [base]);
 
-  useEffect(() => {
+  // 标题和 data-sandbox 要和角标在同一次提交里生效：用普通 effect 时角标已经插进页面、标题还没改，
+  // 中间隔着一次异步调度（机器忙时能看出来，测试也会偶发读到旧标题）。
+  useLayoutEffect(() => {
     if (!sandbox) return;
     const prefix = `[${t("沙箱")}] `;
     document.documentElement.dataset.sandbox = "true";

@@ -3800,9 +3800,11 @@ describe("App mention autocomplete", () => {
     expect(
       await screen.findByRole("img", { name: "# frontend：1 个任务做完了，还没看" }),
     ).toBeTruthy();
-    // 没有要处理、也没有在跑的了：只剩做完未看，绿点，标题去掉数字
-    expect(document.querySelector<HTMLLinkElement>('link[rel~="icon"]')?.dataset.badge).toBe(
-      "unseen",
+    // 没有要处理、也没有在跑的了：只剩做完未看，绿点，标题去掉数字（图标在 effect 里改，和上面一样要等）
+    await waitFor(() =>
+      expect(document.querySelector<HTMLLinkElement>('link[rel~="icon"]')?.dataset.badge).toBe(
+        "unseen",
+      ),
     );
     expect(document.title.startsWith("(")).toBe(false);
 
