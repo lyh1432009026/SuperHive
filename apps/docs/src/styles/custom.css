@@ -324,6 +324,23 @@ html {
     scale: 0.98;
   }
 
+  /* 首页首屏：眉题、标题、简介、按钮依次浮现（纯 CSS，不等脚本，没有 JS 也会播完） */
+  .workroom-copy > * {
+    animation: docs-rise 650ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .workroom-copy > :nth-child(2) {
+    animation-delay: 70ms;
+  }
+
+  .workroom-copy > :nth-child(3) {
+    animation-delay: 140ms;
+  }
+
+  .workroom-copy > :nth-child(4) {
+    animation-delay: 210ms;
+  }
+
   /* 站内跳转用浏览器原生的跨页面过渡：顶栏和侧栏不动，正文淡入并轻微上移 */
   @view-transition {
     navigation: auto;
@@ -354,6 +371,13 @@ html {
   }
 
   .docs-reveal .docs-reveal-item:not(.is-revealed) {
+    opacity: 0;
+    translate: 0 14px;
+  }
+}
+
+@keyframes docs-rise {
+  from {
     opacity: 0;
     translate: 0 14px;
   }

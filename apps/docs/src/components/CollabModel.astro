@@ -277,7 +277,7 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
 
   const STEP_MS = 4000;
   // 出场编排的总时长，和样式里各段的延迟加时长对齐
-  const INTRO_MS = 1700;
+  const INTRO_MS = 2000;
   const SVG = "http://www.w3.org/2000/svg";
   const LABELS: Record<Status, string> = {
     run: "执行中",
@@ -1454,6 +1454,19 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
     scale: 0.4;
   }
 
+  /* 整张图的外框先从上往下展开，里面的内容再依次出现 */
+  .cm.cm-intro-pending :is(.cm-frame, figcaption) {
+    opacity: 0;
+    clip-path: inset(0 0 100% 0 round 1.25rem);
+  }
+
+  .cm.is-intro :is(.cm-frame, figcaption) {
+    clip-path: inset(0 0 0 0 round 1.25rem);
+    transition:
+      opacity 450ms ease,
+      clip-path 700ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
   .cm:is(.cm-intro-pending, .is-intro) .cm-wires :global(.cm-wire-base) {
     stroke-dasharray: 100;
   }
@@ -1474,32 +1487,32 @@ const lock = "M5.5 7V5a2.5 2.5 0 0 1 5 0v2";
   }
 
   .cm.is-intro .cm-room {
-    transition: opacity 450ms ease;
+    transition: opacity 450ms ease 300ms;
   }
 
   .cm.is-intro :is(.cm-machine, .cm-person, .cm-ring, .cm-orbit-label) {
-    transition: opacity 450ms ease 120ms;
+    transition: opacity 450ms ease 420ms;
   }
 
   .cm.is-intro .cm-node {
-    transition: opacity 320ms ease calc(220ms + var(--cm-i, 0) * 40ms);
+    transition: opacity 320ms ease calc(520ms + var(--cm-i, 0) * 40ms);
   }
 
   .cm.is-intro .cm-node-icon {
-    transition: scale 460ms cubic-bezier(0.34, 1.56, 0.64, 1) calc(220ms + var(--cm-i, 0) * 40ms);
+    transition: scale 460ms cubic-bezier(0.34, 1.56, 0.64, 1) calc(520ms + var(--cm-i, 0) * 40ms);
   }
 
   .cm.is-intro .cm-wires :global(.cm-wire-base) {
     transition: stroke-dashoffset 620ms cubic-bezier(0.65, 0, 0.35, 1)
-      calc(620ms + var(--cm-i, 0) * 30ms);
+      calc(920ms + var(--cm-i, 0) * 30ms);
   }
 
   .cm.is-intro .cm-wires :global(.cm-port) {
-    transition: opacity 220ms ease calc(1180ms + var(--cm-i, 0) * 30ms);
+    transition: opacity 220ms ease calc(1480ms + var(--cm-i, 0) * 30ms);
   }
 
   .cm.is-intro .cm-steps {
-    transition: opacity 450ms ease 1000ms;
+    transition: opacity 450ms ease 1300ms;
   }
 
   figcaption {
