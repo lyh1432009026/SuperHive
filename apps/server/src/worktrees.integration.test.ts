@@ -401,6 +401,51 @@ describe("worktree MCP permissions and bindings", () => {
       expect(closed.type === "error" && closed.code).toBe("QUESTION_CLOSED");
     },
   );
+  it("still verifies the workspace of a turn the Server judged stale until a human closes it", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const fixture = await start(Date.now);
+    const owner = await fixture.join("Alice", "human");
+    const helper = await fixture.join("helper", "agent");
+    const trigger = await fixture.run(owner, helper, "helper");
+    const call = await fixture.mcp("helper");
+    const created = await call("hive_worktree_create", { slug: "stale-wait" });
+    const worktree = created.structuredContent!.worktree as ManagedWorktree;
+    const headers = {
+      authorization: "Bearer test-token",
+      "x-hive-room": "general",
+      "x-hive-agent-name": "helper",
+    };
+    const lookup = () =>
+      fixture.app.inject({ url: `/api/agent/worktree?messageId=${trigger.id}`, headers });
+    // Bridge 等模型服务恢复期间没报进度：Server 超过 10 分钟没收到消息，判成结果未知
+    // 一次跳过 30 分钟会被当成电脑睡眠、先宽限 2 分钟，之后按 30 秒一步走过宽限期
+    for (const step of [30 * 60_000, ...Array<number>(6).fill(30_000)]) {
+      vi.setSystemTime(Date.now() + step);
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    }
+    const inventory = await fixture.app.inject({ url: "/api/rooms/general/invocations", headers });
+    const stale = inventory
+      .json()
+      .invocations.find((item: Invocation) => item.messageId === trigger.id);
+    expect(stale).toMatchObject({ status: "timed_out" });
+    // 等完了接着做：结果未知还没人处理，迟到的结果照常落定，这一轮的任务目录也照常能复核
+    const resumed = await lookup();
+    expect(resumed.statusCode).toBe(200);
+    expect(resumed.json().worktree.path).toBe(worktree.path);
+    // 人收起了这条结果未知：不再替它选目录
+    expect(
+      (
+        await fixture.app.inject({
+          method: "POST",
+          url: "/api/invocations/dismiss",
+          headers: { authorization: "Bearer test-token" },
+          payload: { invocationIds: [stale.id] },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect((await lookup()).statusCode).toBe(409);
+  });
+
   it("finishes a bound wakeup only after a vanished checkout is verified and keeps unrelated work runnable", async () => {
     const { app, repo, git, join, mcp, run, finish } = await start();
     const owner = await join("Alice", "human");

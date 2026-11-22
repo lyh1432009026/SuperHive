@@ -4946,11 +4946,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       }> = [];
       for (const messageId of messageIds) {
         const invocation = database.getInvocationFor(messageId, participant.id);
+        // 结果未知（timed_out）还没人收起时，Agent 可能仍在做：比如等模型服务恢复后接着做，
+        // 迟到的进度和结果照常落定，这一轮的任务目录也要照常能复核；人收起后才不再替它选目录
         if (
           !invocation ||
           invocation.resolution ||
           invocation.finishedAt ||
-          !["queued", "running", "waiting_human"].includes(invocation.status)
+          !["queued", "running", "waiting_human", "timed_out"].includes(invocation.status)
         ) {
           reply.code(409).send({ error: "An active task is required" });
           return undefined;
