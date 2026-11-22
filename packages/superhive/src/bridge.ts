@@ -2074,7 +2074,12 @@ export class AgentBridge {
           ...this.usageReport(active),
         });
       }
-      this.resumeLater(live, delay, (remaining) => progress(`约 ${remaining}`));
+      this.resumeLater(
+        live,
+        delay,
+        (remaining) => progress(`约 ${remaining}`),
+        error.message.slice(0, 500),
+      );
       return;
     }
     for (const message of active.messages) {
@@ -2105,6 +2110,7 @@ export class AgentBridge {
     live: ChatMessage[],
     delay: number,
     progress: (remaining: string) => string,
+    detail: string,
   ): void {
     const resumeAt = Date.now() + delay;
     const timer = setTimeout(() => {
@@ -2130,10 +2136,12 @@ export class AgentBridge {
       const remaining = waitText(Math.max(0, resumeAt - Date.now()));
       for (const message of live) {
         if (this.waitingResume.get(message.id) !== timer) continue;
+        // detail 和第一次上报保持一致：Server 收到不带 detail 的 running 会把它清空；用量第一次已经报过，这里不再带
         this.room.report({
           messageId: message.id,
           status: "running",
           progress: progress(remaining),
+          detail,
         });
       }
     }, this.tuning.heartbeatMs);
@@ -2175,7 +2183,12 @@ export class AgentBridge {
           ...this.usageReport(active),
         });
       }
-      this.resumeLater(live, delay, (remaining) => progress(`约 ${remaining}`));
+      this.resumeLater(
+        live,
+        delay,
+        (remaining) => progress(`约 ${remaining}`),
+        reason.slice(0, 500),
+      );
       return;
     }
     for (const message of active.messages) this.rememberProcessed(message.id);

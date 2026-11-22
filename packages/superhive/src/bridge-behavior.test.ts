@@ -2386,6 +2386,12 @@ describe("AgentBridge", () => {
             report.progress?.includes("后自动继续"),
         ),
     );
+    // 等待心跳带着和第一次上报相同的 detail：Server 收到不带 detail 的回报会把出错原因清掉
+    const heartbeat = room.reports
+      .slice(first)
+      .find((report) => report.progress?.includes("后自动继续"));
+    expect(heartbeat?.detail).toBe(room.reports[first - 1]?.detail);
+    expect(heartbeat?.detail).toContain("Can't reach the API server");
     await waitUntil(() => responder.calls.length === 2);
     const resumedAt = room.reports.length;
     await new Promise((resolve) => setTimeout(resolve, 60));
