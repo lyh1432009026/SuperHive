@@ -1,6 +1,6 @@
 ---
 import DefaultHero from "@astrojs/starlight/components/Hero.astro";
-import Workroom from "./Workroom.astro";
+import CollabModel from "./CollabModel.astro";
 import { getSiteConfig, withBase } from "../../scripts/site-config.mjs";
 
 const { base } = getSiteConfig();
@@ -28,7 +28,7 @@ const PAGE_TITLE_ID = "_top";
           </a>
         </div>
       </div>
-      <Workroom />
+      <CollabModel />
     </section>
   ) : (
     <DefaultHero />
