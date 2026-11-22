@@ -73,10 +73,10 @@ const schema = {
     .filter(({ attrs }) => !(is404 && attrs?.rel === "alternate"))
     .map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)
 }
-<script is:inline define:vars={{ base, is404, isEnglish: lang === "en" }}>
-  // 首次进入时按浏览器语言选中英文；在右上角切换过语言后按记住的选择来。
-  // 在 head 里同步执行，跳转发生在正文绘制之前，不会先闪一下另一种语言。
-  // 搜索引擎爬虫和测速工具不跳，两种语言都照常抓取；站内点链接过来的也不跳。
+<script is:inline define:vars={{ base, is404 }}>
+  // 只在中文首页自动跳：还没手动选过语言、浏览器语言不是中文时，换到英文首页；选过英文的也换过去。
+  // 用户打开的具体页面（正文页、英文首页）一律不跳，尊重链接本身的语言，正文页改为显示一条可关闭的提示。
+  // 在 head 里同步执行，跳转发生在正文绘制之前，不会先闪一下中文。爬虫和测速工具不跳；站内点链接回首页的也不跳。
   (() => {
     try {
       if (
@@ -92,26 +92,23 @@ const schema = {
       try {
         want = localStorage.getItem("superhive.docs.locale");
       } catch {}
+      const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
+      const chineseBrowser = languages.some((language) => /^zh/i.test(language || ""));
       if (is404) {
         // 不存在的地址都落到中文的 404.html：地址在 en/ 下或要看英文时，换成英文的 404 页
-        if (isEnglish || want === "zh-CN") return;
-        const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
-        const english =
-          want === "en" ||
-          /^en(?:\/|$)/.test(rest) ||
-          !languages.some((language) => /^zh/i.test(language || ""));
-        if (english) location.replace(`${base}en/404/`);
+        if (rest.startsWith("en/404") || want === "zh-CN") return;
+        if (want === "en" || /^en(?:\/|$)/.test(rest) || !chineseBrowser)
+          location.replace(`${base}en/404/`);
         return;
       }
-      if (want !== "en" && want !== "zh-CN") {
+      if (rest !== "" && rest !== "index.html") return;
+      if (want === "zh-CN") return;
+      if (want !== "en") {
         const from = document.referrer ? new URL(document.referrer) : null;
         if (from && from.origin === location.origin && from.pathname.startsWith(base)) return;
-        const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
-        want = languages.some((language) => /^zh/i.test(language || "")) ? "zh-CN" : "en";
+        if (chineseBrowser) return;
       }
-      if ((want === "en") === isEnglish) return;
-      const target = want === "en" ? `${base}en/${rest}` : base + rest.replace(/^en\//, "");
-      location.replace(target + location.search + location.hash);
+      location.replace(`${base}en/${location.search}${location.hash}`);
     } catch {}
   })();
 </script>

@@ -30,7 +30,7 @@ pnpm docs:screens --locale en          # 英文界面，存成 名字.en.主题.
 
 - 侧栏文字在 `scripts/navigation.mjs`（`translations.en`），首页组件和协作图的文字在 `src/components/i18n.ts`、`src/components/collab-scenes.ts`。
 - 插图：有 `名字.en.svg` / `名字.en.png` 的，英文页自动换用；界面截图同理用 `名字.en.light.png` / `名字.en.dark.png`。
-- 第一次进站时按浏览器语言选中英文（`Head.astro` 里的内联脚本，爬虫不跳）；在右上角切换过语言后记在 `localStorage` 的 `superhive.docs.locale`，之后按这个来。
+- 只在中文首页自动跳：没选过语言、浏览器不是中文时（或选过英文）换到英文首页（`Head.astro` 里的内联脚本，爬虫不跳）。打开具体页面一律不跳，语言和浏览器对不上时在底部浮一条可关闭的提示（`LocaleHint.astro`）。右上角切换过语言后记在 `localStorage` 的 `superhive.docs.locale`，提示也不再出现。
 - `llms.txt`、`llms-full.txt` 中英各一份，英文的在 `/en/` 下。
 
 ## 本地预览

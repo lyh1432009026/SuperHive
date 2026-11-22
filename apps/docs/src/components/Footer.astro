@@ -1,6 +1,7 @@
 ---
 import DefaultFooter from "@astrojs/starlight/components/Footer.astro";
 import { projectLinks } from "../../scripts/project-links.mjs";
+import LocaleHint from "./LocaleHint.astro";
 import { pageLang, ui } from "./i18n";
 
 const lang = pageLang(Astro.locals);
@@ -9,6 +10,7 @@ const year = new Date().getFullYear();
 ---
 
 <DefaultFooter />
+<LocaleHint />
 
 <div class="site-footer">
   <nav class="site-footer-links" aria-label={ui[lang].footerNav}>

@@ -1,0 +1,133 @@
+---
+import { localePath, pageLang } from "./i18n";
+import { getSiteConfig } from "../../scripts/site-config.mjs";
+
+// 正文页不自动换语言；页面语言和浏览器语言对不上时，在底部浮一条可关闭的小提示，指向另一种语言的同一页。
+// 默认 hidden，由脚本判断后才显示：没有 JS 时不出现；固定在底部，不挤开正文，不造成布局跳动。
+const { base } = getSiteConfig();
+const lang = pageLang(Astro.locals);
+const pageId = Astro.locals.starlightRoute.id.replace(/^en(?:\/|$)/, "");
+const is404 = pageId === "404";
+const target = lang === "en" ? "zh-CN" : "en";
+const href = localePath(pageId ? `${pageId}/` : "", target, base);
+const text =
+  target === "en"
+    ? { message: "Also available in English", close: "Dismiss" }
+    : { message: "本页有中文版", close: "关闭" };
+---
+
+{
+  !is404 && (
+    <div class="locale-hint print:hidden" lang={target} data-locale-hint={target} hidden>
+      <a href={href} hreflang={target} data-locale-hint-link>
+        {text.message} <span aria-hidden="true">→</span>
+      </a>
+      <button type="button" aria-label={text.close} data-locale-hint-close>
+        ✕
+      </button>
+    </div>
+  )
+}
+
+<script>
+  const hint = document.querySelector<HTMLElement>("[data-locale-hint]");
+  const KEY = "superhive.docs.locale";
+  const DISMISSED = "superhive.docs.locale-hint";
+  const read = (key: string) => {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return "dismissed";
+    }
+  };
+  const write = (key: string, value: string) => {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // 存不了就只在这一页生效
+    }
+  };
+  if (
+    hint &&
+    !/bot|crawl|spider|slurp|lighthouse|headless|preview|facebookexternalhit/i.test(
+      navigator.userAgent,
+    ) &&
+    !read(KEY) &&
+    !read(DISMISSED)
+  ) {
+    const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
+    const chineseBrowser = languages.some((language) => /^zh/i.test(language || ""));
+    // 提示指向浏览器的语言：英文页给中文浏览器看，中文页给非中文浏览器看
+    if ((hint.dataset.localeHint === "zh-CN") === chineseBrowser) {
+      hint.hidden = false;
+      hint
+        .querySelector("[data-locale-hint-link]")!
+        .addEventListener("click", () => write(KEY, hint.dataset.localeHint!));
+      hint.querySelector("[data-locale-hint-close]")!.addEventListener("click", () => {
+        write(DISMISSED, "dismissed");
+        hint.hidden = true;
+      });
+    }
+  }
+</script>
+
+<style>
+  .locale-hint {
+    position: fixed;
+    inset-block-end: 1rem;
+    inset-inline-start: 50%;
+    z-index: 20;
+    display: flex;
+    gap: 0.25rem;
+    align-items: center;
+    max-width: calc(100vw - 2rem);
+    padding: 0.25rem 0.25rem 0.25rem 0.875rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 999px;
+    background: var(--sl-color-bg-nav);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+    font-size: var(--sl-text-sm);
+    transform: translateX(-50%);
+  }
+
+  .locale-hint[hidden] {
+    display: none;
+  }
+
+  .locale-hint a {
+    white-space: nowrap;
+    color: var(--sl-color-gray-1);
+    text-decoration: none;
+  }
+
+  .locale-hint a span {
+    margin-inline-start: 0.25rem;
+  }
+
+  .locale-hint a:hover {
+    color: var(--sl-color-white);
+  }
+
+  .locale-hint button {
+    display: grid;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 0;
+    border-radius: 999px;
+    color: var(--sl-color-gray-3);
+    background: transparent;
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+
+  .locale-hint button:hover {
+    color: var(--sl-color-gray-1);
+    background: var(--sl-color-gray-6);
+  }
+
+  .locale-hint :is(a, button):focus-visible {
+    outline: 2px solid var(--docs-focus-ring);
+    outline-offset: 2px;
+  }
+</style>
