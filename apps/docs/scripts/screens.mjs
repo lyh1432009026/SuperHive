@@ -3,6 +3,7 @@
 //
 //   pnpm --filter @superhive/docs screens                    # 全部重截
 //   pnpm --filter @superhive/docs screens --only overview,progress
+//   pnpm --filter @superhive/docs screens --locale en        # 英文界面，存成 *.en.{light,dark}.png
 //
 // 演示 Server（screens/demo-server.mjs）在临时目录里起：独立 HOME、独立数据库、演示仓库，只监听 127.0.0.1，
 // 不连 IM、不拉起真实 Agent、不联网；截完关掉并删除临时目录。截图用独立的无头 Chrome（仓库根
@@ -15,6 +16,7 @@ import process from "node:process";
 import { parseArgs } from "node:util";
 import sharp from "sharp";
 import { HELPERS, findChrome, initialStorage, launchChrome } from "../../../scripts/screenshot.mjs";
+import { EXACT, TEXT } from "./screens/demo-text.en.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "../../..");
 const OUT_DIR = path.resolve(import.meta.dirname, "../public/media/screens");
@@ -100,7 +102,7 @@ export const SHOTS = [
     // 点开 claude 交付的 Markdown，再点「在右侧栏打开」：预览停在对话旁边，输入框照常能用
     prepare: [
       `__shot.click(".message-file")`,
-      `__shot.click('.file-preview-size[aria-label="在右侧栏打开"]')`,
+      `__shot.click('.file-preview-size:is([aria-label="在右侧栏打开"], [aria-label="Open in side panel"])')`,
       `__shot.find(".file-preview-text.markdown h1")`,
     ],
   },
@@ -182,6 +184,44 @@ Object.assign(window.__shot, {
       this.homeObserver.observe(document.body, { subtree: true, childList: true, characterData: true });
     }
   },
+  /** 英文截图：把演示数据里的中文换成英文（pairs 已按长度从长到短排好）；之后新渲染的也换 */
+  translate(pairs, exact) {
+    const fix = (root) => {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const value = node.nodeValue;
+        if (!/[\u3000-\u303f\u3400-\u9fff\uff00-\uffef]/.test(value)) continue;
+        const key = value.trim();
+        let next = key in exact ? value.replace(key, exact[key]) : value;
+        for (const [from, to] of pairs) if (next.includes(from)) next = next.replaceAll(from, to);
+        if (next !== value) node.nodeValue = next;
+      }
+    };
+    const all = () => {
+      fix(document.body);
+      for (const el of document.querySelectorAll("*")) if (el.shadowRoot) fix(el.shadowRoot);
+    };
+    all();
+    if (!this.textObserver) {
+      this.textObserver = new MutationObserver(all);
+      this.textObserver.observe(document.body, { subtree: true, childList: true, characterData: true });
+    }
+  },
+  /** 截图范围里还剩的中文，方便补 demo-text.en.mjs */
+  leftovers(clip) {
+    const found = new Set();
+    const roots = [document.body, ...[...document.querySelectorAll("*")].filter((el) => el.shadowRoot).map((el) => el.shadowRoot)];
+    for (const root of roots) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!/[\u3000-\u303f\u3400-\u9fff\uff00-\uffef]/.test(node.nodeValue) || !node.parentElement) continue;
+        const r = node.parentElement.getBoundingClientRect();
+        if (!r.width || r.right < clip.x || r.left > clip.x + clip.width || r.bottom < clip.y || r.top > clip.y + clip.height) continue;
+        found.add(node.nodeValue.trim());
+      }
+    }
+    return [...found];
+  },
   /** 取 container 的左右和上沿，下沿截到 last 元素下方 pad 处（去掉底部空白） */
   async until(container, last, pad = 0) {
     const c = (await this.find(container)).getBoundingClientRect();
@@ -206,6 +246,7 @@ function parseOptions(argv) {
       "no-build": { type: "boolean", default: false },
       out: { type: "string", default: OUT_DIR },
       keep: { type: "boolean", default: false },
+      locale: { type: "string", default: "zh-CN" },
       chrome: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -213,6 +254,8 @@ function parseOptions(argv) {
   const names = values.only?.split(",").map((name) => name.trim());
   for (const name of names ?? [])
     if (!SHOTS.some((shot) => shot.name === name)) throw new Error(`没有这张图：${name}`);
+  if (!["zh-CN", "en"].includes(values.locale))
+    throw new Error(`--locale 只能是 zh-CN / en：${values.locale}`);
   const themes = values.theme.split(",").map((theme) => theme.trim());
   for (const theme of themes)
     if (!["light", "dark"].includes(theme))
@@ -225,6 +268,7 @@ function parseOptions(argv) {
     out: path.resolve(values.out),
     keep: values.keep,
     chrome: values.chrome,
+    locale: values.locale,
   };
 }
 
@@ -235,6 +279,8 @@ const HELP = `用法：pnpm --filter @superhive/docs screens [选项]
   --no-build          不重新构建 protocol 与网页，直接用现有的 apps/web/dist
   --out <目录>        输出目录（默认 public/media/screens）
   --keep              保留演示 Server 的临时目录（会打印路径）
+  --locale <语言>     zh-CN（默认）或 en：英文界面，演示数据按 screens/demo-text.en.mjs 换成英文，
+                      存成 名字.en.主题.png，英文文档页自动换用
   --chrome <路径>     Chrome 可执行文件（也可用环境变量 CHROME_PATH）`;
 
 function run(command, args, options = {}) {
@@ -314,7 +360,9 @@ async function evaluate(cdp, script, label, returnValue = false) {
   }
 }
 
-async function captureShot(cdp, demo, shot, theme, file) {
+const TEXT_PAIRS = Object.entries(TEXT).sort(([a], [b]) => b.length - a.length);
+
+async function captureShot(cdp, demo, shot, theme, file, locale) {
   const width = shot.width ?? 1440;
   const height = shot.height ?? 900;
   await cdp.send("Emulation.setDeviceMetricsOverride", {
@@ -325,7 +373,16 @@ async function captureShot(cdp, demo, shot, theme, file) {
   });
   const url = new URL(demo.url);
   url.hash = shot.room;
-  const storage = initialStorage({ user: demo.owner, theme, room: shot.room });
+  const english = locale === "en";
+  const storage = initialStorage({
+    user: demo.owner,
+    theme,
+    room: shot.room,
+    ...(english ? { locale } : {}),
+  });
+  const translate = english
+    ? `__shot.translate(${JSON.stringify(TEXT_PAIRS)}, ${JSON.stringify(EXACT)})`
+    : "";
   const { identifier } = await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
     source: `${SHOT_HELPERS}
       if (location.origin === ${JSON.stringify(url.origin)}) {
@@ -351,6 +408,7 @@ async function captureShot(cdp, demo, shot, theme, file) {
     await sleep(1500);
     // 演示目录显示成 ~（和平时在自己电脑上看到的一样），不露出临时目录
     await evaluate(cdp, `__shot.tildeHome(${JSON.stringify(demo.home)})`, "替换演示目录");
+    if (english) await evaluate(cdp, translate, "演示数据换成英文");
     for (const [index, step] of (shot.prepare ?? []).entries()) {
       if (typeof step === "string") await evaluate(cdp, step, `${shot.name} 第 ${index + 1} 步`);
       else await cdp.send("Input.insertText", { text: step.type });
@@ -360,6 +418,12 @@ async function captureShot(cdp, demo, shot, theme, file) {
       ? await evaluate(cdp, shot.clip, `${shot.name} 量截图范围`, true)
       : { x: 0, y: 0, width, height };
     await evaluate(cdp, `__shot.tildeHome(${JSON.stringify(demo.home)})`, "替换演示目录");
+    if (english) {
+      await evaluate(cdp, translate, "演示数据换成英文");
+      await sleep(300);
+      const left = await evaluate(cdp, `__shot.leftovers(${JSON.stringify(clip)})`, "查中文", true);
+      if (left.length) console.warn(`[screens] ${shot.name} 还有中文：${JSON.stringify(left)}`);
+    }
     // 截到整像素，避免 2 倍图边缘出现半像素的模糊
     const rounded = {
       x: Math.max(0, Math.round(clip.x)),
@@ -420,7 +484,11 @@ async function main() {
           demo,
           shot,
           theme,
-          path.join(options.out, `${shot.name}.${theme}.png`),
+          path.join(
+            options.out,
+            `${shot.name}${options.locale === "en" ? ".en" : ""}.${theme}.png`,
+          ),
+          options.locale,
         );
     cdp.close();
   } finally {

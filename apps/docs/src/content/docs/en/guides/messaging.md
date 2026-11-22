@@ -85,7 +85,7 @@ Room storage and personal staging space also have quotas, and hitting them can c
 - When you open the page as the room owner on the computer running the Server, "Download" is joined by "Open with default app" and "Show in Finder" ("Show in File Explorer" on Windows). The file is copied into `files/<room name>/` under the Hive data directory before opening, so editing the copy doesn't affect the original attachment. Programs and scripts can only be shown, not opened directly.
 - Attachment access is checked against the room and message references. Before sending, only the uploader can read it; once sent, room permissions apply. Unsending the message invalidates its reference, but copies others already downloaded aren't deleted.
 
-![In the #design room, the "amount-display-guidelines.md" file delivered by claude is docked in the side panel: on the right, the guideline's headings, lists, and tables are rendered as Markdown, with Download, Open with default app, Show in Finder, Open as dialog, and Close at the top; on the left, the conversation and input remain usable.](/media/screens/preview-dock.png)
+![In the #design room, the "price-display-guidelines.md" file delivered by claude is docked in the side panel: on the right, the guideline's headings, lists, and tables are rendered as Markdown, with Download, Open with default app, Show in Finder, Open as dialog, and Close at the top; on the left, the conversation and input remain usable.](/media/screens/preview-dock.png)
 
 Screenshot of the demo environment: names, rooms, and repos are sample data, and the image follows the docs' light/dark theme. The docked preview can be dragged wider; close it and the side panel returns to the member list.
 
