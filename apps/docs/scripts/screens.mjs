@@ -84,6 +84,27 @@ export const SHOTS = [
     clip: `__shot.until(".worktree-sheet", ".worktree-panel > .worktree-toolbar", 24)`,
   },
   {
+    name: "incidents",
+    room: "shop-web",
+    // 左侧「故障」入口打开的弹出面板：升级给人的排在最前
+    prepare: [
+      `__shot.click(".sidebar-action[aria-haspopup=dialog]", (el) => /^(故障|Incidents)/.test(el.textContent.trim()))`,
+      `__shot.find(".incidents-dialog li.incident")`,
+    ],
+    // 面板比内容高：截到最后一个折叠分组下面
+    clip: `__shot.until(".incidents-dialog", ".incidents-dialog-body > :last-child", 20)`,
+  },
+  {
+    name: "preview-dock",
+    room: "design",
+    // 点开 claude 交付的 Markdown，再点「在右侧栏打开」：预览停在对话旁边，输入框照常能用
+    prepare: [
+      `__shot.click(".message-file")`,
+      `__shot.click('.file-preview-size[aria-label="在右侧栏打开"]')`,
+      `__shot.find(".file-preview-text.markdown h1")`,
+    ],
+  },
+  {
     name: "onboard",
     room: "shop-web",
     prepare: [`__shot.click(".sidebar-agent-entry")`, `__shot.find("[role=dialog]")`],
@@ -310,6 +331,8 @@ async function captureShot(cdp, demo, shot, theme, file) {
       if (location.origin === ${JSON.stringify(url.origin)}) {
         // 输入框草稿按房间存在 localStorage：上一张图（如浅色版）敲的「@」会留到下一张，再敲就成了「@@」
         for (const key of Object.keys(localStorage)) if (key.startsWith("superhive.draft.")) localStorage.removeItem(key);
+        // 点过「在右侧栏打开」会记住：浅色版点过后，深色版一打开就已经停在右侧栏，找不到那个按钮
+        localStorage.removeItem("superhive.preview-docked");
         for (const [key, value] of Object.entries(${JSON.stringify(storage)})) localStorage.setItem(key, value);
       }`,
   });

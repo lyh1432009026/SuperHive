@@ -23,6 +23,7 @@ const { buildApp } = await import(path.join(SERVER, "src/app.ts"));
 const { HiveDatabase } = await import(path.join(SERVER, "src/database.ts"));
 const { AgentCliManager } = await import(path.join(SERVER, "src/agent-clis.ts"));
 const { WorktreeManager } = await import(path.join(SERVER, "src/worktrees.ts"));
+const { IncidentStore } = await import(path.join(SERVER, "src/incident-store.ts"));
 const require = createRequire(path.join(SERVER, "package.json"));
 const { Client } = await import(require.resolve("@modelcontextprotocol/sdk/client/index.js"));
 const { StreamableHTTPClientTransport } = await import(
@@ -97,6 +98,35 @@ const CLIS = [
     latest: "2026.11.5",
   },
 ];
+
+/** claude 在 #design 交付的规范（附件） */
+const PRICE_SPEC = `# 结算页金额显示规范
+
+## 存储与计算
+
+- 金额一律按**分**存成整数，计算过程中不出现小数。
+- 只在显示时格式化，接口返回的也是分。
+
+## 显示
+
+| 场景 | 示例 | 写法 |
+| --- | --- | --- |
+| 普通金额 | ¥1,299.00 | \`formatPrice(129900)\` |
+| 优惠、退款 | -¥20.00 | 负号放在货币符号前 |
+| 免费 | ¥0.00 | 不写成「免费」，避免和活动文案混淆 |
+
+- 千分位和货币符号统一用 \`Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY" })\`。
+- 移动端和 PC 端共用 \`src/checkout/price.ts\` 里的 \`formatPrice\`，不各自手拼。
+
+## 舍入
+
+- 优惠分摊到每件商品时按分四舍五入，差额记到最后一件，合计和订单服务一致。
+
+## 现在有出入的地方
+
+1. 移动端结算页手拼「¥」+ \`toFixed(2)\`，没有千分位。
+2. 订单详情页的优惠显示成「- ¥20」，少了小数位。
+`;
 
 /* ---------------- 临时 HOME 里的演示仓库与假 CLI ---------------- */
 
@@ -279,6 +309,144 @@ function seedWhiteboard(database, repo, worktrees) {
   void repo;
 }
 
+/**
+ * 故障面板：升级给人、待处理、修复中、已解决各一张「我们的问题」，一张外部原因，再加一条待批准的规则提议。
+ * IncidentStore 用可拨的时钟写，出现时间、派修时间直接落在过去。
+ */
+function seedIncidents(database) {
+  let clock = Date.now();
+  const store = new IncidentStore(database.connection(), () => clock);
+  const at = (age) => {
+    clock = Date.now() - age;
+    return new Date(clock).toISOString();
+  };
+  const record = (occurrence, ages) => {
+    let incident;
+    for (const age of ages) {
+      const time = at(age);
+      incident = store.record({
+        ...occurrence,
+        sample: { ...occurrence.sample, at: time },
+      }).incident;
+    }
+    return incident;
+  };
+  const dispatch = (incident, attempt, agentName, age, outcome, reason) => {
+    at(age);
+    const item = store.addDispatch({
+      incidentId: incident.id,
+      attempt,
+      roomId: "shop-web",
+      agentName,
+    });
+    if (outcome !== "pending") {
+      at(age - 20 * MINUTE);
+      store.updateDispatch(item.id, { outcome, reason });
+    }
+  };
+
+  const stale = record(
+    {
+      origin: "internal",
+      source: "invocation",
+      fingerprint: "invocation:invocation.stale:codex",
+      title: "codex · Bridge 报告这一轮已结束，Server 还在等它的结果",
+      sample: {
+        roomId: "shop-web",
+        agentName: "codex",
+        provider: "codex",
+        detail:
+          "Bridge 报告这一轮已结束，Server 还在等它的结果；超过 10 分钟没有新进展，已标为卡住",
+      },
+    },
+    [9 * HOUR, 6 * HOUR, 5 * HOUR, 3 * HOUR, 2 * HOUR, 70 * MINUTE, 50 * MINUTE],
+  );
+  dispatch(stale, 1, "claude", 5 * HOUR, "failed", "调用超时，没交修复");
+  dispatch(stale, 2, "claude", 2 * HOUR, "failed", "修复合入后同一种错误又出现");
+  at(50 * MINUTE);
+  store.update(stale.id, {
+    status: "escalated",
+    failedAttempts: 2,
+    noteText: { key: "incident.note.escalatedAttempts", params: { count: 2 } },
+  });
+
+  record(
+    {
+      origin: "internal",
+      source: "server",
+      fingerprint: "server:TypeError:worktrees.ts:listWorktrees",
+      title: "TypeError: Cannot read properties of undefined (reading 'branch')",
+      sample: {
+        roomId: "shop-web",
+        route: "GET /api/local/worktrees/:roomId",
+        detail: "Cannot read properties of undefined (reading 'branch')",
+        stack:
+          "TypeError: Cannot read properties of undefined (reading 'branch')\n    at listWorktrees (apps/server/src/worktrees.ts)\n    at handler (apps/server/src/local-routes.ts)",
+      },
+    },
+    [4 * HOUR, 2 * HOUR],
+  );
+
+  const scroll = record(
+    {
+      origin: "internal",
+      source: "web",
+      fingerprint: "web:error:TypeError:message-list.tsx",
+      title: "TypeError: Cannot read properties of null (reading 'scrollTop')",
+      sample: {
+        roomId: "shop-web",
+        detail: "Cannot read properties of null (reading 'scrollTop')",
+        stack:
+          "TypeError: Cannot read properties of null (reading 'scrollTop')\n    at onScroll (message-list.tsx)",
+      },
+    },
+    [3 * HOUR, 2 * HOUR, 90 * MINUTE],
+  );
+  dispatch(scroll, 1, "claude", 85 * MINUTE, "pending");
+  store.update(scroll.id, { status: "fixing" });
+
+  const time = record(
+    {
+      origin: "internal",
+      source: "server",
+      fingerprint: "server:RangeError:schedules.ts:nextRun",
+      title: "RangeError: Invalid time value",
+      sample: {
+        roomId: "ops",
+        route: "POST /api/rooms/:roomId/schedules",
+        detail: "Invalid time value",
+      },
+    },
+    [DAY + 5 * HOUR, DAY + 4 * HOUR, DAY + 2 * HOUR],
+  );
+  at(20 * HOUR);
+  store.update(time.id, { status: "resolved", resolvedAt: new Date(clock).toISOString() });
+
+  record(
+    {
+      origin: "external",
+      source: "invocation",
+      fingerprint: "invocation:bridge.upstreamExhausted:omp",
+      title: "omp · 上游模型服务出错：503 Service Unavailable",
+      sample: {
+        roomId: "ops",
+        agentName: "omp",
+        provider: "omp",
+        detail: "上游模型服务出错：503 Service Unavailable（已自动重试 3 次）",
+      },
+    },
+    [5 * HOUR, 3 * HOUR, 40 * MINUTE, 18 * MINUTE],
+  );
+
+  at(30 * MINUTE);
+  store.addProposal({
+    roomId: "shop-web",
+    agentName: "claude",
+    text: "改动 WebSocket 事件的格式前，先跑 protocol 和 web 的全量测试",
+    reason: "上次只跑了 server 测试，网页收到新事件后报协议校验失败",
+  });
+}
+
 function seedDatabase(databasePath, repo) {
   const database = new HiveDatabase(databasePath);
   for (const room of ROOMS) {
@@ -417,6 +585,19 @@ class Member {
       "X-Hive-Room": this.room,
       "X-Hive-Agent-Name": this.name,
     };
+  }
+
+  /** 像 Agent 交付文件那样先上传附件，返回附件 ID；发消息时带上 attachmentIds */
+  async upload(name, content, type) {
+    const form = new FormData();
+    form.append("file", new Blob([content], { type }), name);
+    const response = await fetch(`${this.url}/api/rooms/${this.room}/attachments`, {
+      method: "POST",
+      headers: this.agentHeaders(),
+      body: form,
+    });
+    if (!response.ok) throw new Error(`${this.name} 上传附件失败：${await response.text()}`);
+    return (await response.json()).id;
   }
 
   async mcp() {
@@ -609,12 +790,29 @@ async function playScenario(url, token) {
     runtimeEvent: { kind: "provider_error", code: 503 },
   });
 
+  // design：claude 交付一份 Markdown 规范，截「预览停到右侧栏」用
+  const linDesign = await join("design", OWNER, "human");
+  const claudeDesign = online["design:claude"];
+  const spec = await linDesign.say(
+    "@claude 把结算页金额的显示规则整理成一页规范，前端和设计都按它来。",
+  );
+  at(spec, 30 * MINUTE);
+  const specTask = await claudeDesign.mentioned((message) => message.id === spec.id);
+  claudeDesign.report(specTask.id, "running");
+  const specFile = await claudeDesign.upload("金额显示规范.md", PRICE_SPEC, "text/markdown");
+  const delivered = await claudeDesign.say(
+    "整理好了，见附件：金额统一按分存、显示时才格式化；千分位和货币符号用 Intl.NumberFormat，负数和优惠的写法也列了。有出入的地方在最后一节。",
+    { parentMessageId: specTask.id, attachmentIds: [specFile] },
+  );
+  claudeDesign.report(specTask.id, "completed", { replyMessageId: delivered.id });
+  at(delivered, 22 * MINUTE);
+
   await sleep(300);
   // 林夏的临时连接退出，网页会以她的身份重新进来
-  lin.close();
-  linOps.close();
-  members.splice(members.indexOf(lin), 1);
-  members.splice(members.indexOf(linOps), 1);
+  for (const owner of [lin, linOps, linDesign]) {
+    owner.close();
+    members.splice(members.indexOf(owner), 1);
+  }
   return { members, timeline, runningTask: formatTask.id, startedAt: new Date(started) };
 }
 
@@ -687,6 +885,7 @@ const cliDirs = createFakeClis();
 const seeded = seedDatabase(databasePath, repo);
 const worktrees = await seedWorktrees(seeded, repo);
 seedWhiteboard(seeded, repo, worktrees);
+seedIncidents(seeded);
 seeded.close();
 
 const token = randomBytes(24).toString("hex");
@@ -697,6 +896,8 @@ const app = await buildApp({
   staticDir: path.join(ROOT, "apps/web/dist"),
   keepAwake: false,
   imDrivers: {},
+  // 故障单不去核对 SuperHive 自己仓库的提交：演示数据里不出现真实的代码版本
+  incidentRepo: false,
   agentClis: new AgentCliManager({
     home: HOME,
     env: { PATH: [...cliDirs, "/usr/bin", "/bin"].join(":"), HOME },
