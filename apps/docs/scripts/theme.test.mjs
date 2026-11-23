@@ -103,3 +103,20 @@ test("branding and illustrations no longer contain the retired teal palette", ()
     assert.doesNotMatch(readFileSync(image, "utf8"), /#(?:087e86|132c3b|e9f3f6|214c50)/i);
   }
 });
+
+test("the docs default to dark until the reader picks a theme, then follow the reader", () => {
+  const provider = readFileSync(
+    new URL("../src/components/ThemeProvider.astro", import.meta.url),
+    "utf8",
+  );
+  const config = readFileSync(new URL("../astro.config.mjs", import.meta.url), "utf8");
+  assert.ok(config.includes('ThemeProvider: "./src/components/ThemeProvider.astro"'));
+  // head 里同步执行，绘制前就定好主题；用户选过（含跟随系统）就不再强制深色
+  assert.ok(provider.includes("<script is:inline>"));
+  assert.ok(provider.includes('"superhive.docs.theme-chosen"'));
+  assert.match(
+    provider,
+    /if \(!chosen\(\) && root\.dataset\.theme !== "dark"\) root\.dataset\.theme = "dark"/,
+  );
+  assert.doesNotMatch(provider, /isHome/);
+});

@@ -19,13 +19,28 @@ import DefaultThemeProvider from "@astrojs/starlight/components/ThemeProvider.as
         return false;
       }
     };
-    // 没选过时，主题菜单也显示「深色」，和实际看到的一致（只改显示，不算用户选过）
+    // 没选过时，菜单里的「深色」后面标上「默认」，和用户自己选的区分开（只改显示，不算用户选过）；
+    // 顶栏按钮的文字不动，免得宽度变化引起布局偏移
+    const DEFAULT_LABEL = root.lang === "en" ? "Default" : "默认";
     const syncPickers = () => {
-      if (chosen()) return;
-      document.querySelectorAll("starlight-theme-select select").forEach((select) => {
-        if (select.value === "dark") return;
-        select.value = "dark";
-        select.dispatchEvent(new Event("hive-theme-sync"));
+      const isDefault = !chosen();
+      document.querySelectorAll("hive-theme-select").forEach((picker) => {
+        const select = picker.querySelector("starlight-theme-select select");
+        if (isDefault && select && select.value !== "dark") {
+          select.value = "dark";
+          select.dispatchEvent(new Event("hive-theme-sync"));
+        }
+        const option = picker.querySelector('.theme-option[data-theme="dark"]');
+        let tag = option?.querySelector(".theme-default-tag");
+        if (isDefault && option && !tag) {
+          tag = document.createElement("span");
+          tag.className = "theme-default-tag";
+          tag.textContent = DEFAULT_LABEL;
+          tag.style.cssText =
+            "margin-inline-start:auto;padding:0 .4em;border-radius:999px;font-size:.72em;opacity:.75;border:1px solid currentColor";
+          option.querySelector("span")?.after(tag);
+        }
+        if (!isDefault) tag?.remove();
       });
     };
     const force = () => {
@@ -40,6 +55,7 @@ import DefaultThemeProvider from "@astrojs/starlight/components/ThemeProvider.as
         try {
           localStorage.setItem("superhive.docs.theme-chosen", "1");
         } catch {}
+        setTimeout(syncPickers);
       },
       true,
     );
