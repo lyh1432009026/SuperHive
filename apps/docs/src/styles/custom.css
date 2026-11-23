@@ -199,150 +199,6 @@ html {
   height: 1.25rem;
 }
 
-.workroom-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1.5rem;
-  padding-block: 1rem 2rem;
-}
-
-.workroom-copy {
-  text-align: center;
-}
-
-.workroom-eyebrow {
-  color: var(--sl-color-gray-2);
-  font-size: 0.82rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  margin-bottom: 0.65rem;
-}
-
-.workroom-copy h1 {
-  color: var(--sl-color-white);
-  font-size: clamp(1.5rem, 3vw, 2.6rem);
-  font-weight: 650;
-  line-height: 1.25;
-  letter-spacing: -0.055em;
-  text-wrap: balance;
-}
-
-.workroom-intro {
-  margin-top: 0.65rem;
-  color: var(--sl-color-gray-2);
-  font-size: 0.95rem;
-  line-height: 1.65;
-}
-
-.workroom-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem 1.4rem;
-  align-items: center;
-  justify-content: center;
-  margin-top: 1rem;
-}
-
-.workroom-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 2rem;
-  padding: 0.5rem 1.1rem;
-  color: var(--docs-button-text);
-  background: var(--docs-button-bg);
-  border-radius: 0.6rem;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.workroom-primary:hover {
-  background: var(--docs-button-hover);
-}
-
-.workroom-secondary {
-  color: var(--sl-color-gray-2);
-  text-underline-offset: 0.3em;
-  font-size: 0.94rem;
-}
-
-.workroom-secondary:hover {
-  color: var(--sl-color-white);
-}
-
-.workroom-subhead {
-  margin-top: 2.5rem;
-  color: var(--sl-color-white);
-  text-align: center;
-}
-
-.workroom-subhead h2 {
-  margin: 0;
-  font-size: clamp(1.35rem, 3vw, 1.9rem);
-  font-weight: 650;
-  letter-spacing: -0.03em;
-}
-
-.workroom-subhead p {
-  max-width: 40rem;
-  margin: 0.6rem auto 0;
-  color: var(--sl-color-gray-2);
-  font-size: 0.95rem;
-}
-
-.workroom-footnote {
-  margin-top: 0.6rem;
-  color: var(--sl-color-gray-3);
-  font-size: 0.8rem;
-}
-
-.workroom-pathways {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
-  margin-top: 1.5rem;
-}
-
-.workroom-pathway {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-  padding: 1.35rem 2.6rem 1.35rem 1.4rem;
-  border: 1px solid var(--sl-color-gray-5);
-  border-radius: 0.75rem;
-  color: var(--sl-color-gray-2);
-  text-decoration: none;
-  font-size: 0.9rem;
-}
-
-.sl-markdown-content .workroom-pathway {
-  margin-top: 0;
-}
-
-.workroom-pathway:hover {
-  border-color: var(--sl-color-gray-4);
-  background: var(--sl-color-bg-sidebar);
-}
-
-.workroom-pathway-label {
-  color: var(--sl-color-gray-2);
-  font-size: 0.78rem;
-  font-weight: 600;
-}
-
-.workroom-pathway strong {
-  color: var(--sl-color-white);
-  font-size: 1.1rem;
-  font-weight: 600;
-}
-
-.workroom-pathway-arrow {
-  position: absolute;
-  top: 1.3rem;
-  right: 1.3rem;
-  color: var(--sl-color-gray-3);
-}
-
 :focus-visible {
   outline: 2px solid var(--docs-focus-ring);
   outline-offset: 3px;
@@ -356,14 +212,7 @@ html {
   outline: 1px solid var(--docs-focus-ring);
 }
 
-@media (max-width: 35rem) {
-  .workroom-pathways {
-    grid-template-columns: 1fr;
-  }
-}
-
 @media (prefers-reduced-motion: no-preference) {
-  .workroom-pathway,
   .pagination-links > a {
     transition:
       border-color 150ms ease,
@@ -372,42 +221,24 @@ html {
       translate 200ms ease;
   }
 
-  .workroom-pathway:hover,
   .pagination-links > a:hover {
     box-shadow: 0 10px 28px -20px rgb(0 0 0 / 0.45);
     translate: 0 -2px;
   }
 
-  .sl-markdown-content a:not(.workroom-pathway) {
+  .sl-markdown-content a {
     transition:
       color 150ms ease,
       text-decoration-color 150ms ease;
   }
 
-  :is(.workroom-primary, .workroom-secondary, .pagination-links > a, .cm-step, .cm-toggle) {
+  :is(.pagination-links > a, .cm-step, .cm-toggle) {
     transition-property: color, background-color, border-color, box-shadow, translate, scale;
     transition-duration: 150ms;
   }
 
-  :is(.workroom-primary, .workroom-secondary, .pagination-links > a, .cm-step, .cm-toggle):active {
+  :is(.pagination-links > a, .cm-step, .cm-toggle):active {
     scale: 0.98;
-  }
-
-  /* 首页首屏：眉题、标题、简介、按钮依次浮现（纯 CSS，不等脚本，没有 JS 也会播完） */
-  .workroom-copy > * {
-    animation: docs-rise 650ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-
-  .workroom-copy > :nth-child(2) {
-    animation-delay: 70ms;
-  }
-
-  .workroom-copy > :nth-child(3) {
-    animation-delay: 140ms;
-  }
-
-  .workroom-copy > :nth-child(4) {
-    animation-delay: 210ms;
   }
 
   /* 站内跳转用浏览器原生的跨页面过渡：顶栏和侧栏不动，正文淡入并轻微上移 */
@@ -445,13 +276,6 @@ html {
   }
 }
 
-@keyframes docs-rise {
-  from {
-    opacity: 0;
-    translate: 0 14px;
-  }
-}
-
 @keyframes docs-page-out {
   to {
     opacity: 0;
@@ -462,13 +286,6 @@ html {
   from {
     opacity: 0;
     translate: 0 10px;
-  }
-}
-
-@media print {
-  .workroom-actions,
-  .workroom-footnote {
-    display: none;
   }
 }
 

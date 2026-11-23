@@ -3,11 +3,15 @@ import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 
 const styles = readFileSync(new URL("../src/styles/custom.css", import.meta.url), "utf8");
+const landing = readFileSync(
+  new URL("../src/components/home/landing.css", import.meta.url),
+  "utf8",
+);
 
-function declarations(selector) {
-  const offset = styles.indexOf(`${selector} {`);
-  assert.notEqual(offset, -1);
-  return styles.slice(offset, styles.indexOf("}", offset));
+function declarations(selector, source = styles) {
+  const offset = source.indexOf(`${selector} {`);
+  assert.notEqual(offset, -1, selector);
+  return source.slice(offset, source.indexOf("}", offset));
 }
 
 test("documentation themes retain the project's neutral surfaces and blue accents", () => {
@@ -44,9 +48,9 @@ test("documentation themes retain the project's neutral surfaces and blue accent
 });
 
 test("primary actions, navigation and keyboard focus use semantic theme colors", () => {
-  const primary = declarations(".workroom-primary");
-  assert.ok(primary.includes("color: var(--docs-button-text)"));
-  assert.ok(primary.includes("background: var(--docs-button-bg)"));
+  const primary = declarations(".hl-btn-primary", landing);
+  assert.ok(primary.includes("color: var(--hl-btn-text)"));
+  assert.ok(primary.includes("background: var(--hl-btn-bg)"));
   assert.ok(declarations(":focus-visible").includes("var(--docs-focus-ring)"));
   assert.ok(
     declarations("#starlight__search input:focus").includes(
@@ -60,16 +64,19 @@ test("primary actions, navigation and keyboard focus use semantic theme colors",
   );
 });
 
-test("homepage accents use neutral theme colors without changing documentation links", () => {
-  for (const selector of [".workroom-eyebrow", ".workroom-secondary", ".workroom-pathway-label"]) {
-    assert.ok(declarations(selector).includes("color: var(--sl-color-gray-2)"), selector);
+test("homepage keeps the brand blue in both themes and respects reduced motion", () => {
+  const dark = declarations(":root:has(.hl)", landing);
+  const light = declarations(':root[data-theme="light"]:has(.hl)', landing);
+  assert.ok(dark.includes("--hl-c1: #48aaff;"));
+  assert.ok(light.includes("--hl-c1: #0169cc;"));
+  for (const theme of [dark, light]) {
+    for (const token of ["--hl-bg", "--hl-text", "--hl-dim", "--hl-grad", "--hl-btn-bg"]) {
+      assert.ok(theme.includes(`${token}:`), token);
+    }
   }
-  assert.ok(declarations(".workroom-pathway-label").includes("font-weight: 600"));
-  assert.ok(declarations(".workroom-pathway-arrow").includes("color: var(--sl-color-gray-3)"));
-  assert.ok(
-    declarations(".workroom-pathway:hover").includes("border-color: var(--sl-color-gray-4)"),
-  );
-  assert.ok(declarations(".workroom-secondary:hover").includes("color: var(--sl-color-white)"));
+  assert.match(landing, /@media \(prefers-reduced-motion: reduce\)/);
+  // 首页样式只挂在首页的根节点下，不改动正文页
+  assert.doesNotMatch(landing, /^(?:body|html|:root)\s*\{/m);
   assert.doesNotMatch(styles, /--sl-color-text-accent\s*:/);
 });
 

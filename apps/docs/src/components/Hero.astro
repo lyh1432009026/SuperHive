@@ -1,51 +1,8 @@
 ---
 import DefaultHero from "@astrojs/starlight/components/Hero.astro";
-import CollabModel from "./CollabModel.astro";
-import { collabScenes } from "./collab-scenes";
-import { localePath, pageLang, ui } from "./i18n";
-import { getSiteConfig } from "../../scripts/site-config.mjs";
 
-const { base } = getSiteConfig();
-const lang = pageLang(Astro.locals);
-const text = ui[lang];
-const scenes = collabScenes[lang];
-// 中文首页的 id 是空字符串，英文首页是 en
+// 中英首页的首屏和整页内容由 index.mdx 里的 Landing 组件负责；其它用 hero 的页面仍用 Starlight 默认样式
 const isHome = ["", "en"].includes(Astro.locals.starlightRoute.id);
-const PAGE_TITLE_ID = "_top";
 ---
 
-{
-  isHome ? (
-    <section class="workroom-hero" aria-labelledby={PAGE_TITLE_ID}>
-      <div class="workroom-copy">
-        <p class="workroom-eyebrow">{text.heroEyebrow}</p>
-        <h1 id={PAGE_TITLE_ID} data-page-title>
-          {text.heroTitle}
-        </h1>
-        <p class="workroom-intro">{text.heroIntro}</p>
-        <div class="workroom-actions">
-          <a class="workroom-primary" href={localePath("start/quickstart/", lang, base)}>
-            {text.heroPrimary} <span aria-hidden="true">→</span>
-          </a>
-          <a class="workroom-secondary" href={localePath("start/overview/", lang, base)}>
-            {text.heroSecondary}
-          </a>
-        </div>
-      </div>
-      <CollabModel scene={scenes.solo} />
-      <div class="workroom-subhead">
-        <h2>{text.teamHeading}</h2>
-        <p>{text.teamIntro}</p>
-      </div>
-      <CollabModel scene={scenes.team} />
-    </section>
-  ) : (
-    <DefaultHero />
-  )
-}
-
-<style>
-  .workroom-actions {
-    margin-bottom: 20px;
-  }
-</style>
+{!isHome && <DefaultHero />}

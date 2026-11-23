@@ -149,8 +149,6 @@ const schema = {
   // 滚动入场：只给首屏以下的内容加，首屏直接显示；没有 JS 或减少动态效果时什么都不做
   const SELECTOR = [
     ".sl-markdown-content > :is(h2, h3, p, ul, ol, table, blockquote, figure, aside, .expressive-code)",
-    ".workroom-subhead",
-    ".workroom-pathway",
     ".pagination-links > a",
   ].join(", ");
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)");

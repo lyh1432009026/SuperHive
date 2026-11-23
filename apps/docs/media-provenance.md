@@ -22,6 +22,12 @@
 - 演示 Server 的 HOME 是临时目录，截图时把它显示成 `~`；`onboard`、`clis` 里的 Agent CLI 是临时 HOME 里只会打印版本号的假命令，版本号和「有新版」也是写死的演示数据，不读截图电脑上的真实安装，不联网查询。
 - 只做裁切与 PNG 调色板压缩，不改画界面。截图只证明界面样子，不证明真实模型任务或远程连接已经实测。
 
+### 首页实景窗口
+
+`public/media/home/` 是上面 `overview`、`preview-dock` 两张演示环境截图（中英、明暗各一份）缩成 960、1600、2400 宽的 WebP，由 `pnpm --filter @superhive/docs home:media`（`scripts/home-media.mjs`）生成，只缩放和压缩，不改画界面。重截 `docs:screens` 后要重跑一次。
+
+首页运行时词云里的 8 个 Agent 标识和网页 `apps/web/src/provider-logos.tsx` 是同一套图形（LobeHub Icons，MIT；omp 取自 omp.sh），预先渲染在 `src/components/home/runtime-logos.ts`。
+
 ## 原创示意图
 
 `public/media/workroom.svg` 与 `public/media/codex2/`、`codex4/`、`architecture/` 的 SVG 为原理或操作示意，必须明确标注非真实界面截图，并带有意义的替代文本。分享图 `social-card.png` 根据 `src/assets/social-card.svg` 用 Sharp 生成，不是产品界面。

@@ -1,0 +1,27 @@
+---
+import DefaultThemeProvider from "@astrojs/starlight/components/ThemeProvider.astro";
+
+// 首页默认深色：没手动选过主题（或选的是「跟随系统」）时固定用深色；手动选浅色照常是浅色。
+// Starlight 的主题切换脚本加载后会按系统偏好重设一次，这里盯住 data-theme，在绘制前改回深色。
+const isHome = ["", "en"].includes(Astro.locals.starlightRoute.id);
+---
+
+<DefaultThemeProvider />
+<script is:inline define:vars={{ isHome }}>
+  (() => {
+    if (!isHome) return;
+    const root = document.documentElement;
+    const force = () => {
+      let stored = "";
+      try {
+        stored = localStorage.getItem("starlight-theme") || "";
+      } catch {}
+      if (stored !== "light" && root.dataset.theme !== "dark") root.dataset.theme = "dark";
+    };
+    force();
+    new MutationObserver(force).observe(root, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+  })();
+</script>

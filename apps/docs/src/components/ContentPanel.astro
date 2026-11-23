@@ -1,0 +1,18 @@
+---
+import DefaultContentPanel from "@astrojs/starlight/components/ContentPanel.astro";
+
+// 首页是全宽的落地页，不套 Starlight 的正文宽度容器
+const isHome = ["", "en"].includes(Astro.locals.starlightRoute.id);
+---
+
+{
+  isHome ? (
+    <div class="content-panel hl-content-panel">
+      <slot />
+    </div>
+  ) : (
+    <DefaultContentPanel>
+      <slot />
+    </DefaultContentPanel>
+  )
+}
