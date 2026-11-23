@@ -446,6 +446,61 @@ describe("worktree MCP permissions and bindings", () => {
     expect((await lookup()).statusCode).toBe(409);
   });
 
+  it("re-verifies a finished turn's workspace when a question was answered before the turn ended", async () => {
+    const { app, join, mcp, run } = await start();
+    const owner = await join("Alice", "human");
+    const helper = await join("helper", "agent");
+    await join("writer", "agent");
+    const first = await run(owner, helper, "helper", "first task");
+    const second = await run(owner, helper, "helper", "second task");
+    const call = await mcp("helper");
+    const created = await call("hive_worktree_create", { slug: "answered-early" });
+    const worktree = created.structuredContent!.worktree as ManagedWorktree;
+    // 同一轮合并了两条消息：中途提问挂在第二条上，人在这一轮还没跑完时就回答了
+    const asked = await call("hive_ask_human", { question: "继续吗？", options: ["继续", "停止"] });
+    const askedId = asked.structuredContent!.invocationId as string;
+    owner.send({
+      type: "question.answer",
+      clientMessageId: "early-answer",
+      questionMessageId: asked.structuredContent!.questionMessageId as string,
+      selected: ["A"],
+    });
+    const answered = await nextEvent(
+      owner,
+      "answered wait completed",
+      (event) =>
+        event.type === "invocation.updated" &&
+        event.invocation.id === askedId &&
+        event.invocation.status === "completed",
+    );
+    if (answered.type !== "invocation.updated") throw new Error("No answered invocation");
+    const askedMessage = answered.invocation.messageId;
+    expect([first.id, second.id]).toContain(askedMessage);
+    const headers = {
+      authorization: "Bearer test-token",
+      "x-hive-room": "general",
+      "x-hive-agent-name": "helper",
+    };
+    const verify = (payload: Record<string, unknown>, agent = "helper") =>
+      app.inject({
+        method: "POST",
+        url: "/api/agent/worktree",
+        headers: { ...headers, "x-hive-agent-name": agent },
+        payload,
+      });
+    // 开工前选目录：已结束的调用不能再拿来开工
+    expect((await verify({ messageIds: [first.id, second.id] })).statusCode).toBe(409);
+    // 这一轮跑完后的复核：已结束的那条照常回目录，整轮不会因此变成结果未知
+    const settled = await verify({ messageIds: [first.id, second.id], settled: true });
+    expect(settled.statusCode).toBe(200);
+    expect(settled.json().worktrees[first.id].path).toBe(worktree.path);
+    expect(settled.json().worktrees[second.id].path).toBe(worktree.path);
+    // 复核也只认这个 Agent 自己的调用
+    expect(
+      (await verify({ messageIds: [first.id, second.id], settled: true }, "writer")).statusCode,
+    ).toBe(409);
+  });
+
   it("finishes a bound wakeup only after a vanished checkout is verified and keeps unrelated work runnable", async () => {
     const { app, repo, git, join, mcp, run, finish } = await start();
     const owner = await join("Alice", "human");

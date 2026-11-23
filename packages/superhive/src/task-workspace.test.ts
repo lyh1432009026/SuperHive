@@ -208,6 +208,22 @@ describe("task workspace resolution", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
+  it("marks the after-turn re-check as settled so tasks finished mid-turn still verify", async () => {
+    const fetch = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () =>
+      Response.json({ worktrees: { first: null, second: null } }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    await resolveTaskWorkspaces(hive, ["first", "second"], quickRetry);
+    await resolveTaskWorkspaces(hive, ["first", "second"], quickRetry, undefined, {
+      settled: true,
+    });
+    const bodies = fetch.mock.calls.map(([, init]) => JSON.parse(String(init?.body)));
+    expect(bodies).toEqual([
+      { messageIds: ["first", "second"] },
+      { messageIds: ["first", "second"], settled: true },
+    ]);
+  });
+
   it("looks up a batch in one request and retains unbound entries", async () => {
     const fetch = vi.fn(async () =>
       Response.json({

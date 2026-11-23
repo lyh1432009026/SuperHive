@@ -9,6 +9,7 @@ import { AgentBridge } from "./bridge.js";
 import {
   resolveTaskWorkspace,
   resolveTaskWorkspaces,
+  type TaskWorkspaceLookupOptions,
   type TaskWorkspaceNoticeSink,
 } from "./task-workspace.js";
 import { AgentManager, type StackHooks } from "./agent-manager.js";
@@ -452,8 +453,11 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
               taskWorkspace: {
                 resolve: (messageId: string, onNotice?: TaskWorkspaceNoticeSink) =>
                   resolveTaskWorkspace(hive, messageId, undefined, onNotice),
-                resolveMany: (messageIds: string[], onNotice?: TaskWorkspaceNoticeSink) =>
-                  resolveTaskWorkspaces(hive, messageIds, undefined, onNotice),
+                resolveMany: (
+                  messageIds: string[],
+                  onNotice?: TaskWorkspaceNoticeSink,
+                  options?: TaskWorkspaceLookupOptions,
+                ) => resolveTaskWorkspaces(hive, messageIds, undefined, onNotice, options),
                 responder: (directory: string) => buildResponder(hive, directory),
               },
             }

@@ -1285,10 +1285,13 @@ describe("AgentBridge", () => {
       const checkout = mode === "unbound" ? undefined : path.join(directory, "checkout");
       let unboundSteer: string | undefined;
       const resolve = vi.fn(async (id: string) => (id === unboundSteer ? undefined : checkout));
-      const resolveMany = vi.fn(
-        async (ids: string[]) =>
-          new Map(ids.map((id) => [id, id === unboundSteer ? undefined : checkout])),
-      );
+      const resolveMany = vi.fn<
+        (
+          ids: string[],
+          sink?: unknown,
+          options?: unknown,
+        ) => Promise<Map<string, string | undefined>>
+      >(async (ids) => new Map(ids.map((id) => [id, id === unboundSteer ? undefined : checkout])));
       taskWorkspace = { resolve, resolveMany, responder: () => responder };
       await startBridge(baseState());
       const first = chat();
@@ -1314,6 +1317,15 @@ describe("AgentBridge", () => {
       expect(responder.calls).toHaveLength(1);
       expect(resolve).toHaveBeenCalledOnce();
       expect(resolveMany).toHaveBeenCalledTimes(2);
+      // 开工前选目录按「能不能开工」查；这一轮跑完后的复核带 settled，中途结束的消息不让整轮变成结果未知
+      expect(resolveMany.mock.calls.map((call) => call.length)).toEqual([2, 3]);
+      expect(resolveMany).toHaveBeenLastCalledWith(
+        [first.id, second.id, late.id],
+        expect.any(Function),
+        {
+          settled: true,
+        },
+      );
     },
   );
 

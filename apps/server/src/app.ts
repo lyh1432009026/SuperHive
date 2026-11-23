@@ -4920,6 +4920,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     request: FastifyRequest,
     reply: FastifyReply,
     messageIds: string[],
+    options: { settled?: boolean } = {},
   ) {
     const participant = connectedMcpAgent(request);
     if (!participant) {
@@ -4949,12 +4950,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       for (const messageId of messageIds) {
         const invocation = database.getInvocationFor(messageId, participant.id);
         // 结果未知（timed_out）还没人收起时，Agent 可能仍在做：比如等模型服务恢复后接着做，
-        // 迟到的进度和结果照常落定，这一轮的任务目录也要照常能复核；人收起后才不再替它选目录
+        // 迟到的进度和结果照常落定，这一轮的任务目录也要照常能复核；人收起后才不再替它选目录。
+        // settled：这一轮已经跑完，Bridge 只是复核执行期间有没有换任务目录，不是拿它开工。
+        // 一轮里合并的几条消息，有的可能在执行中途就结束了（提问被人先回答、续到了新调用，或被人停止），
+        // 这时仍按这个 Agent 自己的调用照常回目录，不能因为其中一条已结束就让整轮变成结果未知
         if (
           !invocation ||
-          invocation.resolution ||
-          invocation.finishedAt ||
-          !["queued", "running", "waiting_human", "timed_out"].includes(invocation.status)
+          (!options.settled &&
+            (invocation.resolution ||
+              invocation.finishedAt ||
+              !["queued", "running", "waiting_human", "timed_out"].includes(invocation.status)))
         ) {
           reply.code(409).send({ error: "An active task is required" });
           return undefined;
@@ -5024,12 +5029,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   );
   app.post<{ Body: unknown }>("/api/agent/worktree", async (request, reply) => {
     const parsed = z
-      .object({ messageIds: z.array(z.string().uuid()).min(1).max(100) })
+      .object({
+        messageIds: z.array(z.string().uuid()).min(1).max(100),
+        settled: z.boolean().optional(),
+      })
       .safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "Invalid message IDs" });
-    const response = await taskWorkspaceResponse(request, reply, [
-      ...new Set(parsed.data.messageIds),
-    ]);
+    const response = await taskWorkspaceResponse(
+      request,
+      reply,
+      [...new Set(parsed.data.messageIds)],
+      { settled: parsed.data.settled === true },
+    );
     return response ?? reply;
   });
 

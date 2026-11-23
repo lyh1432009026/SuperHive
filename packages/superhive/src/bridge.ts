@@ -4,6 +4,7 @@ import {
   TaskWorkspaceBusyError,
   TaskWorkspaceRemovedError,
   type TaskWorkspaceNotice,
+  type TaskWorkspaceLookupOptions,
   type TaskWorkspaceNoticeSink,
   type TaskWorkspaceSelection,
 } from "./task-workspace.js";
@@ -296,6 +297,7 @@ export class AgentBridge {
         resolveMany?: (
           messageIds: string[],
           onNotice?: TaskWorkspaceNoticeSink,
+          options?: TaskWorkspaceLookupOptions,
         ) => Promise<Map<string, TaskWorkspaceSelection>>;
         responder: (cwd: string) => AgentResponder;
       };
@@ -818,12 +820,15 @@ export class AgentBridge {
 
   private async taskWorkspaces(
     messages: ChatMessage[],
+    options?: TaskWorkspaceLookupOptions,
   ): Promise<Map<string, TaskWorkspaceSelection>> {
     const runtime = this.options.taskWorkspace;
     if (!runtime) return new Map(messages.map((message) => [message.id, undefined]));
     const ids = messages.map((message) => message.id);
     const selections = runtime.resolveMany
-      ? await runtime.resolveMany(ids, this.noticeSink)
+      ? await (options
+          ? runtime.resolveMany(ids, this.noticeSink, options)
+          : runtime.resolveMany(ids, this.noticeSink))
       : new Map(
           await Promise.all(
             ids.map(async (id) => [id, await runtime.resolve(id, this.noticeSink)] as const),
@@ -1523,7 +1528,10 @@ export class AgentBridge {
         if (reply.threadId) this.state.threadId = reply.threadId;
         this.reportSession();
         this.notePromptSent(prompt);
-        const selections = await this.taskWorkspaces(active.messages).catch((error: unknown) => {
+        // settled：这一轮已经跑完，合并的消息里有的中途结束了（提问被人先回答、被停止）也照常复核
+        const selections = await this.taskWorkspaces(active.messages, {
+          settled: true,
+        }).catch((error: unknown) => {
           // 这一轮已经执行过了：暂时忙也好、核对不上也好，都不能当成「还没开始」去重跑，交人核对
           if (isCancelled(error, active.controller.signal)) throw error;
           throw new AgentExecutionUncertainError(

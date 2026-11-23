@@ -16,6 +16,11 @@ export type TaskWorkspaceSelection = string | TaskWorkspaceRemovedError | undefi
  * Bridge 要把原因写进提示和任务卡片，不能让 Agent 不知情地在默认目录里改代码。
  */
 export type TaskWorkspaceNotice = { kind: "focus_dropped"; path: string; reason: string };
+/**
+ * settled：这一轮已经跑完，只是复核执行期间有没有换任务目录。合并的几条消息里，有的可能中途就结束了
+ * （提问被人先回答、续到了新调用，或被人停止），Server 照常按这个 Agent 自己的调用回目录，不当成不能开工
+ */
+export type TaskWorkspaceLookupOptions = { settled?: boolean };
 export type TaskWorkspaceNoticeSink = (messageId: string, notice: TaskWorkspaceNotice) => void;
 
 /**
@@ -247,6 +252,7 @@ export async function resolveTaskWorkspaces(
   messageIds: string[],
   retry: TaskWorkspaceRetry = DEFAULT_RETRY,
   onNotice?: TaskWorkspaceNoticeSink,
+  options: TaskWorkspaceLookupOptions = {},
 ): Promise<Map<string, TaskWorkspaceSelection>> {
   try {
     const value = await lookup<{
@@ -257,7 +263,7 @@ export async function resolveTaskWorkspaces(
       {
         url: `${hive.serverUrl}/api/agent/worktree`,
         method: "POST",
-        body: JSON.stringify({ messageIds }),
+        body: JSON.stringify({ messageIds, ...(options.settled ? { settled: true } : {}) }),
       },
       retry,
     );
