@@ -1078,3 +1078,140 @@ describe("runtime approvals", () => {
     await alice.next((event) => event.type === "approval.updated" && event.state === "expired");
   });
 });
+
+describe("schedules across rooms", () => {
+  it("lists schedules across rooms for the owner, only the invited room for a guest, pushes updates across rooms and cancels over HTTP with the same rules", async () => {
+    const { app, port, alice, create } = await executingRoom();
+    const base = `http://127.0.0.1:${port}`;
+    const owner = { Authorization: "Bearer test-token", "Content-Type": "application/json" };
+    const created = await create({
+      runAt: local8(60),
+      task: "general 的提醒",
+      clientMessageId: "g1",
+    });
+    expect(created.isError).toBeFalsy();
+    const general = created.structuredContent!.schedule as Schedule;
+
+    // 另一个房间里的定时任务：Alice 此刻在 general，也要能收到它的推送
+    const database = (app as unknown as { hiveDatabase: HiveDatabase }).hiveDatabase;
+    database.createRoom({ id: "ops", name: "运维" });
+    const opsAgent = database.upsertParticipant({
+      roomId: "ops",
+      username: "patrol",
+      type: "agent",
+    });
+    const opsHuman = database.upsertParticipant({ roomId: "ops", username: "Bob", type: "human" });
+    const origin = database.createMessage(opsHuman, {
+      content: "@patrol 每小时巡检",
+      clientMessageId: "ops-origin",
+    }).message;
+    const ops = database.createSchedule({
+      roomId: "ops",
+      agent: opsAgent,
+      requester: opsHuman,
+      origin,
+      clientId: "o1",
+      task: "ops 的巡检",
+      runAt: utc(30),
+      timeZone: "Asia/Shanghai",
+    }).schedule;
+
+    const list = async (headers: Record<string, string>) => {
+      const response = await fetch(`${base}/api/schedules`, { headers });
+      return {
+        status: response.status,
+        body: (await response.json()) as { schedules: Schedule[] },
+      };
+    };
+    const all = await list(owner);
+    expect(all.status).toBe(200);
+    expect(all.body.schedules.map((item) => item.id).sort()).toEqual([general.id, ops.id].sort());
+    expect((await list({})).status).toBe(401);
+
+    // 访客：只看得到被邀请的房间，只能取消以自己名义排的
+    const invite = (await (
+      await fetch(`${base}/api/rooms/ops/invites`, {
+        method: "POST",
+        headers: owner,
+        body: JSON.stringify({ expiresInMinutes: 60 }),
+      })
+    ).json()) as { token: string };
+    const redeemed = (await (
+      await fetch(`${base}/api/invites/redeem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: invite.token, username: "Carol" }),
+      })
+    ).json()) as { token: string };
+    const guest = { Authorization: `Bearer ${redeemed.token}`, "Content-Type": "application/json" };
+    const guestView = await list(guest);
+    expect(guestView.body.schedules.map((item) => item.id)).toEqual([ops.id]);
+    const guestCancel = async (id: string) =>
+      fetch(`${base}/api/schedules/${id}/cancel`, { method: "POST", headers: guest, body: "{}" });
+    // 别的房间的：当作不存在
+    expect((await guestCancel(general.id)).status).toBe(404);
+    // 自己房间里别人排的：不行
+    expect((await guestCancel(ops.id)).status).toBe(403);
+    expect(database.getSchedule(ops.id)).toMatchObject({ status: "scheduled" });
+
+    const guestPeer = await Peer.connect(`ws://127.0.0.1:${port}/ws`);
+    cleanup.push(() => guestPeer.socket.close());
+    guestPeer.send({
+      type: "participant.join",
+      username: "Carol",
+      participantType: "human",
+      roomId: "ops",
+      token: redeemed.token,
+    });
+    await guestPeer.next((event) => event.type === "room.snapshot");
+
+    // 房主跨房间取消：Alice 的页面开在 general，也收到 ops 的推送
+    const guestPushed = guestPeer.next(
+      (event) => event.type === "schedule.updated" && event.schedule.id === ops.id,
+    );
+    const pushed = alice.next(
+      (event) => event.type === "schedule.updated" && event.schedule.id === ops.id,
+    );
+    const cancelled = await fetch(`${base}/api/schedules/${ops.id}/cancel`, {
+      method: "POST",
+      headers: owner,
+      body: JSON.stringify({ by: "Alice" }),
+    });
+    expect(cancelled.status).toBe(200);
+    expect(((await cancelled.json()) as { schedule: Schedule }).schedule).toMatchObject({
+      status: "cancelled",
+      cancelledBy: "Alice",
+    });
+    expect(scheduleOf(await pushed)).toMatchObject({ roomId: "ops", status: "cancelled" });
+    expect(scheduleOf(await guestPushed)).toMatchObject({ status: "cancelled" });
+    // 访客收不到别的房间的定时任务推送
+    await fetch(`${base}/api/schedules/${general.id}/cancel`, {
+      method: "POST",
+      headers: owner,
+      body: "{}",
+    });
+    await expect(
+      guestPeer.next(
+        (event) => event.type === "schedule.updated" && event.schedule.id === general.id,
+        300,
+      ),
+    ).rejects.toThrow(/Timed out/);
+    // 已经结束的不能再取消
+    const again = await fetch(`${base}/api/schedules/${ops.id}/cancel`, {
+      method: "POST",
+      headers: owner,
+      body: "{}",
+    });
+    expect(again.status).toBe(409);
+    expect(((await again.json()) as { code: string }).code).toBe("SCHEDULE_NOT_PENDING");
+    expect(
+      (
+        await fetch(`${base}/api/schedules/not-a-uuid/cancel`, {
+          method: "POST",
+          headers: owner,
+          body: "{}",
+        })
+      ).status,
+    ).toBe(400);
+  });
+});

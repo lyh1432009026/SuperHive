@@ -12,12 +12,12 @@ import type {
   MessagesResponse,
   MetaResponse,
   RoomSummary,
+  Schedule,
   ServerEvent,
 } from "@superhive/protocol";
 import { localizeServerPayload } from "./server-text";
 import { upsertInvocation } from "./invocations";
 import { upsertWhiteboardEntry } from "./whiteboard";
-import { upsertSchedule } from "./schedules";
 import { isLiveInvocation, mergeTraceSteps } from "./live-trace";
 import type { useAttention } from "./attention-alerts";
 import type { useSlowOps } from "./slow-ops";
@@ -32,6 +32,8 @@ import type { RoomData } from "./use-room-data";
 /** 跨房间的全局事件交给 App 处理：Agent 任务、提及 */
 export type GlobalEvents = {
   onInvocation: (invocation: Invocation) => void;
+  /** 定时任务跨房间推送：左侧「定时任务」面板合并 */
+  onSchedule: (schedule: Schedule) => void;
   onRoomActivity: () => void;
   onSnapshot: () => void;
 };
@@ -104,7 +106,6 @@ export function useRoomConnection({
     setWhiteboard,
     whiteboardEpochRef,
     whiteboardChangesRef,
-    setSchedules,
     setPendingApprovals,
     setTraces,
     endedTracesRef,
@@ -174,7 +175,6 @@ export function useRoomConnection({
           setWhiteboard(new Map((event.whiteboard ?? []).map((entry) => [entry.id, entry])));
           whiteboardEpochRef.current += 1;
           whiteboardChangesRef.current.clear();
-          setSchedules(new Map((event.schedules ?? []).map((schedule) => [schedule.id, schedule])));
           setPendingApprovals(new Set(event.approvals ?? []));
           // 断线期间可能有新附件或撤回
           setArtifactsEpoch((current) => current + 1);
@@ -304,8 +304,7 @@ export function useRoomConnection({
             return next;
           });
         } else if (event.type === "schedule.updated") {
-          if (event.schedule.roomId !== currentRoomId) return;
-          setSchedules((current) => upsertSchedule(current, event.schedule));
+          globalEventsRef.current.onSchedule(event.schedule);
         } else if (event.type === "whiteboard.removed") {
           if (event.roomId !== currentRoomId) return;
           whiteboardChangesRef.current.set(

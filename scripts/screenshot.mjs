@@ -28,8 +28,9 @@ const HELP = `用法：
   --scale <倍数>         设备像素比（默认 1；要高清图用 2）
   --action <动作>        可重复，按顺序执行：
                            code | artifacts            打开「代码」/「产物」面板
+                           schedules                   打开左侧「定时任务」面板
                            settings[:分类]             打开设置，例如 settings:appearance
-                           side:<members|whiteboard|schedules>  右侧栏切到某个 tab
+                           side:<members|whiteboard>   右侧栏切到某个 tab
                            click:<CSS 选择器>          点击元素（等它出现，最多 10 秒）
                            wait:<毫秒> | wait-for:<CSS 选择器>
                            eval:<JS 表达式>            在页面里执行
@@ -64,6 +65,8 @@ export function actionScript(action) {
       return click(".workspace-toggle");
     case "artifacts":
       return click(".artifacts-toggle");
+    case "schedules":
+      return click('[data-entry="schedules"]');
     case "settings":
       return `(async () => {
         await window.__shot.click(".sidebar-user-chip");
@@ -71,7 +74,7 @@ export function actionScript(action) {
         ${arg ? `await window.__shot.click(${JSON.stringify(`[aria-controls="settings-panel-${arg}"]`)});` : ""}
       })()`;
     case "side":
-      if (!arg) throw new Error("side 要写成 side:members / side:whiteboard / side:schedules");
+      if (!arg) throw new Error("side 要写成 side:members / side:whiteboard");
       return click(`#side-tab-${arg}`);
     case "click":
       if (!arg) throw new Error("click 要带 CSS 选择器，例如 click:.workspace-toggle");

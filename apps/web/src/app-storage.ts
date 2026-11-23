@@ -32,8 +32,8 @@ export type ThreadWidth = "standard" | "wide" | "full";
 
 export type MessageSize = "small" | "standard" | "large";
 export type MobilePanel = "members" | "rooms";
-export type SidePanelTab = "members" | "whiteboard" | "schedules";
-export const sidePanelTabs: SidePanelTab[] = ["members", "whiteboard", "schedules"];
+export type SidePanelTab = "members" | "whiteboard";
+export const sidePanelTabs: SidePanelTab[] = ["members", "whiteboard"];
 export const messageNotificationModes = ["off", "mentions", "all"] as const;
 
 export const messageNotificationOptions: Array<{

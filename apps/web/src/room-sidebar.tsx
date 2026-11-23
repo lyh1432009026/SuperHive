@@ -39,6 +39,8 @@ export function RoomSidebar({
   roomNameOf,
   roomReorder,
   roomsCloseRef,
+  scheduleCounts,
+  openSchedules,
   setImDialogOpen,
   setMobilePanel,
   setSettingsOpen,
@@ -85,6 +87,9 @@ export function RoomSidebar({
   roomNameOf: (roomId: string) => string;
   roomReorder: ReturnType<typeof useRoomReorder>;
   roomsCloseRef: RefObject<HTMLButtonElement | null>;
+  /** 左侧「定时任务」入口：pending 是所有房间里待执行的，attention 是上次打开面板后才失败、错过的 */
+  scheduleCounts: { pending: number; attention: number };
+  openSchedules: (trigger?: HTMLElement | null) => void;
   setImDialogOpen: Dispatch<SetStateAction<boolean>>;
   setMobilePanel: Dispatch<SetStateAction<MobilePanel | undefined>>;
   setSettingsOpen: Dispatch<SetStateAction<boolean>>;
@@ -214,6 +219,34 @@ export function RoomSidebar({
             </span>
           )}
         </button>
+        <Tooltip content={t("所有房间的定时任务")}>
+          <button
+            type="button"
+            className="sidebar-action"
+            data-entry="schedules"
+            aria-label={t("定时任务{0}{1}", {
+              0: scheduleCounts.pending ? t("，{0} 个待执行", { 0: scheduleCounts.pending }) : "",
+              1: scheduleCounts.attention
+                ? t("，{0} 个没有正常完成", { 0: scheduleCounts.attention })
+                : "",
+            })}
+            aria-haspopup="dialog"
+            onClick={(event) => openSchedules(event.currentTarget)}
+          >
+            <Icon name="clock" size={16} />
+            <span>{t("定时任务")}</span>
+            {scheduleCounts.pending > 0 && (
+              <span className="sidebar-badge" aria-hidden="true">
+                {scheduleCounts.pending > 99 ? "99+" : scheduleCounts.pending}
+              </span>
+            )}
+            {scheduleCounts.attention > 0 && (
+              <span className="sidebar-badge warning" aria-hidden="true">
+                {scheduleCounts.attention > 99 ? "99+" : scheduleCounts.attention}
+              </span>
+            )}
+          </button>
+        </Tooltip>
         {incidentEntry && (
           <Tooltip content={t("故障单和慢操作")}>
             <button

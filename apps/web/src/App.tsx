@@ -29,7 +29,7 @@ import type {
 import { localizeServerPayload, serverError } from "./server-text";
 import { invocationStatusLabel } from "./invocations";
 import { activeCount, buildProgress } from "./progress";
-import { isPendingSchedule } from "./schedules";
+import { SchedulesDialog } from "./schedules";
 import { ArtifactsPanel, useArtifactCount } from "./artifacts";
 import { moveRoom } from "./room-reorder";
 import { ActivityPanel, isInFlight, type ActivityView } from "./activity";
@@ -119,7 +119,7 @@ import { SidePanel } from "./side-panel";
 import { RoomSidebar } from "./room-sidebar";
 import { useRoomData } from "./use-room-data";
 import { useRoomList } from "./use-room-list";
-import { useRoomConnection } from "./use-room-connection";
+import { useRoomConnection, type GlobalEvents } from "./use-room-connection";
 import { useMessageScroll } from "./use-message-scroll";
 import { useMessageJump, useMessageWindow } from "./use-message-timeline";
 import { useComposer } from "./use-composer";
@@ -188,8 +188,6 @@ export function App({
     setWhiteboard,
     whiteboardEpochRef,
     whiteboardChangesRef,
-    schedules,
-    setSchedules,
     setPendingApprovals,
     setTraces,
     retryRef,
@@ -256,12 +254,9 @@ export function App({
   const activityTriggerRef = useRef<HTMLElement | null>(null);
   const attentionRef = useRef<ReturnType<typeof useAttention> | undefined>(undefined);
   const slowOpsRef = useRef<ReturnType<typeof useSlowOps> | undefined>(undefined);
-  const globalEventsRef = useRef<{
-    onInvocation: (invocation: Invocation) => void;
-    onRoomActivity: () => void;
-    onSnapshot: () => void;
-  }>({
+  const globalEventsRef = useRef<GlobalEvents>({
     onInvocation: () => undefined,
+    onSchedule: () => undefined,
     onRoomActivity: () => undefined,
     onSnapshot: () => undefined,
   });
@@ -408,6 +403,9 @@ export function App({
     [authToken, base],
   );
   const [incidentsView, setIncidentsView] = useState<{ tab: IncidentsTab; focusId?: string }>();
+  // 左侧「定时任务」面板：和「Agent 任务」「故障」同一时间只开一个
+  const [schedulesOpen, setSchedulesOpen] = useState(false);
+  const schedulesTriggerRef = useRef<HTMLElement | null>(null);
   const incidentsTriggerRef = useRef<HTMLElement | null>(null);
   // 房主页面上的报错交给 Server 归档成故障单
   useEffect(() => {
@@ -1066,7 +1064,6 @@ export function App({
       setWhiteboard(new Map());
       whiteboardEpochRef.current += 1;
       whiteboardChangesRef.current.clear();
-      setSchedules(new Map());
       setPendingApprovals(new Set());
       setTraces(new Map());
       setHighlightedMessageId(undefined);
@@ -1126,7 +1123,6 @@ export function App({
     retryInvocation,
     dismissInvocations,
     extendAgentBudget,
-    cancelSchedule,
     removeWhiteboardEntry,
     startNewTopic,
   } = actions;
@@ -1172,6 +1168,7 @@ export function App({
     taskCounts,
     roomTaskCounts,
     markMentionsRead,
+    schedules,
   } = useActivityData({
     base,
     meta,
@@ -1190,7 +1187,7 @@ export function App({
     setMessages((current) => localizeServerPayload(current));
     setInvocations(relocalize);
     setActiveInvocations(relocalize);
-    setSchedules(relocalize);
+    schedules.relocalize();
     setInvocationMessages(relocalize);
   }, [locale]);
 
@@ -1198,6 +1195,7 @@ export function App({
     activityTriggerRef.current = trigger ?? null;
     closeMobilePanel(false);
     setIncidentsView(undefined);
+    setSchedulesOpen(false);
     setActivityView(view);
     if (view === "mentions") void refreshMentions().catch(() => undefined);
     if (view === "tasks") void refreshTasks().catch(() => undefined);
@@ -1209,12 +1207,31 @@ export function App({
   }
 
   function openMessage(message: ChatMessage) {
-    if (message.roomId === currentRoomId) {
-      jumpToMessage(message.id);
+    openRoomMessage(message.roomId, message.id);
+  }
+
+  function openRoomMessage(roomId: string, messageId: string) {
+    if (roomId === currentRoomId) {
+      jumpToMessage(messageId);
       return;
     }
-    setCrossRoomJumpId(message.id);
-    switchRoom(message.roomId);
+    setCrossRoomJumpId(messageId);
+    switchRoom(roomId);
+  }
+
+  function openSchedules(trigger?: HTMLElement | null) {
+    schedulesTriggerRef.current = trigger ?? null;
+    closeMobilePanel(false);
+    setActivityView(undefined);
+    setIncidentsView(undefined);
+    setSchedulesOpen(true);
+    schedules.markSeen();
+    void schedules.refresh().catch(() => undefined);
+  }
+
+  function closeSchedules(restoreFocus = true) {
+    setSchedulesOpen(false);
+    if (restoreFocus) schedulesTriggerRef.current?.focus();
   }
 
   // 成员列表里点忙碌的 Agent：跳到它在做的事；短时间内再点同一个，循环到下一条
@@ -1403,13 +1420,6 @@ export function App({
   }
 
   const online = participants.filter((participant) => participant.status !== "offline");
-  // 这里之前有提前返回（登录页等），不能再用 hook：直接算，数据量很小
-  const onlineAgentNames = new Set(
-    online
-      .filter((participant) => participant.type === "agent")
-      .map((participant) => participant.username.toLocaleLowerCase()),
-  );
-  const pendingScheduleCount = [...schedules.values()].filter(isPendingSchedule).length;
 
   const offline = participants.filter((participant) => participant.status === "offline");
 
@@ -2069,6 +2079,7 @@ export function App({
                     incidentsTriggerRef.current = trigger ?? null;
                     closeMobilePanel(false);
                     setActivityView(undefined);
+                    setSchedulesOpen(false);
                     setIncidentsView({ tab: "incidents", focusId });
                   },
                 }
@@ -2077,6 +2088,8 @@ export function App({
           isOwner={isOwner}
           mobilePanel={mobilePanel}
           modifierKeyLabel={modifierKeyLabel}
+          scheduleCounts={schedules.counts}
+          openSchedules={openSchedules}
           openActivity={openActivity}
           openRoomDialog={openRoomDialog}
           panelWidths={panelWidths}
@@ -2279,7 +2292,6 @@ export function App({
           appendMention={appendMention}
           authToken={authToken}
           base={base}
-          cancelSchedule={cancelSchedule}
           changeWhiteboardArchive={changeWhiteboardArchive}
           closeDockedPreview={closeDockedPreview}
           closeMobilePanel={closeMobilePanel}
@@ -2288,10 +2300,8 @@ export function App({
           dockedPreview={dockedPreview}
           doingCount={doingCount}
           guest={guest}
-          invocations={invocations}
           isLeadAgent={isLeadAgent}
           isOwner={isOwner}
-          jumpToMessage={jumpToMessage}
           loadWhiteboardHistory={loadWhiteboardHistory}
           local={local}
           localAgentNames={localAgentNames}
@@ -2300,17 +2310,14 @@ export function App({
           mobilePanel={mobilePanel}
           offline={offline}
           online={online}
-          onlineAgentNames={onlineAgentNames}
           openAgentDialog={openAgentDialog}
           openAgentTask={openAgentTask}
           openMemberMenu={openMemberMenu}
           panelWidths={panelWidths}
-          pendingScheduleCount={pendingScheduleCount}
           previewDocked={previewDocked}
           progressGroups={progressGroups}
           removeWhiteboardEntry={removeWhiteboardEntry}
           resizePanel={resizePanel}
-          schedules={schedules}
           setDockedPreview={setDockedPreview}
           setError={setError}
           setGuestAgentDialogOpen={setGuestAgentDialogOpen}
@@ -2370,6 +2377,36 @@ export function App({
             }
           }}
           onClose={closeActivity}
+        />
+      )}
+
+      {schedulesOpen && (
+        <SchedulesDialog
+          schedules={schedules.schedules}
+          invocations={schedules.invocations}
+          isAgentOnline={(schedule, invocation) =>
+            schedule.roomId === currentRoomId
+              ? participants.some(
+                  (participant) =>
+                    participant.type === "agent" &&
+                    participant.username.toLocaleLowerCase() ===
+                      schedule.agentName.toLocaleLowerCase() &&
+                    participant.status !== "offline",
+                )
+              : Boolean(invocation && schedules.onlineInvocationIds.has(invocation.id))
+          }
+          roomName={roomNameOf}
+          currentRoomId={currentRoomId}
+          onCancel={schedules.cancel}
+          onJump={(roomId, messageId) => {
+            closeSchedules(false);
+            openRoomMessage(roomId, messageId);
+          }}
+          onOpenRoom={(roomId) => {
+            closeSchedules(false);
+            switchRoom(roomId);
+          }}
+          onClose={() => closeSchedules()}
         />
       )}
 

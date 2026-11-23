@@ -14,6 +14,7 @@ import type { useAttention } from "./attention-alerts";
 import { t } from "./i18n";
 import { readSeqStorageKey } from "./app-storage";
 import type { GlobalEvents } from "./use-room-connection";
+import { useSchedules } from "./use-schedules";
 
 /** 跨房间的数据：提及我的消息、各房间的 Agent 任务、搜索与用量；随全局事件更新 */
 export function useActivityData({
@@ -45,6 +46,8 @@ export function useActivityData({
     new Map(),
   );
   const [onlineInvocationIds, setOnlineInvocationIds] = useState<ReadonlySet<string>>(new Set());
+  const schedules = useSchedules({ base, meta, authToken, username });
+  const { onInvocation: onScheduleInvocation, onSchedule, refresh: refreshSchedules } = schedules;
 
   const authorizedJson = useCallback(
     async <T>(path: string): Promise<T> => {
@@ -116,20 +119,23 @@ export function useActivityData({
           return next;
         });
         taskTimer = debounced(taskTimer, refreshTasks, 1_000);
+        onScheduleInvocation(invocation);
       },
+      onSchedule,
       onRoomActivity: () => {
         mentionTimer = debounced(mentionTimer, refreshMentions, 800);
       },
       onSnapshot: () => {
         void refreshMentions().catch(() => undefined);
         void refreshTasks().catch(() => undefined);
+        void refreshSchedules().catch(() => undefined);
       },
     };
     return () => {
       window.clearTimeout(mentionTimer);
       window.clearTimeout(taskTimer);
     };
-  }, [refreshMentions, refreshTasks]);
+  }, [onSchedule, onScheduleInvocation, refreshMentions, refreshSchedules, refreshTasks]);
 
   const unreadMentionCount = useMemo(
     () =>
@@ -188,5 +194,6 @@ export function useActivityData({
     taskCounts,
     roomTaskCounts,
     markMentionsRead,
+    schedules,
   };
 }

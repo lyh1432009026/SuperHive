@@ -5,7 +5,6 @@ import { fitSideTabs } from "./ui-utils";
 import { sidePanelTabs, type MobilePanel, type SidePanelTab } from "./app-storage";
 import { Icon } from "./app-icons";
 import { Tooltip } from "./tooltip";
-import { SchedulePanel } from "./schedules";
 import {
   ProgressPanel,
   type ProgressGroup,
@@ -17,13 +16,7 @@ import { avatarHueStyle, AvatarGlyph } from "./avatar";
 import { OutdatedBadge } from "./local-agent-updates";
 import { GuestMemberActions, GuestAccessBadge } from "./invite-dialog";
 import { agentProviderLabel, participantStatusLabel } from "./agent-setup";
-import type {
-  Attachment,
-  Invocation,
-  Participant,
-  Schedule,
-  WhiteboardEntry,
-} from "@superhive/protocol";
+import type { Attachment, Participant, WhiteboardEntry } from "@superhive/protocol";
 import type {
   Dispatch,
   SetStateAction,
@@ -43,7 +36,6 @@ export function SidePanel({
   appendMention,
   authToken,
   base,
-  cancelSchedule,
   changeWhiteboardArchive,
   closeDockedPreview,
   closeMobilePanel,
@@ -52,10 +44,8 @@ export function SidePanel({
   dockedPreview,
   doingCount,
   guest,
-  invocations,
   isLeadAgent,
   isOwner,
-  jumpToMessage,
   loadWhiteboardHistory,
   local,
   localAgentNames,
@@ -64,17 +54,14 @@ export function SidePanel({
   mobilePanel,
   offline,
   online,
-  onlineAgentNames,
   openAgentDialog,
   openAgentTask,
   openMemberMenu,
   panelWidths,
-  pendingScheduleCount,
   previewDocked,
   progressGroups,
   removeWhiteboardEntry,
   resizePanel,
-  schedules,
   setDockedPreview,
   setError,
   setGuestAgentDialogOpen,
@@ -94,7 +81,6 @@ export function SidePanel({
   appendMention: (usernameToMention: string) => void;
   authToken: string | undefined;
   base: string;
-  cancelSchedule: (schedule: Schedule) => void;
   changeWhiteboardArchive: (entries: WhiteboardEntry[], archive: boolean) => Promise<void>;
   closeDockedPreview: () => void;
   closeMobilePanel: (restoreFocus?: boolean) => void;
@@ -105,10 +91,8 @@ export function SidePanel({
     | undefined;
   doingCount: number;
   guest: GuestAccess | undefined;
-  invocations: ReadonlyMap<string, Invocation>;
   isLeadAgent: (participant: Participant) => boolean;
   isOwner: boolean;
-  jumpToMessage: (messageId: string) => void;
   loadWhiteboardHistory: () => Promise<void>;
   local: LocalAgentsState;
   localAgentNames: Set<string>;
@@ -117,17 +101,14 @@ export function SidePanel({
   mobilePanel: MobilePanel | undefined;
   offline: Participant[];
   online: Participant[];
-  onlineAgentNames: Set<string>;
   openAgentDialog: (trigger: HTMLButtonElement) => void;
   openAgentTask: (name: string) => void;
   openMemberMenu: (event: ReactMouseEvent<HTMLElement>, participant: Participant) => void;
   panelWidths: { rooms: number; members: number; preview: number };
-  pendingScheduleCount: number;
   previewDocked: boolean;
   progressGroups: Record<ProgressGroup, ProgressItem[]>;
   removeWhiteboardEntry: (entry: WhiteboardEntry) => void;
   resizePanel: (panel: ResizablePanel, width: number) => void;
-  schedules: ReadonlyMap<string, Schedule>;
   setDockedPreview: Dispatch<
     SetStateAction<
       | { roomId: string; attachment: Attachment; senderId: string; seq: number; popped?: boolean }
@@ -240,29 +221,6 @@ export function SidePanel({
                   )}
                 </button>
               </Tooltip>
-              <Tooltip content={t("定时")}>
-                <button
-                  type="button"
-                  role="tab"
-                  id="side-tab-schedules"
-                  aria-selected={sidePanelTab === "schedules"}
-                  aria-controls="side-panel-schedules"
-                  tabIndex={sidePanelTab === "schedules" ? 0 : -1}
-                  className={sidePanelTab === "schedules" ? "active" : ""}
-                  onClick={() => setSidePanelTab("schedules")}
-                >
-                  <Icon name="clock" size={15} />
-                  <span className="side-tab-label">{t("定时")}</span>
-                  {pendingScheduleCount > 0 && (
-                    <span
-                      className="side-tab-count"
-                      aria-label={t("{0} 个待执行", { 0: pendingScheduleCount })}
-                    >
-                      {pendingScheduleCount}
-                    </span>
-                  )}
-                </button>
-              </Tooltip>
             </div>
             <button
               ref={membersCloseRef}
@@ -274,23 +232,7 @@ export function SidePanel({
               <Icon name="close" />
             </button>
           </div>
-          {sidePanelTab === "schedules" ? (
-            <div
-              className="whiteboard-scroll"
-              role="tabpanel"
-              id="side-panel-schedules"
-              aria-labelledby="side-tab-schedules"
-              tabIndex={0}
-            >
-              <SchedulePanel
-                schedules={schedules}
-                invocations={invocations}
-                onlineAgents={onlineAgentNames}
-                onCancel={cancelSchedule}
-                onJump={jumpToMessage}
-              />
-            </div>
-          ) : sidePanelTab === "whiteboard" ? (
+          {sidePanelTab === "whiteboard" ? (
             <div
               className="whiteboard-scroll"
               role="tabpanel"

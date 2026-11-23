@@ -1,5 +1,5 @@
 import { useState, type Dispatch, type RefObject, type SetStateAction } from "react";
-import type { ChatMessage, Invocation, Schedule, WhiteboardEntry } from "@superhive/protocol";
+import type { ChatMessage, Invocation, WhiteboardEntry } from "@superhive/protocol";
 import { createClientMessageId } from "./client-id";
 import { BUDGET_EXTEND_TURNS } from "./invocations";
 import { copyTextToClipboard } from "./clipboard";
@@ -141,10 +141,6 @@ export function useMessageActions({
     );
   }
 
-  function cancelSchedule(schedule: Schedule) {
-    sendClientEvent({ type: "schedule.cancel", scheduleId: schedule.id }, t("无法取消定时任务。"));
-  }
-
   function removeWhiteboardEntry(entry: WhiteboardEntry) {
     if (!window.confirm(t("永久删除这条历史事项？此操作无法恢复。"))) return;
     sendClientEvent(
@@ -173,7 +169,6 @@ export function useMessageActions({
     steerInvocation,
     preemptInvocation,
     extendAgentBudget,
-    cancelSchedule,
     removeWhiteboardEntry,
     startNewTopic,
   };

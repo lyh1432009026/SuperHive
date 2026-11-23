@@ -593,6 +593,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (event.type === "invocation.updated") return event.invocation.roomId;
     if (event.type === "rooms.changed") return event.room.id;
     if (event.type === "room.activity") return event.roomId;
+    if (event.type === "schedule.updated") return event.schedule.roomId;
     return undefined;
   }
 
@@ -2454,7 +2455,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   }
 
   function emitSchedule(schedule: Schedule): Schedule {
-    broadcast(schedule.roomId, { type: "schedule.updated", schedule });
+    // 左侧「定时任务」面板跨房间：推给所有能看到这个房间的页面（访客只收自己房间的）
+    broadcastAll({ type: "schedule.updated", schedule });
     return schedule;
   }
 
@@ -2899,9 +2901,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (actor.type === "agent" && schedule.agentId !== actor.id) {
       throw new HiveError("FORBIDDEN", serverText("error.schedule.ownOnly"));
     }
+    return cancelScheduleAs(schedule, actor.username);
+  }
+
+  /** 取消一个待执行的定时任务；调用方已经核对过权限 */
+  function cancelScheduleAs(schedule: Schedule, by: string): Schedule {
+    const scheduleId = schedule.id;
     const cancelled = database.transitionSchedule(scheduleId, ["scheduled"], "cancelled", {
-      cancelledBy: actor.username,
-      detail: serverText("schedule.cancelledBy", { name: actor.username }),
+      cancelledBy: by,
+      detail: serverText("schedule.cancelledBy", { name: by }),
     });
     if (!cancelled) {
       throw new HiveError(
@@ -5385,6 +5393,75 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     for (const invocation of changed) broadcastAll({ type: "invocation.updated", invocation });
     return { dismissed: changed.map((invocation) => invocation.id) };
   });
+
+  /**
+   * 左侧「定时任务」面板：请求者能看到的所有房间的定时任务（每个房间待执行的在前、最多 50 条）。
+   * 房主看全部房间（含已归档的，免得归档房间里还没到点的任务没处找）；访客只看被邀请的房间。
+   * 附带已发出任务触发的调用，面板按调用状态显示「执行中」「已完成」等；排队的另附 Agent 是否在线。
+   */
+  app.get("/api/schedules", async (request, reply) => {
+    const principal = guard(request, reply);
+    if (!principal) return reply;
+    const roomIds =
+      principal.kind === "admin"
+        ? database.listRooms(true).map((room) => room.id)
+        : [principal.resolved.session.roomId];
+    const schedules = slowOps.measure("schedules.list", {}, () =>
+      roomIds.flatMap((roomId) => database.listSchedules(roomId)),
+    );
+    const invocations = schedules
+      .map((schedule) =>
+        schedule.invocationId ? database.getInvocation(schedule.invocationId) : undefined,
+      )
+      .filter((invocation): invocation is Invocation => Boolean(invocation));
+    const onlineInvocationIds = invocations
+      .filter((invocation) => onlineAgent(invocation.roomId, invocation.agentName))
+      .map((invocation) => invocation.id);
+    return { schedules, invocations, onlineInvocationIds };
+  });
+
+  /**
+   * 在全局面板里取消定时任务（跨房间，走 HTTP）。权限和房间里取消一样：
+   * 房主可以取消任何房间的；访客只能取消自己房间里以自己名义排的。
+   */
+  app.post<{ Params: { scheduleId: string } }>(
+    "/api/schedules/:scheduleId/cancel",
+    async (request, reply) => {
+      const principal = guard(request, reply);
+      if (!principal) return reply;
+      const params = z.object({ scheduleId: z.string().uuid() }).safeParse(request.params);
+      const body = z
+        .object({ by: z.string().trim().min(1).max(32).optional() })
+        .safeParse(request.body ?? {});
+      if (!params.success || !body.success)
+        return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+      const schedule = database.getSchedule(params.data.scheduleId);
+      if (!schedule || !canAccessRoom(principal, schedule.roomId)) {
+        return reply.code(404).send({
+          ...errorText(serverText("error.schedule.notFound")),
+          code: "SCHEDULE_NOT_FOUND",
+        });
+      }
+      let by = body.data.by ?? "房主";
+      if (principal.kind === "guest") {
+        const session = principal.resolved.session;
+        const self = database.findParticipant(session.roomId, session.username);
+        if (!self || schedule.requesterId !== self.id) {
+          return reply.code(403).send({
+            ...errorText(serverText("error.guest.cancelScheduleOwn")),
+            code: "OWNER_ONLY",
+          });
+        }
+        by = session.username;
+      }
+      try {
+        return { schedule: cancelScheduleAs(schedule, by) };
+      } catch (error) {
+        if (error instanceof HiveError) return reply.code(409).send(hiveErrorBody(error));
+        throw error;
+      }
+    },
+  );
 
   app.get<{ Params: { roomId: string }; Querystring: { view?: string } }>(
     "/api/rooms/:roomId/whiteboard",

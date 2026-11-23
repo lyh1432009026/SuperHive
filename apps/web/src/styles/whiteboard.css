@@ -707,3 +707,41 @@
   color: var(--accent);
   font-size: var(--text-xs);
 }
+
+/* 左侧「定时任务」面板：沿用「Agent 任务」弹出面板，行样式同上 */
+.schedules-dialog .activity-body {
+  padding: 0 0 12px;
+}
+
+.schedules-dialog .whiteboard {
+  padding-top: 4px;
+}
+
+.schedules-room-filter {
+  max-width: 200px;
+}
+
+/* 所属房间：点了跳过去 */
+.schedule-room {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0 4px;
+  margin-left: -4px;
+  background: transparent;
+  color: var(--accent);
+  font-size: inherit;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.schedule-room:hover {
+  background: var(--accent-soft);
+}
+
+.schedule-room[aria-current="page"] {
+  color: var(--text-secondary);
+}

@@ -35,6 +35,8 @@ function props(patch: Partial<Props> = {}): Props {
       listRef: createRef(),
     } as unknown as Props["roomReorder"],
     roomsCloseRef: createRef(),
+    scheduleCounts: { pending: 0, attention: 0 },
+    openSchedules: vi.fn(),
     setImDialogOpen: vi.fn(),
     setMobilePanel: vi.fn(),
     setSettingsOpen: vi.fn(),
@@ -91,6 +93,50 @@ describe("sidebar incident entry", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /TypeError: escalated/ }));
     expect(open).toHaveBeenCalledWith(undefined, "i1");
+  });
+});
+
+describe("sidebar schedules entry", () => {
+  it("sits with Agent tasks for everyone, guests included, and opens the panel", () => {
+    const openSchedules = vi.fn();
+    render(<RoomSidebar {...props({ isOwner: false, openSchedules })} />);
+    const quick = screen.getByRole("navigation", { name: "快捷操作" });
+    const entry = screen.getByRole("button", { name: "定时任务" });
+    expect(quick.contains(entry)).toBe(true);
+    // 紧跟在「Agent 任务」后面
+    const actions: HTMLElement[] = [...quick.querySelectorAll("button")];
+    expect(actions.indexOf(entry)).toBe(
+      actions.indexOf(screen.getByRole("button", { name: "Agent 任务" })) + 1,
+    );
+    expect(entry.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(entry.querySelector(".sidebar-badge")).toBeNull();
+    fireEvent.click(entry);
+    expect(openSchedules).toHaveBeenCalledWith(entry);
+  });
+
+  it("counts pending ones and flags new failures and misses in warning color", () => {
+    const { rerender } = render(
+      <RoomSidebar {...props({ scheduleCounts: { pending: 4, attention: 0 } })} />,
+    );
+    const pending = screen.getByRole("button", { name: "定时任务，4 个待执行" });
+    const badges = () => [...pending.querySelectorAll(".sidebar-badge")];
+    expect(badges().map((badge) => [badge.className, badge.textContent])).toEqual([
+      ["sidebar-badge", "4"],
+    ]);
+
+    rerender(<RoomSidebar {...props({ scheduleCounts: { pending: 120, attention: 2 } })} />);
+    const flagged = screen.getByRole("button", {
+      name: "定时任务，120 个待执行，2 个没有正常完成",
+    });
+    expect(
+      [...flagged.querySelectorAll(".sidebar-badge")].map((badge) => [
+        badge.className,
+        badge.textContent,
+      ]),
+    ).toEqual([
+      ["sidebar-badge", "99+"],
+      ["sidebar-badge warning", "2"],
+    ]);
   });
 });
 

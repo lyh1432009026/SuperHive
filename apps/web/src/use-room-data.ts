@@ -3,7 +3,6 @@ import type {
   ChatMessage,
   Invocation,
   Participant,
-  Schedule,
   TraceStep,
   WhiteboardEntry,
 } from "@superhive/protocol";
@@ -32,7 +31,6 @@ export function useRoomData({
   const [whiteboard, setWhiteboard] = useState<ReadonlyMap<string, WhiteboardEntry>>(new Map());
   const whiteboardEpochRef = useRef(0);
   const whiteboardChangesRef = useRef(new Map<string, number>());
-  const [schedules, setSchedules] = useState<ReadonlyMap<string, Schedule>>(new Map());
   /** 还在等人批的权限申请（提问消息 ID） */
   const [pendingApprovals, setPendingApprovals] = useState<ReadonlySet<string>>(new Set());
   /**
@@ -127,8 +125,6 @@ export function useRoomData({
     setWhiteboard,
     whiteboardEpochRef,
     whiteboardChangesRef,
-    schedules,
-    setSchedules,
     pendingApprovals,
     setPendingApprovals,
     traces,

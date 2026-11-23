@@ -251,9 +251,9 @@ export const APP_SHOTS = [
       await open(d, demo);
       await d.place(900, 600);
       const rec = await d.record(dir);
-      await d.click("#side-tab-schedules", { after: 700 });
-      await zoomTop(d, "#side-panel-schedules", 420);
-      await d.hover("#side-panel-schedules li", { ms: 900 });
+      await d.click('[data-entry="schedules"]', { after: 700 });
+      await zoomTop(d, ".schedules-dialog", 420);
+      await d.hover(".schedules-dialog li", { ms: 900 });
       await d.wait(2600);
       return rec.stop();
     },

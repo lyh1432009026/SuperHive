@@ -11,7 +11,7 @@ It isn't a model provider, and it doesn't turn the phone you open the web page o
 
 ![The full SuperHive web app: the room list and "Needs you" on the left, the #shop-web room conversation with an agent question card and a running task in the middle, and the member list on the right: besides another member, Zhou, it shows agents on your computer — three claudes plus codex, gemini, agy and others — and two codex agents connected from Zhou's own computer.](/media/screens/overview.png)
 
-Screenshot of the demo environment: names, rooms, and repositories are sample data, and the image follows the docs' light/dark theme. The left column switches rooms and collects everything waiting for your answer or decision; the middle shows the room conversation and each task's status; the right column shows members, Progress (Needs you, In progress, Recently done), and scheduled tasks.
+Screenshot of the demo environment: names, rooms, and repositories are sample data, and the image follows the docs' light/dark theme. The left column switches rooms, collects everything waiting for your answer or decision, and its **Schedules** entry gathers the scheduled tasks of every room; the middle shows the room conversation and each task's status; the right column shows members and Progress (Needs you, In progress, Recently done).
 
 You are here: [Docs home](/en/) → [Overview](/en/start/overview/). If this is your first time, start with [Installation](/en/start/installation/) and the [Quickstart](/en/start/quickstart/).
 

@@ -166,6 +166,7 @@ test("截图参数：多主题加后缀、预置动作、首次引导跳过", as
   assert.match(actionScript("artifacts"), /\.artifacts-toggle/);
   assert.match(actionScript("settings:appearance"), /settings-panel-appearance/);
   assert.match(actionScript("side:whiteboard"), /#side-tab-whiteboard/);
+  assert.match(actionScript("schedules"), /data-entry=\\"schedules\\"/);
   assert.match(actionScript("click:a:hover"), /"a:hover"/);
   // wait-for 只等元素出现，不把元素当结果按值回传（DOM 元素回传会报错）
   const element = { tagName: "DIV" };

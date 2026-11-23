@@ -9,6 +9,7 @@ import type {
   ChatMessage,
   Invocation,
   Participant,
+  Schedule,
   ServerEvent,
   WhiteboardEntry,
 } from "@superhive/protocol";
@@ -133,7 +134,19 @@ const crossRoom: {
   invocations: Invocation[];
   invocationMessages: ChatMessage[];
   searchable: ChatMessage[];
-} = { mentions: [], invocations: [], invocationMessages: [], searchable: [] };
+  /** GET /api/schedules：所有能看到的房间的定时任务与它们触发的调用 */
+  schedules: Schedule[];
+  scheduleInvocations: Invocation[];
+  scheduleRequests: Array<{ url: string; method: string; body?: unknown }>;
+} = {
+  mentions: [],
+  invocations: [],
+  invocationMessages: [],
+  searchable: [],
+  schedules: [],
+  scheduleInvocations: [],
+  scheduleRequests: [],
+};
 
 const whiteboardApi: {
   entries: WhiteboardEntry[];
@@ -194,6 +207,9 @@ describe("App mention autocomplete", () => {
     crossRoom.invocations = [];
     crossRoom.invocationMessages = [];
     crossRoom.searchable = [];
+    crossRoom.schedules = [];
+    crossRoom.scheduleInvocations = [];
+    crossRoom.scheduleRequests = [];
     whiteboardApi.entries = [];
     whiteboardApi.requests = [];
     localApi.enabled = false;
@@ -313,6 +329,31 @@ describe("App mention autocomplete", () => {
           return jsonResponse({
             invocations: crossRoom.invocations,
             messages: crossRoom.invocationMessages,
+          });
+        }
+        if (url.includes("/api/schedules")) {
+          const method = init?.method ?? "GET";
+          crossRoom.scheduleRequests.push({
+            url,
+            method,
+            ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}),
+          });
+          const cancel = /\/api\/schedules\/([^/]+)\/cancel$/.exec(url);
+          if (cancel && method === "POST") {
+            const target = crossRoom.schedules.find((item) => item.id === cancel[1])!;
+            const schedule = {
+              ...target,
+              status: "cancelled" as const,
+              cancelledBy: "Alice",
+              detail: "Alice 取消了",
+              updatedAt: new Date(Date.now() + 1_000).toISOString(),
+            };
+            return jsonResponse({ schedule });
+          }
+          return jsonResponse({
+            schedules: crossRoom.schedules,
+            invocations: crossRoom.scheduleInvocations,
+            onlineInvocationIds: [],
           });
         }
         if (url.includes("/api/search")) {
@@ -2033,12 +2074,12 @@ describe("App mention autocomplete", () => {
 
     const entry = await screen.findByRole("button", { name: "产物：1 个图片和文件" });
     expect(entry.textContent).toContain("1");
-    // 右侧栏只剩成员、进展、定时；「产物」是头部打开的大面板
+    // 右侧栏只剩成员、进展（定时任务在左侧）；「产物」是头部打开的大面板
     expect(
       within(screen.getByRole("tablist", { name: "侧栏视图" }))
         .getAllByRole("tab")
         .map((tab) => tab.id),
-    ).toEqual(["side-tab-members", "side-tab-whiteboard", "side-tab-schedules"]);
+    ).toEqual(["side-tab-members", "side-tab-whiteboard"]);
     await user.click(entry);
     expect(entry.getAttribute("aria-pressed")).toBe("true");
     const panel = screen.getByRole("dialog", { name: "产物" });
@@ -3728,15 +3769,11 @@ describe("App mention autocomplete", () => {
     expect(names()).toEqual(["# frontend", "# general"]);
   });
 
-  it("lists scheduled tasks with their run state and lets a human cancel a pending one", async () => {
+  it("lists every room's scheduled tasks in the left-side panel, filters by room, cancels and follows live updates", async () => {
     const user = userEvent.setup();
     localStorage.setItem("superhive.username", "Alice");
     localStorage.setItem("superhive.notify-prompt-dismissed", "true");
-    render(<App />);
-    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
-    const socket = FakeWebSocket.instances[0]!;
-    act(() => socket.open());
-
+    localStorage.removeItem("superhive.schedules-seen-at");
     const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
     const agent = participant("00000000-0000-4000-8000-000000000002", "helper", "agent");
     const now = new Date().toISOString();
@@ -3752,22 +3789,65 @@ describe("App mention autocomplete", () => {
       createdAt: now,
       updatedAt: now,
     };
-    const pending = {
+    const pending: Schedule = {
       ...base,
       id: "00000000-0000-4000-8000-0000000000c1",
       task: "0 点提醒 Alice 看部署结果",
       runAt: new Date(Date.now() + 90 * 60_000).toISOString(),
-      status: "scheduled" as const,
+      status: "scheduled",
     };
-    const fired = {
+    const fired: Schedule = {
       ...base,
       id: "00000000-0000-4000-8000-0000000000c2",
       task: "推送日报",
       runAt: new Date(Date.now() - 5 * 60_000).toISOString(),
-      status: "fired" as const,
+      status: "fired",
       triggerMessageId: "00000000-0000-4000-8000-0000000000d1",
       invocationId: "00000000-0000-4000-8000-0000000000e1",
     };
+    // 另一个房间的周期任务（比当前房间的更早执行）和一个已错过的
+    const patrol: Schedule = {
+      ...base,
+      roomId: "frontend",
+      id: "00000000-0000-4000-8000-0000000000c3",
+      task: "巡检 MR 评论",
+      runAt: new Date(Date.now() + 20 * 60_000).toISOString(),
+      status: "scheduled",
+      everyMinutes: 30,
+      until: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
+      occurrence: 2,
+      seriesId: "00000000-0000-4000-8000-0000000000f1",
+    };
+    const missed: Schedule = {
+      ...base,
+      roomId: "frontend",
+      id: "00000000-0000-4000-8000-0000000000c4",
+      task: "周报汇总",
+      runAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+      status: "missed",
+      detail: "Server 当时没在运行",
+    };
+    crossRoom.schedules = [pending, fired, patrol, missed];
+    crossRoom.scheduleInvocations = [
+      {
+        id: fired.invocationId!,
+        roomId: "general",
+        messageId: fired.triggerMessageId!,
+        agentId: agent.id,
+        agentName: "helper",
+        requesterId: self.id,
+        requesterName: "Alice",
+        requesterType: "human",
+        status: "completed",
+        attempts: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
     act(() =>
       socket.serverEvent({
         type: "room.snapshot",
@@ -3775,63 +3855,85 @@ describe("App mention autocomplete", () => {
         participants: [self, agent],
         messages: [],
         latestSeq: 0,
-        invocations: [
-          {
-            id: fired.invocationId,
-            roomId: "general",
-            messageId: fired.triggerMessageId,
-            agentId: agent.id,
-            agentName: "helper",
-            requesterId: self.id,
-            requesterName: "Alice",
-            requesterType: "human",
-            status: "completed",
-            attempts: 1,
-            createdAt: now,
-            updatedAt: now,
-          },
-        ],
-        schedules: [pending, fired],
       }),
     );
 
-    const panel = screen.getByLabelText("成员列表");
-    const tab = within(panel).getByRole("tab", { name: /定时/ });
-    expect(within(tab).getByText("1")).toBeTruthy();
-    await user.click(tab);
-    const list = within(panel).getByRole("tabpanel");
-    expect(
-      within(list)
-        .getAllByRole("heading")
-        .map((heading) => heading.textContent),
-    ).toEqual(["待执行1", "已发出与结束1"]);
-    expect(within(list).getByText("0 点提醒 Alice 看部署结果")).toBeTruthy();
-    expect(within(list).getAllByText(/Asia\/Shanghai/, { selector: "time" })).toHaveLength(2);
-    // 跑完了但没有回复：不当成成功
-    expect(within(list).getByText("没有回复")).toBeTruthy();
-    expect(within(list).getByText(/1 小时 30 分钟后|1 小时 29 分钟后/)).toBeTruthy();
-
-    await user.click(
-      within(list).getByRole("button", { name: "取消定时任务：0 点提醒 Alice 看部署结果" }),
-    );
-    expect(JSON.parse(socket.sent.at(-1)!)).toEqual({
-      type: "schedule.cancel",
-      scheduleId: pending.id,
+    // 右侧栏不再有「定时」
+    expect(screen.queryByRole("tab", { name: /定时/ })).toBeNull();
+    // 左侧入口：两个房间共 2 个待执行；没打开过面板，错过和没有回复的醒目提示
+    const entry = await screen.findByRole("button", {
+      name: "定时任务，2 个待执行，2 个没有正常完成",
     });
+    await user.click(entry);
+    const dialog = screen.getByRole("dialog", { name: "定时任务" });
+    expect(
+      within(dialog)
+        .getAllByRole("heading", { level: 3 })
+        .map((heading) => heading.textContent),
+    ).toEqual(["待执行2", "最近结束2"]);
+    // 同组按执行时间：别的房间那个 20 分钟后的排在前面
+    expect([...dialog.querySelectorAll(".schedule-task")].map((task) => task.textContent)).toEqual([
+      "巡检 MR 评论",
+      "0 点提醒 Alice 看部署结果",
+      "推送日报",
+      "周报汇总",
+    ]);
+    expect(within(dialog).getAllByRole("button", { name: "打开房间 frontend" })).toHaveLength(2);
+    expect(within(dialog).getByText(/每 30 分钟 · 第 2 次 · 到/)).toBeTruthy();
+    expect(within(dialog).getByText("没有回复")).toBeTruthy();
+    expect(within(dialog).getByText("已错过")).toBeTruthy();
+    // 打开过就算看过：入口只剩待执行数
+    expect(screen.getByRole("button", { name: "定时任务，2 个待执行" })).toBeTruthy();
+
+    // 按房间筛选
+    await user.click(within(dialog).getByRole("combobox", { name: "按房间筛选" }));
+    await user.click(screen.getByRole("option", { name: /# frontend/ }));
+    expect([...dialog.querySelectorAll(".schedule-task")].map((task) => task.textContent)).toEqual([
+      "巡检 MR 评论",
+      "周报汇总",
+    ]);
+    await user.click(within(dialog).getByRole("combobox", { name: "按房间筛选" }));
+    await user.click(screen.getByRole("option", { name: /全部房间/ }));
+
+    // 取消走跨房间的 HTTP 接口，以当前用户名义
+    await user.click(
+      within(dialog).getByRole("button", { name: "取消定时任务：0 点提醒 Alice 看部署结果" }),
+    );
+    await waitFor(() =>
+      expect(crossRoom.scheduleRequests.at(-1)).toEqual({
+        url: expect.stringContaining(`/api/schedules/${pending.id}/cancel`),
+        method: "POST",
+        body: { by: "Alice" },
+      }),
+    );
+    await waitFor(() => expect(within(dialog).getByText("已取消")).toBeTruthy());
+    expect(screen.getByRole("button", { name: "定时任务，1 个待执行" })).toBeTruthy();
+
+    // 别的房间推来的更新也合并进面板（服务端跨房间推送）
     act(() =>
       socket.serverEvent({
         type: "schedule.updated",
         schedule: {
-          ...pending,
-          status: "cancelled",
-          cancelledBy: "Alice",
-          detail: "Alice 取消了",
-          updatedAt: new Date(Date.now() + 1_000).toISOString(),
+          ...patrol,
+          status: "failed",
+          detail: "执行的 Agent 已被移出房间",
+          updatedAt: new Date(Date.now() + 5_000).toISOString(),
         },
       }),
     );
-    expect(within(list).getByText("已取消")).toBeTruthy();
-    expect(within(tab).queryByText("1")).toBeNull();
+    expect(within(dialog).getByText("没能发出")).toBeTruthy();
+    // 看过之后新出的失败照样醒目提示
+    expect(screen.getByRole("button", { name: "定时任务，1 个没有正常完成" })).toBeTruthy();
+
+    // 点房间名跳过去并关掉面板
+    await user.click(within(dialog).getAllByRole("button", { name: "打开房间 frontend" })[0]!);
+    expect(screen.queryByRole("dialog", { name: "定时任务" })).toBeNull();
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2));
+    act(() => FakeWebSocket.instances[1]!.open());
+    expect(JSON.parse(FakeWebSocket.instances[1]!.sent[0]!)).toMatchObject({
+      type: "participant.join",
+      roomId: "frontend",
+    });
   });
 
   it("keeps the room spinner while another task in the room failed", async () => {

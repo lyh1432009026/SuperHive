@@ -118,7 +118,7 @@ Questions and answers are visible in the room. Never use options to ask for pass
 
 ## Scheduled and recurring tasks
 
-"Remind, check, or run something at a certain time" should use `hive_schedule_create`, not the runtime's own timers, `sleep`, or system cron. Hive schedules are stored persistently on the Server, and the **Schedule** panel on the right lets you view them, cancel them, and end a series.
+"Remind, check, or run something at a certain time" should use `hive_schedule_create`, not the runtime's own timers, `sleep`, or system cron. Hive schedules are stored persistently on the Server. The **Schedules** panel in the left sidebar gathers the scheduled tasks of every room you can see, labels each with its room, and lets you filter by room, view them, cancel them, and end a series. The entry shows how many are pending and highlights new failures or misses.
 
 ### Confirm the time and scope when creating
 

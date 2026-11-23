@@ -109,7 +109,7 @@ pnpm screenshot --compare output/before.png output/after.png --out output/compar
 ```
 
 - 自动跳过首次引导和通知授权提示，默认以 `rd` 进入（`--user` 可以改），并开启「减少动态效果」，截出来的图更稳定。
-- 预置动作有：`code`、`artifacts`（打开「代码」或「产物」面板）、`settings[:分类]`、`side:<members|whiteboard|schedules>`、`click:<选择器>`、`wait:<毫秒>`、`wait-for:<选择器>`、`eval:<JS>`，按顺序执行。元素 10 秒内没出现就报错，不会把截错的图当成功。
+- 预置动作有：`code`、`artifacts`（打开「代码」或「产物」面板）、`settings[:分类]`、`schedules`（打开左侧「定时任务」面板）、`side:<members|whiteboard>`、`click:<选择器>`、`wait:<毫秒>`、`wait-for:<选择器>`、`eval:<JS>`，按顺序执行。元素 10 秒内没出现就报错，不会把截错的图当成功。
 - `--theme light,dark` 一次截两张，文件名自动加上 `-light`、`-dark`。`--compare` 会把多张图原尺寸并排拼起来，并加标签（默认「改前」「改后」）。
 - 「改前」的图：在 main 的工作区（或改动前的提交）上照样起一个沙箱再截。
 - `--hide-sandbox-badge` 可以隐藏顶部的沙箱标记。Chrome 按常见安装位置查找，也可以用 `--chrome` 或环境变量 `CHROME_PATH` 指定。
@@ -313,7 +313,7 @@ Agent 的行为规则有一份权威来源：`apps/server/src/agent-instructions
 | 撤销（邀请链接）            | revoke                                   |                                                      |
 | 话题 / 新话题               | topic / new topic                        |                                                      |
 | 白板                        | whiteboard                               |                                                      |
-| 定时任务 / 周期             | scheduled task / series                  | 面板标题写 Schedule                                  |
+| 定时任务 / 周期             | scheduled task / series                  | 左侧入口和面板标题写 Schedules                       |
 | 批准 / 放行                 | approve / approval                       |                                                      |
 | 结果未知                    | outcome unknown                          |                                                      |
 | 需要你处理                  | needs you                                | 计数里写 need attention                              |
