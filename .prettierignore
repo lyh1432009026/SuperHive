@@ -9,3 +9,4 @@ packages/superhive/skills
 *.sqlite-shm
 *.sqlite-wal
 ChatGPT.md
+.superhive-dev
