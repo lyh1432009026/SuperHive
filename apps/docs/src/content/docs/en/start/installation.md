@@ -120,6 +120,14 @@ hive autostart status
 
 `hive autostart off` turns off start at login. Autostart applies to the current system user: macOS uses a LaunchAgent, Linux a systemd user service, and Windows the Startup folder. It's best to enable it after a global install: `hive update` updates in place and keeps the same path, so you usually don't need to re-enable it. Run `hive autostart on` again if you switch Node version managers or change the global install directory. Autostart enabled through npx stops working once the npx cache is cleared.
 
+## Desktop app (preview)
+
+If you'd rather not type commands, try the SuperHive desktop app: double-click it and it starts Hive on this computer (or connects to the one `hive start` is already running), showing the same web app in its own window. The header gets a **Terminal** button that opens a terminal in the room's workspace folder, so you don't have to switch apps.
+
+- It uses the same `~/.superhive/` data folder as the CLI, so your rooms and messages are all there. Quitting the app only stops a Server the app started itself.
+- The terminal exists only inside the desktop app. Opening the web app in a browser, over the LAN or on a phone shows no terminal and can't reach it.
+- During the preview there's no published installer yet; build it from source as described in [Development](/en/reference/development/#desktop-app).
+
 ## Notes
 
 - The default data directory is `~/.superhive/`, which holds messages, authentication data, and logs. Don't share the whole directory as a public attachment; for backup and restore, see the [Deployment reference](/en/reference/deployment/).

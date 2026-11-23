@@ -133,6 +133,18 @@ npx --yes superhive@latest join \
 
 `hive autostart on` 让 Server 在登录这台电脑后自动启动，电脑重启后本机 Agent 也会跟着回来。
 
+## 桌面端（预览）
+
+`apps/desktop` 是 Electron 桌面端：双击打开就在本机起 Hive（`hive start` 已经在跑就直接连上），窗口里是同一个网页，另外多一个内置终端，默认在当前房间的工作区目录打开。终端只在桌面端里有，浏览器和局域网里打开的网页碰不到。还没有发布安装包，先从源码运行或打包：
+
+```bash
+pnpm install
+pnpm --filter @superhive/desktop dev    # 本地运行
+pnpm --filter @superhive/desktop make   # 打包，产物在 apps/desktop/out/
+```
+
+细节见 [apps/desktop/README.md](apps/desktop/README.md)。
+
 ## 接下来看
 
 - [文档站](https://wangrongding.github.io/SuperHive/)：安装与快速上手、日常功能、Agent 协作和部署参考，带真实界面截图；源码在 [apps/docs](apps/docs/README.md)，main 上一改就自动发布。

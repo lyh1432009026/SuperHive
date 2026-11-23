@@ -66,6 +66,7 @@ export function ChatHeader({
   membersCollapsed,
   setMembersCollapsed,
   setDockedPreview,
+  terminal,
 }: {
   roomsCollapsed: boolean;
   setRoomsCollapsed: Dispatch<SetStateAction<boolean>>;
@@ -105,6 +106,8 @@ export function ChatHeader({
       | undefined
     >
   >;
+  /** 内置终端开关：只有在桌面端里才传，浏览器里没有这个按钮 */
+  terminal?: { open: boolean; toggle: () => void };
 }) {
   const { shareMode, setShareMode, exitShareMode } = share;
   const [moreMenu, setMoreMenu] = useState<ContextMenuState>();
@@ -134,6 +137,7 @@ export function ChatHeader({
       onSelect: toggleWorkspace,
     },
     share: { label: shareLabel, onSelect: toggleShare },
+    ...(terminal ? { terminal: { label: t("终端"), onSelect: terminal.toggle } } : {}),
   };
   const workspaceName = currentRoomWorkspace?.split("/").filter(Boolean).at(-1);
   return (
@@ -281,6 +285,21 @@ export function ChatHeader({
                   {workspaceChangeCount > 999 ? "999+" : workspaceChangeCount}
                 </span>
               )}
+            </button>
+          </Tooltip>
+        )}
+        {terminal && (
+          <Tooltip content={t("终端（Ctrl+`）：在当前房间的工作区目录打开")}>
+            <button
+              type="button"
+              className={`header-button terminal-toggle ${terminal.open ? "active" : ""}`}
+              data-overflow="terminal"
+              aria-label={t("终端")}
+              aria-pressed={terminal.open}
+              onClick={terminal.toggle}
+            >
+              <Icon name="terminal" size={16} />
+              <span className="header-button-label">{t("终端")}</span>
             </button>
           </Tooltip>
         )}

@@ -77,6 +77,21 @@ describe("ChatHeader", () => {
     ).toEqual(["新话题", "工作区文件与改动", "分享对话"]);
   });
 
+  it("shows the terminal button only inside the desktop app", () => {
+    const { unmount } = render(<ChatHeader {...props()} />);
+    expect(screen.queryByRole("button", { name: "终端" })).toBeNull();
+    unmount();
+
+    const toggle = vi.fn();
+    const { container } = render(<ChatHeader {...props({ terminal: { open: true, toggle } })} />);
+    const button = screen.getByRole("button", { name: "终端" });
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(button.getAttribute("data-overflow")).toBe("terminal");
+    fireEvent.click(button);
+    expect(toggle).toHaveBeenCalledTimes(1);
+    expect(container.querySelectorAll(".header-button-label")).toHaveLength(5);
+  });
+
   it("offers new topic and share from the More menu", () => {
     const base = props();
     render(<ChatHeader {...base} />);
@@ -145,7 +160,10 @@ describe("顶栏响应式样式", () => {
     expect(block("max-width: 820px")).toContain(".chat-title-counts");
     expect(block("max-width: 660px")).toContain(".header-button-label");
     const narrow = block("max-width: 500px");
-    expect(narrow).toContain('[data-overflow="new-topic"], [data-overflow="share"]');
+    // 新话题、分享（桌面端还有终端）一起收进「更多」
+    for (const name of ["new-topic", "share", "terminal"]) {
+      expect(narrow).toContain(`[data-overflow="${name}"]`);
+    }
     expect(narrow).toContain(".header-button.header-more");
     expect(block("max-width: 360px")).toContain('[data-overflow="workspace"]');
     // 按钮文字不再跟着窗口宽度的媒体查询藏

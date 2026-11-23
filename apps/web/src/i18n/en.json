@@ -1853,5 +1853,13 @@
   "按房间筛选": "Filter by room",
   "当前房间": "Current room",
   "去这个房间": "Go to this room",
-  "打开房间 {0}": "Open room {0}"
+  "打开房间 {0}": "Open room {0}",
+  "终端（Ctrl+`）：在当前房间的工作区目录打开": "Terminal (Ctrl+`): opens in this room's workspace folder",
+  "终端启动失败：{0}": "Couldn't start the terminal: {0}",
+  "进程已退出（代码 {0}）": "Process exited (code {0})",
+  "拖动调整终端高度": "Drag to resize the terminal",
+  "关闭这个终端": "Close this terminal",
+  "新建终端": "New terminal",
+  "收起终端面板（终端继续运行）": "Hide the terminal panel (terminals keep running)",
+  "收起终端面板": "Hide terminal panel"
 }

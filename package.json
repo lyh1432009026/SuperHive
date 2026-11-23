@@ -38,7 +38,9 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "better-sqlite3",
-      "esbuild"
+      "esbuild",
+      "fs-xattr",
+      "macos-alias"
     ]
   },
   "devDependencies": {

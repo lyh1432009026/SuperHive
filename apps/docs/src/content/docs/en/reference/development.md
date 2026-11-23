@@ -15,15 +15,16 @@ This diagram shows how the code and runtime pieces relate; it is not a screensho
 
 ## Monorepo layout
 
-| Directory            | Responsibility                                    | Runtime relationship                                              |
-| -------------------- | ------------------------------------------------- | ----------------------------------------------------------------- |
-| `packages/protocol`  | Shared types, schemas, limits, and server text    | The web app, Server, and Bridge use the same protocol             |
-| `packages/superhive` | npm package, `hive` CLI, Bridge, runtime adapters | Runs on the Server or agent machines                              |
-| `apps/server`        | Fastify, WebSocket, SQLite, MCP, IM               | Needs persistent data and identity authorization                  |
-| `apps/web`           | React + Vite web app                              | Calls the Server; the production build ships with the npm package |
-| `apps/docs`          | Astro + Starlight illustrated docs                | Deployed as a standalone static site; no Hive service needed      |
-| `skills/superhive`   | Collaboration instructions for agents             | Published with the CLI; printable with `hive --skill`             |
-| `scripts`            | Dev supervisor and verification scripts           | Development or acceptance tooling, not a public API               |
+| Directory            | Responsibility                                         | Runtime relationship                                              |
+| -------------------- | ------------------------------------------------------ | ----------------------------------------------------------------- |
+| `packages/protocol`  | Shared types, schemas, limits, and server text         | The web app, Server, and Bridge use the same protocol             |
+| `packages/superhive` | npm package, `hive` CLI, Bridge, runtime adapters      | Runs on the Server or agent machines                              |
+| `apps/server`        | Fastify, WebSocket, SQLite, MCP, IM                    | Needs persistent data and identity authorization                  |
+| `apps/web`           | React + Vite web app                                   | Calls the Server; the production build ships with the npm package |
+| `apps/docs`          | Astro + Starlight illustrated docs                     | Deployed as a standalone static site; no Hive service needed      |
+| `apps/desktop`       | Electron desktop app: local Hive and built-in terminal | Packaged as a standalone app, reuses the npm package build        |
+| `skills/superhive`   | Collaboration instructions for agents                  | Published with the CLI; printable with `hive --skill`             |
+| `scripts`            | Dev supervisor and verification scripts                | Development or acceptance tooling, not a public API               |
 
 Don't confuse the docs app with the web app. `pnpm docs:build` only builds the docs; the CLI's distribution build still uses the `apps/web` application, and running Hive doesn't require building the docs.
 
@@ -57,6 +58,19 @@ pnpm docs:verify
 ```
 
 For whole-repo acceptance use `pnpm lint`, `pnpm test`, and `pnpm build`. Run the checks for the package you changed first, then widen according to the impact; don't report real-model or IM verification you didn't run as passed. Docs builds default to a no-index preview; for publishing configuration see [Standalone docs deployment](/en/reference/documentation/).
+
+## Desktop app
+
+`apps/desktop` wraps SuperHive in Electron 45. It starts the local Hive in a `utilityProcess` (or connects to the one `hive start` runs, via `~/.superhive/server.json`), loads the existing web app from `http://127.0.0.1:<port>`, and adds a terminal: node-pty in the main process, xterm in the page. The terminal is reachable only through Electron IPC; pages opened in a browser or over the LAN don't get it.
+
+```bash
+pnpm --filter @superhive/desktop dev          # assemble .stage/app and launch
+pnpm --filter @superhive/desktop test         # unit tests
+pnpm --filter @superhive/desktop test:smoke   # launch the app, run a command in the terminal, add a local agent
+pnpm --filter @superhive/desktop make         # build installers into apps/desktop/out/
+```
+
+The app is assembled in `apps/desktop/.stage/app` with its own npm-installed runtime dependencies, so the Electron build never touches the workspace's pnpm `node_modules`. Packaged builds turn off the `RunAsNode` fuse; the Server learns how to start local agents from `HIVE_LOCAL_AGENT_CLI`, and the app runs its bundled CLI when started with `--superhive-cli`. Code signing, notarization, auto-update and publishing are not set up yet. See `apps/desktop/README.md` for details and what's needed before a release.
 
 ## MCP and HTTP extension points
 

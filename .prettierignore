@@ -10,3 +10,8 @@ packages/superhive/skills
 *.sqlite-wal
 ChatGPT.md
 .superhive-dev
+apps/desktop/.stage
+apps/desktop/out
+apps/desktop/screenshots
+apps/desktop/test-results
+apps/desktop/playwright-report

@@ -1,0 +1,156 @@
+/* 桌面端内置终端：停靠在对话区底部，只在桌面端按需加载 */
+.terminal-panel {
+  position: relative;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-height: 140px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-code);
+}
+
+.terminal-panel[hidden] {
+  display: none;
+}
+
+.terminal-resizer {
+  position: absolute;
+  top: -4px;
+  right: 0;
+  left: 0;
+  z-index: 2;
+  height: 8px;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.terminal-resizer:hover,
+.terminal-resizer:focus-visible {
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)) center / 100% 2px no-repeat;
+  outline: none;
+}
+
+.terminal-tabs {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  align-items: center;
+  min-width: 0;
+  height: 34px;
+  padding: 0 6px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-light);
+  scrollbar-width: none;
+}
+
+.terminal-tab {
+  display: flex;
+  flex: none;
+  align-items: center;
+  border-radius: 6px;
+  color: var(--text-secondary);
+}
+
+.terminal-tab:hover {
+  background: var(--bg-hover);
+}
+
+.terminal-tab.active {
+  background: var(--bg-active);
+  color: var(--text);
+}
+
+.terminal-tab.exited .terminal-tab-label {
+  opacity: 0.6;
+}
+
+.terminal-tab-label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  height: 26px;
+  padding: 0 4px 0 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.terminal-tab-index {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.terminal-tab-cwd {
+  max-width: 160px;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-tab-close,
+.terminal-action {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.terminal-tab-close:hover,
+.terminal-action:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.terminal-tabs-spacer {
+  flex: 1;
+}
+
+.terminal-error {
+  overflow: hidden;
+  color: var(--danger);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 6px 0 4px 10px;
+}
+
+.terminal-host {
+  width: 100%;
+  height: 100%;
+}
+
+.terminal-host[hidden] {
+  display: none;
+}
+
+.terminal-panel .xterm,
+.terminal-panel .xterm-viewport {
+  background-color: var(--bg-code) !important;
+}
+
+.terminal-panel .xterm-viewport {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+@media (max-width: 720px) {
+  .terminal-tab-cwd {
+    display: none;
+  }
+}

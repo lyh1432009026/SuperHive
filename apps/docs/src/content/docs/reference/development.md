@@ -15,15 +15,16 @@ description: 了解 SuperHive monorepo 的协议、网页、服务端、Agent Br
 
 ## Monorepo 目录
 
-| 目录                 | 职责                                   | 运行时关系                           |
-| -------------------- | -------------------------------------- | ------------------------------------ |
-| `packages/protocol`  | 共用类型、Schema、限制和服务端文案     | 网页、Server、Bridge 使用同一协议    |
-| `packages/superhive` | npm 包、`hive` CLI、Bridge、运行时适配 | 在 Server 或 Agent 设备执行          |
-| `apps/server`        | Fastify、WebSocket、SQLite、MCP、IM    | 需要持久数据和身份授权               |
-| `apps/web`           | React + Vite 网页                      | 调用 Server，生产构建可随 npm 包分发 |
-| `apps/docs`          | Astro + Starlight 图文文档             | 独立静态部署，不需要 Hive 服务       |
-| `skills/superhive`   | 给 Agent 使用的协作说明                | 随 CLI 发布，`hive --skill` 可打印   |
-| `scripts`            | 开发 supervisor 与验证脚本             | 开发或验收工具，不是公开 API         |
+| 目录                 | 职责                                   | 运行时关系                            |
+| -------------------- | -------------------------------------- | ------------------------------------- |
+| `packages/protocol`  | 共用类型、Schema、限制和服务端文案     | 网页、Server、Bridge 使用同一协议     |
+| `packages/superhive` | npm 包、`hive` CLI、Bridge、运行时适配 | 在 Server 或 Agent 设备执行           |
+| `apps/server`        | Fastify、WebSocket、SQLite、MCP、IM    | 需要持久数据和身份授权                |
+| `apps/web`           | React + Vite 网页                      | 调用 Server，生产构建可随 npm 包分发  |
+| `apps/docs`          | Astro + Starlight 图文文档             | 独立静态部署，不需要 Hive 服务        |
+| `apps/desktop`       | Electron 桌面端：起本机 Hive、内置终端 | 打包成独立应用，复用 npm 包的构建产物 |
+| `skills/superhive`   | 给 Agent 使用的协作说明                | 随 CLI 发布，`hive --skill` 可打印    |
+| `scripts`            | 开发 supervisor 与验证脚本             | 开发或验收工具，不是公开 API          |
 
 文档应用与网页应用不能混为一谈。`pnpm docs:build` 只构建文档；CLI 的分发构建仍使用 `apps/web` 的业务网页，不需要打包文档才能运行 Hive。
 
@@ -57,6 +58,19 @@ pnpm docs:verify
 ```
 
 全仓验收使用 `pnpm lint`、`pnpm test`、`pnpm build`。修改哪个包先跑相应检查，再按影响范围扩展；不要把未运行的真实模型或 IM 验证写成已通过。文档构建默认是禁止索引的预览，发布配置见[独立文档部署](/reference/documentation/)。
+
+## 桌面端
+
+`apps/desktop` 用 Electron 45 包装 SuperHive：在 `utilityProcess` 里起本机 Hive（`hive start` 已经在跑就按 `~/.superhive/server.json` 直接连上），窗口加载 `http://127.0.0.1:<端口>` 的现有网页，另加一个终端：主进程里是 node-pty，页面里是 xterm。终端只走 Electron IPC，浏览器或局域网里打开的网页拿不到。
+
+```bash
+pnpm --filter @superhive/desktop dev          # 组装 .stage/app 并启动
+pnpm --filter @superhive/desktop test         # 单元测试
+pnpm --filter @superhive/desktop test:smoke   # 真的启动应用、在终端里执行命令、接入一个本机 Agent
+pnpm --filter @superhive/desktop make         # 打安装包，产物在 apps/desktop/out/
+```
+
+应用组装在 `apps/desktop/.stage/app`，运行时依赖用 npm 单独装一份，Electron 的构建不会碰仓库的 pnpm `node_modules`。打包版关了 `RunAsNode` fuse：Server 从 `HIVE_LOCAL_AGENT_CLI` 得知怎么拉起本机 Agent，桌面端带 `--superhive-cli` 启动时只运行包里的 CLI。代码签名、公证、自动更新和发布还没做，细节和发版前要准备的见 `apps/desktop/README.md`。
 
 ## MCP 与 HTTP 扩展入口
 

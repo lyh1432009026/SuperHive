@@ -8,6 +8,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { BranchGlyph } from "./worktree-switcher";
+import { TerminalDock, useDesktopTerminal } from "./terminal-dock";
 import { useSlowOps } from "./slow-ops";
 import { incidentsAvailable, useIncidents } from "./incidents-panel";
 import { IncidentsDialog, type IncidentsTab } from "./incidents-dialog";
@@ -507,6 +508,8 @@ export function App({
   );
   const currentRoomName = currentRoom?.name ?? currentRoomId;
   const currentRoomWorkspace = currentRoom?.workspace;
+  // 桌面端内置终端；浏览器里是 undefined，不显示入口
+  const desktopTerminal = useDesktopTerminal();
   const share = useShareSelection({ messages, currentRoomId, currentRoomName });
 
   /* 工作区面板（文件与 git 变更，只读）：房主总能打开；访客要房主在房间设置里允许，服务端同样校验 */
@@ -2152,6 +2155,9 @@ export function App({
             membersCollapsed={membersCollapsed}
             setMembersCollapsed={setMembersCollapsed}
             setDockedPreview={setDockedPreview}
+            {...(desktopTerminal
+              ? { terminal: { open: desktopTerminal.open, toggle: desktopTerminal.toggle } }
+              : {})}
           />
           <ChatNotices
             error={error}
@@ -2220,6 +2226,7 @@ export function App({
             richComposer={richComposer}
             currentRoomId={currentRoomId}
           />
+          <TerminalDock state={desktopTerminal} cwd={currentRoomWorkspace} />
         </section>
 
         {workspaceOpen && canViewWorkspace && (

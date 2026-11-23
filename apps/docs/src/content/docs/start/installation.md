@@ -120,6 +120,14 @@ hive autostart status
 
 `hive autostart off` 关闭登录时启动。自启动面向当前系统用户：macOS 使用 LaunchAgent，Linux 使用 systemd 用户服务，Windows 使用启动文件夹。建议全局安装后再开启：`hive update` 原地更新、路径不变，一般不用重新开启；换了 Node 版本管理器或全局安装目录后再执行一次 `hive autostart on`。用 npx 开启的自启动，npx 缓存被清理后会失效。
 
+## 桌面端（预览）
+
+不想开终端敲命令，也可以用 SuperHive 桌面端：双击打开，它会在本机启动 Hive（`hive start` 已经起了就直接连上），窗口里就是同一个网页。顶栏多一个「终端」按钮，在当前房间的工作区目录打开一个终端，不用再切到别的程序。
+
+- 数据目录和 CLI 是同一个 `~/.superhive/`，已有的房间和消息都在；退出桌面端时只停它自己起的那个 Server。
+- 终端只在桌面端里有，浏览器、局域网或手机上打开网页都看不到，也碰不到。
+- 预览阶段还没有发布安装包，需要从源码打包，见 [开发与扩展](/reference/development/#桌面端)。
+
 ## 注意事项
 
 - 默认数据目录是 `~/.superhive/`，其中有消息、认证数据和日志。不要把整个目录作为公开附件；备份和恢复看 [部署参考](/reference/deployment/)。

@@ -133,6 +133,18 @@ When running through `npx`, there's no `hive update`; use `npx superhive@latest 
 
 `hive autostart on` starts the server when you log in to this computer, so local agents come back after a reboot too.
 
+## Desktop app (preview)
+
+`apps/desktop` is an Electron desktop app: double-click it and it starts Hive on this computer (or connects to the one `hive start` is already running), showing the same web app in its own window plus a built-in terminal that opens in the room's workspace folder. The terminal exists only inside the desktop app; pages opened in a browser or over the LAN can't reach it. There's no published installer yet, so run or build it from source:
+
+```bash
+pnpm install
+pnpm --filter @superhive/desktop dev    # run locally
+pnpm --filter @superhive/desktop make   # build installers into apps/desktop/out/
+```
+
+Details (Chinese) are in [apps/desktop/README.md](apps/desktop/README.md).
+
 ## Learn more
 
 - [Documentation](https://wangrongding.github.io/SuperHive/en/): installation and quickstart, everyday features, agent collaboration, and deployment reference, with real screenshots. The source lives in [apps/docs](apps/docs/README.md) and is published automatically on every change to main.

@@ -624,7 +624,11 @@
 }
 
 @container chat-header (max-width: 500px) {
-  .header-button:is([data-overflow="new-topic"], [data-overflow="share"]) {
+  .header-button:is(
+    [data-overflow="new-topic"],
+    [data-overflow="share"],
+    [data-overflow="terminal"]
+  ) {
     display: none;
   }
 

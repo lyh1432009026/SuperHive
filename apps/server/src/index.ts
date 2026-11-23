@@ -14,6 +14,7 @@ import type { ImChannelDriver } from "./im/types.js";
 import { lanAddresses } from "./lan-address.js";
 
 import type { AgentCli } from "./local-agents.js";
+import { agentCliOverride } from "./agent-cli-override.js";
 
 const host = process.env.HIVE_HOST ?? "0.0.0.0";
 const port = Number.parseInt(process.env.HIVE_PORT ?? "8787", 10);
@@ -54,6 +55,9 @@ if (isDevRuntime && !process.env.HIVE_LAUNCH_DIR) {
 }
 
 function localAgentCli(): AgentCli | undefined {
+  // 桌面端等宿主自己指定怎么拉起 Agent（那里 process.execPath 不是 Node）
+  const override = agentCliOverride(process.env.HIVE_LOCAL_AGENT_CLI);
+  if (override) return override;
   if (isDevRuntime) {
     return {
       command: process.execPath,

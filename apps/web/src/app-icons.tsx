@@ -35,6 +35,7 @@ export type IconName =
   | "settings"
   | "share"
   | "shield"
+  | "terminal"
   | "undo"
   | "user"
   | "user-plus"
@@ -81,6 +82,12 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
       </>
     ),
     check: <path d="m5 12 4 4L19 6" />,
+    terminal: (
+      <>
+        <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+        <path d="m7.5 9.5 3 2.5-3 2.5M12.5 15h4" />
+      </>
+    ),
     clock: (
       <>
         <circle cx="12" cy="12" r="8.5" />
