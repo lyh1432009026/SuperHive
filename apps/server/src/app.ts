@@ -545,7 +545,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     options.staticDir ?? path.resolve(import.meta.dirname, "../../web/dist");
   const hasWebUi = existsSync(path.join(configuredStaticDir, "index.html"));
   if (hasWebUi) {
-    await app.register(fastifyStatic, { root: configuredStaticDir, wildcard: false });
+    // wildcard: true 每次请求再去目录里找文件。wildcard: false 只认启动时已有的文件，
+    // 运行中重新构建网页（文件名带新哈希）后新资源全部 404、页面白屏
+    await app.register(fastifyStatic, { root: configuredStaticDir, wildcard: true });
   }
   // 网页的内容安全策略：只运行自己的脚本，减少注入脚本偷走 localStorage 里登录凭证的可能。
   // 同上面慢操作那个钩子，用回调式，不推迟写响应头
