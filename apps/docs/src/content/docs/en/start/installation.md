@@ -120,14 +120,19 @@ hive autostart status
 
 `hive autostart off` turns off start at login. Autostart applies to the current system user: macOS uses a LaunchAgent, Linux a systemd user service, and Windows the Startup folder. It's best to enable it after a global install: `hive update` updates in place and keeps the same path, so you usually don't need to re-enable it. Run `hive autostart on` again if you switch Node version managers or change the global install directory. Autostart enabled through npx stops working once the npx cache is cleared.
 
-## Desktop app (preview)
+## Desktop app
+
+:::note[The Mac desktop app is here]
+Installers are coming soon on [GitHub Releases](https://github.com/wangrongding/SuperHive/releases); a download link will be added here once they're published. To try it now, build it from source as described in [Development](/en/reference/development/#desktop-app).
+:::
 
 If you'd rather not type commands, try the SuperHive desktop app: double-click it and it starts Hive on this computer (or connects to the one `hive start` is already running), showing the same web app in its own window. The header gets a **Terminal** button that opens a terminal in the room's workspace folder, so you don't have to switch apps.
 
 - It uses the same `~/.superhive/` data folder as the CLI, so your rooms and messages are all there. Quitting the app only stops a Server the app started itself.
 - The terminal exists only inside the desktop app. Opening the web app in a browser, over the LAN or on a phone shows no terminal and can't reach it.
 - The window has no system title bar; the app reaches the top edge. On macOS the traffic-light buttons sit at the top of the left sidebar; on Windows and Linux the minimize, maximize and close buttons sit at the top right and follow the light or dark theme. Drag the top row to move the window, and double-click it to maximize or zoom as your system is set up. If the buttons look wrong under some Linux window manager, start the app with `SUPERHIVE_DESKTOP_TITLEBAR=native` to get the system title bar back.
-- During the preview there's no published installer yet; build it from source as described in [Development](/en/reference/development/#desktop-app).
+- Local agents can join and come online right from the desktop app, no separate terminal needed.
+- It's still a preview: installers aren't signed yet, so on macOS right-click the app and choose **Open** the first time. Windows and Linux builds are in progress; their packaging config exists but hasn't been verified on real machines.
 
 ## Notes
 

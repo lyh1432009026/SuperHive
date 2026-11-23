@@ -599,6 +599,16 @@ const hiveCells = Array.from({ length: 14 }, (_, index) => ({
         }
       </ol>
       <p class="hl-note">{s.install.note}</p>
+      <div class="hl-desktop">
+        <p class="hl-desktop-title">
+          <span class="hl-desktop-badge">{s.install.desktop.badge}</span>{s.install.desktop.title}
+        </p>
+        <p>{s.install.desktop.text}</p>
+        <p class="hl-desktop-status">{s.install.desktop.status}</p>
+        <a class="hl-desktop-link" href={to(s.install.desktop.href)}
+          >{s.install.desktop.link} <span aria-hidden="true">→</span></a
+        >
+      </div>
       <a class="hl-more" href={to("start/installation/")}
         >{s.install.more} <span aria-hidden="true">→</span></a
       >

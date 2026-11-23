@@ -88,6 +88,14 @@ interface Copy {
       steps: { step: string; title: string; command: string; text: string }[];
       note: string;
       more: string;
+      desktop: {
+        badge: string;
+        title: string;
+        text: string;
+        status: string;
+        link: string;
+        href: string;
+      };
     };
     community: {
       label: string;
@@ -330,6 +338,15 @@ export const landingText: Record<Lang, Copy> = {
         ],
         note: "不想全局安装，用 npx superhive 临时跑也一样。",
         more: "完整安装说明",
+        desktop: {
+          badge: "新",
+          title: "不想敲命令？用 Mac 桌面端。",
+          text: "双击打开就在本机启动 Hive，已有的房间和消息都在；自带终端，默认开在房间的工作目录；本机 Agent 直接在里面接入上线。",
+          status:
+            "安装包即将在 GitHub Releases 提供。预览版还没签名，第一次打开要右键选「打开」；Windows 和 Linux 版还在适配。",
+          link: "了解桌面端",
+          href: "start/installation/#桌面端",
+        },
       },
       community: {
         label: "社区",
@@ -617,6 +634,15 @@ export const landingText: Record<Lang, Copy> = {
         ],
         note: "Rather not install globally? npx superhive works the same way.",
         more: "Full installation guide",
+        desktop: {
+          badge: "New",
+          title: "Rather not type commands? Try the Mac desktop app.",
+          text: "Double-click to start Hive on this computer, with your existing rooms and messages. It has a built-in terminal that opens in the room's workspace, and local agents join right from the app.",
+          status:
+            "Installers are coming soon on GitHub Releases. The preview isn't signed yet, so right-click and choose Open the first time. Windows and Linux builds are in progress.",
+          link: "About the desktop app",
+          href: "start/installation/#desktop-app",
+        },
       },
       community: {
         label: "Community",

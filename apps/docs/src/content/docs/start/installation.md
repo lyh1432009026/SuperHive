@@ -120,14 +120,19 @@ hive autostart status
 
 `hive autostart off` 关闭登录时启动。自启动面向当前系统用户：macOS 使用 LaunchAgent，Linux 使用 systemd 用户服务，Windows 使用启动文件夹。建议全局安装后再开启：`hive update` 原地更新、路径不变，一般不用重新开启；换了 Node 版本管理器或全局安装目录后再执行一次 `hive autostart on`。用 npx 开启的自启动，npx 缓存被清理后会失效。
 
-## 桌面端（预览）
+## 桌面端
+
+:::note[Mac 桌面端已经可以用了]
+安装包即将在 [GitHub Releases](https://github.com/wangrongding/SuperHive/releases) 提供，发布后这里会补上下载链接。现在想先试，可以按 [开发与扩展](/reference/development/#桌面端) 从源码打包。
+:::
 
 不想开终端敲命令，也可以用 SuperHive 桌面端：双击打开，它会在本机启动 Hive（`hive start` 已经起了就直接连上），窗口里就是同一个网页。顶栏多一个「终端」按钮，在当前房间的工作区目录打开一个终端，不用再切到别的程序。
 
 - 数据目录和 CLI 是同一个 `~/.superhive/`，已有的房间和消息都在；退出桌面端时只停它自己起的那个 Server。
 - 终端只在桌面端里有，浏览器、局域网或手机上打开网页都看不到，也碰不到。
 - 窗口没有系统标题栏，界面顶到最上面：macOS 的红黄绿按钮在左侧栏顶部，Windows / Linux 的最小化、最大化、关闭按钮在右上角，颜色跟着深浅色主题变。拖顶部那一行能移动窗口，双击按系统设置最大化或缩放。个别 Linux 窗口管理器上按钮显示不正常时，设环境变量 `SUPERHIVE_DESKTOP_TITLEBAR=native` 再启动，改回系统标题栏。
-- 预览阶段还没有发布安装包，需要从源码打包，见 [开发与扩展](/reference/development/#桌面端)。
+- 本机 Agent 可以直接在桌面端里接入、上线，不用另开终端。
+- 目前还是预览版：安装包没有签名，macOS 第一次打开要在应用上右键选「打开」；Windows 和 Linux 版还在适配，打包配置已经写好，还没在真机上验证。
 
 ## 注意事项
 
