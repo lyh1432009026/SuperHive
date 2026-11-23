@@ -69,6 +69,53 @@ test("opens a terminal from the header and runs a command", async () => {
   await runTerminalCommand(page, "terminal.png");
 });
 
+test("system title bar is gone; window buttons sit clear of the content", async () => {
+  await enterRoom(page);
+  const win = await app.evaluate(({ BrowserWindow }) => {
+    const w = BrowserWindow.getAllWindows().find((x) =>
+      x.webContents.getURL().startsWith("http://127.0.0.1:"),
+    )!;
+    return {
+      bounds: w.getBounds(),
+      content: w.getContentBounds(),
+      buttons: process.platform === "darwin" ? w.getWindowButtonPosition() : null,
+    };
+  });
+  // 网页内容顶到窗口最上面：没有系统标题栏占高度
+  expect(win.content.height).toBe(win.bounds.height);
+  expect(win.content.y).toBe(win.bounds.y);
+  const html = page.locator("html");
+  const platform = { darwin: "mac", win32: "win" }[process.platform as string] ?? "linux";
+  await expect(html).toHaveAttribute("data-desktop", platform);
+  await expect(html).toHaveAttribute(
+    "data-titlebar",
+    process.platform === "darwin" ? "mac" : "overlay",
+  );
+  // 顶栏可拖动，里面的按钮不拖
+  const region = (selector: string) =>
+    page
+      .locator(selector)
+      .first()
+      .evaluate((el) => getComputedStyle(el).getPropertyValue("-webkit-app-region"));
+  expect(await region(".chat-header")).toBe("drag");
+  expect(await region(".sidebar-header")).toBe("drag");
+  expect(await region(".chat-header button")).toBe("no-drag");
+  if (process.platform === "darwin") {
+    // 红黄绿按钮（三个约 52px 宽）在左侧栏顶部那一行里垂直居中，不压住 logo
+    const brand = (await page.locator(".sidebar-header .brand").boundingBox())!;
+    const header = (await page.locator(".sidebar-header").boundingBox())!;
+    expect(win.buttons!.x + 54).toBeLessThan(brand.x);
+    const buttonsCenter = win.buttons!.y + 7;
+    expect(Math.abs(buttonsCenter - (header.y + header.height / 2))).toBeLessThanOrEqual(2);
+    // 侧栏收起时，聊天顶栏的折叠按钮同样让开
+    await page.locator(".rooms-toggle").click();
+    const toggle = (await page.locator(".rooms-toggle").boundingBox())!;
+    expect(win.buttons!.x + 54).toBeLessThan(toggle.x);
+    await page.locator(".rooms-toggle").click();
+    await expect(page.locator(".sidebar-header .brand")).toBeVisible();
+  }
+});
+
 test("local agents launch through the app binary, not a separate Node", async () => {
   await launchLocalAgent(page);
 });
@@ -103,7 +150,7 @@ test("renderer is locked down", async () => {
     await page.evaluate(() =>
       Object.keys((window as unknown as { superhiveDesktop: object }).superhiveDesktop).sort(),
     ),
-  ).toEqual(["platform", "terminal", "version"]);
+  ).toEqual(["platform", "terminal", "titlebar", "version"]);
   // 同源的 iframe 拿不到能力：preload 只在顶层框架暴露
   const inFrame = await page.evaluate(async () => {
     const frame = document.createElement("iframe");

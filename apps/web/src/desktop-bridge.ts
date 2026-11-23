@@ -19,10 +19,24 @@ export type DesktopTerminalApi = {
   onNewRequest(listener: () => void): () => void;
 };
 
+export type DesktopTitlebarAppearance = {
+  height: number;
+  color: string;
+  symbolColor: string;
+  inactiveSymbolColor: string;
+};
+
+/** 系统标题栏去掉后，网页把顶栏高度和主题颜色同步给窗口（老版本桌面端没有这一项） */
+export type DesktopTitlebarApi = {
+  mode: "mac" | "overlay" | "native";
+  setAppearance(appearance: DesktopTitlebarAppearance): void;
+};
+
 export type DesktopBridge = {
   version: number;
   platform: string;
   terminal: DesktopTerminalApi;
+  titlebar?: DesktopTitlebarApi;
 };
 
 declare global {
@@ -51,6 +65,11 @@ export function desktopBridge(
   const terminal = value.terminal as Partial<DesktopTerminalApi> | undefined;
   if (!terminal || TERMINAL_METHODS.some((name) => typeof terminal[name] !== "function")) {
     return undefined;
+  }
+  const titlebar = value.titlebar as Partial<DesktopTitlebarApi> | undefined;
+  if (titlebar !== undefined && (!titlebar || typeof titlebar.setAppearance !== "function")) {
+    // 标题栏接口形状不对只丢掉这一项，终端照常可用
+    return { ...value, titlebar: undefined } as DesktopBridge;
   }
   return value as DesktopBridge;
 }

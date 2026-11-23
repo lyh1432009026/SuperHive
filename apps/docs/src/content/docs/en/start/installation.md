@@ -126,6 +126,7 @@ If you'd rather not type commands, try the SuperHive desktop app: double-click i
 
 - It uses the same `~/.superhive/` data folder as the CLI, so your rooms and messages are all there. Quitting the app only stops a Server the app started itself.
 - The terminal exists only inside the desktop app. Opening the web app in a browser, over the LAN or on a phone shows no terminal and can't reach it.
+- The window has no system title bar; the app reaches the top edge. On macOS the traffic-light buttons sit at the top of the left sidebar; on Windows and Linux the minimize, maximize and close buttons sit at the top right and follow the light or dark theme. Drag the top row to move the window, and double-click it to maximize or zoom as your system is set up. If the buttons look wrong under some Linux window manager, start the app with `SUPERHIVE_DESKTOP_TITLEBAR=native` to get the system title bar back.
 - During the preview there's no published installer yet; build it from source as described in [Development](/en/reference/development/#desktop-app).
 
 ## Notes

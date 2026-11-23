@@ -1,0 +1,141 @@
+/*
+ * 桌面端自定义标题栏（只在 SuperHive 桌面端生效：preload 在 html 上打 data-desktop / data-titlebar，
+ * 浏览器里打开时这些属性都不存在，下面的规则一条都不命中）。
+ *
+ * - data-titlebar="mac"：红黄绿按钮浮在左上角（左侧栏顶部那一行里垂直居中），左边让出 --titlebar-inset-left；
+ *   全屏时按钮隐藏，让出的位置收回。
+ * - data-titlebar="overlay"（Windows / Linux）：系统的最小化、最大化、关闭按钮浮在右上角，
+ *   宽度由 Window Controls Overlay 的 env(titlebar-area-*) 给出，右边让出 --titlebar-inset-right。
+ * - 顶部一行（侧栏顶部、聊天顶栏、右侧栏顶部）可以拖动窗口，双击按系统习惯最大化 / 缩放；
+ *   里面能点、能输入、带提示的东西都是 no-drag，照常可用。
+ */
+:root[data-titlebar] {
+  --titlebar-inset-left: 0px;
+  --titlebar-inset-right: 0px;
+}
+
+/* 红黄绿按钮组：距左 18px、三个按钮约 52px 宽，再留一点间距 */
+:root[data-titlebar="mac"]:not([data-fullscreen]) {
+  --titlebar-inset-left: 78px;
+}
+
+/* 拿不到 env() 时按 Windows 默认三个按钮的宽度（46px × 3）让位 */
+:root[data-titlebar="overlay"] {
+  --titlebar-inset-right: calc(
+    100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 138px))
+  );
+}
+
+/* ---------- 拖动区域 ---------- */
+/* 顶上整条都能拖（登录页、加载中、出错页也一样），网页顶栏本身也设成拖动区域 */
+:root[data-titlebar] body::before {
+  position: fixed;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: var(--header-height);
+  content: "";
+  pointer-events: none;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+:root[data-titlebar] :is(.sidebar-header, .chat-header, .side-panel-heading) {
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
+}
+
+/* 能点、能输入、要悬停出提示的都不参与拖动 */
+:root[data-titlebar]
+  :is(
+    button,
+    a,
+    input,
+    select,
+    textarea,
+    label,
+    summary,
+    [role="button"],
+    [role="tab"],
+    [role="status"],
+    [contenteditable],
+    [role="separator"],
+    .connection,
+    .chat-title-workspace,
+    .chat-title-branch,
+    .side-tabs
+  ) {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* 弹窗、菜单、下拉、提示盖在顶部时整块都不拖，点得中 */
+:root[data-titlebar]
+  :is(
+    [role="dialog"],
+    [role="alertdialog"],
+    [role="menu"],
+    [role="listbox"],
+    [role="tooltip"],
+    dialog,
+    .panel-scrim,
+    .host-approvals-banner,
+    .sandbox-badge
+  ) {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* 模态弹窗打开时，遮罩盖住了整个窗口：顶部不再拖动，点遮罩照常关弹窗 */
+:root[data-titlebar]:has(dialog[open], [aria-modal="true"]) body::before,
+:root[data-titlebar]:has(dialog[open], [aria-modal="true"])
+  :is(.sidebar-header, .chat-header, .side-panel-heading) {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* ---------- macOS：左上角给红黄绿按钮让位 ---------- */
+:root[data-titlebar="mac"] .sidebar-header {
+  padding-left: max(8px, var(--titlebar-inset-left));
+}
+
+/* 左侧栏收起时，聊天顶栏顶到最左边，折叠按钮和房间名往右让 */
+:root[data-titlebar="mac"] .workspace.rooms-collapsed .chat-header {
+  padding-left: max(20px, var(--titlebar-inset-left));
+}
+
+/* 窄窗口：左侧栏变成抽屉，聊天顶栏同样顶到最左边 */
+@media (max-width: 720px) {
+  :root[data-titlebar="mac"] .chat-header {
+    padding-left: max(6px, var(--titlebar-inset-left));
+  }
+}
+
+/* ---------- Windows / Linux：右上角给系统按钮让位 ---------- */
+:root[data-titlebar="overlay"] .side-panel-heading {
+  padding-right: calc(12px + var(--titlebar-inset-right));
+}
+
+/* 右侧栏收起（或窄窗口里变成抽屉）时，聊天顶栏是最右边的一块 */
+:root[data-titlebar="overlay"] .workspace.members-collapsed:not(.preview-docked) .chat-header {
+  padding-right: calc(12px + var(--titlebar-inset-right));
+}
+
+@media (max-width: 1100px) {
+  :root[data-titlebar="overlay"] .chat-header {
+    padding-right: calc(12px + var(--titlebar-inset-right));
+  }
+}
+
+@media (max-width: 720px) {
+  :root[data-titlebar="overlay"] .chat-header {
+    padding-right: calc(6px + var(--titlebar-inset-right));
+  }
+}
+
+/* 右上角的待批准申请浮层挪到系统按钮下面 */
+:root[data-titlebar="overlay"] .host-approvals-banner {
+  top: calc(var(--header-height) + 8px);
+}

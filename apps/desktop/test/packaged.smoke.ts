@@ -83,6 +83,20 @@ test("packaged app: terminal and local agents work with fuses on", async () => {
     ),
   ).toBe("object");
   await enterRoom(page);
+  // 没有系统标题栏：网页内容就是整个窗口的高度，顶栏可拖动
+  if (process.platform !== "linux") {
+    const size = await page.evaluate(() => ({ inner: innerHeight, outer: outerHeight }));
+    expect(size.inner).toBe(size.outer);
+  }
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-titlebar",
+    process.platform === "darwin" ? "mac" : "overlay",
+  );
+  expect(
+    await page
+      .locator(".chat-header")
+      .evaluate((el) => getComputedStyle(el).getPropertyValue("-webkit-app-region")),
+  ).toBe("drag");
   await runTerminalCommand(page, "packaged-terminal.png");
   await launchLocalAgent(page, "packaged-agent");
 });

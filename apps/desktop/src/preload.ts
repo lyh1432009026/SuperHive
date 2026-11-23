@@ -11,16 +11,49 @@ import {
   type TerminalCreateResult,
   type TerminalExitEvent,
 } from "./ipc-contract.js";
+import { applyDesktopMarks, parseTitlebarArg, setFullscreenMark } from "./titlebar-dom.js";
 
 const allowedOrigin = process.argv
   .find((arg) => arg.startsWith(ORIGIN_ARG_PREFIX))
   ?.slice(ORIGIN_ARG_PREFIX.length);
 
 if (allowedOrigin && window.location.origin === allowedOrigin && window.top === window) {
+  const titlebarMode = parseTitlebarArg(process.argv);
+  let fullscreen = false;
+  // 标记尽早打上（preload 跑在文档解析之前，html 元素可能还没有），免得页面先按普通网页排一遍再跳
+  const mark = () => {
+    const root = document.documentElement;
+    if (root)
+      applyDesktopMarks(root, { platform: process.platform, mode: titlebarMode, fullscreen });
+    return Boolean(root);
+  };
+  if (!mark()) document.addEventListener("readystatechange", mark, { once: true });
+  ipcRenderer.on(IPC.windowFullscreen, (_event: IpcRendererEvent, value: unknown) => {
+    fullscreen = value === true;
+    if (document.documentElement) setFullscreenMark(document.documentElement, fullscreen);
+  });
+
   const api = {
     /** 网页用来判断能力的版本号，接口有不兼容的变化时加 1 */
     version: 1,
     platform: process.platform,
+    titlebar: {
+      /** "mac"：红黄绿按钮在左上；"overlay"：系统按钮在右上；"native"：系统标题栏 */
+      mode: titlebarMode,
+      setAppearance: (appearance: {
+        height: number;
+        color: string;
+        symbolColor: string;
+        inactiveSymbolColor: string;
+      }): void => {
+        ipcRenderer.send(IPC.titlebarAppearance, {
+          height: Number(appearance?.height),
+          color: String(appearance?.color),
+          symbolColor: String(appearance?.symbolColor),
+          inactiveSymbolColor: String(appearance?.inactiveSymbolColor),
+        });
+      },
+    },
     terminal: {
       create: (request: TerminalCreateRequest): Promise<TerminalCreateResult> =>
         ipcRenderer.invoke(IPC.terminalCreate, {

@@ -39,6 +39,16 @@ import { isLoopbackOrigin, isTrustedSender, originOf } from "./ipc-guard.js";
 import { loginShellPath, mergePath } from "./shell-env.js";
 import { TerminalManager, type PtySpawn } from "./terminal-manager.js";
 import { langFor, text, type Lang, type TextKey } from "./texts.js";
+import {
+  defaultAppearance,
+  macButtonPosition,
+  acceptAppearance,
+  overlayOptions,
+  titlebarMode,
+  titlebarWindowOptions,
+  type TitlebarAppearance,
+} from "./titlebar.js";
+import { TITLEBAR_ARG_PREFIX } from "./titlebar-dom.js";
 import { loadWindowState, restoreBounds, saveWindowState, MIN_SIZE } from "./window-state.js";
 
 const CLI_FLAG = "--superhive-cli";
@@ -77,6 +87,11 @@ function agentCliCommand(): string[] {
 }
 
 function runApp(): void {
+  // 指定了别的数据目录（测试、并排跑第二份）时，Electron 自己的用户目录也跟着分开：
+  // 单实例锁、窗口位置都按用户目录算，不然会被正在用的那份桌面端挡住直接退出
+  if (process.env.SUPERHIVE_DESKTOP_DATA_DIR) {
+    app.setPath("userData", path.join(superhiveHome(), "desktop-user-data"));
+  }
   if (!app.requestSingleInstanceLock()) {
     app.quit();
     return;
@@ -157,6 +172,35 @@ function runApp(): void {
   });
   ipcMain.on(IPC.terminalKill, (event, id: unknown) => {
     if (trusted(event)) terminals.kill(event.sender.id, id);
+  });
+
+  // ---------- 标题栏 ----------
+  const titlebar = titlebarMode(process.platform, process.env);
+  let appearance: TitlebarAppearance | undefined;
+  const currentAppearance = () => appearance ?? defaultAppearance(nativeTheme.shouldUseDarkColors);
+  /** 把网页的顶栏外观套到窗口上：macOS 挪红黄绿按钮，Windows / Linux 改 overlay 配色和高度 */
+  const applyAppearance = (window: BrowserWindow) => {
+    if (window.isDestroyed()) return;
+    const current = currentAppearance();
+    if (titlebar === "mac") {
+      window.setWindowButtonPosition(macButtonPosition(current.height));
+    } else if (titlebar === "overlay") {
+      try {
+        window.setTitleBarOverlay(overlayOptions(current, window.isFocused()));
+      } catch {
+        // 个别 Linux 窗口管理器不支持 overlay：按钮仍是 Electron 自己画的默认样式，不影响使用
+      }
+    }
+  };
+  ipcMain.on(IPC.titlebarAppearance, (event, input: unknown) => {
+    const parsed = acceptAppearance(event, input, {
+      origin: allowedOrigin,
+      webContentsIds: trustedIds,
+    });
+    if (!parsed) return;
+    appearance = parsed;
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (window) applyAppearance(window);
   });
 
   // ---------- 安全：所有 webContents 统一限制 ----------
@@ -262,6 +306,7 @@ function runApp(): void {
       show: false,
       title: "SuperHive",
       backgroundColor: backgroundColor(),
+      ...titlebarWindowOptions(titlebar, currentAppearance()),
       webPreferences: {
         preload: path.join(appRoot, "preload.cjs"),
         contextIsolation: true,
@@ -270,7 +315,7 @@ function runApp(): void {
         nodeIntegrationInWorker: false,
         webviewTag: false,
         spellcheck: false,
-        additionalArguments: [`${ORIGIN_ARG_PREFIX}${origin}`],
+        additionalArguments: [`${ORIGIN_ARG_PREFIX}${origin}`, `${TITLEBAR_ARG_PREFIX}${titlebar}`],
       },
     });
     if (bounds.maximized) window.maximize();
@@ -291,6 +336,20 @@ function runApp(): void {
     window.on("move", schedulePersist);
     window.on("maximize", schedulePersist);
     window.on("unmaximize", schedulePersist);
+
+    // 全屏时 macOS 的红黄绿按钮会藏起来，网页把给它们让出的位置收回；刷新后也要重新告诉页面
+    const sendFullscreen = () => {
+      if (!window.isDestroyed())
+        window.webContents.send(IPC.windowFullscreen, window.isFullScreen());
+    };
+    window.on("enter-full-screen", sendFullscreen);
+    window.on("leave-full-screen", sendFullscreen);
+    window.webContents.on("dom-ready", sendFullscreen);
+    // Windows / Linux：失焦时按钮图标变淡，和系统其他窗口一致
+    if (titlebar === "overlay") {
+      window.on("focus", () => applyAppearance(window));
+      window.on("blur", () => applyAppearance(window));
+    }
 
     // 刷新、跳转或渲染进程崩溃：这个页面开的终端都结束掉
     window.webContents.on("did-start-navigation", (details) => {

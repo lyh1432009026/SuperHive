@@ -8,6 +8,10 @@ export const IPC = {
   terminalExit: "superhive:terminal:exit",
   /** 主进程菜单「新建终端」通知页面 */
   terminalNewRequest: "superhive:terminal:new-request",
+  /** 网页把顶栏高度和主题颜色同步给主进程（overlay 配色、红黄绿按钮位置） */
+  titlebarAppearance: "superhive:titlebar:appearance",
+  /** 主进程通知页面进出全屏 */
+  windowFullscreen: "superhive:window:fullscreen",
 } as const;
 
 export type TerminalCreateRequest = {

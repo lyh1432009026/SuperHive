@@ -2,8 +2,15 @@
  * 给交付和文档截图（不算回归测试）：SUPERHIVE_DESKTOP_SHOTS=1 pnpm exec playwright test test/screenshots.smoke.ts
  * 建一个带工作区（本仓库）的房间，深色、浅色各截一张主界面和终端面板，存到 screenshots/（已 gitignore）。
  */
-import { _electron as electron, expect, test, type Page } from "@playwright/test";
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+  _electron as electron,
+  expect,
+  test,
+  type ElectronApplication,
+  type Page,
+} from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { desktopDir, enterRoom, shotDir } from "./flows.js";
@@ -94,6 +101,89 @@ test("desktop screenshots", async () => {
         .locator(".terminal-panel")
         .screenshot({ path: path.join(shotDir, `terminal-cjk-${theme}${suffix}.png`) });
     }
+  } finally {
+    await app.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * 整个窗口截图（含 macOS 的红黄绿按钮；page.screenshot 只截网页内容，看不到系统按钮）。
+ * 用 screencapture -l 按窗口 ID 截，需要终端有「屏幕录制」权限；不是 macOS 时退回网页截图。
+ */
+async function windowShot(app: ElectronApplication, page: Page, file: string) {
+  mkdirSync(shotDir, { recursive: true });
+  const target = path.join(shotDir, file);
+  if (process.platform !== "darwin") {
+    await page.screenshot({ path: target });
+    return;
+  }
+  const sourceId = await app.evaluate(({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows().find((w) =>
+      w.webContents.getURL().startsWith("http://127.0.0.1:"),
+    )!;
+    win.focus();
+    return win.getMediaSourceId();
+  });
+  const windowId = sourceId.split(":")[1];
+  await page.waitForTimeout(400);
+  execFileSync("screencapture", [`-l${windowId}`, "-o", "-x", target]);
+}
+
+test("titlebar screenshots", async () => {
+  test.setTimeout(180_000);
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), "superhive-desktop-titlebar-"));
+  const port = 18_600 + Math.floor(Math.random() * 90);
+  const app = await electron.launch({
+    args: [path.join(desktopDir, ".stage/app")],
+    env: {
+      ...process.env,
+      SUPERHIVE_DESKTOP_DATA_DIR: dataDir,
+      SUPERHIVE_DESKTOP_PORT: String(port),
+      HIVE_NO_OPEN: "1",
+    } as Record<string, string>,
+  });
+  try {
+    await app.evaluate(({ BrowserWindow }) => {
+      for (const win of BrowserWindow.getAllWindows()) win.setSize(1440, 900);
+    });
+    let page: Page | undefined;
+    await expect
+      .poll(
+        () => {
+          page = app.windows().find((win) => win.url().startsWith("http://127.0.0.1:"));
+          return Boolean(page);
+        },
+        { timeout: 60_000 },
+      )
+      .toBe(true);
+    const main = page!;
+    await enterRoom(main, "rd");
+    const load = async (settings: Record<string, string>) => {
+      await main.evaluate((values) => {
+        for (const [key, value] of Object.entries(values)) localStorage.setItem(key, value);
+      }, settings);
+      await main.reload();
+      await expect(main.locator("header.chat-header")).toBeVisible({ timeout: 30_000 });
+      await main.waitForTimeout(800);
+    };
+    for (const theme of ["dark", "light"] as const) {
+      await load({ "superhive.theme": theme, "superhive.rooms-collapsed": "false" });
+      await windowShot(app, main, `titlebar-${theme}${suffix}.png`);
+    }
+    await load({ "superhive.theme": "dark", "superhive.rooms-collapsed": "true" });
+    await windowShot(app, main, `titlebar-collapsed${suffix}.png`);
+    await load({ "superhive.theme": "dark", "superhive.rooms-collapsed": "false" });
+    await app.evaluate(({ BrowserWindow }) => {
+      for (const win of BrowserWindow.getAllWindows()) win.setFullScreen(true);
+    });
+    await expect(main.locator("html")).toHaveAttribute("data-fullscreen", "", { timeout: 10_000 });
+    await main.waitForTimeout(1_000);
+    await windowShot(app, main, `titlebar-fullscreen${suffix}.png`);
+    await app.evaluate(({ BrowserWindow }) => {
+      for (const win of BrowserWindow.getAllWindows()) win.setFullScreen(false);
+    });
+    await expect(main.locator("html")).not.toHaveAttribute("data-fullscreen", { timeout: 10_000 });
   } finally {
     await app.close();
     rmSync(dataDir, { recursive: true, force: true });

@@ -10,6 +10,7 @@
 - **本机 Agent**：打包后的应用关了 RunAsNode，Electron 不能当 Node 用。Server 改由环境变量 `HIVE_LOCAL_AGENT_CLI` 得知怎么拉起 Agent：桌面端让它运行 `SuperHive --superhive-cli join …`，主进程看到这个参数就只运行包里自带的 superhive CLI，不开窗口、不占单实例锁。
 - **PATH**：从访达、Dock 启动的程序拿不到 shell 配置里的 PATH，启动时用登录 shell 读一次再合并，本机 Agent 和终端才能找到 `claude`、`codex`、`node`。
 - **窗口**：加载 `http://127.0.0.1:<端口>` 的现有网页（在本机打开才是房主身份）；记住大小和位置（换了显示器会放回可见区域）；只允许一个实例；macOS 上关窗口不退出，点 Dock 图标再打开，⌘Q 才退出。
+- **标题栏**：去掉系统标题栏，网页顶栏顶到窗口最上面。macOS 用 `titleBarStyle: "hidden"`，红黄绿按钮在左侧栏顶部那一行垂直居中（网页同步顶栏高度，界面密度变了按钮跟着挪），全屏时按钮隐藏、让出的位置收回；Windows / Linux 用 `titleBarOverlay` 保留系统按钮（Win11 贴靠布局照常可用），底色、图标颜色和高度跟网页主题实时同步，失焦时图标变淡，网页用 `env(titlebar-area-*)` 在右上角让位。侧栏顶部、聊天顶栏、右侧栏顶部可拖动，按钮、输入框、提示等都是 `no-drag`，模态弹窗打开时顶部不再拖动。preload 在 html 上打 `data-desktop`、`data-titlebar`、`data-fullscreen`，样式全在 `apps/web/src/styles/desktop-titlebar.css`，浏览器里一条都不生效。`SUPERHIVE_DESKTOP_TITLEBAR=native` 退回系统标题栏。
 - **终端**：主进程里用 node-pty，网页里用 xterm 6（fit、web-links）。顶栏「终端」按钮或菜单「文件 → 新建终端」（Ctrl+\`）打开，默认在当前房间的工作区目录，没有工作区就在主目录；macOS / Linux 是用户的登录 shell，Windows 是 PowerShell。多标签、可拖动高度；收起面板不结束进程，关标签才结束；页面刷新、窗口关闭时全部结束。
 
 ## 安全
@@ -17,7 +18,7 @@
 对照 [Electron 安全清单](https://www.electronjs.org/docs/latest/tutorial/security)：
 
 - 所有渲染进程开 `sandbox`、`contextIsolation`，关 `nodeIntegration`、`webviewTag`；
-- preload 只经 `contextBridge` 暴露 `window.superhiveDesktop`（终端的创建、读写、调整大小、结束），并且只在页面来源是本机 Hive 回环地址、且是顶层框架时才暴露；
+- preload 只经 `contextBridge` 暴露 `window.superhiveDesktop`（终端的创建、读写、调整大小、结束；标题栏外观同步，只收 `#rrggbb` 颜色和 28–80 的高度），并且只在页面来源是本机 Hive 回环地址、且是顶层框架时才暴露；
 - 每个 IPC 都在主进程再校验一次 `senderFrame`：必须是我们窗口的顶层框架、来源等于本机 Hive 地址，iframe、别的窗口、跳走后的页面一律拒绝；每个终端只归创建它的页面，别的页面读写不了；
 - 不允许跳到别的站点，外部链接交给系统浏览器；同源新窗口不带 preload；禁止 webview；权限请求只放行剪贴板、通知、全屏，并且只给本机 Hive；
 - Fuses：关 `RunAsNode`、`EnableNodeOptionsEnvironmentVariable`、`EnableNodeCliInspectArguments`，开 asar 完整性校验和 `OnlyLoadAppFromAsar`，开 Cookie 加密；
@@ -29,13 +30,13 @@
 
 ```bash
 pnpm --filter @superhive/desktop dev     # 组装 .stage/app 并启动
-pnpm --filter @superhive/desktop test    # 单元测试（IPC 校验、终端会话、端口发现、窗口位置）
+pnpm --filter @superhive/desktop test    # 单元测试（IPC 校验、终端会话、端口发现、窗口位置、标题栏）
 pnpm --filter @superhive/desktop test:smoke   # 冒烟：真的启动应用、开终端执行命令、接入一个本机 Agent
 ```
 
 - `scripts/stage.mjs` 把应用组装到 `.stage/app`：主进程和 preload（esbuild 打包）、随包的 superhive（`packages/superhive` 的 dist、web、skills，和 npm 包同一份），以及用 npm 单独装的运行时依赖。网页或 Server 改了要带 `--rebuild` 重新构建 superhive 包。
 - 运行时依赖不用仓库的 pnpm node_modules：仓库里的 better-sqlite3 12.x 在 Electron 45 的 V8 上编译不过，桌面端这一份换成走 N-API、自带预编译包的 13.2（见 `package.json` 的 `superhiveDesktop.dependencyOverrides`），改编译也不会影响 server 测试。node-pty 1.1 同样是 N-API 预编译包；Linux 上没有预编译包，stage 时按 Electron 编一次。
-- 开发时不想碰自己的 `~/.superhive`，可以设 `SUPERHIVE_DESKTOP_DATA_DIR=/tmp/xxx` 和 `SUPERHIVE_DESKTOP_PORT=18787`。
+- 开发时不想碰自己的 `~/.superhive`，可以设 `SUPERHIVE_DESKTOP_DATA_DIR=/tmp/xxx` 和 `SUPERHIVE_DESKTOP_PORT=18787`。设了数据目录时 Electron 的用户目录也放到它下面，和正在用的桌面端互不影响（单实例锁、窗口位置分开），开发版、冒烟测试可以和安装版同时开。
 
 ## 打包
 

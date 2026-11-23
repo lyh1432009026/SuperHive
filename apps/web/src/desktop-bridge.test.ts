@@ -31,4 +31,20 @@ describe("desktopBridge", () => {
     ).toBeUndefined();
     expect(desktopBridge("superhive")).toBeUndefined();
   });
+
+  it("keeps the terminal when the title bar API is missing or malformed", () => {
+    const titlebar = { mode: "mac", setAppearance: fn };
+    expect(desktopBridge({ version: 1, platform: "darwin", terminal, titlebar })?.titlebar).toBe(
+      titlebar,
+    );
+    expect(desktopBridge({ version: 1, platform: "darwin", terminal })?.titlebar).toBeUndefined();
+    const broken = desktopBridge({
+      version: 1,
+      platform: "darwin",
+      terminal,
+      titlebar: { mode: "mac" },
+    });
+    expect(broken?.terminal).toBe(terminal);
+    expect(broken?.titlebar).toBeUndefined();
+  });
 });

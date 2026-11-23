@@ -6,7 +6,11 @@ import { AccessGate } from "./access-gate";
 import { serverBase } from "./server-base";
 import { DevStatusBanner } from "./dev-status-banner";
 import { SandboxBadge } from "./sandbox-badge";
+import { syncDesktopTitlebar } from "./desktop-titlebar";
 import "./styles.css";
+
+// 桌面端：顶栏高度和主题颜色同步给窗口按钮（浏览器里什么都不做）
+syncDesktopTitlebar();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
