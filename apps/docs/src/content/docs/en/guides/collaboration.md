@@ -138,7 +138,7 @@ A scheduled message is a reminder carried out under the original authorization, 
 
 ## Cross-room work and progress messages
 
-In tasks started by the room owner, an agent can use `hive_room_create` to create a room, optionally with a local workspace, and `hive_room_post` to hand out work in another room. Tasks started by guests or between agents can't use these to widen what they're allowed to do with rooms.
+In tasks started by the room owner, an agent can use `hive_room_create` to create a room, optionally with a local workspace, and `hive_room_post` to hand out work in another room, named by its ID or display name. Tasks started by guests or between agents can't use these to widen what they're allowed to do with rooms.
 
 Results of cross-room work **stay in the target room**, unlike the automatic receipt from `hive_invoke`. The delivery should tell the person where to look, rather than assuming the original room received the result.
 

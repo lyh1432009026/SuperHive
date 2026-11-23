@@ -221,7 +221,7 @@ Hive Server 在 `/mcp` 提供 Streamable HTTP MCP，内置 Bridge 会为 Codex�
 - `hive_board_read` / `hive_board_update`：读取和更新房间当前协作白板（按 `key` 推进同一事项，60 秒内完全相同的重复发布会被忽略；更新归档事项会恢复它）。服务端把登记时 Agent 正在处理的消息记成条目的 `messageId` / `messageSeq`（网页「进展」点击跳转用）；任务目录扫描发现条目分支已合入时转成里程碑并写 `mergedAt`；里程碑 3 天未更新自动归档。不按数量自动删除，历史不进入 Agent 摘要。
 - `hive_schedule_create` / `hive_schedule_list` / `hive_schedule_cancel`：一次性定时任务。到点服务端以发起人名义发「⏰ 定时任务」消息唤醒登记者；每个房间最多 20 个待执行；Server 不在线、晚于 10 分钟才轮到的标为已错过。
 - `hive_room_create`：替房主新建房间（可带已存在的工作区目录），本机 Agent 会自动加入。只在房主本人发起的任务里可用。
-- `hive_room_post`：替房主到另一个房间以自己的名义发消息、@ 接活的 Agent，开新的传递链并注明来源；刚建的房间会等被 @ 的 Agent 上线（最多 20 秒）。只在房主本人发起的任务里可用，那边由 Agent 发起的任务不能再往外转。
+- `hive_room_post`：替房主到另一个房间（填房间 ID 或显示名称都行：先按 ID 精确匹配，再按名称找，同名或找不到时报错并列出候选房间）以自己的名义发消息、@ 接活的 Agent，开新的传递链并注明来源；刚建的房间会等被 @ 的 Agent 上线（最多 20 秒）。只在房主本人发起的任务里可用，那边由 Agent 发起的任务不能再往外转。
 - `hive_incident_report`：被派修故障单的 Agent 回报结果（见「故障单」）。`fixed` 要带提交号和症状、原因、修法，`failed` 要写原因；不是派给自己的单不能回报。访客带入的 Agent 没有这个工具。
 - `hive_rule_propose`：提议加一条协作规则。房主在网页上批准后接在 `/agent.md` 后面，Agent 重启后生效。访客带入的 Agent 没有这个工具。
 

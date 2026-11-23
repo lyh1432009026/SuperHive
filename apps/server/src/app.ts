@@ -7,6 +7,7 @@ import {
   type AgentCodeVersion,
 } from "@superhive/protocol";
 import { errorText, hiveErrorBody, wsText } from "./texts.js";
+import { resolveRoom, roomsNamedLike } from "./room-lookup.js";
 import { observeRuntime } from "./runtime-observation.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import { createReadStream, existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
@@ -2736,8 +2737,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   function createRoomForAgent(
     agent: Participant,
     input: { id: string; name?: string; workspace?: string },
-  ): RoomSummary {
+  ): { room: RoomSummary; sameName: RoomSummary[] } {
     const { requester } = ownerTask(agent, serverText("action.createRoom"));
+    const taken = database.getRoom(input.id);
+    if (taken) {
+      // 撞的可能是人用显示名称说的那个房间：把它的名称一起告诉 Agent，免得它以为没建成又换名字重建
+      throw new HiveError(
+        "ROOM_EXISTS",
+        serverText("error.room.existsForAgent", { id: taken.id, name: taken.name }),
+      );
+    }
     try {
       const room = withBranch(
         database.createRoom({
@@ -2748,7 +2757,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         }),
       );
       broadcastAll({ type: "rooms.changed", room });
-      return room;
+      return { room, sameName: roomsNamedLike(room.name, database.listRooms(false), room.id) };
     } catch (error) {
       if (error instanceof HiveError && error.code.startsWith("LOCAL_AGENT_CWD")) {
         throw new HiveError("ROOM_WORKSPACE_INVALID", error.message);
@@ -2765,16 +2774,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
    */
   async function postToRoomForAgent(
     agent: Participant,
-    input: { roomId: string; content: string; clientMessageId: string },
-  ): Promise<ChatMessage> {
+    input: { room: string; content: string; clientMessageId: string },
+  ): Promise<{ message: ChatMessage; room: RoomSummary }> {
     const { parent, requester } = ownerTask(agent, serverText("action.postToRoom"));
-    const room = database.getRoom(input.roomId);
-    if (!room || room.archivedAt) {
-      throw new HiveError(
-        "ROOM_NOT_FOUND",
-        serverText("error.room.targetNotFound", { room: input.roomId }),
-      );
-    }
+    // 人常说房间的显示名称：ID 找不到再按名称找，同名或找不到时把候选列给 Agent（房主任务，所有房间都看得到）
+    const room = resolveRoom(input.room, database.listRooms(false), { exclude: agent.roomId });
     if (room.id === agent.roomId) {
       throw new HiveError("SAME_ROOM", serverText("error.room.samePost"));
     }
@@ -2820,7 +2824,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       },
       { relay: true },
     );
-    return message;
+    return { message, room };
   }
 
   /**

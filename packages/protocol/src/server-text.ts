@@ -1392,6 +1392,10 @@ export const serverTexts = {
     en: "The default room can't be archived.",
   },
   "error.room.exists": { zh: "已有这个 ID 的房间。", en: "A room with this ID already exists." },
+  "error.room.existsForAgent": {
+    zh: "已有 ID 是 {id} 的房间（显示名称「{name}」）。要往那个房间派活，直接用 hive_room_post；要新建就换一个 ID。",
+    en: 'A room with the ID {id} already exists (display name "{name}"). To hand work to it, use hive_room_post; to create a new room, pick another ID.',
+  },
   "error.room.guestAgentForbidden": {
     zh: "访客带入的 Agent 不能{action}。",
     en: "Agents brought in by a guest can't {action}.",
@@ -1426,9 +1430,20 @@ export const serverTexts = {
     en: "This is the current room. Reply directly or use hive_invoke.",
   },
   "error.room.targetNotFound": {
-    zh: "没有房间 #{room}（或已归档）。",
-    en: "There's no room #{room} (or it's archived).",
+    zh: "没有 ID 或显示名称是「{room}」的房间（或已归档）。可用的房间：{candidates}。改用其中一个的 ID 重试。",
+    en: "There's no room with the ID or display name \"{room}\" (or it's archived). Available rooms: {candidates}. Retry with one of these IDs.",
   },
+  "error.room.targetNoneAvailable": {
+    zh: "没有 ID 或显示名称是「{room}」的房间（或已归档），目前也没有别的可用房间。需要的话先用 hive_room_create 新建。",
+    en: "There's no room with the ID or display name \"{room}\" (or it's archived), and there are no other rooms available. Create one with hive_room_create first if needed.",
+  },
+  "error.room.targetAmbiguous": {
+    zh: "有多个房间的显示名称都是「{room}」：{candidates}。改用其中一个的 ID 重试。",
+    en: 'More than one room is named "{room}": {candidates}. Retry with one of these IDs.',
+  },
+  "roomPost.candidate": { zh: "{id}（{name}）", en: "{id} ({name})" },
+  "roomPost.candidateJoin": { zh: "{head}、{tail}", en: "{head}, {tail}" },
+  "roomPost.candidatesMore": { zh: "{list}，还有 {more} 个", en: "{list}, and {more} more" },
   "error.schedule.humanOnly": {
     zh: "只有人发起的任务里才能创建定时任务（Agent 之间的对话不能自行排定时）。",
     en: "Scheduled tasks can only be created in tasks a person started (agents can't schedule each other).",

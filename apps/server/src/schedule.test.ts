@@ -869,6 +869,63 @@ describe("hive_room_create", () => {
       (await call(client, "hive_room_post", { room: "side", content: "没有 @" })).isError,
     ).toBe(true);
   });
+
+  it("finds the target room by display name too, and lists candidates when it's ambiguous or missing", async () => {
+    const { client, port } = await executingRoom();
+    const call = async (name: string, args: Record<string, unknown>) =>
+      (await client.callTool({ name, arguments: args })) as {
+        isError?: boolean;
+        structuredContent?: Record<string, any>;
+        content: Array<{ text: string }>;
+      };
+    expect((await call("hive_room_create", { id: "side", name: "Side Room" })).isError).toBeFalsy();
+    expect((await call("hive_room_create", { id: "d1", name: "Design" })).isError).toBeFalsy();
+    // 新房间和已有房间同名：建得成，但提醒按名称派活会有歧义
+    const second = await call("hive_room_create", { id: "d2", name: "design" });
+    expect(second.isError).toBeFalsy();
+    expect(second.structuredContent!.sameName).toEqual([{ id: "d1", name: "Design" }]);
+    expect(second.structuredContent!.warning).toContain("d2");
+    // ID 已被占用：告诉 Agent 那个房间叫什么，让它改用 hive_room_post
+    const taken = await call("hive_room_create", { id: "side" });
+    expect(taken.isError).toBe(true);
+    expect(taken.content[0]!.text).toContain("Side Room");
+    expect(taken.content[0]!.text).toContain("hive_room_post");
+
+    for (const username of ["helper", "worker"]) {
+      const peer = await Peer.connect(`ws://127.0.0.1:${port}/ws`);
+      cleanup.push(() => peer.socket.close());
+      peer.send({
+        type: "participant.join",
+        username,
+        participantType: "agent",
+        roomId: "side",
+        token: "test-token",
+      });
+      await peer.next((event) => event.type === "room.snapshot");
+    }
+    // 显示名称：忽略大小写、首尾空格和开头的 #；结果里给出实际命中的房间
+    const byName = await call("hive_room_post", {
+      room: "  #side ROOM ",
+      content: "@worker 按名称派的活",
+    });
+    expect(byName.isError).toBeFalsy();
+    expect(byName.structuredContent).toMatchObject({ room: "side", roomName: "Side Room" });
+    const byId = await call("hive_room_post", { room: "#side", content: "@worker 按 ID 派的活" });
+    expect(byId.structuredContent).toMatchObject({ room: "side", roomName: "Side Room" });
+
+    const ambiguous = await call("hive_room_post", { room: "DESIGN", content: "@worker x" });
+    expect(ambiguous.isError).toBe(true);
+    expect(ambiguous.content[0]!.text).toContain("d1（Design）");
+    expect(ambiguous.content[0]!.text).toContain("d2（design）");
+
+    const missing = await call("hive_room_post", { room: "nowhere", content: "@worker x" });
+    expect(missing.isError).toBe(true);
+    const text = missing.content[0]!.text;
+    expect(text).toContain("side（Side Room）");
+    expect(text).toContain("d1（Design）");
+    // 当前房间不算候选
+    expect(text).not.toContain("general（");
+  });
 });
 
 describe("progress messages", () => {
