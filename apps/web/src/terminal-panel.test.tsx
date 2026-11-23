@@ -21,12 +21,16 @@ class FakeTerminal {
   written: string[] = [];
   options: Record<string, unknown>;
   disposed = false;
+  addons: unknown[] = [];
+  unicode = { activeVersion: "6" };
   private dataListener: ((data: string) => void) | undefined;
   constructor(options: Record<string, unknown>) {
     this.options = options;
     terminals.push(this);
   }
-  loadAddon() {}
+  loadAddon(addon: unknown) {
+    this.addons.push(addon);
+  }
   open(host: HTMLElement) {
     this.element = host;
   }
@@ -55,9 +59,12 @@ vi.mock("@xterm/addon-fit", () => ({
   },
 }));
 vi.mock("@xterm/addon-web-links", () => ({ WebLinksAddon: class {} }));
+class FakeUnicode11 {}
+vi.mock("@xterm/addon-unicode11", () => ({ Unicode11Addon: FakeUnicode11 }));
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
 
 const { TerminalPanel } = await import("./terminal-panel");
+const { terminalFontFamily } = await import("./terminal-fonts");
 const { useDesktopTerminal, TerminalDock } = await import("./terminal-dock");
 
 function fakeBridge() {
@@ -128,6 +135,21 @@ describe("TerminalPanel", () => {
     expect(terminal.written.at(-1)).toBe("more");
     terminal.type("ls\r");
     expect(bridge.terminal.write).toHaveBeenCalledWith("t1", "ls\r");
+  });
+
+  it("uses the platform font stack and Unicode 11 widths for CJK and emoji", async () => {
+    const { bridge } = fakeBridge();
+    render(
+      <TerminalPanel bridge={bridge} cwd="/repo" open newRequest={0} onClose={() => undefined} />,
+    );
+    await waitFor(() => expect(terminals).toHaveLength(1));
+    const terminal = terminals[0]!;
+    // jsdom 没有 FontFace，放大的 CJK 字体注册不上，退回普通中文字体
+    expect(terminal.options.fontFamily).toBe(terminalFontFamily("darwin", false));
+    expect(terminal.options.fontFamily).toContain('"PingFang SC"');
+    expect(terminal.options.allowProposedApi).toBe(true);
+    expect(terminal.addons.some((addon) => addon instanceof FakeUnicode11)).toBe(true);
+    expect(terminal.unicode.activeVersion).toBe("11");
   });
 
   it("supports several tabs and kills the process when a tab is closed", async () => {

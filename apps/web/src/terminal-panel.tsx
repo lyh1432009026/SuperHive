@@ -7,6 +7,7 @@ import {
 } from "react";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import "./styles/terminal.css";
@@ -14,6 +15,7 @@ import { t } from "./i18n";
 import { Icon } from "./app-icons";
 import { Tooltip } from "./tooltip";
 import type { DesktopBridge } from "./desktop-bridge";
+import { prepareCjkFont, terminalFontFamily } from "./terminal-fonts";
 
 /**
  * 桌面端内置终端（只在 SuperHive 桌面端里按需加载，浏览器里不会下载 xterm）。
@@ -109,12 +111,7 @@ export function terminalTheme(dark: boolean, style?: CSSStyleDeclaration): IThem
   };
 }
 
-function monoFont(): string {
-  return (
-    getComputedStyle(document.documentElement).getPropertyValue("--font-mono").trim() ||
-    "ui-monospace, Menlo, Consolas, monospace"
-  );
-}
+const FONT_SIZE = 13;
 
 function storedHeight(): number {
   const value = Number.parseInt(localStorage.getItem(TERMINAL_HEIGHT_KEY) ?? "", 10);
@@ -172,17 +169,24 @@ export function TerminalPanel({
     if (creating.current) return;
     creating.current = true;
     setError(undefined);
+    // 先注册放大的 CJK 字体，xterm 第一次量字宽时就能用上（本机字体，几毫秒）
+    const scaledCjk = await prepareCjkFont(bridge.platform, FONT_SIZE);
     const terminal = new Terminal({
-      allowProposedApi: false,
+      // Unicode 11 宽度表要用 terminal.unicode（xterm 仍标为实验接口）
+      allowProposedApi: true,
       cursorBlink: true,
-      fontFamily: monoFont(),
-      fontSize: 13,
+      fontFamily: terminalFontFamily(bridge.platform, scaledCjk),
+      fontSize: FONT_SIZE,
       lineHeight: 1.2,
       scrollback: 5000,
       theme: terminalTheme(isDark()),
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
+    // 默认的 Unicode 6 宽度表把 ✅ ⚠️ 🚀 这类 emoji 算成一格，和 shell、CLI（按新版 wcwidth 算两格）对不上，
+    // 光标和后面的字会错位；换成 Unicode 11，和 VS Code 终端一致
+    terminal.loadAddon(new Unicode11Addon());
+    terminal.unicode.activeVersion = "11";
     // 链接交给系统浏览器：桌面端会拦下新窗口并用默认浏览器打开
     terminal.loadAddon(
       new WebLinksAddon((_event, uri) => {

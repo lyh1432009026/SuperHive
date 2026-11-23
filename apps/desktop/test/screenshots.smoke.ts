@@ -14,6 +14,9 @@ test.skip(
 );
 
 const repoRoot = path.resolve(desktopDir, "../..");
+const cjkSample = path.join(desktopDir, "test/fixtures/cjk-sample.sh");
+/** 文件名后缀，方便留一份修改前的图做对比：SUPERHIVE_DESKTOP_SHOTS_SUFFIX=-before */
+const suffix = process.env.SUPERHIVE_DESKTOP_SHOTS_SUFFIX ?? "";
 
 async function openTerminal(page: Page, command: string) {
   await page.getByRole("button", { name: /^(终端|Terminal)$/ }).click();
@@ -70,15 +73,26 @@ test("desktop screenshots", async () => {
     }, repoRoot);
     expect([200, 201]).toContain(created);
     for (const theme of ["dark", "light"] as const) {
-      await main.evaluate((value) => localStorage.setItem("superhive.theme", value), theme);
+      await main.evaluate((value) => {
+        localStorage.setItem("superhive.theme", value);
+        // 终端面板拉高一些，样例和 git log、ls 能一屏看全
+        localStorage.setItem("superhive.terminal-height", "600");
+      }, theme);
       await main.goto(`http://127.0.0.1:${port}/#desktop`);
       // 主题在页面加载时读，刷新一次（刷新也会结束上一轮开的终端）
       await main.reload();
       await expect(main.locator("header.chat-header")).toBeVisible({ timeout: 30_000 });
       await main.waitForTimeout(800);
-      await main.screenshot({ path: path.join(shotDir, `desktop-main-${theme}.png`) });
-      await openTerminal(main, "git --no-pager log --oneline -4 --no-decorate && ls");
-      await main.screenshot({ path: path.join(shotDir, `desktop-terminal-${theme}.png`) });
+      await main.screenshot({ path: path.join(shotDir, `desktop-main-${theme}${suffix}.png`) });
+      // 中英混排、全角标点、emoji 和按显示宽度对齐的列（看 CJK 字距和对齐），再加真实的 git log 和 ls
+      await openTerminal(
+        main,
+        `clear; sh ${JSON.stringify(cjkSample)}; git --no-pager log --oneline -1 --no-decorate; ls`,
+      );
+      await main.screenshot({ path: path.join(shotDir, `desktop-terminal-${theme}${suffix}.png`) });
+      await main
+        .locator(".terminal-panel")
+        .screenshot({ path: path.join(shotDir, `terminal-cjk-${theme}${suffix}.png`) });
     }
   } finally {
     await app.close();

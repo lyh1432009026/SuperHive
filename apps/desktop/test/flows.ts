@@ -37,6 +37,17 @@ export async function runTerminalCommand(page: Page, screenshot?: string): Promi
   await expect(page.locator(".terminal-panel .xterm-rows")).toContainText("superhive-smoke-42", {
     timeout: 20_000,
   });
+  // 中文走放大过的系统 CJK 字体（填满两个单元格，不出现字间空隙），macOS 上 PingFang 一定在
+  if (process.platform === "darwin") {
+    const loaded = await page.evaluate(() => {
+      const faces: FontFace[] = [];
+      document.fonts.forEach((face) => faces.push(face));
+      return faces
+        .filter((face) => face.family.replace(/"/g, "") === "SuperHive Terminal CJK")
+        .map((face) => `${face.weight}:${face.status}`);
+    });
+    expect(loaded).toContain("400:loaded");
+  }
   if (screenshot) await page.screenshot({ path: path.join(shotDir, screenshot) });
   await page.getByRole("button", { name: /关闭这个终端|Close this terminal/ }).click();
   await expect(panel).toBeHidden();
