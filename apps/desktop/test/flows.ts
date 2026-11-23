@@ -105,3 +105,44 @@ export async function serverAlive(port: number): Promise<boolean> {
     () => false,
   );
 }
+
+/**
+ * 在当前终端里打印中英混排样例（含折行后写满右边界的长行），检查每一行画出来的字都没有超出终端区域：
+ * xterm 量到的字宽和实际画出来的对不上时，越往右越错位，最右边的字会被切掉半个。
+ */
+export async function expectCjkRowsInside(page: Page, label: string): Promise<void> {
+  const sample = path.join(desktopDir, "test/fixtures/cjk-sample.sh");
+  const marker = `cjk-${label}-done`;
+  await page.locator(".terminal-panel .xterm").click();
+  await page.keyboard.type(`clear; sh ${JSON.stringify(sample)}; echo ${marker}`);
+  await page.keyboard.press("Enter");
+  const rows = page.locator(".terminal-panel .xterm-rows");
+  await expect(rows).toContainText(`${marker}`, { timeout: 20_000 });
+  await expect(rows).toContainText("写满到右边界");
+  // 折行、重排在下一帧画完
+  await page.waitForTimeout(300);
+  const result = await page.evaluate(() => {
+    const screen = document.querySelector(".terminal-panel .xterm-screen")!.getBoundingClientRect();
+    const lines = Array.from(document.querySelectorAll(".terminal-panel .xterm-rows > div")).map(
+      (row) => {
+        const spans = Array.from(row.querySelectorAll("span"));
+        const right = Math.max(
+          screen.left,
+          ...spans.map((span) => span.getBoundingClientRect().right),
+        );
+        return { text: row.textContent ?? "", right };
+      },
+    );
+    return { left: screen.left, right: screen.right, lines };
+  });
+  const clipped = result.lines
+    .filter((line) => line.right > result.right + 1)
+    .map((line) => `${line.text} (+${(line.right - result.right).toFixed(1)}px)`);
+  expect(clipped, `${label}: rows drawn past the terminal's right edge`).toEqual([]);
+  // 长行确实写到了右边界附近（含中文和全角标点），不然上面的检查没意义
+  const reaching = result.lines.filter(
+    (line) =>
+      /[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]/.test(line.text) && line.right > result.right - 20,
+  );
+  expect(reaching.length, `${label}: no CJK row reaches the right edge`).toBeGreaterThan(0);
+}

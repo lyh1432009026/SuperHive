@@ -2,11 +2,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  applyTerminalTextStyle,
   CJK_FONT_FAMILY,
   CJK_UNICODE_RANGE,
   cjkSizeAdjust,
   prepareCjkFont,
   terminalFontFamily,
+  TERMINAL_TEXT_STYLE,
 } from "./terminal-fonts";
 
 function families(stack: string): string[] {
@@ -136,5 +138,18 @@ describe("prepareCjkFont", () => {
     );
     Object.defineProperty(document, "fonts", { value: { add: vi.fn() }, configurable: true });
     await expect(prepareCjkFont("linux", 12)).resolves.toBe(false);
+  });
+});
+
+describe("applyTerminalTextStyle", () => {
+  it("turns off CJK punctuation trimming and auto spacing so xterm's measured widths hold", () => {
+    expect(TERMINAL_TEXT_STYLE).toEqual({
+      "text-spacing-trim": "space-all",
+      "text-autospace": "no-autospace",
+    });
+    const set = vi.fn();
+    applyTerminalTextStyle({ style: { setProperty: set } } as unknown as HTMLElement);
+    expect(set).toHaveBeenCalledWith("text-spacing-trim", "space-all");
+    expect(set).toHaveBeenCalledWith("text-autospace", "no-autospace");
   });
 });

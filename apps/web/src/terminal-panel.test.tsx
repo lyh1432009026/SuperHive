@@ -207,6 +207,8 @@ describe("TerminalPanel", () => {
   });
 
   it("uses the platform font stack and Unicode 11 widths for CJK and emoji", async () => {
+    // jsdom 的样式表不认 text-spacing-trim，看 setProperty 有没有在 open 之前打到 host 上
+    const setProperty = vi.spyOn(CSSStyleDeclaration.prototype, "setProperty");
     const { bridge } = fakeBridge();
     render(
       <TerminalPanel
@@ -226,6 +228,11 @@ describe("TerminalPanel", () => {
     expect(terminal.options.allowProposedApi).toBe(true);
     expect(terminal.addons.some((addon) => addon instanceof FakeUnicode11)).toBe(true);
     expect(terminal.unicode.activeVersion).toBe("11");
+    // 关掉标点挤压和中英自动空隙，xterm 量到的字宽才和画出来的一致（否则长行右边被切）
+    await waitFor(() => expect(terminal.element).toBeDefined());
+    expect(setProperty).toHaveBeenCalledWith("text-spacing-trim", "space-all");
+    expect(setProperty).toHaveBeenCalledWith("text-autospace", "no-autospace");
+    setProperty.mockRestore();
   });
 
   it("supports several tabs and kills the process when a tab is closed", async () => {

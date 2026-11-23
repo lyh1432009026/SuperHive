@@ -14,6 +14,7 @@ import path from "node:path";
 import {
   desktopDir,
   enterRoom,
+  expectCjkRowsInside,
   launchLocalAgent,
   runTerminalCommand,
   serverAlive,
@@ -102,6 +103,7 @@ test("terminal moves to the right, maximizes and survives a page reload", async 
   await page.getByRole("button", { name: /^(终端|Terminal)$/ }).click();
   await expect(page.locator(".terminal-tab")).toHaveCount(1, { timeout: 15_000 });
   await run("bottom");
+  await expectCjkRowsInside(page, "bottom");
 
   // 右侧：和对话左右排，对话还留着
   await page.getByRole("button", { name: /^(移到右侧|Move to the right)$/ }).click();
@@ -111,6 +113,7 @@ test("terminal moves to the right, maximizes and survives a page reload", async 
   expect(right.x).toBeGreaterThanOrEqual(chat.x + chat.width - 1);
   expect(chat.width).toBeGreaterThanOrEqual(360);
   await run("right");
+  await expectCjkRowsInside(page, "right");
 
   // 菜单「最大化 / 还原终端」：铺满对话区，对话不能被点到
   await app.evaluate(({ Menu }) =>
@@ -122,6 +125,8 @@ test("terminal moves to the right, maximizes and survives a page reload", async 
   expect(Math.abs(full.width - body.width)).toBeLessThan(2);
   expect(Math.abs(full.height - body.height)).toBeLessThan(2);
   await expect(page.locator(".chat-main")).toHaveAttribute("inert", "");
+  // 先打样例再 echo：刷新后要在回放里看到 max-42（样例开头会 clear）
+  await expectCjkRowsInside(page, "maximized");
   await run("max");
 
   // 刷新：终端还在跑，输出回放回来，位置和最大化照旧，还能继续输入
@@ -141,6 +146,21 @@ test("terminal moves to the right, maximizes and survives a page reload", async 
   );
   await expect(panel).toHaveAttribute("data-position", "bottom");
   await run("back");
+  // 窄窗口：右侧放不下时回到底部，终端列数变少、长行折成更多行，最右一列照样不能被切
+  const size = await app.evaluate(({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows().find((w) =>
+      w.webContents.getURL().startsWith("http://127.0.0.1:"),
+    )!;
+    const [width, height] = win.getSize();
+    win.setSize(820, height!);
+    return { width: width!, height: height! };
+  });
+  await expectCjkRowsInside(page, "narrow");
+  await app.evaluate(({ BrowserWindow }, { width, height }) => {
+    BrowserWindow.getAllWindows()
+      .find((w) => w.webContents.getURL().startsWith("http://127.0.0.1:"))!
+      .setSize(width, height);
+  }, size);
   await page.getByRole("button", { name: /关闭这个终端|Close this terminal/ }).click();
   await expect(panel).toBeHidden();
 });

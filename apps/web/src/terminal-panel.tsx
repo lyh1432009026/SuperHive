@@ -15,7 +15,7 @@ import { t } from "./i18n";
 import { Icon } from "./app-icons";
 import { Tooltip } from "./tooltip";
 import type { DesktopBridge } from "./desktop-bridge";
-import { prepareCjkFont, terminalFontFamily } from "./terminal-fonts";
+import { applyTerminalTextStyle, prepareCjkFont, terminalFontFamily } from "./terminal-fonts";
 import { keyCombo } from "./shortcuts";
 import {
   clampTerminalHeight,
@@ -236,6 +236,8 @@ export function TerminalPanel({
     });
     const host = document.createElement("div");
     host.className = "terminal-host";
+    // xterm 量字宽和画字都在 host 里面，标点挤压、中英自动空隙要在 open 之前关掉
+    applyTerminalTextStyle(host);
     return { terminal, fit, host };
   }, [bridge]);
 

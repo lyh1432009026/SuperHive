@@ -126,6 +126,27 @@ export function measureCellWidth(family: string, fontSize: number): number {
   return context.measureText("W").width;
 }
 
+/**
+ * 关掉 Chromium 对 CJK 的自动排版调整，让每个字的宽度和 xterm 量到的一致。
+ *
+ * xterm 的 DOM 渲染器先把每个字符连写 32 遍量出平均宽度，再用 letter-spacing 把它补到「格数 × 单元格宽」。
+ * Chromium（123 起）默认 `text-spacing-trim: normal`，连着的全角标点会互相挤掉一半宽度，
+ * 于是「，，，…」量出来只有半个字宽，渲染单个「，」时却是整字宽，补上的 letter-spacing 多了半个字：
+ * 每个全角标点都往右多推约半格，含标点的长行越往右越错位，最右边的字就被终端区域切掉了。
+ * `text-autospace`（中英文之间自动加空隙）同理会让实际宽度和格子对不上，一并关掉。
+ * 只作用在终端容器内（含 xterm 量字宽用的隐藏元素），不影响聊天区的排版。
+ */
+export const TERMINAL_TEXT_STYLE: Readonly<Record<string, string>> = {
+  "text-spacing-trim": "space-all",
+  "text-autospace": "no-autospace",
+};
+
+export function applyTerminalTextStyle(element: HTMLElement): void {
+  for (const [property, value] of Object.entries(TERMINAL_TEXT_STYLE)) {
+    element.style.setProperty(property, value);
+  }
+}
+
 const prepared = new Map<string, Promise<boolean>>();
 
 /**

@@ -157,7 +157,11 @@ test("terminal layout screenshots", async () => {
     await main.goto(`http://127.0.0.1:${port}/#desktop`);
     await main.reload();
     await expect(main.locator("header.chat-header")).toBeVisible({ timeout: 30_000 });
-    await openTerminal(main, "clear; git --no-pager log --oneline -8 --no-decorate; ls");
+    // 中英混排样例（含写满右边界的长行）加真实的 git log，看各位置下最右一列有没有被切
+    await openTerminal(
+      main,
+      `clear; sh ${JSON.stringify(cjkSample)}; git --no-pager log --oneline -1 --no-decorate 44eedea`,
+    );
     const panel = main.locator(".terminal-panel");
     const shot = async (name: string) => {
       await main.waitForTimeout(600);
