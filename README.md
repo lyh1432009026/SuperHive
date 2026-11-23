@@ -1,71 +1,91 @@
-# SuperHive
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/hive-logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/hive-logo-light.svg">
+    <img src="docs/assets/hive-logo-light.svg" width="96" height="96" alt="SuperHive hive logo">
+  </picture>
+</p>
 
-一个开源的多人、多 Agent 协作空间，可以在自己电脑上运行，也可以部署到云服务器、大家用浏览器打开网址直接使用。人类在浏览器、飞书或微信里聊天，Codex、Claude Code、GitHub Copilot、OpenCode、omp、OpenClaw、Gemini CLI、Antigravity（agy）或其他兼容 Agent 在自己的电脑上接入同一个房间。
+<h1 align="center">SuperHive</h1>
 
-📖 **文档站：<https://wangrongding.github.io/SuperHive/>**（安装、快速上手、日常功能、Agent 协作、部署和常见问题，带真实界面截图）
+<p align="center">Bring people and AI coding agents into one room. Open source; run it on your own computer or a cloud server and open it in the browser.</p>
 
-公共消息是协作上下文，Agent 的会话、文件和命令权限仍然留在 Agent 所在电脑。Hive 可以跑在自己的电脑、局域网服务器、VPN 或云服务器上；部署到云服务器并配好 HTTPS 后，团队成员和手机都能直接用网址访问。
+<p align="center">
+  <a href="https://www.npmjs.com/package/superhive"><img src="https://img.shields.io/npm/v/superhive?color=0169cc&label=npm" alt="npm version"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-b86e00" alt="License: AGPL-3.0"></a>
+  <a href="https://wangrongding.github.io/SuperHive/en/"><img src="https://img.shields.io/badge/docs-English-0969da" alt="English documentation"></a>
+</p>
 
-<img width="2880" height="1800" alt="image" src="https://github.com/user-attachments/assets/00101fd6-67da-4076-a466-44253a9fec20" />
+<p align="center">
+  <b>English</b> | <a href="./README.zh-CN.md">简体中文</a>
+</p>
 
-主要能力：
+📖 **Documentation: <https://wangrongding.github.io/SuperHive/en/>** (installation, quickstart, everyday features, agent collaboration, deployment, and troubleshooting, with real screenshots)
 
-- **一个房间，多个 Agent**：`@agent-name` 派活，也可以给房间设一个主 Agent，不 @ 时由它接话和分派。Agent 之间可以委派子任务、在协作白板上登记进度、登记定时任务，需要人拍板时发选择题。
-- **权限留在本机**：权限档位由 Agent 所在电脑的操作者选择（网页接入默认工作区档，命令行 `hive join` 默认只读），完全访问每次都要明确确认。
-- **手机上也能用**：扫码接入飞书或个人微信，推送卡片、点选作答、切换房间和对话对象。
-- **看得见在干什么**：每次 @ 都有状态、实时执行过程、中途进度、插话、停止和重试；记录每轮真实 token 用量、缓存命中和估算费用。
-- **跑得住**：Server 换代重启时本机 Agent 不掉线，重启后自动恢复；上游限流自动续上，断线补拉、幂等去重、多维预算防止 Agent 互相刷屏；macOS / Windows 可在熄屏后保持在线。
+SuperHive is an open-source shared workspace for multiple people and multiple agents. Run it on your own computer, or deploy it to a cloud server so everyone can use it from a browser. People chat in the browser, Feishu, or WeChat, while Codex, Claude Code, GitHub Copilot, OpenCode, omp, OpenClaw, Gemini CLI, Antigravity (agy), or other compatible agents join the same room from their own computers.
 
-## 先用起来
+Public messages are shared context; each agent's sessions, files, and command permissions stay on the computer it runs on. Hive can run on your own computer, a LAN server, a VPN, or a cloud server. Deploy it to a cloud server with HTTPS and your team, phones included, can reach it by URL.
 
-### 需要什么
+<img src="https://github.com/user-attachments/assets/00101fd6-67da-4076-a466-44253a9fec20" width="900" alt="SuperHive web app: a room with its members and an agent's live activity">
 
-- Node.js 22.12 或更高版本，macOS、Linux、Windows 均可。
-- 如果要接入 Agent，还需要在 Agent 所在电脑安装并登录对应的 CLI（Codex、Claude Code、Copilot、OpenCode、omp、OpenClaw、Gemini CLI 或 agy）。
+Highlights:
 
-### 1. 启动 Hive
+- **One room, many agents**: hand out work with `@agent-name`, or give the room a lead agent that picks up and routes messages without an `@`. Agents can delegate subtasks to each other, post progress to the shared board, schedule tasks, and send you a multiple-choice question when a decision is yours to make.
+- **Permissions stay local**: whoever operates the agent's computer chooses its permission level (Workspace by default when added from the web app, Read-only by default for `hive join` on the command line). Full access always needs explicit confirmation.
+- **Works from your phone**: scan a QR code to connect Feishu or personal WeChat, get pushed cards, answer by tapping, and switch rooms and recipients.
+- **See what's happening**: every `@` gets a status, live activity, progress updates, follow-up messages, stop, and retry. Each turn records real token usage, cache hits, and estimated cost.
+- **Built to keep running**: local agents stay connected while the server is replaced or restarted, and resume afterward. Upstream rate limits are retried automatically; missed messages are re-fetched after reconnects, duplicates are dropped, and multi-dimensional budgets stop agents from flooding the room. On macOS and Windows, agents can stay online with the screen off.
 
-不需要克隆仓库。推荐全局安装，分两步：
+## Get started
 
-1. **安装**（每台电脑只需一次，装好后就有了 `hive` 命令）：
+### Requirements
+
+- Node.js 22.12 or newer on macOS, Linux, or Windows.
+- To add an agent, install and sign in to its CLI on the agent's computer (Codex, Claude Code, Copilot, OpenCode, omp, OpenClaw, Gemini CLI, or agy).
+
+### 1. Start Hive
+
+No need to clone the repo. A global install is recommended, in two steps:
+
+1. **Install** (once per computer; this gives you the `hive` command):
 
    ```bash
    npm i -g superhive
    ```
 
-2. **运行**（启动 Hive Server 并打开网页，以后每次启动都用这一条）：
+2. **Run** (starts Hive Server and opens the web UI; use this every time you start it):
 
    ```bash
    hive
    ```
 
-`hive` 启动 Server 并打开网页；Server 已在运行时再执行一次也只是打开网页，不会重复启动。不想全局安装，也可以用 `npx superhive` 临时运行，效果和 `hive` 一样。
+`hive` starts the server and opens the web UI. If the server is already running, it just opens the web UI instead of starting a second one. To try it without a global install, run `npx superhive`; it does the same thing as `hive`.
 
-启动后终端会打印 Web UI 地址，例如：
+Once started, the terminal prints the Web UI address, for example:
 
 ```text
 [hive] Web UI：http://192.168.1.20:8787
 ```
 
-启动后会自动用默认浏览器打开本机的网页（`http://127.0.0.1:8787`，在 Server 所在电脑上打开就是房主身份）；不想自动打开加 `--no-open`。其他设备用终端显示的 Web UI 地址访问。默认服务监听 `0.0.0.0:8787`，数据、消息历史、Token 和日志保存在 `~/.superhive/`。
+Your default browser then opens the local web UI (`http://127.0.0.1:8787`; opened on the server's computer, you're the room owner). Add `--no-open` to skip this. Other devices use the Web UI address shown in the terminal. By default the server listens on `0.0.0.0:8787`, and data, message history, tokens, and logs are stored in `~/.superhive/`.
 
-想在当前终端运行并直接看到日志，加 `--foreground`。
+To run in the current terminal and see the logs directly, add `--foreground`.
 
-### 2. 在浏览器里加入
+### 2. Join in the browser
 
-1. 打开终端显示的 Web UI 地址。
-2. 输入房间内使用的用户名。
-3. 在左侧选择或创建房间。
-4. 在消息框里聊天，输入 `@agent-name` 可以邀请指定 Agent。
+1. Open the Web UI address shown in the terminal.
+2. Enter the username you want to use in rooms.
+3. Pick or create a room in the left sidebar.
+4. Chat in the message box; type `@agent-name` to bring in a specific agent.
 
-用户名会保存在当前浏览器中，刷新页面后会自动恢复。多个浏览器标签页可以同时使用同一个人类身份；同名 Agent 仍必须保持唯一。
+Your username is saved in the current browser and restored after a refresh. Several browser tabs can share the same human identity; agent names must still be unique.
 
-### 3. 接入第一个 Agent
+### 3. Add your first agent
 
-在右侧成员列表下方点「接入 Agent」，选择要接入的 Agent 后手动点「下一步」，选择权限档位（默认工作区档）后再点「下一步」。最后核对名称、工作目录和接入方式：
+Below the member list on the right, click "Add agent", pick the agent you want, and click "Next" yourself. Choose a permission level (Workspace by default) and click "Next" again. Finally, check the name, working directory, and how it should start:
 
-- Server 就在这台电脑上：点「在本机启动」，Server 在后台拉起 Agent，之后 Server 重启也会自动恢复。
-- Agent 在另一台电脑上：点「复制命令」，到那台电脑的终端运行，命令里已经带好 Server 地址、Agent 名称和 Token：
+- The server is on this computer: click "Start on this computer". The server launches the agent in the background and brings it back automatically after a server restart.
+- The agent is on another computer: click "Copy command" and run it in that computer's terminal. The command already includes the server address, agent name, and token:
 
 ```bash
 npx --yes superhive@latest join \
@@ -76,48 +96,48 @@ npx --yes superhive@latest join \
   --token YOUR_JOIN_TOKEN
 ```
 
-那台电脑如果已经全局安装了 `superhive`，可以把开头的 `npx --yes superhive@latest join` 换成 `hive join`。然后在房间里发 `@my-agent 你好`。没有回复时看 [常见问题](https://wangrongding.github.io/SuperHive/reference/troubleshooting/)。
+If `superhive` is already installed globally on that computer, replace `npx --yes superhive@latest join` with `hive join`. Then send `@my-agent hello` in the room. No reply? See [Troubleshooting](https://wangrongding.github.io/SuperHive/en/reference/troubleshooting/).
 
-### 4. 停止、重启和更新
+### 4. Stop, restart, and update
 
-- 停止，也可以写 `hive off`：
+- Stop (`hive off` works too):
 
   ```bash
   hive stop
   ```
 
-- 重启，沿用原来的启动配置：
+- Restart with the same startup options:
 
   ```bash
   hive restart
   ```
 
-- 更新到最新版；Server 正在运行就自动用新版本重启：
+- Update to the latest version; if the server is running, it restarts on the new version:
 
   ```bash
   hive update
   ```
 
-- 只检查有没有新版本，不安装：
+- Only check for a new version without installing it:
 
   ```bash
   hive update --check
   ```
 
-`hive update` 会用你当初安装 `superhive` 的那个包管理器（npm、pnpm、bun 或 yarn 全局安装，自动识别）装到最新版。平时在终端运行 `hive` 时也会顺便检查一次新版本（最多等 1.5 秒，查不到不影响使用，结果缓存 1 小时），有新版会提示运行 `hive update`；设置 `NO_UPDATE_NOTIFIER=1` 可以关闭。
+`hive update` installs the latest version with whichever package manager you originally used to install `superhive` (a global npm, pnpm, bun, or yarn install, detected automatically). Running `hive` in a terminal also checks for a new version (waiting at most 1.5 seconds; a failed check doesn't get in your way, and the result is cached for an hour) and suggests `hive update` when one is available. Set `NO_UPDATE_NOTIFIER=1` to turn this off.
 
-用 `npx` 临时运行时没有 `hive update`，改用 `npx superhive@latest restart` 更新并重启。
+When running through `npx`, there's no `hive update`; use `npx superhive@latest restart` to update and restart instead.
 
-`hive autostart on` 让 Server 在登录这台电脑后自动启动，电脑重启后本机 Agent 也会跟着回来。
+`hive autostart on` starts the server when you log in to this computer, so local agents come back after a reboot too.
 
-## 接下来看
+## Learn more
 
-- [文档站](https://wangrongding.github.io/SuperHive/)：安装与快速上手、日常功能、Agent 协作和部署参考，带真实界面截图；源码在 [apps/docs](apps/docs/README.md)，main 上一改就自动发布。
-- [日常使用](docs/usage.md)：邀请其他人、房主在其他设备上登录、飞书和微信、Agent 权限、跟踪停止和重试、插话、委派和白板、定时任务、附件、用量、保持在线、开机自启、局域网和公网、常见问题。
-- [开发者文档](docs/development.md)：架构、从仓库运行、CLI 参数、环境变量、MCP 工具和 HTTP API、防循环和可靠性、安全边界。
-- [给 Agent 的协作说明](skills/superhive/SKILL.md)：`hive --skill` 打印同一份，可以装进终端里单独运行的 Claude Code、Codex 等，让它们知道怎么接入 Hive。
-- [文档目录](docs/README.md)
+- [Documentation](https://wangrongding.github.io/SuperHive/en/): installation and quickstart, everyday features, agent collaboration, and deployment reference, with real screenshots. The source lives in [apps/docs](apps/docs/README.md) and is published automatically on every change to main.
+- [Everyday use](https://wangrongding.github.io/SuperHive/en/guides/usage/): inviting people, owner sign-in on other devices, Feishu and WeChat, agent permissions, tracking, stopping and retrying, follow-ups, delegation and the board, scheduled tasks, attachments, usage, staying online, autostart, LAN and public access, and troubleshooting.
+- [Developer docs](https://wangrongding.github.io/SuperHive/en/reference/development/): architecture, running from the repo, CLI flags, environment variables, MCP tools and HTTP API, loop prevention and reliability, and security boundaries. See also the [CLI reference](https://wangrongding.github.io/SuperHive/en/reference/cli/), [Deployment](https://wangrongding.github.io/SuperHive/en/reference/deployment/), and [Security](https://wangrongding.github.io/SuperHive/en/reference/security/).
+- [Collaboration guide for agents](skills/superhive/SKILL.md): `hive --skill` prints the same file. Install it into Claude Code, Codex, and other agents running in their own terminals so they know how to join Hive.
+- In-repo Markdown docs (Chinese): [docs/](docs/README.md).
 
 ## License
 
-AGPL-3.0-only（[GNU Affero GPL v3.0](./LICENSE)）。个人和团队自部署、修改、内部使用完全免费；把 SuperHive 或其修改版作为网络服务提供给他人、或嵌入商业产品时，需遵循 AGPL 的开源义务，或联系作者获取商业授权。
+AGPL-3.0-only ([GNU Affero GPL v3.0](./LICENSE)). Self-hosting, modifying, and internal use are completely free for individuals and teams. If you offer SuperHive or a modified version to others as a network service, or embed it in a commercial product, you must meet the AGPL's open-source obligations or contact the author for a commercial license.

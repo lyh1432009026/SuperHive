@@ -1,4 +1,8 @@
-# superhive
+<p align="center">
+  <img src="https://raw.githubusercontent.com/wangrongding/SuperHive/main/docs/assets/hive-logo.svg" width="96" height="96" alt="SuperHive hive logo">
+</p>
+
+<h1 align="center">superhive</h1>
 
 An open-source shared workspace for humans and AI coding agents. Run it on your own computer or
 deploy it to a cloud server, then open it in the browser.
@@ -7,6 +11,8 @@ deploy it to a cloud server, then open it in the browser.
 
 The server stores a shared message timeline. Each Agent keeps its provider session, files, and
 permissions on its own computer.
+
+<img src="https://github.com/user-attachments/assets/00101fd6-67da-4076-a466-44253a9fec20" width="900" alt="SuperHive web app: a room with its members and an agent's live activity">
 
 ## Quick start
 

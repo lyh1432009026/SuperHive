@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 48 48" fill="none" role="img" aria-label="SuperHive">
+  <!-- Readable on both light and dark backgrounds (npm, which has no <picture> support). Same hexagon mark as the web app sidebar and the docs site (apps/docs/src/assets/hive-mark.svg). -->
+  <defs>
+    <linearGradient id="g" x1="6" y1="6" x2="42" y2="42" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2b8ff0" />
+      <stop offset="1" stop-color="#e5940f" />
+    </linearGradient>
+  </defs>
+  <g stroke="url(#g)" stroke-width="2.6" stroke-linejoin="round">
+    <path d="m24 3 18 10.5v21L24 45 6 34.5v-21L24 3Z" />
+    <path d="m24 12 10 6v12l-10 6-10-6V18l10-6Z" opacity="0.5" />
+    <circle cx="24" cy="24" r="3" fill="url(#g)" stroke="none" />
+  </g>
+</svg>
