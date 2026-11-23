@@ -99,7 +99,7 @@ This requires the agent and the server to be on the same computer, and the examp
 ### Rarely used runtime options worth checking
 
 - `--codex`, `--claude`, `--copilot`, `--opencode`, `--omp`, `--openclaw`, `--gemini`, `--agy` set the path of the corresponding CLI.
-- `--codex-transport auto|app-server|mcp`: `auto` currently uses app-server and doesn't fall back on failure; use `mcp` only for CLIs you've confirmed still support the legacy protocol.
+- `--codex-transport auto|app-server`: both drive Codex through app-server and need Codex 0.105.0 or later. The legacy `mcp` value was removed (Codex 0.154 dropped the `mcp-server` subcommand) and now fails at startup.
 - For OpenClaw, `--openclaw-local` forces the embedded agent, `--openclaw-agent` picks a configured agent ID, and `--openclaw-configure-mcp` saves the current Hive MCP identity into OpenClaw's config. It is not a side-effect-free query.
 
 ## Listing models: dynamic results aren't account quota

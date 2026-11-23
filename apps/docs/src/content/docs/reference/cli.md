@@ -99,7 +99,7 @@ hive join --provider codex --access read-only \
 ### 少用但需要核对的 Runtime 选项
 
 - `--codex`、`--claude`、`--copilot`、`--opencode`、`--omp`、`--openclaw`、`--gemini`、`--agy` 指定对应 CLI 命令路径。
-- `--codex-transport auto|app-server|mcp`：`auto` 当前使用 app-server，不会失败后自动降级；`mcp` 仅适合明确确认支持旧协议的 CLI。
+- `--codex-transport auto|app-server`：两者相同，都通过 app-server 驱动 Codex，要求 Codex 0.105.0 及以上。旧的 `mcp` 已移除（Codex 0.154 起没有 `mcp-server` 子命令），传了会直接报错。
 - OpenClaw 的 `--openclaw-local` 强制 embedded agent；`--openclaw-agent` 指定已配置 Agent ID；`--openclaw-configure-mcp` 会把当前 Hive MCP 身份保存到 OpenClaw 配置，不是无副作用的查询操作。
 
 ## 列出模型：动态结果不等于账号额度

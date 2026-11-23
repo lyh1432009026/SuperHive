@@ -1,4 +1,16 @@
+import { classifyText } from "./failure.js";
 import { AgentNonRetryableError, AgentTransientError } from "./responder.js";
+
+/** 续接的线程已经不在了（Codex 把报错包了好几层）：交给调用方开新线程重来 */
+export function isMissingCodexThread(error: unknown): boolean {
+  const messages: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    messages.push(current instanceof Error ? current.message : String(current));
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return classifyText(messages.join("\n")) === "session_invalid";
+}
 
 /** Only allowlisted diagnostics enter room-visible errors; never arbitrary stderr/credentials. */
 export function codexStartupFailure(

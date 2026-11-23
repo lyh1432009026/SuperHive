@@ -13,7 +13,7 @@ import {
 } from "./task-workspace.js";
 import { AgentManager, type StackHooks } from "./agent-manager.js";
 import { ClaudeCodeResponder } from "./claude-client.js";
-import { CodexResponder, type CodexTransport } from "./codex-responder.js";
+import { CODEX_MIN_VERSION, CodexResponder } from "./codex-responder.js";
 import { CopilotResponder } from "./copilot-client.js";
 import { createOmpResponder } from "./omp-client.js";
 import { createGeminiResponder } from "./gemini-client.js";
@@ -61,8 +61,8 @@ SuperHive Agent
   --state-dir PATH  Agent 状态目录（默认 ~/.superhive/agents）
   --codex PATH      Codex CLI 命令（默认 codex）
   --codex-transport MODE
-                    auto、app-server 或 mcp（auto 使用 app-server，不自动降级；
-                    mcp 仅供显式选择且已确认支持旧协议的 CLI）
+                    auto 或 app-server（两者相同；旧的 mcp 已移除：Codex 0.154 起没有
+                    mcp-server 子命令）
   --claude PATH     Claude Code CLI 命令（默认 claude）
   --copilot PATH    GitHub Copilot CLI 命令（默认 copilot）
   --openclaw PATH   OpenClaw CLI 命令（默认 openclaw）
@@ -232,11 +232,14 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
     throw new Error(`不支持的 access “${accessValue}”；当前可用：read-only、workspace、full。`);
   }
   const access = accessValue as AgentAccessMode;
-  const codexTransport = parsed.values["codex-transport"] as CodexTransport;
-  if (!["auto", "app-server", "mcp"].includes(codexTransport)) {
+  const codexTransport = parsed.values["codex-transport"];
+  if (codexTransport === "mcp") {
     throw new Error(
-      `不支持的 codex-transport “${codexTransport}”；当前可用：auto、app-server、mcp。`,
+      `--codex-transport mcp 已移除：Codex 0.154 起没有 mcp-server 子命令，Hive 只通过 app-server 驱动 Codex（最低 ${CODEX_MIN_VERSION}）。去掉这个参数即可。`,
     );
+  }
+  if (!["auto", "app-server"].includes(codexTransport ?? "")) {
+    throw new Error(`不支持的 codex-transport “${codexTransport}”；当前可用：auto、app-server。`);
   }
   if (access !== "read-only" && !parsed.values.cwd) {
     throw new Error(`--access ${access} 必须同时显式指定 --cwd，避免授权到错误目录。`);
@@ -368,7 +371,6 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
           cwd,
           hive,
           access,
-          transport: codexTransport,
           ...(settingsFile ? { settingsFile } : {}),
           ...(parsed.values.model ? { model: parsed.values.model } : {}),
         });

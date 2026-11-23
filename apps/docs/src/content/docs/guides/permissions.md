@@ -31,12 +31,12 @@ Hive Server 负责消息与协调，不提供给房间成员直接使用的远�
 
 ## 不同运行时不能按同一个沙箱理解
 
-- **Codex**：工作区档使用 `workspace-write`，工具需要越界授权时可转人工审批；完全访问使用 `danger-full-access`。只读档不通过 Hive 的工具审批升级写权限。
+- **Codex**：需要 0.105.0 及以上（Hive 通过 app-server 驱动 Codex），太旧时会提示升级；比 Hive 验证过的版本新、又出了协议错误时，会提示先 `hive update`。工作区档使用 `workspace-write`，工具需要越界授权时可转人工审批；完全访问使用 `danger-full-access`。只读档不通过 Hive 的工具审批升级写权限。
 - **Claude Code**：工作区档启用其沙箱，无法启用时要求失败而非静默降级；需确认的工具通过 Hive 转给人。完全访问关闭其沙箱并跳过运行时许可询问。
 - **OpenCode**：工作区档通过运行时策略和 ACP 请求裁决限制文件改动，超出目录的改动可申请审批。Shell 命令并非由 Hive 提供完整的操作系统级目录隔离。
 - **omp**：工作区档开放读取、编辑、写入、Shell 等工具，**普通写入并不被限制在 cwd 内，也不会都经过审批**。需要严格目录边界时不要把 omp 的工作区档当成 Codex 的沙箱。
 - **Gemini CLI、agy**：只读档和工作区档下，写文件、跑命令、调用外部 MCP 工具都会发权限请求，由 Hive 按档位裁决：只读只放行读取和搜索，工作区放行命令和工作目录内的文件改动，超出目录的改动可申请审批。Hive 自己的 MCP 工具（发消息、白板等）在各档都放行。完全访问分别用 Gemini CLI 的 `yolo` 审批模式和 agy 的 `--dangerously-skip-permissions`。**CLI 自己已经放行的工具不会发请求**：Gemini CLI 内置的只读工具、你在它的 policy 文件或 `tools.allowed` 里放行的工具，以及 agy 权限设置里放行的工具，都不经过 Hive。命令同样没有操作系统级的目录隔离。
-- **GitHub Copilot**：通过 CLI 的模式和工具允许／拒绝参数控制能力；工作区档开放写入与 Shell，不能据此推断存在与 Codex 相同的沙箱。
+- **GitHub Copilot**：通过 CLI 的模式和工具允许／拒绝参数控制能力；工作区档开放写入与 Shell，不能据此推断存在与 Codex 相同的沙箱。只读档和工作区档还会关掉会话同步，不把会话传到 GitHub 云端：1.0.103 及以上传 `--sync-session=off`，更老的版本传 `--no-remote`，Hive 按 `copilot --help` 自动选。从 GitHub 网页或手机远程操控会话只能在 Copilot 交互界面里用 `/remote on` 打开，Hive 拉起的会话不会打开。
 - **OpenClaw**：实际权限还需在 Agent 或 Gateway 中配置。Hive 不会自动改写其全局工具策略，网页选择档位不能替代 OpenClaw 自身的安全配置。
 
 运行时版本、插件、MCP 和操作系统都会影响实际边界。敏感目录、生产数据与账号应使用独立环境和外部访问控制，不仅靠提示词或白板占用保护。

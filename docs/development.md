@@ -170,8 +170,8 @@ hive --version
 --model NAME           Provider 使用的可选模型（OpenCode 为 provider/model 格式）
 --codex PATH / --claude PATH / --copilot PATH / --openclaw PATH / --opencode PATH / --omp PATH
                        各 Provider CLI 的命令
---codex-transport MODE auto、app-server 或 mcp（默认 auto 使用 app-server，不自动降级；
-                       mcp 仅供显式选择且已确认支持旧协议的 CLI）
+--codex-transport MODE auto 或 app-server（两者相同）；旧的 mcp 已移除：Codex 0.154 起没有
+                       mcp-server 子命令，Hive 要求 Codex ≥ 0.105.0
 --openclaw-local       强制 OpenClaw 使用 embedded agent，不连接 Gateway
 --openclaw-agent ID    OpenClaw 中已配置的 Agent ID
 --openclaw-configure-mcp  将当前 Hive MCP 身份保存到 OpenClaw 配置

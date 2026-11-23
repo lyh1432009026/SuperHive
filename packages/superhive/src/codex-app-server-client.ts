@@ -1,8 +1,7 @@
 import { UsageAccumulator, codexBuckets } from "./usage.js";
 import { ThinkingTrace, isHiveProgress, redactTrace } from "./trace.js";
 import type { AgentUsage, TraceStep } from "./hive-protocol.js";
-import { codexStartupFailure } from "./codex-errors.js";
-import { isMissingCodexThread } from "./codex-client.js";
+import { codexStartupFailure, isMissingCodexThread } from "./codex-errors.js";
 import { classifyCodex } from "./failure.js";
 import { createRequire } from "node:module";
 import {
@@ -34,7 +33,7 @@ import {
 
 /**
  * 基于常驻 `codex app-server` 进程（stdio 上的换行分隔 JSON-RPC）的 Codex Responder。
- * 相比每次调用 `codex mcp-server` 的 CodexMcpResponder，它支持：
+ * 它支持：
  * - 向进行中的回合注入新消息（turn/steer）
  * - 中断回合（turn/interrupt）
  * - 流式进度（item/started 通知）

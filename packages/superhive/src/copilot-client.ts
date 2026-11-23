@@ -42,7 +42,30 @@ function withInstructions(input: AgentReplyInput): string {
     : input.prompt;
 }
 
+/**
+ * 受限档不让会话连到 GitHub 云端：老版本用 --no-remote（同时关掉远程操控和会话同步），
+ * 1.0.103 起去掉了它（再传就直接退出），远程操控只能在交互界面里 /remote on 打开，
+ * 剩下的会话同步改由 --sync-session=off 关闭。按 --help 里有哪个参数来选，两个都没有就不传
+ */
+export type CopilotCloudFlag = "--sync-session=off" | "--no-remote" | undefined;
+
+export function copilotCloudFlag(help: string): CopilotCloudFlag {
+  if (/--sync-session(?![\w-])/.test(help)) return "--sync-session=off";
+  if (/--no-remote(?![\w-])/.test(help)) return "--no-remote";
+  return undefined;
+}
+
+/** 参数被 CLI 拒绝（升级后去掉了、或还不认识）：这时什么都还没执行，可以重新探测后再跑一次 */
+function isRejectedCloudFlag(message: string): boolean {
+  return /--no-remote was removed|unexpected argument '--(?:sync-session|no-remote)|unknown option '?--(?:sync-session|no-remote)/i.test(
+    message,
+  );
+}
+
 export class CopilotResponder implements AgentResponder {
+  /** Copilot 默认会自动升级：探测结果只在被 CLI 拒绝时作废，下一次重新看 --help */
+  private cloudFlag: Promise<CopilotCloudFlag> | undefined;
+
   constructor(
     private readonly options: {
       command: string;
@@ -54,7 +77,35 @@ export class CopilotResponder implements AgentResponder {
     },
   ) {}
 
+  private detectCloudFlag(runner: CommandRunner): Promise<CopilotCloudFlag> {
+    this.cloudFlag ??= runner(this.options.command, ["--help"], { cwd: this.options.cwd }).then(
+      (result) => copilotCloudFlag(`${result.stdout}\n${result.stderr}`),
+      // 探测失败（比如命令不存在）不在这里报错：真正执行时会给出准确的原因
+      () => undefined,
+    );
+    return this.cloudFlag;
+  }
+
   async reply(input: AgentReplyInput): Promise<AgentReply> {
+    const runner = this.options.runner ?? defaultCommandRunner;
+    const restricted = (this.options.access ?? "read-only") !== "full";
+    let cloudFlag = restricted ? await this.detectCloudFlag(runner) : undefined;
+    try {
+      return await this.run(input, runner, cloudFlag);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!restricted || !isRejectedCloudFlag(message)) throw error;
+      this.cloudFlag = undefined;
+      cloudFlag = await this.detectCloudFlag(runner);
+      return this.run(input, runner, cloudFlag);
+    }
+  }
+
+  private async run(
+    input: AgentReplyInput,
+    runner: CommandRunner,
+    cloudFlag: CopilotCloudFlag,
+  ): Promise<AgentReply> {
     const sessionId = input.threadId ?? randomUUID();
     const access = this.options.access ?? "read-only";
     const mcpDir = mkdtempSync(path.join(tmpdir(), "hive-copilot-mcp-"));
@@ -83,7 +134,6 @@ export class CopilotResponder implements AgentResponder {
         "--disable-builtin-mcps",
         "--deny-tool=write",
         "--deny-tool=shell",
-        "--no-remote",
         "--disallow-temp-dir",
       );
     } else if (access === "workspace") {
@@ -91,19 +141,19 @@ export class CopilotResponder implements AgentResponder {
         "--disable-builtin-mcps",
         "--allow-tool=write",
         "--allow-tool=shell",
-        "--no-remote",
         "--disallow-temp-dir",
       );
     } else {
       args.push("--allow-all");
     }
+    if (cloudFlag) args.push(cloudFlag);
     // 每轮都是新进程：设置里改的模型、「换个模型重试」都按轮生效
     const model = input.model ?? this.options.model;
     if (model) args.push("--model", model);
 
     let result;
     try {
-      result = await (this.options.runner ?? defaultCommandRunner)(this.options.command, args, {
+      result = await runner(this.options.command, args, {
         cwd: this.options.cwd,
         input: withInstructions(input),
         ...(input.signal ? { signal: input.signal } : {}),
