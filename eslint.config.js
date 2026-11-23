@@ -11,6 +11,7 @@ export default tseslint.config(
       "**/.astro/**",
       ".claude/**",
       ".superhive-dev/**",
+      "output/**",
       "packages/superhive/web/**",
       // 桌面端的组装目录、打包产物和测试报告
       "apps/desktop/.stage/**",
