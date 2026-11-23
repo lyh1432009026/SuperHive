@@ -43,8 +43,6 @@ const sections = [
   { id: "install", label: s.install.label },
   { id: "community", label: s.community.label },
 ];
-const num = (id: string) =>
-  String(sections.findIndex((item) => item.id === id) + 1).padStart(2, "0");
 
 // 逐字上色：中文按字，英文按词（保留空格）
 const statementUnits =
@@ -101,11 +99,13 @@ const cloud = [
 ];
 const marqueeRows = [s.agents.terms.slice(0, 12), s.agents.terms.slice(12)];
 
-// 背景流动竖线：位置和节奏固定
-const streaks = Array.from({ length: 16 }, (_, index) => ({
-  x: ((index + 0.5) / 16) * 100,
-  delay: -(rand() * 9).toFixed(1),
-  dur: (6 + rand() * 7).toFixed(1),
+// 背景蜂巢：几格六边形按固定节奏轮流亮起
+const hiveCells = Array.from({ length: 14 }, (_, index) => ({
+  x: (4 + rand() * 92).toFixed(1),
+  y: (6 + rand() * 84).toFixed(1),
+  size: (2.4 + rand() * 3.2).toFixed(2),
+  delay: -(rand() * 8).toFixed(1),
+  dur: (5 + rand() * 5).toFixed(1),
   warm: index % 3 === 1,
 }));
 ---
@@ -116,14 +116,20 @@ const streaks = Array.from({ length: 16 }, (_, index) => ({
   </script>
   <div class="hl-progress" aria-hidden="true"><span data-hl-progress></span></div>
 
-  <nav class="hl-dots" aria-label={t.nav}>
+  <!-- 右侧分段刻度：当前段拉长并用品牌渐变，悬停或聚焦时在左边浮出段落名 -->
+  <nav class="hl-rail" aria-label={t.nav}>
     <ol>
       {
         sections.map((section, index) => (
           <li>
             <a href={`#${section.id}`} data-hl-dot={section.id}>
-              <span class="hl-dot-num">{String(index + 1).padStart(2, "0")}</span>
-              <span class="hl-dot-label">{section.label}</span>
+              <span class="hl-rail-tick" aria-hidden="true" />
+              <span class="hl-rail-label">
+                {section.label}
+                <span class="hl-rail-count" aria-hidden="true">
+                  {index + 1}/{sections.length}
+                </span>
+              </span>
             </a>
           </li>
         ))
@@ -269,12 +275,12 @@ const streaks = Array.from({ length: 16 }, (_, index) => ({
 
   <!-- 一句话：滚动时逐字上色 -->
   <section class="hl-statement" aria-label={t.statement.label} data-hl-statement>
-    <div class="hl-streaks" aria-hidden="true">
+    <div class="hl-hive" aria-hidden="true">
       {
-        streaks.map((streak) => (
+        hiveCells.map((cell) => (
           <span
-            class:list={{ "is-warm": streak.warm }}
-            style={`--x:${streak.x}%;--delay:${streak.delay}s;--dur:${streak.dur}s`}
+            class:list={{ "is-warm": cell.warm }}
+            style={`--x:${cell.x}%;--y:${cell.y}%;--s:${cell.size}rem;--delay:${cell.delay}s;--dur:${cell.dur}s`}
           />
         ))
       }
@@ -297,7 +303,7 @@ const streaks = Array.from({ length: 16 }, (_, index) => ({
   <!-- 01 单人 -->
   <section class="hl-section" id="solo" aria-labelledby="solo-title">
     <div class="hl-inner">
-      <p class="hl-kicker"><b>{num("solo")}</b> · /{s.solo.label}</p>
+      <p class="hl-kicker"><span class="hl-kicker-mark" aria-hidden="true"></span>{s.solo.label}</p>
       <h2 class="hl-h2" id="solo-title">
         <span class="hl-lead">{s.solo.head.lead}</span>
         <span class="hl-rest">{s.solo.head.rest}</span>
@@ -311,7 +317,7 @@ const streaks = Array.from({ length: 16 }, (_, index) => ({
   <!-- 02 多人 -->
   <section class="hl-section" id="team" aria-labelledby="team-title">
     <div class="hl-inner">
-      <p class="hl-kicker"><b>{num("team")}</b> · /{s.team.label}</p>
+      <p class="hl-kicker"><span class="hl-kicker-mark" aria-hidden="true"></span>{s.team.label}</p>
       <h2 class="hl-h2" id="team-title">
         <span class="hl-lead">{s.team.head.lead}</span>
         <span class="hl-rest">{s.team.head.rest}</span>
@@ -349,7 +355,9 @@ const streaks = Array.from({ length: 16 }, (_, index) => ({
       }
     </div>
     <div class="hl-inner hl-agents-copy">
-      <p class="hl-kicker"><b>{num("agents")}</b> · /{s.agents.label}</p>
+      <p class="hl-kicker">
+        <span class="hl-kicker-mark" aria-hidden="true"></span>{s.agents.label}
+      </p>
       <h2 class="hl-h2" id="agents-title">
         <span class="hl-lead">{s.agents.head.lead}</span>
         <span class="hl-rest">{s.agents.head.rest}</span>
@@ -388,7 +396,9 @@ const streaks = Array.from({ length: 16 }, (_, index) => ({
   <!-- 04 权限 -->
   <section class="hl-section" id="permissions" aria-labelledby="permissions-title">
     <div class="hl-inner">
-      <p class="hl-kicker"><b>{num("permissions")}</b> · /{s.permissions.label}</p>
+      <p class="hl-kicker">
+        <span class="hl-kicker-mark" aria-hidden="true"></span>{s.permissions.label}
+      </p>
       <h2 class="hl-h2" id="permissions-title">
         <span class="hl-lead">{s.permissions.head.lead}</span>
         <span class="hl-rest">{s.permissions.head.rest}</span>
@@ -445,7 +455,7 @@ const streaks = Array.from({ length: 16 }, (_, index) => ({
   <section class="hl-section" id="im" aria-labelledby="im-title">
     <div class="hl-inner hl-im">
       <div class="hl-im-copy">
-        <p class="hl-kicker"><b>{num("im")}</b> · /{s.im.label}</p>
+        <p class="hl-kicker"><span class="hl-kicker-mark" aria-hidden="true"></span>{s.im.label}</p>
         <h2 class="hl-h2" id="im-title">
           <span class="hl-lead">{s.im.head.lead}</span>
           <span class="hl-rest">{s.im.head.rest}</span>
@@ -513,7 +523,9 @@ const streaks = Array.from({ length: 16 }, (_, index) => ({
   <!-- 06 进展、白板、故障 -->
   <section class="hl-section" id="progress" aria-labelledby="progress-title" data-hl-stages>
     <div class="hl-inner">
-      <p class="hl-kicker"><b>{num("progress")}</b> · /{s.progress.label}</p>
+      <p class="hl-kicker">
+        <span class="hl-kicker-mark" aria-hidden="true"></span>{s.progress.label}
+      </p>
       <h2 class="hl-h2" id="progress-title">
         <span class="hl-lead">{s.progress.head.lead}</span>
         <span class="hl-rest">{s.progress.head.rest}</span>
@@ -554,7 +566,9 @@ const streaks = Array.from({ length: 16 }, (_, index) => ({
   <!-- 07 安装 -->
   <section class="hl-section" id="install" aria-labelledby="install-title">
     <div class="hl-inner">
-      <p class="hl-kicker"><b>{num("install")}</b> · /{s.install.label}</p>
+      <p class="hl-kicker">
+        <span class="hl-kicker-mark" aria-hidden="true"></span>{s.install.label}
+      </p>
       <h2 class="hl-h2" id="install-title">
         <span class="hl-lead">{s.install.head.lead}</span>
         <span class="hl-rest">{s.install.head.rest}</span>
@@ -594,7 +608,9 @@ const streaks = Array.from({ length: 16 }, (_, index) => ({
   <!-- 08 社区 -->
   <section class="hl-section hl-community" id="community" aria-labelledby="community-title">
     <div class="hl-inner">
-      <p class="hl-kicker"><b>{num("community")}</b> · /{s.community.label}</p>
+      <p class="hl-kicker">
+        <span class="hl-kicker-mark" aria-hidden="true"></span>{s.community.label}
+      </p>
       <h2 class="hl-h2" id="community-title">
         <span class="hl-lead">{s.community.head.lead}</span>
         <span class="hl-rest">{s.community.head.rest}</span>

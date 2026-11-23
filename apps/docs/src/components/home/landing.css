@@ -28,6 +28,7 @@
   --hl-ok: #4cc38a;
   --hl-warn: #ffc46b;
   --hl-btn-bg: #eef1f6;
+  --hl-hive-grid: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='98'%3E%3Cpath d='M28 66 0 50V16L28 0l28 16v34L28 66Zm0 0v32' fill='none' stroke='%23ffffff' stroke-opacity='.05'/%3E%3C/svg%3E");
   --hl-btn-text: #0a0c11;
   --hl-mono: var(--sl-font-mono);
   --hl-display:
@@ -75,6 +76,7 @@
   --hl-ok: #1f8a5b;
   --hl-warn: #925600;
   --hl-btn-bg: #0b0f17;
+  --hl-hive-grid: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='98'%3E%3Cpath d='M28 66 0 50V16L28 0l28 16v34L28 66Zm0 0v32' fill='none' stroke='%230b0f17' stroke-opacity='.06'/%3E%3C/svg%3E");
   --hl-btn-text: #ffffff;
   --sl-color-bg-nav: rgb(247 248 251 / 0.78);
   --sl-color-gray-5: #e3e6ec;
@@ -173,15 +175,16 @@
   display: none;
 }
 
-.hl-dots {
+/* 右侧分段刻度：一列短横线，当前段拉长并换成品牌渐变；悬停、聚焦时左侧浮出段落名 */
+.hl-rail {
   display: none;
 }
 
 @media (min-width: 72rem) {
-  .hl-dots {
+  .hl-rail {
     position: fixed;
     z-index: 5;
-    inset-inline-start: 1.25rem;
+    inset-inline-end: 0.75rem;
     top: 50%;
     display: block;
     opacity: 0;
@@ -190,67 +193,84 @@
     pointer-events: none;
   }
 
-  .hl.has-section .hl-dots,
-  :root:not(.hl-js) .hl-dots,
-  .hl-dots:focus-within {
+  .hl.has-section .hl-rail,
+  :root:not(.hl-js) .hl-rail,
+  .hl-rail:focus-within {
     opacity: 1;
     pointer-events: auto;
   }
 
-  .hl-dots ol {
+  .hl-rail ol {
     display: grid;
-    gap: 0.6rem;
+    gap: 0.1rem;
   }
 
-  .hl-dots a {
+  .hl-rail a {
     position: relative;
-    display: grid;
-    place-items: center;
-    width: 2.25rem;
-    height: 2.25rem;
-    border: 1px solid var(--hl-line-strong);
-    border-radius: 50%;
-    background: color-mix(in srgb, var(--hl-bg) 70%, transparent);
-    color: var(--hl-dim);
-    font: 500 0.66rem/1 var(--hl-mono);
-    transition:
-      background 0.25s ease,
-      color 0.25s ease,
-      border-color 0.25s ease,
-      box-shadow 0.25s ease;
-  }
-
-  .hl-dots a:hover {
-    color: var(--hl-text);
-    border-color: var(--hl-dim);
-  }
-
-  .hl-dots a[aria-current="true"] {
-    border-color: transparent;
-    background: var(--hl-text);
-    color: var(--hl-bg);
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--hl-c1) 22%, transparent);
-  }
-
-  .hl-dot-label {
-    position: absolute;
-    inset-inline-start: calc(100% + 0.6rem);
-    padding: 0.3rem 0.55rem;
-    border: 1px solid var(--hl-line);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    width: 2.75rem;
+    height: 1.4rem;
+    padding-inline-end: 0.25rem;
     border-radius: 0.4rem;
+  }
+
+  .hl-rail-tick {
+    display: block;
+    width: 0.7rem;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--hl-dim);
+    opacity: 0.6;
+    transition:
+      width 0.35s cubic-bezier(0.3, 0.7, 0.2, 1),
+      opacity 0.25s ease,
+      background-color 0.25s ease;
+  }
+
+  .hl-rail a:is(:hover, :focus-visible) .hl-rail-tick {
+    width: 1.3rem;
+    opacity: 1;
+    background: var(--hl-text);
+  }
+
+  .hl-rail a[aria-current="true"] .hl-rail-tick {
+    width: 2.2rem;
+    height: 3px;
+    opacity: 1;
+    background: var(--hl-grad);
+    box-shadow: 0 0 12px var(--hl-glow-a);
+  }
+
+  .hl-rail-label {
+    position: absolute;
+    inset-inline-end: calc(100% + 0.4rem);
+    display: flex;
+    gap: 0.55rem;
+    align-items: center;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--hl-line-strong);
+    border-radius: 0.5rem;
     background: var(--hl-surface);
+    box-shadow: 0 10px 28px -12px rgb(0 0 0 / 0.5);
     color: var(--hl-text);
-    font: 500 0.72rem/1.2 var(--sl-font);
+    font: 500 0.78rem/1.2 var(--sl-font);
     white-space: nowrap;
     opacity: 0;
-    transform: translateX(-4px);
+    transform: translateX(4px);
     transition:
-      opacity 0.2s ease,
-      transform 0.2s ease;
+      opacity 0.18s ease,
+      transform 0.18s ease;
     pointer-events: none;
   }
 
-  .hl-dots a:is(:hover, :focus-visible) .hl-dot-label {
+  .hl-rail-count {
+    color: var(--hl-dim);
+    font: 500 0.68rem/1 var(--hl-mono);
+  }
+
+  .hl-rail a:is(:hover, :focus-visible) .hl-rail-label {
     opacity: 1;
     transform: none;
   }
@@ -818,47 +838,42 @@
   transition: color 0.3s ease calc(var(--i) * var(--step, 20ms));
 }
 
-.hl-streaks {
+/* 背景蜂巢：极淡的六边形网格，几格按各自节奏亮起又暗下 */
+.hl-hive {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  mask-image: linear-gradient(transparent, #000 15%, #000 85%, transparent);
-  -webkit-mask-image: linear-gradient(transparent, #000 15%, #000 85%, transparent);
+  background-image: var(--hl-hive-grid);
+  background-size: 56px 98px;
+  background-position: center;
+  mask-image: radial-gradient(70% 70% at 50% 50%, #000 30%, transparent 80%);
+  -webkit-mask-image: radial-gradient(70% 70% at 50% 50%, #000 30%, transparent 80%);
   pointer-events: none;
 }
 
-.hl-streaks span {
+.hl-hive span {
   position: absolute;
-  top: 0;
-  bottom: 0;
   left: var(--x);
-  width: 1px;
-  background: linear-gradient(transparent, var(--hl-line) 20%, var(--hl-line) 80%, transparent);
+  top: var(--y);
+  width: var(--s);
+  height: calc(var(--s) * 1.15);
+  background: var(--hl-c1);
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  opacity: 0;
+  animation: hl-glow var(--dur) ease-in-out var(--delay) infinite;
 }
 
-.hl-streaks span::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: -1px;
-  width: 3px;
-  height: 9rem;
-  border-radius: 3px;
-  background: linear-gradient(transparent, var(--hl-c1));
-  opacity: 0.7;
-  animation: hl-fall var(--dur) linear var(--delay) infinite;
+.hl-hive span.is-warm {
+  background: var(--hl-c3);
 }
 
-.hl-streaks span.is-warm::after {
-  background: linear-gradient(transparent, var(--hl-c3));
-}
-
-@keyframes hl-fall {
-  from {
-    transform: translateY(-10rem);
+@keyframes hl-glow {
+  0%,
+  100% {
+    opacity: 0;
   }
-  to {
-    transform: translateY(80vh);
+  50% {
+    opacity: 0.16;
   }
 }
 
@@ -870,16 +885,23 @@
   scroll-margin-top: var(--sl-nav-height);
 }
 
+/* 段落眉题：一个渐变的小六边形加段落名，取自 SuperHive 的蜂巢标识 */
 .hl-kicker {
-  color: var(--hl-dim);
-  font: 500 0.75rem/1.4 var(--hl-mono);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  color: var(--hl-muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
-.hl-kicker b {
-  color: var(--hl-c1);
-  font-weight: 600;
+.hl-kicker-mark {
+  flex-shrink: 0;
+  width: 0.85rem;
+  height: 0.85rem;
+  background: var(--hl-grad);
+  clip-path: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
 }
 
 .hl-h2 {
@@ -909,10 +931,6 @@
 
 .hl-h2 > span {
   display: block;
-}
-
-:lang(zh-CN) .hl-kicker {
-  text-transform: none;
 }
 
 .hl-body {
@@ -1503,14 +1521,16 @@ html .hl .cm.cm.cm {
   align-content: start;
 }
 
+/* 流程节点做成六边形：外层是边框色，::before 盖一层底色留出 1.5px 的边 */
 .hl-stage-dot {
+  position: relative;
+  isolation: isolate;
   display: grid;
   place-items: center;
   width: 2.5rem;
   height: 2.5rem;
-  border: 1px solid var(--hl-line-strong);
-  border-radius: 50%;
-  background: var(--hl-bg);
+  background: var(--hl-line-strong);
+  clip-path: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
   color: var(--hl-dim);
   font: 500 0.72rem/1 var(--hl-mono);
   transition:
@@ -1538,20 +1558,24 @@ html .hl .cm.cm.cm {
   transition: color 0.4s ease;
 }
 
-.hl-stage.is-on .hl-stage-dot,
-:root:not(.hl-js) .hl-stage-dot {
-  border-color: var(--hl-c1);
-  color: var(--hl-text);
-  box-shadow:
-    0 0 0 4px color-mix(in srgb, var(--hl-c1) 18%, transparent),
-    0 0 24px var(--hl-glow-a);
+.hl-stage-dot::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 1.5px;
+  background: var(--hl-bg);
+  clip-path: inherit;
 }
 
-.hl-stage:last-child.is-on .hl-stage-dot {
-  border-color: var(--hl-c3);
-  box-shadow:
-    0 0 0 4px color-mix(in srgb, var(--hl-c3) 22%, transparent),
-    0 0 24px var(--hl-glow-b);
+.hl-stage.is-on .hl-stage-dot,
+:root:not(.hl-js) .hl-stage-dot {
+  background: var(--hl-grad);
+  color: var(--hl-text);
+}
+
+.hl-stage.is-on .hl-stage-dot::before,
+:root:not(.hl-js) .hl-stage-dot::before {
+  background: color-mix(in srgb, var(--hl-c1) 14%, var(--hl-bg));
 }
 
 .hl-stage.is-on h3,
@@ -1629,9 +1653,9 @@ html .hl .cm.cm.cm {
 }
 
 .hl-step-num {
-  color: var(--hl-dim);
-  font: 500 0.75rem/1 var(--hl-mono);
-  letter-spacing: 0.16em;
+  color: var(--hl-c1);
+  font-size: 0.9rem;
+  font-weight: 650;
 }
 
 .hl-step h3 {
@@ -1839,7 +1863,7 @@ html .hl .cm.cm.cm {
     transition: none !important;
   }
 
-  .hl-streaks {
+  .hl-hive span {
     display: none;
   }
 

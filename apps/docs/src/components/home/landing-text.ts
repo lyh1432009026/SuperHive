@@ -114,7 +114,7 @@ export const landingText: Record<Lang, Copy> = {
       copy: "复制",
       copied: "已复制",
       windowTitle: "SuperHive · #shop-web",
-      live: "实景预览 · 点亮点看看",
+      live: "可交互 · 演示数据",
       tabsLabel: "切换预览界面",
       tabs: [
         {
@@ -316,13 +316,13 @@ export const landingText: Record<Lang, Copy> = {
         intro: "需要 Node.js 22.12 或更高版本，macOS、Linux、Windows 都行。",
         steps: [
           {
-            step: "STEP 01",
+            step: "第一步",
             title: "安装",
             command: "npm i -g superhive",
             text: "每台电脑装一次，装好就有了 hive 命令。",
           },
           {
-            step: "STEP 02",
+            step: "第二步",
             title: "运行",
             command: "hive",
             text: "启动 Hive Server，自动打开网页 127.0.0.1:8787。",
@@ -368,7 +368,7 @@ export const landingText: Record<Lang, Copy> = {
       copy: "Copy",
       copied: "Copied",
       windowTitle: "SuperHive · #shop-web",
-      live: "Live preview · try the dots",
+      live: "Interactive · demo data",
       tabsLabel: "Switch preview",
       tabs: [
         {
@@ -603,13 +603,13 @@ export const landingText: Record<Lang, Copy> = {
         intro: "Requires Node.js 22.12 or later, on macOS, Linux or Windows.",
         steps: [
           {
-            step: "STEP 01",
+            step: "Step 1",
             title: "Install",
             command: "npm i -g superhive",
             text: "Once per computer. It gives you the hive command.",
           },
           {
-            step: "STEP 02",
+            step: "Step 2",
             title: "Run",
             command: "hive",
             text: "Starts Hive Server and opens the web app at 127.0.0.1:8787.",
