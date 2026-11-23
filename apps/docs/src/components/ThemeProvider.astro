@@ -1,24 +1,52 @@
 ---
 import DefaultThemeProvider from "@astrojs/starlight/components/ThemeProvider.astro";
 
-// 首页默认深色：没手动选过主题（或选的是「跟随系统」）时固定用深色；手动选浅色照常是浅色。
-// Starlight 的主题切换脚本加载后会按系统偏好重设一次，这里盯住 data-theme，在绘制前改回深色。
-const isHome = ["", "en"].includes(Astro.locals.starlightRoute.id);
+// 文档站默认深色：用户没在主题菜单里亲手选过时一律用深色；选过（深色、浅色或「跟随系统」）就以用户选的为准。
+// 选过的标记在下面监听主题菜单的 change 时写入。Starlight 的主题脚本加载后会按系统偏好重设一次，这里盯住 data-theme，在绘制前改回深色。
 ---
 
 <DefaultThemeProvider />
-<script is:inline define:vars={{ isHome }}>
+<script is:inline>
   (() => {
-    if (!isHome) return;
     const root = document.documentElement;
-    const force = () => {
-      let stored = "";
+    const chosen = () => {
       try {
-        stored = localStorage.getItem("starlight-theme") || "";
-      } catch {}
-      if (stored !== "light" && root.dataset.theme !== "dark") root.dataset.theme = "dark";
+        return (
+          localStorage.getItem("superhive.docs.theme-chosen") === "1" ||
+          ["light", "dark"].includes(localStorage.getItem("starlight-theme") || "")
+        );
+      } catch {
+        return false;
+      }
     };
+    // 没选过时，主题菜单也显示「深色」，和实际看到的一致（只改显示，不算用户选过）
+    const syncPickers = () => {
+      if (chosen()) return;
+      document.querySelectorAll("starlight-theme-select select").forEach((select) => {
+        if (select.value === "dark") return;
+        select.value = "dark";
+        select.dispatchEvent(new Event("hive-theme-sync"));
+      });
+    };
+    const force = () => {
+      if (!chosen() && root.dataset.theme !== "dark") root.dataset.theme = "dark";
+      syncPickers();
+    };
+    // 用户在主题菜单里选了（包括「跟随系统」）就记下，之后以用户选的为准；捕获阶段先记，Starlight 改主题时已经算选过
+    document.addEventListener(
+      "change",
+      (event) => {
+        if (!event.target?.closest?.("starlight-theme-select")) return;
+        try {
+          localStorage.setItem("superhive.docs.theme-chosen", "1");
+        } catch {}
+      },
+      true,
+    );
     force();
+    document.addEventListener("DOMContentLoaded", () =>
+      customElements.whenDefined("hive-theme-select").then(syncPickers),
+    );
     new MutationObserver(force).observe(root, {
       attributes: true,
       attributeFilter: ["data-theme"],
