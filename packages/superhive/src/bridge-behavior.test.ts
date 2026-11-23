@@ -692,10 +692,14 @@ describe("AgentBridge", () => {
       },
       {
         site: "bridge: task workspace busy when re-checked after the turn",
-        run: afterTurn(async () => {
-          const { TaskWorkspaceBusyError } = await import("./task-workspace.js");
-          throw new TaskWorkspaceBusyError("Hive Server is busy (503)");
-        }),
+        run: async () => {
+          // 等 Server 恢复也有上限：一直忙就照旧判结果未知
+          extraTuning = { offlineRetryMs: 30 };
+          return afterTurn(async () => {
+            const { TaskWorkspaceBusyError } = await import("./task-workspace.js");
+            throw new TaskWorkspaceBusyError("Hive Server is busy (503)");
+          })();
+        },
         status: "uncertain",
         key: "bridge.uncertain",
         calls: 1,
@@ -1328,6 +1332,37 @@ describe("AgentBridge", () => {
       );
     },
   );
+
+  it("waits for the Server to come back when the post-turn workspace re-check cannot reach it", async () => {
+    // 合入 main 后开发环境换代、Server 重启：这一轮跑完去复核任务目录时连不上，等它回来再复核，不判结果未知
+    const { TaskWorkspaceBusyError } = await import("./task-workspace.js");
+    let turnDone = false;
+    let offline = 2;
+    const resolveMany = vi.fn(async (ids: string[]) => {
+      if (turnDone && offline > 0) {
+        offline -= 1;
+        throw new TaskWorkspaceBusyError("fetch failed (after 3 attempts)");
+      }
+      return new Map(ids.map((id) => [id, undefined] as const));
+    });
+    taskWorkspace = { resolve: async () => undefined, resolveMany, responder: () => responder };
+    await startBridge(baseState());
+    const message = chat();
+    room.messages.push(message);
+    room.handlers.onMention(message, message.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    turnDone = true;
+    responder.finish("done");
+    await waitUntil(() =>
+      room
+        .statuses(message.id)
+        .some((status) => ["completed", "failed", "uncertain"].includes(status)),
+    );
+    expect(room.statuses(message.id)).toContain("completed");
+    expect(room.statuses(message.id)).not.toContain("uncertain");
+    expect(resolveMany).toHaveBeenCalledTimes(4);
+    expect(responder.calls).toHaveLength(1);
+  });
 
   it("does not batch or steer messages across different managed checkouts", async () => {
     const first = chat();

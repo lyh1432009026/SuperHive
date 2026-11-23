@@ -1529,9 +1529,13 @@ export class AgentBridge {
         this.reportSession();
         this.notePromptSent(prompt);
         // settled：这一轮已经跑完，合并的消息里有的中途结束了（提问被人先回答、被停止）也照常复核
-        const selections = await this.taskWorkspaces(active.messages, {
-          settled: true,
-        }).catch((error: unknown) => {
+        // 合入后开发环境换代、Server 正在重启时连不上：和补拉消息、发回复一样等它回来再复核，
+        // 不因为快速重试的几次没赶上就把整轮判成结果未知；被拒绝（409、身份不符）照旧交人核对
+        const selections = await this.whenOnline(
+          "复核任务目录",
+          () => this.taskWorkspaces(active.messages, { settled: true }),
+          (error) => error instanceof TaskWorkspaceBusyError && !active.controller.signal.aborted,
+        ).catch((error: unknown) => {
           // 这一轮已经执行过了：暂时忙也好、核对不上也好，都不能当成「还没开始」去重跑，交人核对
           if (isCancelled(error, active.controller.signal)) throw error;
           throw new AgentExecutionUncertainError(
@@ -1731,14 +1735,24 @@ export class AgentBridge {
   }
 
   /** 连不上 Server 时等它回来再试；超过 offlineRetryMs 或遇到其它错误照常抛出 */
-  private async whenOnline<T>(label: string, action: () => Promise<T>): Promise<T> {
+  private async whenOnline<T>(
+    label: string,
+    action: () => Promise<T>,
+    retryable: (error: unknown) => boolean = () => true,
+  ): Promise<T> {
     const deadline = Date.now() + this.tuning.offlineRetryMs;
     let warned = false;
     for (;;) {
       try {
         return await action();
       } catch (error) {
-        if (this.stopped || !isServerUnavailable(error) || Date.now() >= deadline) throw error;
+        if (
+          this.stopped ||
+          !retryable(error) ||
+          !isServerUnavailable(error) ||
+          Date.now() >= deadline
+        )
+          throw error;
         if (!warned) {
           warned = true;
           this.log(`[hive] ${label}时连不上 Hive Server，等它恢复后重试`);
