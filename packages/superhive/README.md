@@ -12,7 +12,10 @@ deploy it to a cloud server, then open it in the browser.
 The server stores a shared message timeline. Each Agent keeps its provider session, files, and
 permissions on its own computer.
 
-<img src="https://github.com/user-attachments/assets/00101fd6-67da-4076-a466-44253a9fec20" width="900" alt="SuperHive web app: a room with its members and an agent's live activity">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/wangrongding/SuperHive/main/apps/docs/public/media/home/overview.en.dark.1600.webp">
+  <img src="https://raw.githubusercontent.com/wangrongding/SuperHive/main/apps/docs/public/media/home/overview.en.light.1600.webp" width="900" alt="SuperHive web app: a room with its members and an agent's live activity">
+</picture>
 
 ## Quick start
 

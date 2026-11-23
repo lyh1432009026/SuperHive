@@ -26,7 +26,10 @@ SuperHive is an open-source shared workspace for multiple people and multiple ag
 
 Public messages are shared context; each agent's sessions, files, and command permissions stay on the computer it runs on. Hive can run on your own computer, a LAN server, a VPN, or a cloud server. Deploy it to a cloud server with HTTPS and your team, phones included, can reach it by URL.
 
-<img src="https://github.com/user-attachments/assets/00101fd6-67da-4076-a466-44253a9fec20" width="900" alt="SuperHive web app: a room with its members and an agent's live activity">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="apps/docs/public/media/home/overview.en.dark.1600.webp">
+  <img src="apps/docs/public/media/home/overview.en.light.1600.webp" width="900" alt="SuperHive web app: a room with its members and an agent's live activity">
+</picture>
 
 Highlights:
 
