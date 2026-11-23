@@ -1857,9 +1857,15 @@
   "终端（Ctrl+`）：在当前房间的工作区目录打开": "Terminal (Ctrl+`): opens in this room's workspace folder",
   "终端启动失败：{0}": "Couldn't start the terminal: {0}",
   "进程已退出（代码 {0}）": "Process exited (code {0})",
-  "拖动调整终端高度": "Drag to resize the terminal",
+  "拖动调整终端高度": "Drag to resize the terminal height",
   "关闭这个终端": "Close this terminal",
   "新建终端": "New terminal",
   "收起终端面板（终端继续运行）": "Hide the terminal panel (terminals keep running)",
-  "收起终端面板": "Hide terminal panel"
+  "收起终端面板": "Hide terminal panel",
+  "拖动调整终端宽度": "Drag to resize the terminal width",
+  "移到右侧": "Move to the right",
+  "移到底部": "Move to the bottom",
+  "最大化终端面板": "Maximize terminal panel",
+  "还原终端面板": "Restore terminal panel",
+  "没能接回刷新前的终端：{0}": "Couldn't reconnect the terminals from before the reload: {0}"
 }

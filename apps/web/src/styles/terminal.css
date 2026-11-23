@@ -1,4 +1,4 @@
-/* 桌面端内置终端：停靠在对话区底部，只在桌面端按需加载 */
+/* 桌面端内置终端：停靠在对话区底部或右侧，也能最大化铺满对话区；只在桌面端按需加载 */
 .terminal-panel {
   position: relative;
   display: flex;
@@ -22,6 +22,41 @@
   height: 8px;
   cursor: row-resize;
   touch-action: none;
+}
+
+/* 右侧：竖向分隔条在面板左边 */
+.terminal-panel[data-position="right"] {
+  min-width: 320px;
+  min-height: 0;
+  border-top: 0;
+  border-left: 1px solid var(--border);
+}
+
+.terminal-panel[data-position="right"] .terminal-resizer {
+  top: 0;
+  right: auto;
+  bottom: 0;
+  left: -4px;
+  width: 8px;
+  height: auto;
+  cursor: col-resize;
+}
+
+.terminal-panel[data-position="right"] .terminal-resizer:hover,
+.terminal-panel[data-position="right"] .terminal-resizer:focus-visible {
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)) center / 2px 100% no-repeat;
+}
+
+/* 最大化：盖住整个对话区（对话照常在下面排着，草稿、滚动位置都不丢），顶栏保留 */
+.terminal-panel[data-maximized] {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  width: auto;
+  min-width: 0;
+  height: auto;
+  border-top: 0;
+  border-left: 0;
 }
 
 .terminal-resizer:hover,
@@ -153,4 +188,9 @@
   .terminal-tab-cwd {
     display: none;
   }
+}
+
+/* 右侧时标签栏窄：只留序号和 shell 名 */
+.terminal-panel[data-position="right"]:not([data-maximized]) .terminal-tab-cwd {
+  display: none;
 }

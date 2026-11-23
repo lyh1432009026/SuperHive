@@ -52,7 +52,7 @@ afterEach(() => {
   tmp = undefined;
 });
 
-function setup() {
+function setup(extra: { replayChars?: number } = {}) {
   const ptys: FakePty[] = [];
   type SpawnArgs = [
     string,
@@ -77,6 +77,7 @@ function setup() {
     }),
     shell: () => ({ file: "/bin/zsh", args: ["-l"] }),
     home: () => tmp!,
+    ...extra,
   });
   return { manager, spawn, sink, ptys, home: tmp };
 }
@@ -140,6 +141,71 @@ describe("TerminalManager", () => {
     manager.disposeAll();
     expect(ptys[2]!.killed).toBe(true);
     expect(manager.size).toBe(0);
+  });
+
+  it("keeps terminals across a page reload and replays recent output to the new page", () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, ptys, home } = setup();
+      const first = manager.create(1, { cwd: home });
+      const second = manager.create(1, {});
+      const other = manager.create(2, {});
+      ptys[0]!.emitData("$ npm run dev\r\n");
+      ptys[0]!.emitData("ready\r\n");
+
+      manager.detachOwner(1);
+      // 刷新期间进程继续跑，输出继续留着
+      ptys[0]!.emitData("compiled\r\n");
+      expect(manager.list(1)).toEqual([
+        { id: first.id, shell: "/bin/zsh", cwd: home },
+        { id: second.id, shell: "/bin/zsh", cwd: second.cwd },
+      ]);
+      // 别的页面既看不到也接不走
+      expect(manager.list(2).map((item) => item.id)).toEqual([other.id]);
+      expect(manager.attach(2, first.id)).toBeUndefined();
+
+      expect(manager.attach(1, first.id)?.replay).toBe("$ npm run dev\r\nready\r\ncompiled\r\n");
+      vi.advanceTimersByTime(60_000);
+      // 接回去的留下，宽限期内没接的结束
+      expect(ptys.map((pty) => pty.killed)).toEqual([false, true, false]);
+      expect(manager.list(1).map((item) => item.id)).toEqual([first.id]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("restarts the grace period on repeated reloads and cancels it when the window closes", () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, ptys } = setup();
+      manager.create(1, {});
+      manager.detachOwner(1, 1000);
+      vi.advanceTimersByTime(800);
+      manager.detachOwner(1, 1000);
+      vi.advanceTimersByTime(800);
+      expect(ptys[0]!.killed).toBe(false);
+      vi.advanceTimersByTime(200);
+      expect(ptys[0]!.killed).toBe(true);
+
+      manager.create(1, {});
+      manager.detachOwner(1, 1000);
+      manager.disposeOwner(1);
+      expect(ptys[1]!.killed).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("caps the replay buffer, dropping the oldest output first", () => {
+    const { manager, ptys } = setup({ replayChars: 10 });
+    const { id } = manager.create(1, {});
+    ptys[0]!.emitData("aaaa");
+    ptys[0]!.emitData("bbbb");
+    ptys[0]!.emitData("cccc");
+    expect(manager.attach(1, id)?.replay).toBe("bbbbcccc");
+    ptys[0]!.emitData("x".repeat(25));
+    expect(manager.attach(1, id)?.replay).toBe("x".repeat(10));
   });
 
   it("caps the number of terminals per window", () => {

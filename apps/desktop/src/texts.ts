@@ -29,6 +29,11 @@ const texts = {
   window: { zh: "窗口", en: "Window" },
   help: { zh: "帮助", en: "Help" },
   newTerminal: { zh: "新建终端", en: "New Terminal" },
+  toggleTerminalMaximized: { zh: "最大化 / 还原终端", en: "Maximize / Restore Terminal" },
+  toggleTerminalPosition: {
+    zh: "终端移到右侧 / 底部",
+    en: "Move Terminal Right / Bottom",
+  },
   connectedExisting: {
     zh: "已连上本机正在运行的 Hive（{origin}）。退出桌面端不会停止它。",
     en: "Connected to the Hive already running on this computer ({origin}). Quitting the app won't stop it.",

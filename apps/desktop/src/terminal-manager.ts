@@ -2,7 +2,12 @@ import { existsSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { TerminalCreateRequest, TerminalCreateResult } from "./ipc-contract.js";
+import type {
+  TerminalAttachResult,
+  TerminalCreateRequest,
+  TerminalCreateResult,
+  TerminalSessionInfo,
+} from "./ipc-contract.js";
 
 /** node-pty 里用到的那一小部分，方便测试时替换 */
 export type PtyProcess = {
@@ -39,6 +44,10 @@ const DEFAULT_ROWS = 24;
 export const MAX_TERMINALS_PER_OWNER = 12;
 /** 单次写入上限：正常键入和粘贴远小于这个值 */
 const MAX_WRITE_CHARS = 1_000_000;
+/** 每个终端在主进程里留最近这么多字符的输出，页面刷新后重新接上时回放（约 5000 行） */
+export const REPLAY_BUFFER_CHARS = 512 * 1024;
+/** 页面刷新、渲染进程崩溃后等这么久；新页面没接回去的终端才结束 */
+export const REATTACH_GRACE_MS = 60_000;
 
 /** 默认 shell：macOS / Linux 用用户的登录 shell（-l），Windows 用 PowerShell */
 export function defaultShell(
@@ -97,16 +106,40 @@ export function terminalEnv(base: NodeJS.ProcessEnv): Record<string, string> {
 type Session = {
   id: string;
   ownerId: number;
+  shell: string;
+  cwd: string;
   pty: PtyProcess;
   disposers: Array<{ dispose(): void }>;
+  /** 最近的输出，按块存；总长超过 REPLAY_BUFFER_CHARS 时从头丢 */
+  replay: string[];
+  replayChars: number;
+  /** 页面刷新后还没被新页面接回去 */
+  detached: boolean;
 };
+
+function appendReplay(session: Session, data: string, limit: number): void {
+  session.replay.push(data);
+  session.replayChars += data.length;
+  while (session.replayChars > limit && session.replay.length > 1) {
+    session.replayChars -= session.replay.shift()!.length;
+  }
+  if (session.replayChars > limit) {
+    // 只剩一块还超长：截掉开头
+    const only = session.replay[0]!;
+    session.replay[0] = only.slice(only.length - limit);
+    session.replayChars = limit;
+  }
+}
 
 /**
  * 终端会话管理：每个会话归属于创建它的 webContents（ownerId），别的页面不能读写它。
- * 页面关掉、刷新或窗口关闭时，由调用方 disposeOwner / disposeAll 结束全部进程。
+ * 页面刷新（同一个 webContents，id 不变）时调用方 detachOwner：进程继续跑、输出照常留着，
+ * 新页面 list + attach 接回去并回放最近的输出；宽限期内没接回去的才结束。
+ * 窗口关闭时由调用方 disposeOwner / disposeAll 结束全部进程。
  */
 export class TerminalManager {
   private readonly sessions = new Map<string, Session>();
+  private readonly graceTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
   constructor(
     private readonly options: {
@@ -115,6 +148,7 @@ export class TerminalManager {
       env: () => NodeJS.ProcessEnv;
       shell?: () => ShellChoice;
       home?: () => string;
+      replayChars?: number;
     },
   ) {}
 
@@ -132,8 +166,24 @@ export class TerminalManager {
       cwd,
       env: terminalEnv(this.options.env()),
     });
-    const session: Session = { id, ownerId, pty, disposers: [] };
-    session.disposers.push(pty.onData((data) => this.options.sink.data(ownerId, id, data)));
+    const session: Session = {
+      id,
+      ownerId,
+      shell: shell.file,
+      cwd,
+      pty,
+      disposers: [],
+      replay: [],
+      replayChars: 0,
+      detached: false,
+    };
+    const limit = this.options.replayChars ?? REPLAY_BUFFER_CHARS;
+    session.disposers.push(
+      pty.onData((data) => {
+        appendReplay(session, data, limit);
+        this.options.sink.data(ownerId, id, data);
+      }),
+    );
     session.disposers.push(
       pty.onExit(({ exitCode, signal }) => {
         this.forget(id);
@@ -163,18 +213,66 @@ export class TerminalManager {
     }
   }
 
+  /** 这个页面（webContents）名下还在跑的终端，按创建顺序 */
+  list(ownerId: number): TerminalSessionInfo[] {
+    const result: TerminalSessionInfo[] = [];
+    for (const session of this.sessions.values()) {
+      if (session.ownerId === ownerId)
+        result.push({ id: session.id, shell: session.shell, cwd: session.cwd });
+    }
+    return result;
+  }
+
+  /** 刷新后的新页面接回一个终端：拿到最近的输出用来回放，之后的输出照常推送 */
+  attach(ownerId: number, id: unknown): TerminalAttachResult | undefined {
+    const session = this.owned(ownerId, id);
+    if (!session) return undefined;
+    session.detached = false;
+    return {
+      id: session.id,
+      shell: session.shell,
+      cwd: session.cwd,
+      replay: session.replay.join(""),
+    };
+  }
+
+  /**
+   * 页面要刷新或渲染进程崩了：终端先留着，等 graceMs；到时还没被 attach 的才结束。
+   * 再次调用会重新计时（连续刷新）。
+   */
+  detachOwner(ownerId: number, graceMs = REATTACH_GRACE_MS): void {
+    let any = false;
+    for (const session of this.sessions.values()) {
+      if (session.ownerId !== ownerId) continue;
+      session.detached = true;
+      any = true;
+    }
+    this.clearGrace(ownerId);
+    if (!any) return;
+    const timer = setTimeout(() => {
+      this.graceTimers.delete(ownerId);
+      for (const session of [...this.sessions.values()]) {
+        if (session.ownerId === ownerId && session.detached) this.terminate(session);
+      }
+    }, graceMs);
+    timer.unref?.();
+    this.graceTimers.set(ownerId, timer);
+  }
+
   kill(ownerId: number, id: unknown): void {
     const session = this.owned(ownerId, id);
     if (session) this.terminate(session);
   }
 
   disposeOwner(ownerId: number): void {
+    this.clearGrace(ownerId);
     for (const session of [...this.sessions.values()]) {
       if (session.ownerId === ownerId) this.terminate(session);
     }
   }
 
   disposeAll(): void {
+    for (const ownerId of [...this.graceTimers.keys()]) this.clearGrace(ownerId);
     for (const session of [...this.sessions.values()]) this.terminate(session);
   }
 
@@ -186,6 +284,12 @@ export class TerminalManager {
 
   get size(): number {
     return this.sessions.size;
+  }
+
+  private clearGrace(ownerId: number): void {
+    const timer = this.graceTimers.get(ownerId);
+    if (timer) clearTimeout(timer);
+    this.graceTimers.delete(ownerId);
   }
 
   private owned(ownerId: number, id: unknown): Session | undefined {

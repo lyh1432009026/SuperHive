@@ -4,6 +4,9 @@
  */
 export type DesktopTerminalCreateResult = { id: string; shell: string; cwd: string };
 export type DesktopTerminalExit = { id: string; exitCode: number; signal?: number };
+export type DesktopTerminalSession = { id: string; shell: string; cwd: string };
+export type DesktopTerminalAttach = DesktopTerminalSession & { replay: string };
+export type DesktopTerminalLayoutAction = "maximize" | "position";
 
 export type DesktopTerminalApi = {
   create(request: {
@@ -17,6 +20,12 @@ export type DesktopTerminalApi = {
   onData(listener: (id: string, data: string) => void): () => void;
   onExit(listener: (event: DesktopTerminalExit) => void): () => void;
   onNewRequest(listener: () => void): () => void;
+  /** 页面刷新后这个窗口里还在跑的终端（老版本桌面端没有，刷新就会结束终端） */
+  list?(): Promise<DesktopTerminalSession[]>;
+  /** 接回一个终端，拿到最近的输出用来回放；已经没了时是 null */
+  attach?(id: string): Promise<DesktopTerminalAttach | null>;
+  /** 菜单「最大化 / 还原终端」「终端移到右侧 / 底部」（老版本桌面端没有） */
+  onLayoutRequest?(listener: (action: DesktopTerminalLayoutAction) => void): () => void;
 };
 
 export type DesktopTitlebarAppearance = {
@@ -67,6 +76,13 @@ export function desktopBridge(
   const terminal = value.terminal as Partial<DesktopTerminalApi> | undefined;
   if (!terminal || TERMINAL_METHODS.some((name) => typeof terminal[name] !== "function")) {
     return undefined;
+  }
+  // 新加的可选能力形状不对就只去掉那一项（reattach 要 list 和 attach 都在）
+  const optional = ["list", "attach", "onLayoutRequest"] as const;
+  if (optional.some((name) => name in terminal && typeof terminal[name] !== "function")) {
+    const cleaned: Partial<DesktopTerminalApi> = { ...terminal };
+    for (const name of optional) if (typeof cleaned[name] !== "function") delete cleaned[name];
+    return desktopBridge({ ...value, terminal: cleaned });
   }
   const titlebar = value.titlebar as Partial<DesktopTitlebarApi> | undefined;
   if (titlebar !== undefined && (!titlebar || typeof titlebar.setAppearance !== "function")) {

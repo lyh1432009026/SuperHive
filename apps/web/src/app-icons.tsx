@@ -26,6 +26,7 @@ export type IconName =
   | "minimize"
   | "message"
   | "more"
+  | "panel-bottom"
   | "panel-left"
   | "panel-right"
   | "plug"
@@ -123,6 +124,12 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
       <>
         <rect x="3.5" y="4.5" width="17" height="15" rx="3" />
         <path d="M9.5 4.5v15" />
+      </>
+    ),
+    "panel-bottom": (
+      <>
+        <rect x="3.5" y="4.5" width="17" height="15" rx="3" />
+        <path d="M3.5 14.5h17" />
       </>
     ),
     "panel-right": (

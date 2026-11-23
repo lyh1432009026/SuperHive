@@ -4,10 +4,16 @@ export const IPC = {
   terminalWrite: "superhive:terminal:write",
   terminalResize: "superhive:terminal:resize",
   terminalKill: "superhive:terminal:kill",
+  /** 页面刷新后列出这个页面名下还在跑的终端 */
+  terminalList: "superhive:terminal:list",
+  /** 接回一个终端，拿到最近的输出用来回放 */
+  terminalAttach: "superhive:terminal:attach",
   terminalData: "superhive:terminal:data",
   terminalExit: "superhive:terminal:exit",
   /** 主进程菜单「新建终端」通知页面 */
   terminalNewRequest: "superhive:terminal:new-request",
+  /** 主进程菜单「最大化终端」「切换终端位置」通知页面 */
+  terminalLayoutRequest: "superhive:terminal:layout-request",
   /** 网页把顶栏高度和主题颜色同步给主进程（overlay 配色、红黄绿按钮位置） */
   titlebarAppearance: "superhive:titlebar:appearance",
   /** 主进程通知页面进出全屏 */
@@ -32,3 +38,14 @@ export type TerminalCreateResult = {
 };
 
 export type TerminalExitEvent = { id: string; exitCode: number; signal?: number };
+
+export type TerminalSessionInfo = { id: string; shell: string; cwd: string };
+
+export type TerminalAttachResult = TerminalSessionInfo & {
+  /** 最近的输出（最多 REPLAY_BUFFER_CHARS 个字符），接回时先写进终端 */
+  replay: string;
+};
+
+/** 菜单发给页面的布局操作 */
+export type TerminalLayoutAction = "maximize" | "position";
+export const TERMINAL_LAYOUT_ACTIONS: readonly TerminalLayoutAction[] = ["maximize", "position"];

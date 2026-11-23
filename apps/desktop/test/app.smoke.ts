@@ -86,6 +86,65 @@ test("opens a terminal from the header and runs a command", async () => {
   await runTerminalCommand(page, "terminal.png");
 });
 
+test("terminal moves to the right, maximizes and survives a page reload", async () => {
+  test.setTimeout(120_000);
+  await enterRoom(page);
+  const panel = page.locator(".terminal-panel");
+  const rows = page.locator(".terminal-panel .xterm-rows");
+  const run = async (marker: string) => {
+    await page.locator(".terminal-panel .xterm").click();
+    await page.keyboard.type(`echo ${marker}-$((40+2))`);
+    await page.keyboard.press("Enter");
+    await expect(rows).toContainText(`${marker}-42`, { timeout: 20_000 });
+  };
+  const box = async (selector: string) => (await page.locator(selector).boundingBox())!;
+
+  await page.getByRole("button", { name: /^(终端|Terminal)$/ }).click();
+  await expect(page.locator(".terminal-tab")).toHaveCount(1, { timeout: 15_000 });
+  await run("bottom");
+
+  // 右侧：和对话左右排，对话还留着
+  await page.getByRole("button", { name: /^(移到右侧|Move to the right)$/ }).click();
+  await expect(panel).toHaveAttribute("data-position", "right");
+  const chat = await box(".chat-main");
+  const right = await box(".terminal-panel");
+  expect(right.x).toBeGreaterThanOrEqual(chat.x + chat.width - 1);
+  expect(chat.width).toBeGreaterThanOrEqual(360);
+  await run("right");
+
+  // 菜单「最大化 / 还原终端」：铺满对话区，对话不能被点到
+  await app.evaluate(({ Menu }) =>
+    Menu.getApplicationMenu()?.getMenuItemById("terminal-maximize")?.click(),
+  );
+  await expect(panel).toHaveAttribute("data-maximized", "");
+  const body = await box(".chat-body");
+  const full = await box(".terminal-panel");
+  expect(Math.abs(full.width - body.width)).toBeLessThan(2);
+  expect(Math.abs(full.height - body.height)).toBeLessThan(2);
+  await expect(page.locator(".chat-main")).toHaveAttribute("inert", "");
+  await run("max");
+
+  // 刷新：终端还在跑，输出回放回来，位置和最大化照旧，还能继续输入
+  await page.reload();
+  await expect(page.locator("header.chat-header")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".terminal-tab")).toHaveCount(1, { timeout: 15_000 });
+  await expect(panel).toBeVisible();
+  await expect(panel).toHaveAttribute("data-maximized", "");
+  await expect(rows).toContainText("max-42", { timeout: 10_000 });
+  await run("reloaded");
+
+  // 还原回右侧，再用菜单换回底部，收尾时关掉终端
+  await page.getByRole("button", { name: /^(还原终端面板|Restore terminal panel)$/ }).click();
+  await expect(panel).toHaveAttribute("data-position", "right");
+  await app.evaluate(({ Menu }) =>
+    Menu.getApplicationMenu()?.getMenuItemById("terminal-position")?.click(),
+  );
+  await expect(panel).toHaveAttribute("data-position", "bottom");
+  await run("back");
+  await page.getByRole("button", { name: /关闭这个终端|Close this terminal/ }).click();
+  await expect(panel).toBeHidden();
+});
+
 test("system title bar is gone; window buttons sit clear of the content", async () => {
   await enterRoom(page);
   const win = await app.evaluate(({ BrowserWindow }) => {

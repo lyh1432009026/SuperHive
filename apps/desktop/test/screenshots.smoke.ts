@@ -86,7 +86,7 @@ test("desktop screenshots", async () => {
         localStorage.setItem("superhive.terminal-height", "600");
       }, theme);
       await main.goto(`http://127.0.0.1:${port}/#desktop`);
-      // 主题在页面加载时读，刷新一次（刷新也会结束上一轮开的终端）
+      // 主题在页面加载时读，刷新一次（终端刷新后会接回来，所以上一轮结束时已经关掉）
       await main.reload();
       await expect(main.locator("header.chat-header")).toBeVisible({ timeout: 30_000 });
       await main.waitForTimeout(800);
@@ -100,7 +100,83 @@ test("desktop screenshots", async () => {
       await main
         .locator(".terminal-panel")
         .screenshot({ path: path.join(shotDir, `terminal-cjk-${theme}${suffix}.png`) });
+      await main.getByRole("button", { name: /关闭这个终端|Close this terminal/ }).click();
     }
+  } finally {
+    await app.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+/** 终端放底部、右侧、最大化（深色），再补一张浅色的右侧 */
+test("terminal layout screenshots", async () => {
+  test.setTimeout(180_000);
+  const dataDir = mkdtempSync(path.join(os.tmpdir(), "superhive-desktop-layout-"));
+  const port = 18_600 + Math.floor(Math.random() * 90);
+  const app = await electron.launch({
+    args: [path.join(desktopDir, ".stage/app")],
+    env: {
+      ...process.env,
+      SUPERHIVE_DESKTOP_DATA_DIR: dataDir,
+      SUPERHIVE_DESKTOP_PORT: String(port),
+      HIVE_NO_OPEN: "1",
+      SHELL: "/bin/zsh",
+      ZDOTDIR: dataDir,
+    } as Record<string, string>,
+  });
+  try {
+    await app.evaluate(({ BrowserWindow }) => {
+      for (const win of BrowserWindow.getAllWindows()) win.setSize(1440, 900);
+    });
+    let page: Page | undefined;
+    await expect
+      .poll(
+        () => {
+          page = app.windows().find((win) => win.url().startsWith("http://127.0.0.1:"));
+          return Boolean(page);
+        },
+        { timeout: 60_000 },
+      )
+      .toBe(true);
+    const main = page!;
+    await enterRoom(main, "rd");
+    const created = await main.evaluate(async (workspace) => {
+      const meta = (await (await fetch("/api/meta")).json()) as { joinToken?: string };
+      const response = await fetch("/api/rooms", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${meta.joinToken ?? ""}`,
+        },
+        body: JSON.stringify({ id: "desktop", name: "desktop", workspace }),
+      });
+      return response.status;
+    }, repoRoot);
+    expect([200, 201]).toContain(created);
+    await main.evaluate(() => localStorage.setItem("superhive.theme", "dark"));
+    await main.goto(`http://127.0.0.1:${port}/#desktop`);
+    await main.reload();
+    await expect(main.locator("header.chat-header")).toBeVisible({ timeout: 30_000 });
+    await openTerminal(main, "clear; git --no-pager log --oneline -8 --no-decorate; ls");
+    const panel = main.locator(".terminal-panel");
+    const shot = async (name: string) => {
+      await main.waitForTimeout(600);
+      await main.screenshot({ path: path.join(shotDir, `terminal-layout-${name}${suffix}.png`) });
+    };
+    await shot("bottom-dark");
+    await main.getByRole("button", { name: /^(移到右侧|Move to the right)$/ }).click();
+    await expect(panel).toHaveAttribute("data-position", "right");
+    await shot("right-dark");
+    await main.getByRole("button", { name: /^(最大化终端面板|Maximize terminal panel)$/ }).click();
+    await expect(panel).toHaveAttribute("data-maximized", "");
+    await shot("maximized-dark");
+    // 浅色：刷新后终端接回来，还原到右侧
+    await main.evaluate(() => localStorage.setItem("superhive.theme", "light"));
+    await main.reload();
+    await expect(main.locator(".terminal-tab")).toHaveCount(1, { timeout: 30_000 });
+    await main.getByRole("button", { name: /^(还原终端面板|Restore terminal panel)$/ }).click();
+    await expect(panel).toHaveAttribute("data-position", "right");
+    await shot("right-light");
   } finally {
     await app.close();
     rmSync(dataDir, { recursive: true, force: true });

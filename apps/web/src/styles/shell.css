@@ -487,6 +487,35 @@
   background: var(--bg-main);
 }
 
+/* 对话和桌面端终端的容器：浏览器里没有终端，这两层不参与排版，和以前完全一样 */
+.chat-body,
+.chat-main {
+  display: contents;
+}
+
+/* 桌面端：对话（chat-main）和终端面板上下排；终端在右侧时左右排 */
+.chat-body[data-terminal] {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.chat-body[data-terminal]:has(> .terminal-panel[data-position="right"]:not([hidden])) {
+  flex-direction: row;
+}
+
+.chat-body[data-terminal] > .chat-main {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
 .chat-header {
   container: chat-header / inline-size;
   height: var(--header-height);

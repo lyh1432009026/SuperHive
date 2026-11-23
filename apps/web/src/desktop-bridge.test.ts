@@ -47,4 +47,18 @@ describe("desktopBridge", () => {
     expect(broken?.terminal).toBe(terminal);
     expect(broken?.titlebar).toBeUndefined();
   });
+
+  it("keeps the terminal when the newer reattach or layout hooks are malformed", () => {
+    const full = { ...terminal, list: fn, attach: fn, onLayoutRequest: fn };
+    expect(desktopBridge({ version: 1, platform: "darwin", terminal: full })?.terminal).toBe(full);
+    const broken = desktopBridge({
+      version: 1,
+      platform: "darwin",
+      terminal: { ...terminal, list: "nope", attach: fn, onLayoutRequest: 1 },
+    });
+    expect(broken?.terminal.create).toBe(fn);
+    expect(broken?.terminal.list).toBeUndefined();
+    expect(broken?.terminal.attach).toBe(fn);
+    expect(broken?.terminal.onLayoutRequest).toBeUndefined();
+  });
 });

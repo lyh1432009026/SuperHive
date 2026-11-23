@@ -34,7 +34,7 @@ import {
   type ForkServer,
   type OwnedServer,
 } from "./hive-server.js";
-import { IPC, type TerminalCreateRequest } from "./ipc-contract.js";
+import { IPC, type TerminalCreateRequest, type TerminalLayoutAction } from "./ipc-contract.js";
 import { isLoopbackOrigin, isTrustedSender, originAnswer, originOf } from "./ipc-guard.js";
 import { loginShellPath, mergePath } from "./shell-env.js";
 import {
@@ -191,6 +191,17 @@ function runApp(): void {
   });
   ipcMain.on(IPC.terminalKill, (event, id: unknown) => {
     if (trusted(event)) terminals.kill(event.sender.id, id);
+  });
+  ipcMain.handle(IPC.terminalList, (event) => {
+    if (!trusted(event)) throw new Error("Forbidden");
+    return terminals.list(event.sender.id);
+  });
+  ipcMain.handle(IPC.terminalAttach, (event, id: unknown) => {
+    if (!trusted(event)) throw new Error("Forbidden");
+    const result = terminals.attach(event.sender.id, id);
+    // 还没发出去的输出已经包含在回放里，别再发一遍
+    if (result) pending.delete(result.id);
+    return result ?? null;
   });
 
   // preload 问自己能不能拿到桌面端能力：只回答主窗口的顶层框架，而且页面已经在本机 Hive 上
@@ -432,11 +443,12 @@ function runApp(): void {
       window.on("blur", () => applyAppearance(window));
     }
 
-    // 刷新、跳转或渲染进程崩溃：这个页面开的终端都结束掉
+    // 刷新或渲染进程崩溃：终端先留着，新页面在宽限期内接回去（回放最近的输出），没接回的才结束；
+    // 窗口销毁时全部结束
     window.webContents.on("did-start-navigation", (details) => {
-      if (details.isMainFrame && !details.isSameDocument) terminals.disposeOwner(contentsId);
+      if (details.isMainFrame && !details.isSameDocument) terminals.detachOwner(contentsId);
     });
-    window.webContents.on("render-process-gone", () => terminals.disposeOwner(contentsId));
+    window.webContents.on("render-process-gone", () => terminals.detachOwner(contentsId));
     window.webContents.on("destroyed", () => {
       terminals.disposeOwner(contentsId);
       trustedIds.delete(contentsId);
@@ -562,6 +574,12 @@ function runApp(): void {
     if (contents && !contents.isDestroyed()) contents.send(IPC.terminalNewRequest);
   }
 
+  function sendTerminalLayout(action: TerminalLayoutAction): void {
+    showMainWindow();
+    const contents: WebContents | undefined = mainWindow?.webContents;
+    if (contents && !contents.isDestroyed()) contents.send(IPC.terminalLayoutRequest, action);
+  }
+
   function buildMenu(): void {
     const isMac = process.platform === "darwin";
     const template: MenuItemConstructorOptions[] = [
@@ -586,6 +604,19 @@ function runApp(): void {
           { role: "reload" },
           { role: "forceReload" },
           { role: "toggleDevTools" },
+          { type: "separator" },
+          {
+            id: "terminal-maximize",
+            label: t("toggleTerminalMaximized"),
+            accelerator: "CmdOrCtrl+Shift+M",
+            click: () => sendTerminalLayout("maximize"),
+          },
+          {
+            id: "terminal-position",
+            label: t("toggleTerminalPosition"),
+            accelerator: "CmdOrCtrl+Alt+P",
+            click: () => sendTerminalLayout("position"),
+          },
           { type: "separator" },
           { role: "resetZoom" },
           { role: "zoomIn" },

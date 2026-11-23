@@ -7,9 +7,13 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import {
   IPC,
+  TERMINAL_LAYOUT_ACTIONS,
+  type TerminalAttachResult,
   type TerminalCreateRequest,
   type TerminalCreateResult,
   type TerminalExitEvent,
+  type TerminalLayoutAction,
+  type TerminalSessionInfo,
 } from "./ipc-contract.js";
 import { applyDesktopMarks, parseTitlebarArg, setFullscreenMark } from "./titlebar-dom.js";
 
@@ -82,6 +86,11 @@ if (allowedOrigin && window.location.origin === allowedOrigin && window.top === 
       kill: (id: string): void => {
         ipcRenderer.send(IPC.terminalKill, String(id));
       },
+      /** 页面刷新后：这个窗口里还在跑的终端 */
+      list: (): Promise<TerminalSessionInfo[]> => ipcRenderer.invoke(IPC.terminalList),
+      /** 接回一个终端，拿到最近的输出用来回放；终端已经没了时是 null */
+      attach: (id: string): Promise<TerminalAttachResult | null> =>
+        ipcRenderer.invoke(IPC.terminalAttach, String(id)),
       onData: (listener: (id: string, data: string) => void): (() => void) => {
         const handler = (_event: IpcRendererEvent, id: string, data: string) => listener(id, data);
         ipcRenderer.on(IPC.terminalData, handler);
@@ -97,6 +106,15 @@ if (allowedOrigin && window.location.origin === allowedOrigin && window.top === 
         const handler = () => listener();
         ipcRenderer.on(IPC.terminalNewRequest, handler);
         return () => ipcRenderer.removeListener(IPC.terminalNewRequest, handler);
+      },
+      /** 菜单里的「最大化 / 还原终端」「终端移到右侧 / 底部」 */
+      onLayoutRequest: (listener: (action: TerminalLayoutAction) => void): (() => void) => {
+        const handler = (_event: IpcRendererEvent, action: unknown) => {
+          if (TERMINAL_LAYOUT_ACTIONS.includes(action as TerminalLayoutAction))
+            listener(action as TerminalLayoutAction);
+        };
+        ipcRenderer.on(IPC.terminalLayoutRequest, handler);
+        return () => ipcRenderer.removeListener(IPC.terminalLayoutRequest, handler);
       },
     },
   };

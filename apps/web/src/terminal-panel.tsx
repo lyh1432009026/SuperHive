@@ -16,11 +16,23 @@ import { Icon } from "./app-icons";
 import { Tooltip } from "./tooltip";
 import type { DesktopBridge } from "./desktop-bridge";
 import { prepareCjkFont, terminalFontFamily } from "./terminal-fonts";
+import { keyCombo } from "./shortcuts";
+import {
+  clampTerminalHeight,
+  clampTerminalWidth,
+  effectivePosition,
+  MIN_TERMINAL_HEIGHT,
+  MIN_TERMINAL_WIDTH,
+  sessionValue,
+  setSessionValue,
+  TERMINAL_ACTIVE_KEY,
+  type TerminalLayout,
+} from "./terminal-layout";
 
 /**
  * 桌面端内置终端（只在 SuperHive 桌面端里按需加载，浏览器里不会下载 xterm）。
- * 停靠在对话区底部，可以开多个标签；收起面板不结束进程，关掉标签才结束。
- * 进程在桌面端主进程里用 node-pty 跑，这里只负责显示和输入。
+ * 停靠在对话区底部或右侧，也能最大化铺满对话区；可以开多个标签；收起面板不结束进程，关掉标签才结束。
+ * 进程在桌面端主进程里用 node-pty 跑，这里只负责显示和输入；页面刷新后从桌面端接回还在跑的终端。
  */
 
 type Tab = {
@@ -34,11 +46,12 @@ type Entry = {
   terminal: Terminal;
   fit: FitAddon;
   host: HTMLDivElement;
+  /** 刷新后接回来的：第一次排版后把尺寸告诉进程（xterm 尺寸没变时不会触发 onResize） */
+  syncSize?: boolean;
 };
 
-export const TERMINAL_HEIGHT_KEY = "superhive.terminal-height";
-const MIN_HEIGHT = 140;
-const DEFAULT_HEIGHT = 280;
+/** 键盘调整尺寸的步长 */
+const RESIZE_STEP = 24;
 
 const DARK_ANSI = {
   black: "#1e1e1e",
@@ -113,14 +126,18 @@ export function terminalTheme(dark: boolean, style?: CSSStyleDeclaration): IThem
 
 const FONT_SIZE = 13;
 
-function storedHeight(): number {
-  const value = Number.parseInt(localStorage.getItem(TERMINAL_HEIGHT_KEY) ?? "", 10);
-  return Number.isFinite(value) && value >= MIN_HEIGHT ? value : DEFAULT_HEIGHT;
+/** 桌面端菜单里的快捷键（Electron 菜单加速键，xterm 里也能用） */
+const MAXIMIZE_KEYS = ["Mod", "Shift", "M"];
+const POSITION_KEYS = ["Mod", "Alt", "P"];
+
+function withKeys(label: string, keys: string[]): string {
+  return `${label}（${keyCombo(keys)}）`;
 }
 
-function clampHeight(value: number): number {
-  const max = Math.max(MIN_HEIGHT, Math.round(window.innerHeight * 0.7));
-  return Math.min(max, Math.max(MIN_HEIGHT, Math.round(value)));
+/** Electron 会给 IPC 抛出的错误加上「Error invoking remote method …: Error: 」前缀 */
+function ipcMessage(cause: unknown): string {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return message.replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/, "");
 }
 
 function baseName(file: string): string {
@@ -132,7 +149,11 @@ export function TerminalPanel({
   cwd,
   open,
   newRequest,
+  layout,
   onClose,
+  onTogglePosition,
+  onToggleMaximized,
+  onResize,
 }: {
   bridge: DesktopBridge;
   /** 新终端的工作目录：当前房间的工作区，没有就交给桌面端用主目录 */
@@ -140,12 +161,22 @@ export function TerminalPanel({
   open: boolean;
   /** 每加 1 就新开一个终端（菜单「新建终端」、顶栏按钮） */
   newRequest: number;
+  layout: TerminalLayout;
   onClose: () => void;
+  onTogglePosition: () => void;
+  onToggleMaximized: () => void;
+  onResize: (size: Partial<Pick<TerminalLayout, "height" | "width">>) => void;
 }) {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeId, setActiveId] = useState<string>();
-  const [height, setHeight] = useState(storedHeight);
+  /** 拖动中的尺寸：松手才记进偏好 */
+  const [dragSize, setDragSize] = useState<number>();
+  /** 对话区（面板的父元素）的尺寸：决定右侧放不放得下、尺寸上限 */
+  const [body, setBody] = useState({ width: 0, height: 0 });
+  /** 刷新后从桌面端接回终端的过程结束了（老版本桌面端直接算结束） */
+  const [restored, setRestored] = useState(!bridge.terminal.list || !bridge.terminal.attach);
   const [error, setError] = useState<string>();
+  const panel = useRef<HTMLElement>(null);
   const entries = useRef(new Map<string, Entry>());
   /** 终端还没建好（create 还没返回）时先到的输出 */
   const early = useRef(new Map<string, string[]>());
@@ -160,15 +191,16 @@ export function TerminalPanel({
     if (!entry || entry.host.offsetParent === null) return;
     try {
       entry.fit.fit();
+      if (entry.syncSize) {
+        entry.syncSize = false;
+        bridge.terminal.resize(activeId, entry.terminal.cols, entry.terminal.rows);
+      }
     } catch {
       /* 面板还没布局好 */
     }
-  }, [activeId]);
+  }, [activeId, bridge]);
 
-  const createTerminal = useCallback(async () => {
-    if (creating.current) return;
-    creating.current = true;
-    setError(undefined);
+  const buildTerminal = useCallback(async (): Promise<Entry> => {
     // 先注册放大的 CJK 字体，xterm 第一次量字宽时就能用上（本机字体，几毫秒）
     const scaledCjk = await prepareCjkFont(bridge.platform, FONT_SIZE);
     const terminal = new Terminal({
@@ -193,35 +225,104 @@ export function TerminalPanel({
         window.open(uri, "_blank", "noopener,noreferrer");
       }),
     );
+    // 面板的快捷键（最大化、换位置）交给桌面端菜单，xterm 不要把它们当成输入
+    terminal.attachCustomKeyEventHandler((event) => {
+      const mod = bridge.platform === "darwin" ? event.metaKey : event.ctrlKey;
+      if (!mod) return true;
+      return !(
+        (event.shiftKey && event.code === "KeyM") ||
+        (event.altKey && event.code === "KeyP")
+      );
+    });
     const host = document.createElement("div");
     host.className = "terminal-host";
+    return { terminal, fit, host };
+  }, [bridge]);
+
+  const register = useCallback(
+    (id: string, entry: Entry) => {
+      entries.current.set(id, entry);
+      entry.terminal.onData((data) => bridge.terminal.write(id, data));
+      entry.terminal.onResize(({ cols, rows }) => bridge.terminal.resize(id, cols, rows));
+    },
+    [bridge],
+  );
+
+  const createTerminal = useCallback(async () => {
+    if (creating.current) return;
+    creating.current = true;
+    setError(undefined);
+    const entry = await buildTerminal();
     try {
       const created = await bridge.terminal.create({
         cwd: cwdRef.current,
-        cols: terminal.cols,
-        rows: terminal.rows,
+        cols: entry.terminal.cols,
+        rows: entry.terminal.rows,
       });
-      entries.current.set(created.id, { terminal, fit, host });
-      terminal.onData((data) => bridge.terminal.write(created.id, data));
-      terminal.onResize(({ cols, rows }) => bridge.terminal.resize(created.id, cols, rows));
-      for (const chunk of early.current.get(created.id) ?? []) terminal.write(chunk);
+      register(created.id, entry);
+      for (const chunk of early.current.get(created.id) ?? []) entry.terminal.write(chunk);
       early.current.delete(created.id);
       const title = baseName(created.shell).replace(/\.exe$/i, "");
       setTabs((current) => [...current, { id: created.id, title, cwd: created.cwd }]);
       setActiveId(created.id);
     } catch (cause) {
-      terminal.dispose();
-      const message = cause instanceof Error ? cause.message : String(cause);
-      // Electron 会给 IPC 抛出的错误加上「Error invoking remote method …: Error: 」前缀
-      setError(
-        t("终端启动失败：{0}", {
-          0: message.replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/, ""),
-        }),
-      );
+      entry.terminal.dispose();
+      setError(t("终端启动失败：{0}", { 0: ipcMessage(cause) }));
     } finally {
       creating.current = false;
     }
-  }, [bridge]);
+  }, [bridge, buildTerminal, register]);
+
+  // 页面刷新后：把桌面端还留着的终端接回来，回放最近的输出，标签顺序和选中的标签照旧
+  useEffect(() => {
+    const { list, attach } = bridge.terminal;
+    if (!list || !attach) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const sessions = await list();
+        const restoredTabs: Tab[] = [];
+        for (const session of sessions) {
+          if (cancelled) return;
+          const entry = await buildTerminal();
+          const attached = await attach(session.id).catch(() => null);
+          if (cancelled || !attached) {
+            entry.terminal.dispose();
+            continue;
+          }
+          register(attached.id, { ...entry, syncSize: true });
+          // 接回之前收到的输出已经包含在回放里
+          early.current.delete(attached.id);
+          if (attached.replay) entry.terminal.write(attached.replay);
+          restoredTabs.push({
+            id: attached.id,
+            title: baseName(attached.shell).replace(/\.exe$/i, ""),
+            cwd: attached.cwd,
+          });
+        }
+        if (cancelled || restoredTabs.length === 0) return;
+        setTabs((current) => [...restoredTabs, ...current]);
+        const remembered = sessionValue(TERMINAL_ACTIVE_KEY);
+        setActiveId(
+          (active) =>
+            active ??
+            restoredTabs.find((tab) => tab.id === remembered)?.id ??
+            restoredTabs.at(-1)?.id,
+        );
+      } catch (cause) {
+        setError(t("没能接回刷新前的终端：{0}", { 0: ipcMessage(cause) }));
+      } finally {
+        if (!cancelled) setRestored(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [bridge, buildTerminal, register]);
+
+  useEffect(() => {
+    if (restored) setSessionValue(TERMINAL_ACTIVE_KEY, activeId ?? null);
+  }, [activeId, restored]);
 
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
@@ -280,11 +381,17 @@ export function TerminalPanel({
     }
   }, [newRequest, createTerminal]);
   useEffect(() => {
-    if (open && tabs.length === 0 && newRequest === handledRequest.current && !creating.current) {
+    if (
+      open &&
+      restored &&
+      tabs.length === 0 &&
+      newRequest === handledRequest.current &&
+      !creating.current
+    ) {
       void createTerminal();
     }
-    // 只在面板打开时检查，不随 tabs 变化重复触发
-  }, [open]);
+    // 只在面板打开（或接回结束）时检查，不随 tabs 变化重复触发
+  }, [open, restored]);
 
   // 把当前标签的 xterm 挂到视口里
   useEffect(() => {
@@ -328,53 +435,91 @@ export function TerminalPanel({
     return () => observer.disconnect();
   }, []);
 
+  // 对话区尺寸：窗口缩放、侧栏开合时重新判断位置和尺寸上限
+  useEffect(() => {
+    const parent = panel.current?.parentElement;
+    if (!parent) return;
+    const measure = () => setBody({ width: parent.clientWidth, height: parent.clientHeight });
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(parent);
+    return () => observer.disconnect();
+  }, []);
+
+  const position = effectivePosition(layout.position, body.width);
+  const maximized = layout.maximized;
+  const vertical = position === "right";
+  const clamp = (value: number) =>
+    vertical ? clampTerminalWidth(value, body.width) : clampTerminalHeight(value, body.height);
+  const size = clamp(dragSize ?? (vertical ? layout.width : layout.height));
+  const commitSize = (value: number) =>
+    onResize(vertical ? { width: clamp(value) } : { height: clamp(value) });
+
+  // 换位置、最大化后终端尺寸变了：重新排版
+  useEffect(() => {
+    if (!open || !activeId) return;
+    requestAnimationFrame(() => fitActive());
+  }, [position, maximized, open, activeId, fitActive]);
+
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
-    const startY = event.clientY;
-    const startHeight = height;
+    const start = vertical ? event.clientX : event.clientY;
+    const startSize = size;
     const target = event.currentTarget;
-    target.setPointerCapture(event.pointerId);
-    const move = (moveEvent: PointerEvent) =>
-      setHeight(clampHeight(startHeight + (startY - moveEvent.clientY)));
+    target.setPointerCapture?.(event.pointerId);
+    let latest = startSize;
+    // 底部往上拖变高，右侧往左拖变宽
+    const move = (moveEvent: PointerEvent) => {
+      latest = clamp(startSize + (start - (vertical ? moveEvent.clientX : moveEvent.clientY)));
+      setDragSize(latest);
+    };
     const end = () => {
       target.removeEventListener("pointermove", move);
       target.removeEventListener("pointerup", end);
       target.removeEventListener("pointercancel", end);
-      setHeight((value) => {
-        localStorage.setItem(TERMINAL_HEIGHT_KEY, String(value));
-        return value;
-      });
+      commitSize(latest);
+      setDragSize(undefined);
     };
     target.addEventListener("pointermove", move);
     target.addEventListener("pointerup", end);
     target.addEventListener("pointercancel", end);
   };
 
-  const resizeByKey = (delta: number) =>
-    setHeight((value) => {
-      const next = clampHeight(value + delta);
-      localStorage.setItem(TERMINAL_HEIGHT_KEY, String(next));
-      return next;
-    });
+  const positionLabel = position === "right" ? t("移到底部") : t("移到右侧");
+  const maximizeLabel = maximized ? t("还原终端面板") : t("最大化终端面板");
 
   return (
-    <section className="terminal-panel" aria-label={t("终端")} hidden={!open} style={{ height }}>
-      <div
-        className="terminal-resizer"
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label={t("拖动调整终端高度")}
-        aria-valuemin={MIN_HEIGHT}
-        aria-valuenow={height}
-        tabIndex={0}
-        onPointerDown={startResize}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowUp") resizeByKey(24);
-          else if (event.key === "ArrowDown") resizeByKey(-24);
-          else return;
-          event.preventDefault();
-        }}
-      />
+    <section
+      ref={panel}
+      className="terminal-panel"
+      aria-label={t("终端")}
+      hidden={!open}
+      data-position={position}
+      data-maximized={maximized ? "" : undefined}
+      style={maximized ? undefined : vertical ? { width: size } : { height: size }}
+    >
+      {!maximized && (
+        <div
+          className="terminal-resizer"
+          role="separator"
+          // 底部时是横向分隔条（调高度），右侧时是竖向分隔条（调宽度）
+          aria-orientation={vertical ? "vertical" : "horizontal"}
+          aria-label={vertical ? t("拖动调整终端宽度") : t("拖动调整终端高度")}
+          aria-valuemin={vertical ? MIN_TERMINAL_WIDTH : MIN_TERMINAL_HEIGHT}
+          aria-valuenow={size}
+          tabIndex={0}
+          onPointerDown={startResize}
+          onKeyDown={(event) => {
+            const grow = vertical ? "ArrowLeft" : "ArrowUp";
+            const shrink = vertical ? "ArrowRight" : "ArrowDown";
+            if (event.key === grow) commitSize(size + RESIZE_STEP);
+            else if (event.key === shrink) commitSize(size - RESIZE_STEP);
+            else return;
+            event.preventDefault();
+          }}
+        />
+      )}
       <div className="terminal-tabs" role="tablist" aria-label={t("终端")}>
         {tabs.map((tab, index) => (
           <div
@@ -420,6 +565,31 @@ export function TerminalPanel({
             {error}
           </span>
         )}
+        {!maximized && (
+          <Tooltip content={withKeys(positionLabel, POSITION_KEYS)}>
+            <button
+              type="button"
+              className="terminal-action"
+              aria-label={positionLabel}
+              data-action="position"
+              onClick={onTogglePosition}
+            >
+              <Icon name={position === "right" ? "panel-bottom" : "panel-right"} size={14} />
+            </button>
+          </Tooltip>
+        )}
+        <Tooltip content={withKeys(maximizeLabel, MAXIMIZE_KEYS)}>
+          <button
+            type="button"
+            className="terminal-action"
+            aria-label={maximizeLabel}
+            aria-pressed={maximized}
+            data-action="maximize"
+            onClick={onToggleMaximized}
+          >
+            <Icon name={maximized ? "minimize" : "maximize"} size={14} />
+          </button>
+        </Tooltip>
         <Tooltip content={t("收起终端面板（终端继续运行）")}>
           <button
             type="button"
@@ -427,7 +597,7 @@ export function TerminalPanel({
             aria-label={t("收起终端面板")}
             onClick={onClose}
           >
-            <Icon name="arrow-down" size={14} />
+            <Icon name={vertical && !maximized ? "arrow-right" : "arrow-down"} size={14} />
           </button>
         </Tooltip>
       </div>
