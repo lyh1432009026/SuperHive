@@ -781,15 +781,10 @@
 
 .hl-statement {
   position: relative;
-  height: 220vh;
+  padding-block: clamp(5rem, 16vh, 9rem);
 }
 
-.hl-statement-sticky {
-  position: sticky;
-  top: 0;
-  display: grid;
-  align-items: center;
-  height: 100vh;
+.hl-statement-inner {
   max-width: var(--hl-max);
   margin-inline: auto;
   padding-inline: var(--hl-pad);
@@ -810,24 +805,17 @@
   line-height: 1.4;
 }
 
+/* 逐字上色：进入视口后按时间在约 1.3 秒内走完，不拉长滚动距离。没点亮的字用 dim，仍满足 4.5:1 对比度 */
 .hl-w {
   color: var(--hl-text);
-  transition: color 0.35s ease;
 }
 
-/* 没点亮的字用 dim 而不是更暗的颜色：仍满足 4.5:1 对比度，测速工具不滚动也能读 */
-.hl-js .hl-w {
+.hl-js .hl-statement:not(.is-lit) .hl-w {
   color: var(--hl-dim);
 }
 
-.hl-js .hl-w.is-on {
-  color: var(--hl-text);
-}
-
-/* 刚上色的最后几个字带一点渐变色，像笔尖 */
-.hl-js .hl-w.is-on:has(+ .hl-w:not(.is-on)),
-.hl-js .hl-w.is-on:has(+ .hl-w + .hl-w:not(.is-on)) {
-  color: var(--hl-c2);
+.hl-js .hl-statement.is-lit .hl-w {
+  transition: color 0.3s ease calc(var(--i) * var(--step, 20ms));
 }
 
 .hl-streaks {
@@ -870,7 +858,7 @@
     transform: translateY(-10rem);
   }
   to {
-    transform: translateY(220vh);
+    transform: translateY(80vh);
   }
 }
 
@@ -1855,16 +1843,6 @@ html .hl .cm.cm.cm {
     display: none;
   }
 
-  .hl-statement {
-    height: auto;
-    padding-block: 6rem;
-  }
-
-  .hl-statement-sticky {
-    position: static;
-    height: auto;
-  }
-
   .hl-cloud-item {
     translate: none;
   }
@@ -2068,10 +2046,6 @@ html .hl .cm.cm.cm {
 
   .hl-live {
     font-size: 0.68rem;
-  }
-
-  .hl-statement {
-    height: 170vh;
   }
 
   .hl-diagram {

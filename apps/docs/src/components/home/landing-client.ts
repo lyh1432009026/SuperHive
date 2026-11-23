@@ -8,14 +8,12 @@ function init(root: HTMLElement) {
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
   const bar = root.querySelector<HTMLElement>("[data-hl-progress]");
   const statement = root.querySelector<HTMLElement>("[data-hl-statement]");
-  const words = statement ? [...statement.querySelectorAll<HTMLElement>(".hl-w")] : [];
   const cloudSection = root.querySelector<HTMLElement>("[data-hl-cloud-section]");
   const cloud = root.querySelector<HTMLElement>("[data-hl-cloud]");
   const stagesSection = root.querySelector<HTMLElement>("[data-hl-stages]");
   const stages = [...root.querySelectorAll<HTMLElement>("[data-hl-stage]")];
   const windowEl = root.querySelector<HTMLElement>("[data-hl-window]");
 
-  let litWords = -1;
   let litStages = -1;
 
   /** 元素滚过视口的进度：顶边到达视口某处为 0，底边离开为 1 */
@@ -33,10 +31,6 @@ function init(root: HTMLElement) {
     if (bar) bar.style.transform = `scaleX(${max > 0 ? Math.min(1, window.scrollY / max) : 0})`;
 
     if (reduce.matches) {
-      if (litWords !== words.length) {
-        words.forEach((word) => word.classList.add("is-on"));
-        litWords = words.length;
-      }
       if (litStages !== stages.length) {
         stages.forEach((stage) => stage.classList.add("is-on"));
         litStages = stages.length;
@@ -44,19 +38,6 @@ function init(root: HTMLElement) {
       cloud?.style.removeProperty("--py");
       windowEl?.style.removeProperty("--tilt");
       return;
-    }
-
-    if (statement && words.length) {
-      // 粘住的那段里逐字上色：句子在屏幕中间停留的这段滚动距离对应 0 → 全部
-      const rect = statement.getBoundingClientRect();
-      const span = rect.height - window.innerHeight;
-      const p =
-        span > 0 ? Math.min(1, Math.max(0, (-rect.top + window.innerHeight * 0.25) / span)) : 1;
-      const count = Math.round(p * words.length);
-      if (count !== litWords) {
-        words.forEach((word, index) => word.classList.toggle("is-on", index < count));
-        litWords = count;
-      }
     }
 
     if (cloud && cloudSection) {
@@ -100,12 +81,27 @@ function init(root: HTMLElement) {
   window.addEventListener("scroll", schedule, { passive: true });
   window.addEventListener("resize", schedule);
   reduce.addEventListener("change", () => {
-    litWords = -1;
     litStages = -1;
     schedule();
   });
   root.classList.add("is-ready");
   update();
+
+  // 一句话：进入视口约三成后按时间逐字上色（样式里按 --i 错开），不跟滚动绑定，滚多快都不会卡着灰字
+  if (statement) {
+    if (reduce.matches || !("IntersectionObserver" in window)) statement.classList.add("is-lit");
+    else {
+      const lit = new IntersectionObserver(
+        (entries) => {
+          if (!entries.some((entry) => entry.isIntersecting)) return;
+          statement.classList.add("is-lit");
+          lit.disconnect();
+        },
+        { threshold: 0.35 },
+      );
+      lit.observe(statement);
+    }
+  }
 
   // 左侧圆点：哪一段占据视口中线就点亮哪一个
   const dots = new Map(

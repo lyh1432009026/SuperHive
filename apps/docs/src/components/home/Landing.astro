@@ -50,6 +50,9 @@ const num = (id: string) =>
 const statementUnits =
   lang === "en" ? t.statement.text.split(/(\s+)/).filter(Boolean) : [...t.statement.text];
 
+const statementWords = statementUnits.filter((unit) => !/^\s+$/.test(unit)).length;
+let wordIndex = 0;
+
 // 词云：运行时和能力名混排在 4 × 8 的格子里，用固定种子打乱再在格内抖动，构建结果稳定
 const rand = (() => {
   let seed = 20261123;
@@ -276,11 +279,15 @@ const streaks = Array.from({ length: 16 }, (_, index) => ({
         ))
       }
     </div>
-    <div class="hl-statement-sticky">
-      <p class="hl-statement-text">
+    <div class="hl-statement-inner">
+      <p class="hl-statement-text" style={`--step:${Math.round(1300 / statementWords)}ms`}>
         {
           statementUnits.map((unit) =>
-            /^\s+$/.test(unit) ? unit : <span class="hl-w">{unit}</span>,
+            /^\s+$/.test(unit) ? (
+              unit
+            ) : (
+              <span class="hl-w" style={`--i:${wordIndex++}`} set:text={unit} />
+            ),
           )
         }
       </p>
