@@ -6,7 +6,7 @@
 
 公共消息是协作上下文，Agent 的会话、文件和命令权限仍然留在 Agent 所在电脑。Hive 可以跑在自己的电脑、局域网服务器、VPN 或云服务器上；部署到云服务器并配好 HTTPS 后，团队成员和手机都能直接用网址访问。
 
-> 从改名前的旧包升级时，首次运行会自动把旧数据目录迁移到 `~/.superhive/`，浏览器里的设置也会保留。
+<img width="2880" height="1800" alt="image" src="https://github.com/user-attachments/assets/00101fd6-67da-4076-a466-44253a9fec20" />
 
 主要能力：
 
