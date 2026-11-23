@@ -42,3 +42,14 @@ export function isLoopbackOrigin(origin: string): boolean {
     return false;
   }
 }
+
+/**
+ * preload 同步问「我能不能拿到桌面端能力」时的回答：可信的主窗口顶层框架答本机 Hive 地址，别的一律 null。
+ * 窗口在本机 Hive 起好之前就建出来了（先放加载动画），所以地址不能像以前那样建窗口时写进 preload 参数。
+ */
+export function originAnswer(
+  event: SenderLike,
+  allowed: { origin: string | undefined; webContentsIds: ReadonlySet<number> },
+): string | null {
+  return isTrustedSender(event, allowed) ? allowed.origin! : null;
+}

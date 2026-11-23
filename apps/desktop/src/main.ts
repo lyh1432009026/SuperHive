@@ -10,7 +10,6 @@
 import {
   app,
   BrowserWindow,
-  dialog,
   ipcMain,
   Menu,
   nativeTheme,
@@ -18,6 +17,7 @@ import {
   session,
   shell,
   utilityProcess,
+  WebContentsView,
   webContents as allWebContents,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
@@ -34,9 +34,23 @@ import {
   type ForkServer,
   type OwnedServer,
 } from "./hive-server.js";
-import { IPC, ORIGIN_ARG_PREFIX, type TerminalCreateRequest } from "./ipc-contract.js";
-import { isLoopbackOrigin, isTrustedSender, originOf } from "./ipc-guard.js";
+import { IPC, type TerminalCreateRequest } from "./ipc-contract.js";
+import { isLoopbackOrigin, isTrustedSender, originAnswer, originOf } from "./ipc-guard.js";
 import { loginShellPath, mergePath } from "./shell-env.js";
+import {
+  loadSplashTheme,
+  parseSplashAction,
+  resolveDark,
+  saveSplashTheme,
+  SPLASH_BACKGROUND,
+  SplashController,
+  splashHtml,
+  splashUpdateScript,
+  splashVariant,
+  themeFromAppearance,
+  type SplashPhase,
+  type SplashTheme,
+} from "./splash.js";
 import { TerminalManager, type PtySpawn } from "./terminal-manager.js";
 import { langFor, text, type Lang, type TextKey } from "./texts.js";
 import {
@@ -54,6 +68,8 @@ import { loadWindowState, restoreBounds, saveWindowState, MIN_SIZE } from "./win
 const CLI_FLAG = "--superhive-cli";
 const DOCS_URL = "https://wangrongding.github.io/SuperHive/";
 const ISSUES_URL = "https://github.com/wangrongding/SuperHive/issues";
+/** 网页载入完多久还没说「画好了」就直接收起加载画面 */
+const READY_FALLBACK_MS = 6_000;
 const PREFERRED_PORT = Number.parseInt(process.env.SUPERHIVE_DESKTOP_PORT ?? "", 10) || 8787;
 
 /** 打包后的应用根目录（app.asar 或开发时的 .stage/app） */
@@ -103,7 +119,10 @@ function runApp(): void {
   const t = (key: TextKey, params?: Record<string, string>) => text(lang, key, params);
 
   let mainWindow: BrowserWindow | undefined;
-  let splash: BrowserWindow | undefined;
+  /** 启动加载画面：主窗口里盖在网页上面的一层 */
+  let splash: { view: WebContentsView; controller: SplashController } | undefined;
+  /** 网页加载完还没说「画好了」时的兜底计时（老版本网页没有 ready 接口） */
+  let readyFallback: NodeJS.Timeout | undefined;
   /** 当前允许拿到终端能力的页面来源（本机 Hive 的回环地址） */
   let allowedOrigin: string | undefined;
   const trustedIds = new Set<number>();
@@ -174,10 +193,22 @@ function runApp(): void {
     if (trusted(event)) terminals.kill(event.sender.id, id);
   });
 
+  // preload 问自己能不能拿到桌面端能力：只回答主窗口的顶层框架，而且页面已经在本机 Hive 上
+  ipcMain.on(IPC.originQuery, (event) => {
+    event.returnValue = originAnswer(event, { origin: allowedOrigin, webContentsIds: trustedIds });
+  });
+  ipcMain.on(IPC.appReady, (event) => {
+    if (trusted(event)) splash?.controller.ready();
+  });
+
   // ---------- 标题栏 ----------
   const titlebar = titlebarMode(process.platform, process.env);
   let appearance: TitlebarAppearance | undefined;
-  const currentAppearance = () => appearance ?? defaultAppearance(nativeTheme.shouldUseDarkColors);
+  /** 上次网页的主题（深 / 浅 / 跟随系统），启动加载画面和窗口底色第一帧就用它 */
+  let splashTheme: SplashTheme = "system";
+  const splashThemeFile = () => path.join(app.getPath("userData"), "splash-theme.json");
+  const prefersDark = () => resolveDark(splashTheme, nativeTheme.shouldUseDarkColors);
+  const currentAppearance = () => appearance ?? defaultAppearance(prefersDark());
   /** 把网页的顶栏外观套到窗口上：macOS 挪红黄绿按钮，Windows / Linux 改 overlay 配色和高度 */
   const applyAppearance = (window: BrowserWindow) => {
     if (window.isDestroyed()) return;
@@ -199,6 +230,11 @@ function runApp(): void {
     });
     if (!parsed) return;
     appearance = parsed;
+    const theme = themeFromAppearance(parsed.color, nativeTheme.shouldUseDarkColors);
+    if (theme !== splashTheme) {
+      splashTheme = theme;
+      saveSplashTheme(splashThemeFile(), theme);
+    }
     const window = BrowserWindow.fromWebContents(event.sender);
     if (window) applyAppearance(window);
   });
@@ -259,39 +295,84 @@ function runApp(): void {
 
   // ---------- 窗口 ----------
   const windowStateFile = () => path.join(app.getPath("userData"), "window-state.json");
-  const backgroundColor = () => (nativeTheme.shouldUseDarkColors ? "#111318" : "#ffffff");
+  const backgroundColor = () => SPLASH_BACKGROUND[prefersDark() ? "dark" : "light"];
+  const variant = splashVariant(process.env);
+  const logFile = () => path.join(dataDir, "server.log");
 
-  function showSplash(): void {
-    if (splash && !splash.isDestroyed()) return;
-    splash = new BrowserWindow({
-      width: 360,
-      height: 200,
-      frame: false,
-      resizable: false,
-      show: false,
-      center: true,
-      backgroundColor: backgroundColor(),
-      webPreferences: { ...popupPreferences },
-    });
-    const dark = nativeTheme.shouldUseDarkColors;
-    const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>
-      html,body{margin:0;height:100%;font:14px -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:${dark ? "#111318" : "#ffffff"};color:${dark ? "#d9dce3" : "#1f2329"};-webkit-app-region:drag;user-select:none}
-      body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}
-      .bar{width:140px;height:3px;border-radius:3px;background:${dark ? "#2a2e37" : "#e6e8ec"};overflow:hidden}
-      .bar i{display:block;width:40%;height:100%;background:linear-gradient(90deg,#3b82f6,#f5a524);animation:s 1.2s ease-in-out infinite}
-      @keyframes s{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
-      @media (prefers-reduced-motion:reduce){.bar i{animation:none;width:100%}}
-      </style></head><body><strong style="font-size:18px">SuperHive</strong><div>${t("starting")}</div><div class="bar"><i></i></div></body></html>`;
-    void splash.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-    splash.once("ready-to-show", () => splash?.show());
+  // ---------- 启动加载画面 ----------
+  /** 把加载层铺满窗口内容区；窗口改大小、进出全屏时跟着变 */
+  const fitSplash = () => {
+    if (!splash || !mainWindow || mainWindow.isDestroyed()) return;
+    const [width = 0, height = 0] = mainWindow.getContentSize();
+    splash.view.setBounds({ x: 0, y: 0, width, height });
+  };
+
+  function renderSplash(model: Parameters<typeof splashUpdateScript>[0]): void {
+    const contents = splash?.view.webContents;
+    if (contents && !contents.isDestroyed())
+      void contents.executeJavaScript(splashUpdateScript(model)).catch(() => undefined);
   }
 
-  function closeSplash(): void {
-    if (splash && !splash.isDestroyed()) splash.destroy();
+  function removeSplash(): void {
+    clearTimeout(readyFallback);
+    const current = splash;
     splash = undefined;
+    if (!current) return;
+    current.controller.dispose();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.contentView.removeChildView(current.view);
+      mainWindow.off("resize", fitSplash);
+      // 加载层拿掉后焦点交还网页，键盘直接能用
+      mainWindow.webContents.focus();
+    }
+    if (!current.view.webContents.isDestroyed()) current.view.webContents.close();
   }
 
-  function createMainWindow(origin: string): BrowserWindow {
+  /** 在主窗口上盖一层加载动画（已经盖着就从头再来）。窗口要等这一层画出第一帧再显示，不闪白 */
+  function showSplash(window: BrowserWindow, phase: SplashPhase): void {
+    if (splash) {
+      splash.controller.restart(phase);
+      renderSplash(splash.controller.model());
+      return;
+    }
+    const view = new WebContentsView({ webPreferences: { ...popupPreferences } });
+    // 退场时页面底色渐变成透明，露出下面已经画好的主界面
+    view.setBackgroundColor("#00000000");
+    const controller = new SplashController({
+      lang,
+      render: renderSplash,
+      done: removeSplash,
+    });
+    controller.restart(phase);
+    splash = { view, controller };
+    window.contentView.addChildView(view);
+    fitSplash();
+    window.on("resize", fitSplash);
+    // 按钮经改标题告诉主进程：页面本身没有任何 IPC 能力
+    view.webContents.on("page-title-updated", (event, title) => {
+      event.preventDefault();
+      const action = parseSplashAction(title);
+      if (action === "retry") void boot();
+      else if (action === "logs") void shell.openPath(dataDir);
+      else if (action === "quit") app.quit();
+    });
+    view.webContents.once("did-finish-load", () => {
+      // 载入期间状态可能已经变了（比如很快就出错）：按当前状态再画一次
+      if (splash?.view === view) renderSplash(controller.model());
+      if (!window.isDestroyed() && !window.isVisible()) window.show();
+    });
+    const html = splashHtml({ lang, theme: splashTheme, variant, initial: controller.model() });
+    void view.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  }
+
+  function failSplash(window: BrowserWindow, detail: string): void {
+    if (!splash) showSplash(window, "starting");
+    splash!.controller.fail(detail, text(lang, "splashLog", { log: logFile() }));
+    if (!window.isVisible()) window.show();
+  }
+
+  /** 主窗口：一打开就按上次的位置大小显示加载动画，本机 Hive 好了再在下面加载网页 */
+  function createMainWindow(): BrowserWindow {
     const saved = loadWindowState(windowStateFile());
     const bounds = restoreBounds(
       saved,
@@ -315,7 +396,7 @@ function runApp(): void {
         nodeIntegrationInWorker: false,
         webviewTag: false,
         spellcheck: false,
-        additionalArguments: [`${ORIGIN_ARG_PREFIX}${origin}`, `${TITLEBAR_ARG_PREFIX}${titlebar}`],
+        additionalArguments: [`${TITLEBAR_ARG_PREFIX}${titlebar}`],
       },
     });
     if (bounds.maximized) window.maximize();
@@ -369,11 +450,20 @@ function runApp(): void {
         window.hide();
       }
     });
-    window.once("ready-to-show", () => {
-      closeSplash();
-      window.show();
+    // 网页载入完一般很快就会说「画好了」；老版本网页没有这个接口，等一会儿也收起加载画面
+    window.webContents.on("did-finish-load", () => {
+      clearTimeout(readyFallback);
+      readyFallback = setTimeout(() => splash?.controller.ready(), READY_FALLBACK_MS);
     });
-    void window.loadURL(origin);
+    window.webContents.on("did-fail-load", (_event, code, description, url, isMainFrame) => {
+      // -3 是被新的导航顶掉（比如重试时重新加载），不算出错
+      if (!isMainFrame || code === -3 || !allowedOrigin || originOf(url) !== allowedOrigin) return;
+      failSplash(window, text(lang, "pageFailed", { reason: `${description} (${code})` }));
+    });
+    window.webContents.on("render-process-gone", (_event, details) => {
+      if (splash && !splash.controller.isFinished)
+        failSplash(window, text(lang, "pageFailed", { reason: details.reason }));
+    });
     return window;
   }
 
@@ -406,12 +496,14 @@ function runApp(): void {
       });
     });
 
-  async function connect(): Promise<string> {
+  async function connect(onPhase: (phase: SplashPhase) => void): Promise<string> {
     const found = await discover({ dataDir, preferredPort: PREFERRED_PORT });
     if (found.kind === "existing") {
+      onPhase("connecting");
       console.log(`[superhive-desktop] ${t("connectedExisting", { origin: found.origin })}`);
       return found.origin;
     }
+    onPhase("starting");
     owned = await startServer({
       fork,
       serverEntry: path.join(superhiveRoot, "dist", "server", "index.js"),
@@ -426,58 +518,40 @@ function runApp(): void {
     void server.exited.then((code) => {
       if (owned === server) owned = undefined;
       if (quitting) return;
-      // 被 hive stop 停掉或者崩溃：问一下要不要重新启动
-      void handleServerGone(code);
+      // 被 hive stop 停掉或者崩溃：在窗口上盖出错画面，可以重试
+      handleServerGone(code);
     });
     return owned.origin;
   }
 
-  async function handleServerGone(code: number): Promise<void> {
-    const { response } = await dialog.showMessageBox({
-      type: "warning",
-      title: "SuperHive",
-      message: t("startFailedTitle"),
-      detail: t("startFailedDetail", {
-        reason: `exit ${code}`,
-        log: path.join(dataDir, "server.log"),
-      }),
-      buttons: [t("retry"), t("openLogs"), t("quit")],
-      defaultId: 0,
-      cancelId: 2,
-    });
-    if (response === 0) return boot();
-    if (response === 1) void shell.openPath(dataDir);
-    app.quit();
+  function handleServerGone(code: number): void {
+    if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createMainWindow();
+    failSplash(mainWindow, t("serverStopped", { code: String(code) }));
+    showMainWindow();
   }
 
+  let booting = false;
+  /** 起（或连上）本机 Hive，再在主窗口里加载网页；出错时停在加载画面上，点「重试」再来一遍 */
   async function boot(): Promise<void> {
-    showSplash();
+    if (booting) return;
+    booting = true;
+    if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createMainWindow();
+    const window = mainWindow;
+    showSplash(window, "starting");
     try {
-      const origin = await connect();
+      const origin = await connect((phase) => splash?.controller.setPhase(phase));
       if (!isLoopbackOrigin(origin)) throw new Error(`Refusing non-loopback origin ${origin}`);
+      if (window.isDestroyed()) return;
       allowedOrigin = origin;
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        // 重连到新的地址：preload 的来源参数是建窗口时定的，换窗口最稳妥
-        mainWindow.removeAllListeners("close");
-        mainWindow.destroy();
-      }
-      mainWindow = createMainWindow(origin);
+      splash?.controller.setPhase("loading");
       buildMenu();
+      // 网页在加载层下面载入；preload 载入时向主进程要地址，换了地址也不用重建窗口
+      void window.loadURL(origin).catch(() => undefined);
     } catch (error) {
-      closeSplash();
       const reason = error instanceof Error ? error.message : String(error);
-      const { response } = await dialog.showMessageBox({
-        type: "error",
-        title: "SuperHive",
-        message: t("startFailedTitle"),
-        detail: t("startFailedDetail", { reason, log: path.join(dataDir, "server.log") }),
-        buttons: [t("retry"), t("openLogs"), t("quit")],
-        defaultId: 0,
-        cancelId: 2,
-      });
-      if (response === 0) return boot();
-      if (response === 1) await shell.openPath(dataDir);
-      app.quit();
+      if (!window.isDestroyed()) failSplash(window, reason);
+    } finally {
+      booting = false;
     }
   }
 
@@ -558,6 +632,7 @@ function runApp(): void {
 
   void app.whenReady().then(async () => {
     lang = langFor(app.getLocale());
+    splashTheme = loadSplashTheme(splashThemeFile());
     app.setAboutPanelOptions({
       applicationName: "SuperHive",
       applicationVersion: app.getVersion(),

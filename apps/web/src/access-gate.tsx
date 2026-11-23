@@ -14,6 +14,10 @@ import {
   type InvitePreview,
 } from "./access-api";
 import { localized, t, useLocale } from "./i18n";
+import { useAppReady, useAppReadyFallback } from "./boot-splash";
+
+/** 进了房间后等消息快照再收起加载画面；一直等不到（连不上实时通道）也最多盖这么久 */
+const APP_READY_FALLBACK_MS = 4_000;
 
 export type GuestAccess = GuestSession;
 
@@ -161,6 +165,11 @@ export function AccessGate() {
     const timer = window.setInterval(() => void evaluate(), UNREACHABLE_RETRY_MS);
     return () => window.clearInterval(timer);
   }, [evaluate, unreachable]);
+
+  const entered = state.kind === "owner" || state.kind === "guest";
+  // 登录、邀请、没有权限这些页面本身就是首屏，画出来就收起加载画面；进房间的由 App 在消息到了时收起
+  useAppReady(state.kind !== "loading" && !entered);
+  useAppReadyFallback(entered, APP_READY_FALLBACK_MS);
 
   if (state.kind === "loading") return null;
   if (state.kind === "owner") {

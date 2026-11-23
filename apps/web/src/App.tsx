@@ -131,6 +131,7 @@ import { MessageList } from "./message-list";
 import { ShareBar, useShareSelection } from "./share-bar";
 import { Composer } from "./composer";
 import { Tooltip } from "./tooltip";
+import { useAppReady } from "./boot-splash";
 
 export function App({
   guest,
@@ -1408,6 +1409,9 @@ export function App({
     // 面板开着时由面板顺带报数，不重复查
     enabled: Boolean(meta) && !artifactsOpen,
   });
+
+  // 首屏：消息快照到了，或者停在填用户名的页面上，就收起启动加载画面
+  useAppReady(!username || room.messagesLoaded);
 
   if (!username) {
     return (

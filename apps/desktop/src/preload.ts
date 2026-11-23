@@ -1,21 +1,29 @@
 /**
  * 预加载脚本：沙箱里运行，只经 contextBridge 暴露一个很窄的 window.superhiveDesktop。
  * 只有页面来源是主进程告诉我们的本机 Hive 地址时才暴露；跳到别的地方（本来也会被拦下）什么都拿不到。
- * 主进程那边还会再按 senderFrame 校验一次，这里只是第一道。
+ * 地址在页面加载时同步问主进程（窗口在本机 Hive 起好之前就建出来显示加载动画，建窗口时还不知道地址）；
+ * 主进程只回答自己的主窗口顶层框架，别的一律回 null。IPC 每次还会再按 senderFrame 校验一次，这里只是第一道。
  */
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import {
   IPC,
-  ORIGIN_ARG_PREFIX,
   type TerminalCreateRequest,
   type TerminalCreateResult,
   type TerminalExitEvent,
 } from "./ipc-contract.js";
 import { applyDesktopMarks, parseTitlebarArg, setFullscreenMark } from "./titlebar-dom.js";
 
-const allowedOrigin = process.argv
-  .find((arg) => arg.startsWith(ORIGIN_ARG_PREFIX))
-  ?.slice(ORIGIN_ARG_PREFIX.length);
+function queryOrigin(): string | undefined {
+  if (window.top !== window) return undefined;
+  try {
+    const value: unknown = ipcRenderer.sendSync(IPC.originQuery);
+    return typeof value === "string" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const allowedOrigin = queryOrigin();
 
 if (allowedOrigin && window.location.origin === allowedOrigin && window.top === window) {
   const titlebarMode = parseTitlebarArg(process.argv);
@@ -37,6 +45,10 @@ if (allowedOrigin && window.location.origin === allowedOrigin && window.top === 
     /** 网页用来判断能力的版本号，接口有不兼容的变化时加 1 */
     version: 1,
     platform: process.platform,
+    /** 网页首屏画好了，收起桌面端的启动加载画面（重复调用无害） */
+    ready: (): void => {
+      ipcRenderer.send(IPC.appReady);
+    },
     titlebar: {
       /** "mac"：红黄绿按钮在左上；"overlay"：系统按钮在右上；"native"：系统标题栏 */
       mode: titlebarMode,

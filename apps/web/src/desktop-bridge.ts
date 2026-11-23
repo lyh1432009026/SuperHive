@@ -37,6 +37,8 @@ export type DesktopBridge = {
   platform: string;
   terminal: DesktopTerminalApi;
   titlebar?: DesktopTitlebarApi;
+  /** 网页首屏画好了，桌面端收起启动加载画面（老版本桌面端没有这一项） */
+  ready?: () => void;
 };
 
 declare global {

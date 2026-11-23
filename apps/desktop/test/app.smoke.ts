@@ -63,6 +63,23 @@ test("starts its own Hive and loads the web UI on loopback", async () => {
   expect(health.status).toBe("ok");
 });
 
+test("loading animation gets out of the way once the UI is ready", async () => {
+  await enterRoom(page);
+  // 加载层（主窗口里盖着的一层 WebContentsView）收起后整个拿掉，不留在窗口里
+  await expect
+    .poll(
+      () =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows().map((w) => w.contentView.children.length),
+        ),
+      { timeout: 15_000 },
+    )
+    .toEqual([0]);
+  expect(app.windows().some((win) => win.url().startsWith("data:"))).toBe(false);
+  // 浏览器用的首屏占位在桌面端是藏起来的，收起后也移除了
+  await expect(page.locator("#boot-splash")).toHaveCount(0);
+});
+
 test("opens a terminal from the header and runs a command", async () => {
   await enterRoom(page);
   await page.screenshot({ path: path.join(shotDir, "main-window.png") });
@@ -150,7 +167,7 @@ test("renderer is locked down", async () => {
     await page.evaluate(() =>
       Object.keys((window as unknown as { superhiveDesktop: object }).superhiveDesktop).sort(),
     ),
-  ).toEqual(["platform", "terminal", "titlebar", "version"]);
+  ).toEqual(["platform", "ready", "terminal", "titlebar", "version"]);
   // 同源的 iframe 拿不到能力：preload 只在顶层框架暴露
   const inFrame = await page.evaluate(async () => {
     const frame = document.createElement("iframe");

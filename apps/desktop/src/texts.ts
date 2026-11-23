@@ -1,11 +1,22 @@
 /** 桌面端原生界面（菜单、对话框、启动页）的中英文案；网页里的文案在 apps/web 的 i18n 里 */
 const texts = {
-  starting: { zh: "正在启动 SuperHive…", en: "Starting SuperHive…" },
-  startFailedTitle: { zh: "SuperHive 没能启动", en: "SuperHive couldn't start" },
-  startFailedDetail: {
-    zh: "本机 Hive 没能启动：{reason}\n\n日志在：{log}",
-    en: "The local Hive failed to start: {reason}\n\nLog: {log}",
+  splashStarting: { zh: "正在启动本机 Hive…", en: "Starting the local Hive…" },
+  splashConnecting: { zh: "正在连接本机 Hive…", en: "Connecting to the local Hive…" },
+  splashLoading: { zh: "正在打开界面…", en: "Opening SuperHive…" },
+  splashSlow: {
+    zh: "比平时慢一些，第一次启动要准备数据，请稍等",
+    en: "Taking longer than usual — the first launch sets up your data",
   },
+  splashLog: { zh: "日志：{log}", en: "Log: {log}" },
+  serverStopped: {
+    zh: "本机 Hive 已停止运行（退出码 {code}）。",
+    en: "The local Hive stopped running (exit code {code}).",
+  },
+  pageFailed: {
+    zh: "界面没能加载：{reason}",
+    en: "Couldn't load the app: {reason}",
+  },
+  startFailedTitle: { zh: "SuperHive 没能启动", en: "SuperHive couldn't start" },
   retry: { zh: "重试", en: "Retry" },
   quit: { zh: "退出", en: "Quit" },
   openLogs: { zh: "打开日志目录", en: "Open Log Folder" },

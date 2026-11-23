@@ -12,6 +12,10 @@ export const IPC = {
   titlebarAppearance: "superhive:titlebar:appearance",
   /** 主进程通知页面进出全屏 */
   windowFullscreen: "superhive:window:fullscreen",
+  /** preload 同步问主进程：这个页面能不能拿到桌面端能力（答本机 Hive 的地址，或 null） */
+  originQuery: "superhive:origin:query",
+  /** 网页首屏画好了：主进程收起启动加载画面 */
+  appReady: "superhive:app:ready",
 } as const;
 
 export type TerminalCreateRequest = {
@@ -28,6 +32,3 @@ export type TerminalCreateResult = {
 };
 
 export type TerminalExitEvent = { id: string; exitCode: number; signal?: number };
-
-/** preload 读到的、允许暴露能力的页面来源，经 additionalArguments 传入 */
-export const ORIGIN_ARG_PREFIX = "--superhive-origin=";

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isLoopbackOrigin, isTrustedSender, originOf, type SenderLike } from "./ipc-guard.js";
+import {
+  isLoopbackOrigin,
+  isTrustedSender,
+  originAnswer,
+  originOf,
+  type SenderLike,
+} from "./ipc-guard.js";
 
 const origin = "http://127.0.0.1:8787";
 const ids = new Set([7]);
@@ -67,5 +73,21 @@ describe("origin helpers", () => {
     expect(isLoopbackOrigin("http://[::1]:8787")).toBe(true);
     expect(isLoopbackOrigin("http://192.168.1.2:8787")).toBe(false);
     expect(isLoopbackOrigin("https://127.0.0.1:8787")).toBe(false);
+  });
+});
+
+describe("originAnswer", () => {
+  it("只把本机 Hive 地址告诉主窗口的顶层框架", () => {
+    expect(originAnswer(event(), { origin, webContentsIds: ids })).toBe(origin);
+    expect(originAnswer(event({ parent: {} }), { origin, webContentsIds: ids })).toBeNull();
+    expect(originAnswer(event({ id: 9 }), { origin, webContentsIds: ids })).toBeNull();
+    expect(
+      originAnswer(event({ url: "data:text/html,splash" }), { origin, webContentsIds: ids }),
+    ).toBeNull();
+    expect(
+      originAnswer(event({ url: "http://192.168.1.5:8787/" }), { origin, webContentsIds: ids }),
+    ).toBeNull();
+    // 本机 Hive 还没起好（加载动画阶段）时谁都拿不到
+    expect(originAnswer(event(), { origin: undefined, webContentsIds: ids })).toBeNull();
   });
 });
