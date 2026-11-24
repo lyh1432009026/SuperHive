@@ -5,6 +5,8 @@ export type ManagedStack = {
   stop(): Promise<void>;
   /** 当前回合与排队都处理完时返回；重建前等它，避免打断正在执行的任务 */
   whenIdle?(): Promise<void>;
+  /** 房间信息有更新（定时对账拿到的）：主 Agent 换人这类不用重建的变化，交给它自己更新 */
+  updateRoom?(room: RoomSummary): void;
 };
 
 export type StackHooks = {
@@ -125,6 +127,7 @@ export class AgentManager {
 
   private maybeRestart(room: RoomSummary): void {
     const entry = this.stacks.get(room.id);
+    entry?.stack.updateRoom?.(room);
     if (entry && (entry.workspace ?? "") !== (room.workspace ?? "")) void this.restart(room);
   }
 

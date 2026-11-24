@@ -35,10 +35,13 @@ function windowChoice(value: ClaudeCompactWindow): string {
  */
 export function ClaudeContextSettings({
   agent,
+  lead = false,
   disabled,
   onSave,
 }: {
   agent: Pick<LocalAgent, "compactWindow" | "cacheTtl">;
+  /** 它是当前房间的主 Agent：跟随 Claude Code 时 Bridge 实际按 1 小时发 */
+  lead?: boolean;
   disabled: boolean;
   onSave: (settings: {
     compactWindow: ClaudeCompactWindow | null;
@@ -90,7 +93,9 @@ export function ClaudeContextSettings({
     {
       value: "",
       label: t("跟随 Claude Code（默认）"),
-      description: t("Claude Code 自动选：订阅额度内一般 1 小时，超出额度或用 API key 时 5 分钟"),
+      description: t(
+        "主 Agent 默认 1 小时；其它由 Claude Code 自动选：订阅额度内一般 1 小时，超出额度或用 API key 时 5 分钟",
+      ),
     },
     { value: "5m", label: t("5 分钟") },
     { value: "1h", label: t("1 小时"), description: t("写缓存更贵") },
@@ -177,6 +182,13 @@ export function ClaudeContextSettings({
           setDone(false);
         }}
       />
+      {ttl === "" && lead && (
+        <p className="agent-mcp-hint" role="note">
+          {t(
+            "它是本房间的主 Agent，两轮之间常隔 5 分钟以上（等子任务回执、等人回复），所以默认按 1 小时缓存，进程也常驻 55 分钟。不再是主 Agent 后，下一轮起交回 Claude Code 自己选。",
+          )}
+        </p>
+      )}
       {ttl === "1h" && (
         <p className="agent-mcp-hint warning" role="note">
           {t(

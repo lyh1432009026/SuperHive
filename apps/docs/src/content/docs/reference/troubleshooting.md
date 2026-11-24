@@ -131,7 +131,7 @@ description: 按页面、身份、Agent、MCP、任务、审批和 worktree 症�
 **可以这样做**：
 
 - 换话题时点「新话题」，Agent 从新会话开始，上下文从零开始。
-- 在 Agent 设置的「上下文与缓存」里调：自动压缩默认 40 万 token，会话到这么大就压成摘要；缓存时长可以固定成 1 小时（写缓存单价更高，但房间里隔几分钟才来一条消息时通常更省）。这两项经 `--settings` 传给 Claude Code，会覆盖它自己 `settings.json` 里的 `autoCompactWindow`、`promptCacheTtl`。
+- 在 Agent 设置的「上下文与缓存」里调：自动压缩默认 40 万 token，会话到这么大就压成摘要；缓存时长默认「跟随 Claude Code」，房间的主 Agent 按 1 小时；也可以固定成 1 小时（写缓存单价更高，但房间里隔几分钟才来一条消息时通常更省）。这两项经 `--settings` 传给 Claude Code，会覆盖它自己 `settings.json` 里的 `autoCompactWindow`、`promptCacheTtl`。
 - Bridge 会让 Claude 进程在一轮结束后留 10 分钟，下一轮直接复用，省掉拉起进程、加载 MCP 和读取会话记录的时间；规则、模型、思考强度、压缩阈值、缓存时长、MCP 改了，或者开了新话题，会换一个新进程。想每轮都新起进程，给 Agent 设环境变量 `HIVE_CLAUDE_KEEPALIVE_MS=0`。缓存是 1 小时的时候进程留 55 分钟；同一台电脑上所有 Agent 合起来最多留 8 个空闲的 Claude 进程（`HIVE_CLAUDE_MAX_WARM` 调，`0` 不限），超出时结束最久没用的。
 - 成员列表里 Claude Agent 名字旁的 `121k/400k · 缓存 46 分` 是上一轮结束时的上下文、实际生效的压缩阈值和缓存剩余时间：缓存快过期又要接着聊时，赶在过期前发消息最省。
 

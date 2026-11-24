@@ -256,6 +256,8 @@ export class AgentBridge {
   private readonly soloNext = new Set<string>();
   /** 服务端标明是当作主 Agent 派来的消息（没有 @ 任何人）：提示词据此说明由它接话、调度 */
   private readonly leadMessages = new Set<string>();
+  /** 房间当前的主 Agent 名字：缓存时长跟随 Claude Code 时，主 Agent 默认按 1 小时 */
+  private roomLeadAgent: string | undefined;
   /** 上游出错后已自动继续的次数 */
   private readonly upstreamRetries = new Map<string, number>();
   /** 暂时性失败后已自动重试的次数 */
@@ -314,6 +316,8 @@ export class AgentBridge {
       cwd?: string;
       /** 房间设置的工作区（原样，未解析）；没设时为空 */
       roomWorkspace?: string;
+      /** 房间当前的主 Agent（建立时的房间信息）；之后房间设置改了按 rooms.changed 更新 */
+      roomLeadAgent?: string;
       /** 房间工作区没有采用时的原因，写进规则 */
       workspaceNote?: string;
       /**
@@ -349,6 +353,7 @@ export class AgentBridge {
     ) => RoomClient = (roomOptions, handlers) => new RoomClient(roomOptions, handlers),
   ) {
     this.defaultCwd = options.cwd;
+    this.roomLeadAgent = options.roomLeadAgent;
     this.tuning = {
       batchWindowMs: 400,
       maxBatchSize: 10,
@@ -441,7 +446,10 @@ export class AgentBridge {
         onApprovalDecision: (requestId, allow, reason) =>
           this.approvals.get(requestId)?.(allow, reason),
         onMessageDeleted: (message) => this.onRecalled(message.id),
-        ...(this.options.onRoomsChanged ? { onRoomsChanged: this.options.onRoomsChanged } : {}),
+        onRoomsChanged: (room) => {
+          this.updateRoom(room);
+          this.options.onRoomsChanged?.(room);
+        },
         ...(this.options.onShutdown ? { onShutdown: this.options.onShutdown } : {}),
         onError: (error) => {
           this.log(`[hive] ${error.message}`);
@@ -1572,6 +1580,7 @@ export class AgentBridge {
         const compactWindow = settings.compactWindow ?? CLAUDE_COMPACT_WINDOW_DEFAULT;
         if (compactWindow !== "auto" && this.options.provider === "claude")
           turn.compactWindow = compactWindow;
+        const turnCacheTtl = this.cacheTtlFor(settings.cacheTtl);
         active.workspace = this.options.cwd;
         active.accepting = true;
         reply = await this.responder.reply({
@@ -1583,7 +1592,7 @@ export class AgentBridge {
           refreshInstructions: prompt.full,
           ...(turnModel ? { model: turnModel } : {}),
           ...(compactWindow !== "auto" ? { compactWindow } : {}),
-          ...(settings.cacheTtl ? { cacheTtl: settings.cacheTtl } : {}),
+          ...(turnCacheTtl ? { cacheTtl: turnCacheTtl } : {}),
           onCompacted: (compaction) => {
             (turn.compactions ??= []).push(compaction);
             if (this.active !== active || active.controller.signal.aborted) return;
@@ -2229,6 +2238,29 @@ export class AgentBridge {
 
   private settings() {
     return readAgentSettings(this.options.settingsFile);
+  }
+
+  /** 房间信息变了（房间设置、或多房间模式定时对账）：记下当前主 Agent，下一轮按新身份选缓存时长 */
+  updateRoom(room: RoomSummary): void {
+    if (room.id !== this.options.roomId) return;
+    this.roomLeadAgent = room.leadAgent;
+  }
+
+  /** 自己是不是这个房间的主 Agent（名字不区分大小写，和 Server 一致） */
+  private isRoomLead(): boolean {
+    const lead = this.roomLeadAgent;
+    return (
+      lead !== undefined && lead.toLocaleLowerCase() === this.options.username.toLocaleLowerCase()
+    );
+  }
+
+  /**
+   * 这一轮的缓存时长：人在设置里选了 5 分钟或 1 小时就照办；跟随 Claude Code（没设）时，
+   * 主 Agent 两轮之间常隔 5 分钟以上（等子任务回执、等人回复），默认按 1 小时，其余不传交给 Claude Code
+   */
+  private cacheTtlFor(chosen: "5m" | "1h" | undefined): "5m" | "1h" | undefined {
+    if (chosen) return chosen;
+    return this.options.provider === "claude" && this.isRoomLead() ? "1h" : undefined;
   }
 
   /**

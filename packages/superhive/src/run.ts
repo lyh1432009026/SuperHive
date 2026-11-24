@@ -484,6 +484,7 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
         ...(attachmentDirRestricted ? { attachmentServerPath: false } : {}),
         cwd: workspace.cwd,
         ...(room.workspace ? { roomWorkspace: room.workspace } : {}),
+        ...(room.leadAgent ? { roomLeadAgent: room.leadAgent } : {}),
         ...(workspace.note ? { workspaceNote: workspace.note } : {}),
         ...(provider === "claude" && access === "workspace" && !claudeWorkspaceSandboxed()
           ? { noSandbox: true }

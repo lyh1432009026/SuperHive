@@ -2529,6 +2529,9 @@ export function App({
         <AgentSettingsDialog
           key={settingsAgent.id}
           agent={settingsAgent}
+          lead={
+            currentRoom?.leadAgent?.toLocaleLowerCase() === settingsAgent.name.toLocaleLowerCase()
+          }
           local={local}
           onOpenTerminal={() => void openAgentTerminal(settingsAgent)}
           onClose={() => setSettingsAgentId(undefined)}

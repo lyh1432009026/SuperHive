@@ -320,6 +320,8 @@ describe("AgentSettingsDialog", () => {
     expect(compact.textContent).toContain("40 万 token（默认）");
     const ttl = screen.getByRole("combobox", { name: "缓存时长" });
     expect(ttl.textContent).toContain("跟随 Claude Code（默认）");
+    // 不是主 Agent：不提示按 1 小时
+    expect(screen.queryByRole("note")).toBeNull();
     const save = screen.getByRole("button", { name: "保存上下文设置" }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
 
@@ -353,6 +355,34 @@ describe("AgentSettingsDialog", () => {
         cacheTtl: "1h",
       }),
     );
+  });
+
+  it("tells that the room's lead agent caches for 1 hour when following Claude Code", async () => {
+    render(
+      <AgentSettingsDialog
+        agent={agent}
+        lead
+        local={{
+          mcpServers: async () => listed,
+          updateSettings: async () => agent,
+          act: async () => undefined,
+          canManage: true,
+          logs: async () => [],
+          remove: async () => undefined,
+          models: async () => modelList,
+        }}
+        onClose={() => undefined}
+      />,
+    );
+    const ttl = await screen.findByRole("combobox", { name: "缓存时长" });
+    expect(screen.getByRole("note").textContent).toContain("本房间的主 Agent");
+    fireEvent.click(ttl);
+    expect(screen.getByRole("option", { name: /跟随 Claude Code/ }).textContent).toContain(
+      "主 Agent 默认 1 小时",
+    );
+    // 人手动选了 5 分钟：以人选的为准，不再提示
+    fireEvent.click(screen.getByRole("option", { name: /^5 分钟/ }));
+    expect(screen.queryByRole("note")).toBeNull();
   });
 
   it("only shows the context settings for Claude", async () => {

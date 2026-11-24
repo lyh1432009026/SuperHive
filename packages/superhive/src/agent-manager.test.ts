@@ -192,6 +192,22 @@ describe("AgentManager", () => {
     await m.stop();
   });
 
+  it("passes polled room info (a new lead agent) to the running stack without rebuilding it", async () => {
+    vi.useFakeTimers();
+    let listing: RoomSummary[] = [room("general")];
+    const updateRoom = vi.fn();
+    const { manager: m, createStack } = manager(async () => listing, {
+      reconcileIntervalMs: 1_000,
+      makeStack: () => fakeStack({ updateRoom }),
+    });
+    await m.start();
+    listing = [room("general", { leadAgent: "agent-a" })];
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(updateRoom).toHaveBeenLastCalledWith(expect.objectContaining({ leadAgent: "agent-a" }));
+    expect(createStack).toHaveBeenCalledTimes(1);
+    await m.stop();
+  });
+
   it("房间工作区变了：等该房间空闲后重建，名字变化不重建", async () => {
     const idle = deferred<void>();
     const { manager: m, createStack } = manager([room("general"), room("dev")], {

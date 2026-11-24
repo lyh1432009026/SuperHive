@@ -149,11 +149,14 @@ export function McpChecklist({
  */
 export function AgentSettingsDialog({
   agent,
+  lead = false,
   local,
   onClose,
   onOpenTerminal,
 }: {
   agent: LocalAgent;
+  /** 它是当前房间的主 Agent：缓存时长跟随 Claude Code 时实际按 1 小时 */
+  lead?: boolean;
   /** 在终端里接着它在当前房间的会话 */
   onOpenTerminal?: () => void;
   local: Pick<
@@ -506,6 +509,7 @@ export function AgentSettingsDialog({
           {agent.provider === "claude" && (
             <ClaudeContextSettings
               agent={agent}
+              lead={lead}
               disabled={!local.canManage}
               onSave={(settings) => local.updateSettings(agent.id, settings)}
             />

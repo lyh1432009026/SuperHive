@@ -218,6 +218,7 @@ describe("AgentBridge", () => {
   let taskWorkspace: ConstructorParameters<typeof AgentBridge>[0]["taskWorkspace"];
   /** startBridge 用的运行时，默认 codex */
   let bridgeProvider: string | undefined;
+  let bridgeLead: string | undefined;
   let extraTuning: ConstructorParameters<typeof AgentBridge>[0]["tuning"];
 
   async function startBridge(
@@ -231,6 +232,7 @@ describe("AgentBridge", () => {
         ...identity,
         persona: "p",
         provider: bridgeProvider ?? "codex",
+        ...(bridgeLead ? { roomLeadAgent: bridgeLead } : {}),
         token: "t",
         ...(settingsFile ? { settingsFile } : {}),
         ...(taskWorkspace ? { taskWorkspace, cwd: directory, access: "workspace" as const } : {}),
@@ -305,6 +307,7 @@ describe("AgentBridge", () => {
     settingsFile = undefined;
     taskWorkspace = undefined;
     bridgeProvider = undefined;
+    bridgeLead = undefined;
     extraTuning = undefined;
   });
 
@@ -2593,6 +2596,53 @@ describe("AgentBridge", () => {
     await waitUntil(() => room.statuses(second.id).includes("completed"));
     const latest = room.reports.filter((report) => report.messageId === second.id && report.usage);
     expect(latest[0]?.usage?.effort).toBeUndefined();
+  });
+
+  it("defaults the room's lead Claude agent to a 1h cache and follows lead changes", async () => {
+    await writeSettings({});
+    bridgeProvider = "claude";
+    bridgeLead = "Agent-A";
+    await startBridge(baseState());
+    const turn = async (content: string) => {
+      const message = chat({ content });
+      room.messages.push(message);
+      const before = responder.calls.length;
+      room.handlers.onMention(message, message.seq, false);
+      await waitUntil(() => responder.calls.length === before + 1);
+      responder.finish();
+      await waitUntil(() => room.statuses(message.id).includes("completed"));
+      return responder.calls[before]!;
+    };
+    // 跟随 Claude Code（没设）且是主 Agent（名字不分大小写）：按 1 小时
+    expect((await turn("@agent-a 一")).cacheTtl).toBe("1h");
+    // 人手动选了 5 分钟：以人选的为准
+    await writeSettings({ cacheTtl: "5m" });
+    expect((await turn("@agent-a 二")).cacheTtl).toBe("5m");
+    await writeSettings({});
+    // 主 Agent 换人（房间设置改了，Server 推 rooms.changed）：下一轮交回 Claude Code 自己选
+    const summary = {
+      id: "general",
+      name: "general",
+      createdAt: "2026-07-18T00:00:00.000Z",
+      onlineCount: 1,
+      latestSeq: 0,
+    };
+    room.handlers.onRoomsChanged?.({ ...summary, leadAgent: "reviewer" });
+    expect((await turn("@agent-a 三")).cacheTtl).toBeUndefined();
+    // 别的房间的变化不算
+    room.handlers.onRoomsChanged?.({ ...summary, id: "other", leadAgent: "agent-a" });
+    expect((await turn("@agent-a 四")).cacheTtl).toBeUndefined();
+    // 又换回来：下一轮按 1 小时
+    room.handlers.onRoomsChanged?.({ ...summary, leadAgent: "agent-a" });
+    expect((await turn("@agent-a 五")).cacheTtl).toBe("1h");
+  });
+
+  it("leaves the cache ttl to other runtimes even for the lead agent", async () => {
+    await writeSettings({});
+    bridgeLead = "agent-a";
+    await startBridge(baseState());
+    await completePromptTurn();
+    expect(responder.calls[0]!.cacheTtl).toBeUndefined();
   });
 
   it("compacts at 400k by default, follows the settings file, and reports auto-compaction", async () => {
