@@ -10,7 +10,7 @@
 - **本机 Agent**：打包后的应用关了 RunAsNode，Electron 不能当 Node 用。Server 改由环境变量 `HIVE_LOCAL_AGENT_CLI` 得知怎么拉起 Agent：桌面端让它运行 `SuperHive --superhive-cli join …`，主进程看到这个参数就只运行包里自带的 superhive CLI，不开窗口、不占单实例锁。
 - **PATH**：从访达、Dock 启动的程序拿不到 shell 配置里的 PATH，启动时用登录 shell 读一次再合并，本机 Agent 和终端才能找到 `claude`、`codex`、`node`。
 - **窗口**：加载 `http://127.0.0.1:<端口>` 的现有网页（在本机打开才是房主身份）；记住大小和位置（换了显示器会放回可见区域）；只允许一个实例；macOS 上关窗口不退出，点 Dock 图标再打开，⌘Q 才退出。
-- **标题栏**：去掉系统标题栏，网页顶栏顶到窗口最上面。macOS 用 `titleBarStyle: "hidden"`，红黄绿按钮在左侧栏顶部那一行垂直居中（网页同步顶栏高度，界面密度变了按钮跟着挪），全屏时按钮隐藏、让出的位置收回；Windows / Linux 用 `titleBarOverlay` 保留系统按钮（Win11 贴靠布局照常可用），底色、图标颜色和高度跟网页主题实时同步，失焦时图标变淡，网页用 `env(titlebar-area-*)` 在右上角让位。侧栏顶部、聊天顶栏、右侧栏顶部可拖动，按钮、输入框、提示等都是 `no-drag`，模态弹窗打开时顶部不再拖动。preload 在 html 上打 `data-desktop`、`data-titlebar`、`data-fullscreen`，样式全在 `apps/web/src/styles/desktop-titlebar.css`，浏览器里一条都不生效。`SUPERHIVE_DESKTOP_TITLEBAR=native` 退回系统标题栏。
+- **标题栏**：去掉系统标题栏，网页顶栏顶到窗口最上面。macOS 用 `titleBarStyle: "hidden"`，红黄绿按钮在左侧栏顶部那一行垂直居中（网页同步顶栏高度，界面密度变了按钮跟着挪），全屏时按钮隐藏、让出的位置收回；Windows / Linux 用 `titleBarOverlay` 保留系统按钮（Win11 贴靠布局照常可用），底色、图标颜色和高度跟网页主题实时同步，失焦时图标变淡，网页用 `env(titlebar-area-*)` 在右上角让位。侧栏顶部、聊天顶栏、右侧栏顶部、「代码」「产物」大面板的头部可拖动，按钮、输入框、提示等都是 `no-drag`，模态弹窗打开时顶部不再拖动。所有贴着窗口顶边的面板和弹窗统一按 `--titlebar-safe-top / --titlebar-safe-left / --titlebar-safe-right` 让位（大面板头部左右留空，居中弹窗和提及、任务等面板从窗口按钮那一行下面开始排），新加弹层也用这三个变量；Windows / Linux 上弹窗遮罩盖住右上角时，网页把那一点叠出来的颜色发给主进程，系统按钮底色跟着变暗。窗口最小 960×640。preload 在 html 上打 `data-desktop`、`data-titlebar`、`data-fullscreen`，样式全在 `apps/web/src/styles/desktop-titlebar.css`，浏览器里一条都不生效。`SUPERHIVE_DESKTOP_TITLEBAR=native` 退回系统标题栏。
 - **启动加载动画**：窗口一打开就按上次的位置大小显示，蜂巢 logo 动画铺在窗口里单独的一层 `WebContentsView` 上（`src/splash.ts`，纯 CSS + 内联 SVG）：描边画出、点亮中心、中心往外一圈圈扩散六边形信号。本机 Hive 起好后网页在这层下面加载，首屏画好时网页经 preload 的 `ready()` 通知主进程，logo 缩小淡出、底色变透明露出主界面；启动快时不硬等，没画完的入场动画加速播完。加载超过约 2 秒才淡入一行状态文字，超过 12 秒补一句提示。深浅色用上次网页的主题（记在用户目录的 `splash-theme.json`，和系统一致时跟随系统），`prefers-reduced-motion` 时换成静态 logo 加轻微明暗变化。起不来或 Hive 中途停了，停在出错画面上写明原因和日志位置，可「重试」「打开日志目录」「退出」。`SUPERHIVE_DESKTOP_SPLASH=comb` 换成「小六边形一格格拼出」的备选方案。preload 的本机 Hive 地址改为载入时同步问主进程（窗口比 Hive 先建出来），主进程只回答主窗口的顶层框架。
 - **终端**：主进程里用 node-pty，网页里用 xterm 6（fit、web-links）。顶栏「终端」按钮或菜单「文件 → 新建终端」（Ctrl+\`）打开，默认在当前房间的工作区目录，没有工作区就在主目录；macOS / Linux 是用户的登录 shell，Windows 是 PowerShell。多标签；可以停在底部（拖高度）、右侧（拖宽度）或最大化铺满对话区，面板标题栏按钮、菜单「视图」、⌘⇧M / ⌥⌘P 切换，位置和尺寸记在 localStorage；对话区放不下右侧（对话至少留 360px）时按底部显示。收起面板不结束进程，关标签才结束；页面刷新时进程留在主进程（每个终端留最近 512K 字符输出），新页面 60 秒内 `list` + `attach` 接回并回放，没接回的才结束；窗口关闭时全部结束。
 
@@ -19,7 +19,7 @@
 对照 [Electron 安全清单](https://www.electronjs.org/docs/latest/tutorial/security)：
 
 - 所有渲染进程开 `sandbox`、`contextIsolation`，关 `nodeIntegration`、`webviewTag`；
-- preload 只经 `contextBridge` 暴露 `window.superhiveDesktop`（终端的创建、读写、调整大小、结束；标题栏外观同步，只收 `#rrggbb` 颜色和 28–80 的高度；输入框「添加附件」的系统选文件窗口 `files.pick`），并且只在页面来源是本机 Hive 回环地址、且是顶层框架时才暴露；
+- preload 只经 `contextBridge` 暴露 `window.superhiveDesktop`（终端的创建、读写、调整大小、结束；标题栏外观同步，只收 `#rrggbb` 颜色（含可选的遮罩色）和 28–80 的高度；输入框「添加附件」的系统选文件窗口 `files.pick`），并且只在页面来源是本机 Hive 回环地址、且是顶层框架时才暴露；
 - **选附件**（`src/file-picker.ts`）：网页只给房间 ID，对话框起始目录由主进程自己向本机 Hive 查（本机凭证 + `GET /api/local/rooms/:roomId/workspace`），必须是存在的目录，否则用用户主目录；起始目录只用来打开对话框，不读、不列。只读回用户在对话框里选中的文件，按上传上限读（单个 20 MB、10 个、合计 50 MB），超限的只回名字和大小；对话框关上时页面已经跳走就什么都不交；同一页面同时只开一个对话框；
 - 每个 IPC 都在主进程再校验一次 `senderFrame`：必须是我们窗口的顶层框架、来源等于本机 Hive 地址，iframe、别的窗口、跳走后的页面一律拒绝；每个终端只归创建它的页面，别的页面读写不了；
 - 不允许跳到别的站点，外部链接交给系统浏览器；同源新窗口不带 preload；禁止 webview；权限请求只放行剪贴板、通知、全屏，并且只给本机 Hive；
@@ -33,7 +33,7 @@
 ```bash
 pnpm --filter @superhive/desktop dev     # 组装 .stage/app 并启动
 pnpm --filter @superhive/desktop test    # 单元测试（IPC 校验、终端会话、端口发现、窗口位置、标题栏）
-pnpm --filter @superhive/desktop test:smoke   # 冒烟：真的启动应用、开终端执行命令、接入一个本机 Agent
+pnpm --filter @superhive/desktop test:smoke   # 冒烟：真的启动应用、开终端执行命令、接入一个本机 Agent；所有面板和弹窗不压窗口按钮、Esc 和关闭按钮都能关、登录页不出滚动条
 ```
 
 - `scripts/stage.mjs` 把应用组装到 `.stage/app`：主进程和 preload（esbuild 打包）、随包的 superhive（`packages/superhive` 的 dist、web、skills，和 npm 包同一份），以及用 npm 单独装的运行时依赖。网页或 Server 改了要带 `--rebuild` 重新构建 superhive 包。

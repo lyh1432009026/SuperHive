@@ -40,8 +40,8 @@ describe("restoreBounds", () => {
       height: 875,
     });
     expect(restoreBounds({ x: 10, y: 30, width: 100, height: 100 }, [primary])).toMatchObject({
-      width: 720,
-      height: 480,
+      width: 960,
+      height: 640,
     });
   });
 });

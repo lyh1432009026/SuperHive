@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopBridge, DesktopTitlebarAppearance } from "./desktop-bridge";
-import { syncDesktopTitlebar, toHexColor } from "./desktop-titlebar";
+import { compositeColors, syncDesktopTitlebar, toHexColor } from "./desktop-titlebar";
 
 describe("toHexColor", () => {
   it("normalizes computed colors to #rrggbb", () => {
@@ -15,6 +15,21 @@ describe("toHexColor", () => {
     expect(toHexColor("#5d5d5d")).toBe("#5d5d5d");
     expect(toHexColor("transparent")).toBeUndefined();
     expect(toHexColor("")).toBeUndefined();
+  });
+});
+
+describe("compositeColors", () => {
+  it("stacks translucent layers over the base, top layer first", () => {
+    // 50% 黑遮罩盖在白底上
+    expect(compositeColors(["rgba(0, 0, 0, 0.5)"], "#ffffff")).toBe("#808080");
+    // 两层遮罩叠加，下面不透明的那层挡住了底色
+    expect(
+      compositeColors(["rgb(0 0 0 / 0.5)", "rgb(255, 0, 0)", "rgb(0, 255, 0)"], "#ffffff"),
+    ).toBe("#800000");
+    // 透明层、认不出的值跳过
+    expect(compositeColors(["rgba(0, 0, 0, 0)", "transparent"], "#212121")).toBe("#212121");
+    expect(compositeColors(["rgb(0 0 0 / 40%)"], "#ffffff")).toBe("#999999");
+    expect(compositeColors([], "nope")).toBeUndefined();
   });
 });
 
@@ -92,7 +107,104 @@ describe("syncDesktopTitlebar", () => {
   });
 });
 
+describe("syncDesktopTitlebar: dialogs dim the window buttons", () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+    vi.useRealTimers();
+  });
+
+  const flush = async () => {
+    await Promise.resolve();
+    vi.advanceTimersByTime(20);
+    await Promise.resolve();
+  };
+
+  it("Windows / Linux: paints the overlay with the scrim color while a modal is open", async () => {
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "setTimeout", "clearTimeout"] });
+    const root = document.documentElement;
+    const { bridge, setAppearance } = bridgeWith("overlay");
+    const readCorner = vi.fn(() => "#0d0d0d");
+    const stop = syncDesktopTitlebar(bridge, root, () => dark, readCorner);
+    expect(setAppearance).toHaveBeenLastCalledWith(dark);
+    expect(readCorner).not.toHaveBeenCalled();
+
+    // 消息流在后面刷新（没有弹窗）不去取色
+    document.body.append(document.createElement("p"));
+    await flush();
+    expect(readCorner).not.toHaveBeenCalled();
+
+    const layer = document.createElement("div");
+    layer.setAttribute("role", "dialog");
+    layer.setAttribute("aria-modal", "true");
+    document.body.append(layer);
+    await flush();
+    expect(setAppearance).toHaveBeenLastCalledWith({ ...dark, scrim: "#0d0d0d" });
+    // 遮罩淡入完再取一次
+    vi.advanceTimersByTime(300);
+    expect(readCorner).toHaveBeenCalledTimes(2);
+
+    layer.remove();
+    await flush();
+    expect(setAppearance).toHaveBeenLastCalledWith(dark);
+    stop();
+  });
+
+  it("skips the scrim when the corner color did not change, and never runs on macOS", async () => {
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "setTimeout", "clearTimeout"] });
+    const root = document.documentElement;
+    const overlay = bridgeWith("overlay");
+    const stopOverlay = syncDesktopTitlebar(
+      overlay.bridge,
+      root,
+      () => dark,
+      () => dark.color,
+    );
+    const mac = bridgeWith("mac");
+    const readCorner = vi.fn(() => "#000000");
+    const stopMac = syncDesktopTitlebar(mac.bridge, root, () => dark, readCorner);
+    document.body.append(document.createElement("dialog"));
+    document.querySelector("dialog")!.setAttribute("open", "");
+    await flush();
+    expect(overlay.setAppearance).toHaveBeenCalledTimes(1);
+    expect(overlay.setAppearance).toHaveBeenLastCalledWith(dark);
+    expect(readCorner).not.toHaveBeenCalled();
+    stopOverlay();
+    stopMac();
+  });
+});
+
 describe("desktop-titlebar.css", () => {
+  it("every overlay that touches the top of the window makes room for the window buttons", () => {
+    const css = readFileSync(path.join(import.meta.dirname, "styles/desktop-titlebar.css"), "utf8");
+    // 选择器 → 声明，用来查某个弹层有没有按安全区让位
+    const rules = [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(
+      (match) => ({ selector: match[1]!.replace(/\s+/g, " "), body: match[2]! }),
+    );
+    const uses = (name: string, variable: string) =>
+      rules.some((rule) => rule.selector.includes(name) && rule.body.includes(variable));
+    // 贴着右上角的头部：右边给 Windows 系统按钮让位；铺满时左边给 macOS 红黄绿按钮让位
+    expect(uses(".sheet-header", "--titlebar-safe-right")).toBe(true);
+    expect(uses(".sheet-panel.maximized .sheet-header", "--titlebar-safe-left")).toBe(true);
+    expect(uses(".attachment-lightbox-close", "--titlebar-safe-right")).toBe(true);
+    // 铺满窗口的弹窗层、面板：从窗口按钮那一行下面开始排
+    for (const name of [
+      ".room-dialog-layer",
+      ".agent-dialog-layer",
+      ".settings-dialog-layer",
+      ".file-preview-backdrop",
+      ".activity-panel",
+      ".invocation-details",
+      ".onboarding-guide",
+    ])
+      expect(uses(name, "--titlebar-safe-top"), name).toBe(true);
+    // 大面板头部能拖动窗口
+    expect(
+      rules.some(
+        (rule) => rule.selector.includes(".sheet-header") && /app-region: drag/.test(rule.body),
+      ),
+    ).toBe(true);
+  });
+
   it("only applies inside the desktop app (every rule is scoped to :root[data-titlebar])", () => {
     const css = readFileSync(path.join(import.meta.dirname, "styles/desktop-titlebar.css"), "utf8")
       .replace(/\/\*[\s\S]*?\*\//g, "")

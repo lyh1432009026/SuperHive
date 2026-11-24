@@ -12,6 +12,10 @@
 :root[data-titlebar] {
   --titlebar-inset-left: 0px;
   --titlebar-inset-right: 0px;
+  /* 安全区，见下面「安全区」一节；macOS 全屏时按钮藏起来，保持 0 */
+  --titlebar-safe-top: 0px;
+  --titlebar-safe-left: 0px;
+  --titlebar-safe-right: 0px;
 }
 
 /* 红黄绿按钮组：距左 18px、三个按钮约 52px 宽，再留一点间距 */
@@ -24,6 +28,21 @@
   --titlebar-inset-right: calc(
     100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 138px))
   );
+}
+
+/*
+ * 安全区：系统窗口按钮占住的那块，所有贴着窗口顶边的弹层、面板都按它让位（只在桌面端定义，浏览器里这些规则都不命中）。
+ * - --titlebar-safe-top：窗口按钮那一行的高度（等于顶栏高）；铺满窗口的弹窗整体从这条线往下排；
+ * - --titlebar-safe-left / --titlebar-safe-right：贴着左 / 右边、顶到窗口最上面的头部，左 / 右内边距至少留这么多。
+ * 新加的弹层只要用这三个变量，Windows、Linux、macOS 自动都对。
+ */
+:root[data-titlebar="mac"]:not([data-fullscreen]),
+:root[data-titlebar="overlay"] {
+  --titlebar-safe-top: var(--header-height);
+  --titlebar-safe-left: var(--titlebar-inset-left);
+  --titlebar-safe-right: var(--titlebar-inset-right);
+  /* 居中的弹窗上方要留出窗口按钮那一行，最大高度跟着少这么多 */
+  --dialog-max-height: min(880px, calc(100dvh - 32px - var(--titlebar-safe-top)));
 }
 
 /* ---------- 拖动区域 ---------- */
@@ -41,7 +60,7 @@
   app-region: drag;
 }
 
-:root[data-titlebar] :is(.sidebar-header, .chat-header, .side-panel-heading) {
+:root[data-titlebar] :is(.sidebar-header, .chat-header, .side-panel-heading, .sheet-header) {
   -webkit-app-region: drag;
   app-region: drag;
   user-select: none;
@@ -91,7 +110,7 @@
 /* 模态弹窗打开时，遮罩盖住了整个窗口：顶部不再拖动，点遮罩照常关弹窗 */
 :root[data-titlebar]:has(dialog[open], [aria-modal="true"]) body::before,
 :root[data-titlebar]:has(dialog[open], [aria-modal="true"])
-  :is(.sidebar-header, .chat-header, .side-panel-heading) {
+  :is(.sidebar-header, .chat-header, .side-panel-heading, .sheet-header) {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
@@ -138,4 +157,76 @@
 /* 右上角的待批准申请浮层挪到系统按钮下面 */
 :root[data-titlebar="overlay"] .host-approvals-banner {
   top: calc(var(--header-height) + 8px);
+}
+
+/* ---------- 盖在窗口上的面板和弹窗：统一按安全区让位 ---------- */
+
+/*
+ * 「代码」「产物」「任务目录」大面板：贴着右边、顶到窗口最上面，头部和顶栏一样高、可以拖动窗口。
+ * 右边始终给 Windows 的系统按钮留位；铺满窗口（或窄窗口里一律全宽）时左边再给 macOS 的红黄绿按钮留位。
+ */
+:root[data-titlebar] .sheet-header {
+  padding-right: calc(10px + var(--titlebar-safe-right));
+}
+
+:root[data-titlebar] .sheet-panel.maximized .sheet-header {
+  padding-left: max(16px, var(--titlebar-safe-left));
+}
+
+@media (max-width: 900px) {
+  :root[data-titlebar] .sheet-header {
+    padding-left: max(16px, var(--titlebar-safe-left));
+  }
+}
+
+/* 居中的弹窗（房间、Agent、IM、邀请、设置、文件预览）：整体从窗口按钮那一行下面开始排 */
+:root[data-titlebar]
+  :is(.room-dialog-layer, .agent-dialog-layer, .settings-dialog-layer, .file-preview-backdrop) {
+  padding-top: calc(8px + var(--titlebar-safe-top));
+}
+
+:root[data-titlebar] .settings-dialog {
+  height: min(720px, calc(100dvh - 32px - var(--titlebar-safe-top)));
+}
+
+/* 原生 <dialog>（调用详情、新用户引导）在顶层居中：上下对称留出窗口按钮那一行 */
+:root[data-titlebar] :is(.invocation-details, .onboarding-guide) {
+  max-height: min(820px, calc(100dvh - 16px - 2 * var(--titlebar-safe-top)));
+}
+
+/* 提及、任务、定时任务、故障、搜索、跳转、快捷键面板：顶边让到窗口按钮下面 */
+:root[data-titlebar] .activity-panel:not(.search) {
+  top: calc(8px + var(--titlebar-safe-top));
+}
+
+:root[data-titlebar] .activity-panel.search {
+  top: max(12vh, calc(8px + var(--titlebar-safe-top)));
+  max-height: min(560px, calc(100dvh - 16px - var(--titlebar-safe-top)));
+}
+
+/* 图片大图：右上角的关闭按钮挪到窗口按钮左边；左上角留给 macOS 红黄绿按钮的地方本来就空着 */
+:root[data-titlebar] .attachment-lightbox-close {
+  right: calc(16px + var(--titlebar-safe-right));
+}
+
+@media (max-width: 720px) {
+  /* 窄窗口里弹窗变成底部面板、面板铺满：顶上同样空出窗口按钮那一行 */
+  :root[data-titlebar] :is(.room-dialog-layer, .agent-dialog-layer, .settings-dialog-layer) {
+    padding-top: var(--titlebar-safe-top);
+  }
+
+  :root[data-titlebar] :is(.agent-dialog, .room-dialog) {
+    max-height: calc(100dvh - var(--titlebar-safe-top));
+  }
+
+  :root[data-titlebar] .settings-dialog {
+    height: calc(100dvh - var(--titlebar-safe-top));
+    max-height: none;
+  }
+
+  :root[data-titlebar] :is(.activity-panel, .activity-panel.search) {
+    top: 0;
+    max-height: none;
+    padding-top: var(--titlebar-safe-top);
+  }
 }

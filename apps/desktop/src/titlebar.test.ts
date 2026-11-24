@@ -50,6 +50,12 @@ describe("parseAppearance", () => {
     });
   });
 
+  it("keeps an optional scrim color, drops a malformed one", () => {
+    expect(parseAppearance({ ...good, scrim: "#0A0A0A" })?.scrim).toBe("#0a0a0a");
+    expect(parseAppearance({ ...good, scrim: "rgba(0,0,0,.5)" })).toEqual(parseAppearance(good));
+    expect(parseAppearance({ ...good, scrim: 3 })).not.toHaveProperty("scrim");
+  });
+
   it.each([
     null,
     "x",
@@ -85,6 +91,11 @@ describe("window options", () => {
 
   it("native: leaves the frame alone", () => {
     expect(titlebarWindowOptions("native", good)).toEqual({});
+  });
+
+  it("paints the overlay with the scrim color while a web dialog covers the corner", () => {
+    expect(overlayOptions({ ...good, scrim: "#101010" }, true).color).toBe("#101010");
+    expect(overlayOptions(good, true).color).toBe("#212121");
   });
 
   it("dims the overlay symbols when the window loses focus", () => {

@@ -228,13 +228,16 @@ export function ImDialog({
     return () => window.clearInterval(timer);
   }, [adminToken, base, login, refresh]);
 
+  // onClose 每次渲染都是新函数：用 ref 取最新的，监听只挂一次，按键分发途中重渲染也不会把它换掉
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
 
   // 关闭弹窗时放弃还没完成的扫码
   useEffect(

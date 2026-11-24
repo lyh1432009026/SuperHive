@@ -3,11 +3,13 @@
  * 窄屏左栏收成顶部一条品牌区，表单优先。邀请兑换、无权限页面也沿用这里的卡片和表单样式。
  */
 .login-shell {
+  /* 四周留白：宽、高哪边紧就按哪边缩，矮窗口里不白白占掉上下 96px */
+  --login-pad: clamp(16px, min(4vw, 5dvh), 48px);
   min-height: 100vh;
   min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: clamp(16px, 4vw, 48px);
+  padding: var(--login-pad);
   background:
     radial-gradient(ellipse 80% 60% at 30% 0%, var(--login-page-glow), transparent 70%),
     var(--bg-main);
@@ -20,7 +22,7 @@
 
 .login-card {
   width: min(1180px, 100%);
-  min-height: min(800px, calc(100dvh - 64px));
+  min-height: min(800px, calc(100dvh - 2 * var(--login-pad)));
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(380px, 440px);
   overflow: hidden;
@@ -1005,6 +1007,52 @@
 
   .login-form-panel {
     padding: 40px 36px 28px;
+  }
+}
+
+/*
+ * 宽屏两栏、窗口不够高（桌面端常见的 1280×720、960×640）：整张卡片要刚好放进窗口，不出滚动条。
+ * 演示区只吃剩下的高度（不再保底 300px），间距、内边距收紧；再矮就收起演示区和次要说明。
+ */
+@media (min-width: 901px) and (max-height: 860px) {
+  .login-intro {
+    gap: 18px;
+    padding-top: 28px;
+    padding-bottom: 24px;
+  }
+
+  .login-intro .showcase {
+    min-height: 0;
+  }
+
+  .login-form-panel {
+    padding-top: 32px;
+    padding-bottom: 24px;
+  }
+
+  .login-trust {
+    margin-top: 20px;
+    padding-top: 14px;
+  }
+}
+
+@media (min-width: 901px) and (max-height: 720px) {
+  .login-form-mark {
+    display: none;
+  }
+
+  .login-thesis p {
+    display: none;
+  }
+
+  .login-next {
+    margin-top: 14px;
+  }
+}
+
+@media (min-width: 901px) and (max-height: 560px) {
+  .login-intro .showcase {
+    display: none;
   }
 }
 

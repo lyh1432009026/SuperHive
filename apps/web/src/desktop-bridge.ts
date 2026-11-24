@@ -33,6 +33,8 @@ export type DesktopTitlebarAppearance = {
   color: string;
   symbolColor: string;
   inactiveSymbolColor: string;
+  /** 弹窗遮罩盖住右上角时那块的颜色（只在 Windows / Linux 的弹窗打开时有）；老版本桌面端不认，照常用 color */
+  scrim?: string;
 };
 
 /** 系统标题栏去掉后，网页把顶栏高度和主题颜色同步给窗口（老版本桌面端没有这一项） */

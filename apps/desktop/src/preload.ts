@@ -73,12 +73,14 @@ if (allowedOrigin && window.location.origin === allowedOrigin && window.top === 
         color: string;
         symbolColor: string;
         inactiveSymbolColor: string;
+        scrim?: string;
       }): void => {
         ipcRenderer.send(IPC.titlebarAppearance, {
           height: Number(appearance?.height),
           color: String(appearance?.color),
           symbolColor: String(appearance?.symbolColor),
           inactiveSymbolColor: String(appearance?.inactiveSymbolColor),
+          ...(appearance?.scrim === undefined ? {} : { scrim: String(appearance.scrim) }),
         });
       },
     },

@@ -47,25 +47,123 @@ export function readTitlebarAppearance(
   }
 }
 
-/** 开始同步：主题（data-theme）或界面密度（data-density）一变就重新发一次；返回停止函数 */
+/** 盖住整个窗口、带遮罩的弹层：打开时右上角系统按钮那块也要跟着变暗 */
+export const MODAL_SELECTOR =
+  'dialog[open], [aria-modal="true"], .activity-layer, .file-preview-backdrop, .attachment-lightbox';
+
+type Rgba = { r: number; g: number; b: number; a: number };
+
+function parseRgba(value: string): Rgba | undefined {
+  const match =
+    /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/.exec(
+      value.trim(),
+    );
+  if (!match) return undefined;
+  const alpha = match[4];
+  const a =
+    alpha === undefined
+      ? 1
+      : alpha.endsWith("%")
+        ? Number.parseFloat(alpha) / 100
+        : Number.parseFloat(alpha);
+  return { r: Number(match[1]), g: Number(match[2]), b: Number(match[3]), a };
+}
+
+/**
+ * 把从上到下叠着的几层背景色合成一个不透明的颜色（最底下垫 base）。
+ * layers[0] 是最上面那层；遇到不透明的层就不再往下看。
+ */
+export function compositeColors(layers: string[], base: string): string | undefined {
+  const parsed: Rgba[] = [];
+  for (const layer of layers) {
+    const color = parseRgba(layer);
+    if (!color || color.a <= 0) continue;
+    parsed.push(color);
+    if (color.a >= 1) break;
+  }
+  const bottom = toHexColor(base);
+  if (!bottom) return undefined;
+  let r = Number.parseInt(bottom.slice(1, 3), 16);
+  let g = Number.parseInt(bottom.slice(3, 5), 16);
+  let b = Number.parseInt(bottom.slice(5, 7), 16);
+  for (const color of parsed.reverse()) {
+    r = color.r * color.a + r * (1 - color.a);
+    g = color.g * color.a + g * (1 - color.a);
+    b = color.b * color.a + b * (1 - color.a);
+  }
+  return toHexColor(`rgb(${r}, ${g}, ${b})`);
+}
+
+/**
+ * 弹窗打开时右上角那块实际画出来的颜色：取窗口右上角那个点上叠着的所有元素的背景色，从上往下合成。
+ * 系统按钮盖在网页上面，网页的遮罩画不到它们身上，只能把这个颜色告诉窗口，让按钮底色跟着变暗。
+ */
+export function readCornerColor(base: string): string | undefined {
+  if (typeof document.elementsFromPoint !== "function") return undefined;
+  const stack = document.elementsFromPoint(Math.max(0, window.innerWidth - 2), 2);
+  return compositeColors(
+    stack.map((element) => getComputedStyle(element).backgroundColor),
+    base,
+  );
+}
+
+/** 遮罩淡入的时长（--duration）过后再取一次颜色，取到的是淡入完的样子 */
+const SCRIM_SETTLE_MS = 260;
+
+/**
+ * 开始同步：主题（data-theme）或界面密度（data-density）一变就重新发一次；
+ * Windows / Linux 上弹窗打开、关上时，把右上角那块的颜色换成遮罩下的颜色 / 换回来。返回停止函数。
+ */
 export function syncDesktopTitlebar(
   bridge: DesktopBridge | undefined = desktopBridge(),
   root: HTMLElement = document.documentElement,
   read: (root: HTMLElement) => DesktopTitlebarAppearance | undefined = readTitlebarAppearance,
+  readCorner: (base: string) => string | undefined = readCornerColor,
 ): () => void {
   const titlebar = bridge?.titlebar;
   if (!titlebar || titlebar.mode === "native") return () => undefined;
   let last = "";
+  let modalOpen = false;
   const push = () => {
     const appearance = read(root);
     if (!appearance) return;
-    const key = JSON.stringify(appearance);
+    const scrim = modalOpen ? readCorner(appearance.color) : undefined;
+    const next = scrim && scrim !== appearance.color ? { ...appearance, scrim } : appearance;
+    const key = JSON.stringify(next);
     if (key === last) return;
     last = key;
-    titlebar.setAppearance(appearance);
+    titlebar.setAppearance(next);
   };
   push();
   const observer = new MutationObserver(push);
   observer.observe(root, { attributes: true, attributeFilter: ["data-theme", "data-density"] });
-  return () => observer.disconnect();
+  if (titlebar.mode !== "overlay" || !document.body) return () => observer.disconnect();
+
+  // 只在「有没有弹窗」变了的时候取色：消息流在弹窗后面刷新不会每帧都去量
+  let frame = 0;
+  let settle: ReturnType<typeof setTimeout> | undefined;
+  const check = () => {
+    frame = 0;
+    const open = document.querySelector(MODAL_SELECTOR) !== null;
+    if (open === modalOpen) return;
+    modalOpen = open;
+    push();
+    clearTimeout(settle);
+    if (open) settle = setTimeout(push, SCRIM_SETTLE_MS);
+  };
+  const modalObserver = new MutationObserver(() => {
+    if (!frame) frame = requestAnimationFrame(check);
+  });
+  modalObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["open", "aria-modal"],
+  });
+  return () => {
+    observer.disconnect();
+    modalObserver.disconnect();
+    if (frame) cancelAnimationFrame(frame);
+    clearTimeout(settle);
+  };
 }

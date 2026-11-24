@@ -4,7 +4,11 @@ export type Bounds = { x: number; y: number; width: number; height: number };
 export type WindowState = Bounds & { maximized?: boolean; fullScreen?: boolean };
 
 export const DEFAULT_SIZE = { width: 1280, height: 820 };
-export const MIN_SIZE = { width: 720, height: 480 };
+/**
+ * 最小窗口：再小界面就挤成手机布局（侧栏收成抽屉、弹窗变底部面板），登录页也放不下要出滚动条。
+ * 960×640 在 1366×768 的笔记本上也放得下。
+ */
+export const MIN_SIZE = { width: 960, height: 640 };
 
 export function loadWindowState(file: string): WindowState | undefined {
   try {

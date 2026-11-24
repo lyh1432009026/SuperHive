@@ -23,6 +23,8 @@ export type TitlebarAppearance = {
   symbolColor: string;
   /** 窗口失焦时的图标颜色（变淡，和系统其他窗口一样） */
   inactiveSymbolColor: string;
+  /** 网页弹窗打开时，遮罩盖住右上角后那块的颜色：overlay 底色临时换成它，系统按钮跟着变暗 */
+  scrim?: string;
 };
 
 export const DEFAULT_HEADER_HEIGHT = 52;
@@ -58,11 +60,17 @@ export function parseAppearance(input: unknown): TitlebarAppearance | undefined 
   const colors = [value.color, value.symbolColor, value.inactiveSymbolColor];
   if (!colors.every((color) => typeof color === "string" && HEX_COLOR.test(color)))
     return undefined;
+  // 遮罩色可有可无；给了但不是 #rrggbb 就当没给，不影响其余外观
+  const scrim =
+    typeof value.scrim === "string" && HEX_COLOR.test(value.scrim)
+      ? value.scrim.toLowerCase()
+      : undefined;
   return {
     height: rounded,
     color: (value.color as string).toLowerCase(),
     symbolColor: (value.symbolColor as string).toLowerCase(),
     inactiveSymbolColor: (value.inactiveSymbolColor as string).toLowerCase(),
+    ...(scrim ? { scrim } : {}),
   };
 }
 
@@ -80,7 +88,7 @@ export function overlayOptions(
   focused: boolean,
 ): { color: string; symbolColor: string; height: number } {
   return {
-    color: appearance.color,
+    color: appearance.scrim ?? appearance.color,
     symbolColor: focused ? appearance.symbolColor : appearance.inactiveSymbolColor,
     height: appearance.height,
   };
