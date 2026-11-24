@@ -65,6 +65,8 @@ export type RoomSummary = {
   archivedAt?: string;
   /** 房间工作区（Server 所在电脑上的路径） */
   workspace?: string;
+  /** 主 Agent 的名字；不设就没有 */
+  leadAgent?: string;
   onlineCount: number;
   latestSeq: number;
 };

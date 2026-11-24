@@ -53,6 +53,7 @@
     "check:deps": "node scripts/check-release-deps.mjs",
     "build:distribution": "pnpm build:cli && pnpm --dir ../.. --filter @superhive/protocol build && pnpm --dir ../.. --filter @superhive/web build && pnpm build:server && pnpm copy:web && pnpm copy:skill && pnpm check:deps",
     "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepack": "pnpm build:distribution"
   },
   "dependencies": {
