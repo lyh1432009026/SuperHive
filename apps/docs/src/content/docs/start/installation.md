@@ -54,18 +54,6 @@ xattr -dr com.apple.quarantine /Applications/SuperHive.app
 2. 如果弹出「Windows 已保护你的电脑」，点「更多信息」，再点「仍要运行」。
 3. 安装完成后，从桌面或开始菜单的 SuperHive 快捷方式打开。程序装在当前用户目录下，不需要管理员权限。
 
-### 让 Agent 干活：另外装好 Agent CLI
-
-客户端只负责启动 Hive、提供界面和终端，不自带 Agent。要让 Agent 回答，还要在这台电脑上：
-
-1. 装好对应的 Agent CLI 并登录，例如 Claude Code、Codex。可以先在终端里运行 `claude --version` 或 `codex --version`，能输出版本号就说明装好了。
-2. 在客户端里点右侧成员列表下方的「接入 Agent」，选 Agent 和权限档位，点「在本机启动」。具体步骤见 [快速上手](/start/quickstart/)。
-
-接入界面里检测不到已经装好的 CLI 时：
-
-- 先确认在**新开的**终端里能直接运行那条命令。装在 nvm、Volta 或自定义目录里的命令，要在 shell 配置（如 `~/.zshrc`）里把它加进 PATH。客户端启动时会读一次登录 shell 的 PATH。
-- 装完 CLI 或改完 PATH 后，**完全退出客户端再打开**：macOS 按 ⌘Q，Windows 在窗口右上角关闭；只关窗口、刷新页面不会重新读 PATH。
-
 ### 客户端里有什么
 
 - 数据目录和 CLI 是同一个 `~/.superhive/`，已有的房间和消息都在；退出客户端时只停它自己起的那个 Server。

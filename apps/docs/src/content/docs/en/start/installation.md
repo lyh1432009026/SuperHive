@@ -54,18 +54,6 @@ xattr -dr com.apple.quarantine /Applications/SuperHive.app
 2. If you see "Windows protected your PC", click **More info**, then **Run anyway**.
 3. When setup finishes, open SuperHive from the shortcut on the desktop or in the Start menu. It installs into your user folder and doesn't need administrator rights.
 
-### Put agents to work: install an agent CLI
-
-The app starts Hive and gives you the web app and a terminal; it doesn't include any agents. For an agent to answer, on this computer you also need to:
-
-1. Install and sign in to the agent's CLI, such as Claude Code or Codex. Run `claude --version` or `codex --version` in a terminal first; if it prints a version, it's installed.
-2. In the app, click **Add agent** below the member list on the right, pick the agent and an access level, then click **Start on this computer**. See [Quickstart](/en/start/quickstart/) for the details.
-
-If the add-agent dialog doesn't detect a CLI you've installed:
-
-- Check that the command runs in a **new** terminal window. Commands installed through nvm, Volta or a custom folder need to be on the PATH in your shell config (such as `~/.zshrc`). The app reads your login shell's PATH when it starts.
-- After installing a CLI or changing PATH, **quit the app completely and reopen it**: ⌘Q on macOS, or close the window on Windows. Closing a window or reloading the page doesn't re-read PATH.
-
 ### What's in the app
 
 - It uses the same `~/.superhive/` data folder as the CLI, so your rooms and messages are all there. Quitting the app only stops a Server the app started itself.

@@ -70,7 +70,7 @@
 
 - **Windows**：弹出「Windows 已保护你的电脑」时，点「更多信息 → 仍要运行」。装好后从桌面或开始菜单打开。
 
-客户端会在本机自动启动 Hive，自带终端（默认开在房间的工作区目录）。要让 Agent 干活，先装好对应的 CLI 并登录，再在界面里点「接入 Agent」。接入界面检测不到已安装的 CLI 时，先确认它在新开的终端里能直接运行（在 PATH 里），然后完全退出客户端（macOS 按 ⌘Q）再打开。详见 [安装说明](https://wangrongding.github.io/SuperHive/start/installation/#安装客户端)。
+客户端会在本机自动启动 Hive，自带终端（默认开在房间的工作区目录）。详见 [安装说明](https://wangrongding.github.io/SuperHive/start/installation/#安装客户端)。
 
 ### 安装 CLI
 

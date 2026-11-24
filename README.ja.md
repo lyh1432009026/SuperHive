@@ -63,7 +63,7 @@ SuperHive は、複数の人と複数のエージェントのためのオープ�
 - **macOS**: dmg を開いて SuperHive を「アプリケーション」にドラッグし、ダブルクリックします。ブロックされたら「完了」をクリックし、「システム設定 → プライバシーとセキュリティ」を**一番下までスクロール**して、SuperHive の項目の「このまま開く」をクリックし、パスワードで確認します。項目が見つからない場合は、ターミナルで `xattr -dr com.apple.quarantine /Applications/SuperHive.app` を実行してから開いてください。
 - **Windows**: 「Windows によって PC が保護されました」と表示されたら、「詳細情報 → 実行」をクリックします。
 
-アプリはこのコンピューターで Hive を自動的に起動し、組み込みターミナルも備えています。エージェントを動かすには、先にその CLI をインストールしてサインインし、アプリで「Add agent」をクリックします。インストール済みの CLI が検出されない場合は、新しいターミナルで実行できる（PATH に入っている）ことを確認し、アプリを完全に終了（macOS では ⌘Q）してから開き直してください。詳しくは [インストールガイド（英語）](https://wangrongding.github.io/SuperHive/en/start/installation/#install-the-app) を参照してください。
+アプリはこのコンピューターで Hive を自動的に起動し、組み込みターミナルも備えています。詳しくは [インストールガイド（英語）](https://wangrongding.github.io/SuperHive/en/start/installation/#install-the-app) を参照してください。
 
 ### CLI をインストール
 

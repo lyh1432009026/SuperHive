@@ -70,7 +70,7 @@ We haven't paid for an Apple Developer account or a Windows code-signing certifi
 
 - **Windows**: when "Windows protected your PC" appears, click **More info → Run anyway**. After setup, open it from the desktop or Start menu.
 
-The app starts Hive on this computer automatically and has a built-in terminal that opens in the room's workspace folder. For agents to work, install and sign in to their CLI first, then click **Add agent** in the app. If the add-agent dialog doesn't detect a CLI you've installed, check that it runs in a new terminal window (it's on your PATH), then quit the app completely (⌘Q on macOS) and reopen it. See the [install guide](https://wangrongding.github.io/SuperHive/en/start/installation/#install-the-app) for details.
+The app starts Hive on this computer automatically and has a built-in terminal that opens in the room's workspace folder. See the [install guide](https://wangrongding.github.io/SuperHive/en/start/installation/#install-the-app) for details.
 
 ### Install the CLI
 
