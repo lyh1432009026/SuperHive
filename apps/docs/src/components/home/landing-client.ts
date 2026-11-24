@@ -1,4 +1,4 @@
-// 首页的交互：顶部进度条、左侧分段圆点、逐字上色、词云视差、流程分段点亮、实景窗口的切换和亮点说明、复制命令。
+// 首页的交互：顶部进度条、左侧分段圆点、逐字上色、词云视差、流程分段点亮、实景窗口的可交互演示、复制命令。
 // 所有滚动效果共用一个 rAF 节流的 scroll 处理；减少动态效果时只保留圆点高亮、进度条和点击类交互。
 
 const root = document.querySelector<HTMLElement>("[data-hl]");
@@ -131,63 +131,42 @@ function init(root: HTMLElement) {
     if (section) observer.observe(section);
   });
 
-  setupWindow(root);
+  setupDemo(root);
   setupCopy(root);
 }
 
-function setupWindow(root: HTMLElement) {
-  const tabs = [...root.querySelectorAll<HTMLButtonElement>("[data-hl-tab]")];
-  const panels = [...root.querySelectorAll<HTMLElement>("[data-hl-panel]")];
-  const closeSpots = (except?: HTMLButtonElement) => {
-    root
-      .querySelectorAll<HTMLButtonElement>(".hl-spot > button[aria-expanded='true']")
-      .forEach((button) => {
-        if (button === except) return;
-        button.setAttribute("aria-expanded", "false");
-        document.getElementById(button.getAttribute("aria-controls")!)!.hidden = true;
-      });
+/**
+ * 首屏窗口：大屏上（和演示 CSS 里隐藏它的断点一致）等页面空闲再加载可交互演示，盖在截图上。
+ * 省流量模式或加载失败时就留着截图。
+ */
+function setupDemo(root: HTMLElement) {
+  const host = root.querySelector<HTMLElement>("[data-hl-demo]");
+  const hint = root.querySelector<HTMLElement>("[data-hl-demo-hint]");
+  if (!host) return;
+  const wide = window.matchMedia("(min-width: 64.01rem)");
+  const saveData = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection
+    ?.saveData;
+  if (saveData) return;
+  let started = false;
+  const start = () => {
+    if (started || !wide.matches) return;
+    started = true;
+    const idle = window.requestIdleCallback ?? ((run: () => void) => window.setTimeout(run, 200));
+    idle(() => {
+      import("./hero-demo")
+        .then(({ mountDemo }) => {
+          mountDemo(host, host.dataset.hlDemo === "en" ? "en" : "zh-CN");
+          host.closest("[data-hl-window]")?.classList.add("is-live");
+          if (hint) hint.hidden = false;
+        })
+        .catch(() => {
+          // 演示没加载出来就留着截图
+        });
+    });
   };
-  const select = (tab: HTMLButtonElement, focus = false) => {
-    closeSpots();
-    tabs.forEach((item) => {
-      const on = item === tab;
-      item.setAttribute("aria-selected", String(on));
-      item.tabIndex = on ? 0 : -1;
-    });
-    panels.forEach((panel) => {
-      panel.hidden = panel.dataset.hlPanel !== tab.dataset.hlTab;
-    });
-    if (focus) tab.focus();
-  };
-  tabs.forEach((tab, index) => {
-    tab.addEventListener("click", () => select(tab));
-    tab.addEventListener("keydown", (event) => {
-      const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-      if (!step) return;
-      event.preventDefault();
-      select(tabs[(index + step + tabs.length) % tabs.length], true);
-    });
-  });
-
-  root.querySelectorAll<HTMLButtonElement>(".hl-spot > button").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const open = button.getAttribute("aria-expanded") !== "true";
-      closeSpots(button);
-      button.setAttribute("aria-expanded", String(open));
-      document.getElementById(button.getAttribute("aria-controls")!)!.hidden = !open;
-      root.querySelector("[data-hl-window]")?.classList.add("was-explored");
-    });
-  });
-  document.addEventListener("click", (event) => {
-    if (!(event.target as Element).closest?.(".hl-spot")) closeSpots();
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
-    const open = root.querySelector<HTMLButtonElement>(".hl-spot > button[aria-expanded='true']");
-    closeSpots();
-    open?.focus();
-  });
+  if (document.readyState === "complete") start();
+  else window.addEventListener("load", start, { once: true });
+  wide.addEventListener("change", start);
 }
 
 function setupCopy(root: HTMLElement) {

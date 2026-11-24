@@ -559,35 +559,6 @@
   background: #28c840;
 }
 
-.hl-tabs {
-  display: flex;
-  gap: 0.25rem;
-}
-
-:root:not(.hl-js) .hl-tabs {
-  display: none;
-}
-
-.hl-tabs button {
-  padding: 0.3rem 0.7rem;
-  border: 1px solid transparent;
-  border-radius: 0.45rem;
-  background: none;
-  color: var(--hl-dim);
-  font: 500 0.75rem/1.2 var(--sl-font);
-  cursor: pointer;
-}
-
-.hl-tabs button:hover {
-  color: var(--hl-text);
-}
-
-.hl-tabs button[aria-selected="true"] {
-  border-color: var(--hl-line-strong);
-  background: var(--hl-raised);
-  color: var(--hl-text);
-}
-
 .hl-window-title {
   position: absolute;
   left: 50%;
@@ -615,8 +586,9 @@
   box-shadow: 0 0 8px var(--hl-c4);
 }
 
-:root:not(.hl-js) .hl-live {
-  display: none;
+/* 「可交互」标记只在演示加载好以后出现，手机上和没加载时是截图 */
+.hl-window:not(.is-live) .hl-live {
+  visibility: hidden;
 }
 
 .hl-window-body {
@@ -624,15 +596,6 @@
   overflow: hidden;
   border-radius: 0 0 1rem 1rem;
   aspect-ratio: 2880 / 1800;
-}
-
-.hl-panel {
-  position: absolute;
-  inset: 0;
-}
-
-.hl-panel[hidden] {
-  display: none;
 }
 
 .hl-shot {
@@ -647,145 +610,27 @@
   display: none;
 }
 
-.hl-hotspots {
-  position: absolute;
-  inset: 0;
-}
-
-:root:not(.hl-js) .hl-hotspots {
-  display: none;
-}
-
-.hl-spot {
-  position: absolute;
-  left: var(--sx);
-  top: var(--sy);
-}
-
-.hl-spot > button {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  margin: -1.125rem 0 0 -1.125rem;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: none;
-  cursor: pointer;
-}
-
-.hl-spot > button span {
-  width: 0.85rem;
-  height: 0.85rem;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  background: var(--hl-c1);
-  box-shadow:
-    0 0 0 4px color-mix(in srgb, var(--hl-c1) 35%, transparent),
-    0 2px 10px rgb(0 0 0 / 0.4);
-}
-
-.hl-spot > button::after {
-  content: "";
-  position: absolute;
-  inset: 0.4rem;
-  border: 2px solid var(--hl-c1);
-  border-radius: 50%;
-  animation: hl-ping 2.4s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
-}
-
-.hl-spot:nth-child(2) > button::after {
-  animation-delay: 0.6s;
-}
-
-.hl-spot:nth-child(3) > button::after {
-  animation-delay: 1.2s;
-}
-
-.hl-spot:nth-child(4) > button::after {
-  animation-delay: 1.8s;
-}
-
-.hl-spot > button[aria-expanded="true"] span {
-  background: var(--hl-c3);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--hl-c3) 40%, transparent);
-}
-
-@keyframes hl-ping {
-  0% {
-    opacity: 0.9;
-    transform: scale(0.6);
-  }
-  80%,
-  100% {
-    opacity: 0;
-    transform: scale(1.9);
-  }
-}
-
-.hl-spot-card {
-  position: absolute;
-  z-index: 3;
-  top: -0.5rem;
-  inset-inline-start: 1.6rem;
-  display: grid;
-  gap: 0.2rem;
-  width: min(17rem, 60vw);
-  padding: 0.75rem 0.9rem;
-  border: 1px solid var(--hl-line-strong);
-  border-radius: 0.75rem;
-  background: color-mix(in srgb, var(--hl-surface) 92%, transparent);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 18px 40px -12px rgb(0 0 0 / 0.45);
-  color: var(--hl-muted);
-  font-size: 0.82rem;
-  line-height: 1.5;
-  animation: hl-pop 0.22s ease-out;
-}
-
-.hl-spot-card[hidden] {
-  display: none;
-}
-
-.hl-spot[data-side="left"] .hl-spot-card {
-  inset-inline: auto 1.6rem;
-}
-
-.hl-spot[data-low] .hl-spot-card {
-  top: auto;
-  bottom: -0.5rem;
-}
-
-.hl-spot-card strong {
-  color: var(--hl-text);
-  font-size: 0.88rem;
-}
-
-@keyframes hl-pop {
-  from {
-    opacity: 0;
-    transform: translateY(4px) scale(0.98);
-  }
-}
-
-@media (min-width: 44.01rem) {
-  .hl-hint-narrow {
-    display: none;
-  }
-}
-
 .hl-window-hint {
-  margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1.1rem;
   color: var(--hl-dim);
   font: 500 0.72rem/1.4 var(--hl-mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-:root:not(.hl-js) .hl-window-hint {
+.hl-window-hint[hidden] {
   display: none;
+}
+
+@media (max-width: 64rem) {
+  .hl-window-hint {
+    display: none;
+  }
 }
 
 /* ---------- 一句话：粘住、逐字上色、背景流动竖线 ---------- */
@@ -2017,43 +1862,12 @@ html .hl .cm.cm.cm {
     justify-content: center;
   }
 
-  /* 手机上窗口里的截图保持桌面比例放大，可以左右滑动查看，亮点跟着图走 */
   .hl-window-wrap {
     margin-inline: calc(-0.5 * var(--hl-pad));
     perspective: none;
   }
 
   .hl-window-title {
-    display: none;
-  }
-
-  .hl-window-body {
-    aspect-ratio: auto;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-  }
-
-  .hl-window-body::-webkit-scrollbar {
-    display: none;
-  }
-
-  .hl-panel {
-    position: relative;
-    width: 200%;
-    aspect-ratio: 2880 / 1800;
-  }
-
-  .hl-spot-card {
-    width: 13rem;
-    font-size: 0.78rem;
-  }
-
-  .hl-window-hint {
-    text-align: left;
-  }
-
-  .hl-hint-wide {
     display: none;
   }
 

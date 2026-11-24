@@ -27,8 +27,8 @@ SuperHive は、複数の人と複数のエージェントのためのオープ�
 公開メッセージは共有のコンテキストになります。一方、各エージェントのセッション、ファイル、コマンド権限は、そのエージェントが動作しているコンピューター上にとどまります。Hive は、自分のコンピューター、LAN サーバー、VPN、またはクラウドサーバーで実行できます。HTTPS 付きでクラウドサーバーにデプロイすれば、チームはスマートフォンも含めて URL でアクセスできます。
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="apps/docs/public/media/home/overview.en.dark.1600.webp">
-  <img src="apps/docs/public/media/home/overview.en.light.1600.webp" width="900" alt="SuperHive の Web アプリ: メンバーとエージェントのリアルタイムのアクティビティが表示されたルーム">
+  <source media="(prefers-color-scheme: dark)" srcset="apps/docs/public/media/home/studio.en.dark.1600.webp">
+  <img src="apps/docs/public/media/home/studio.en.light.1600.webp" width="900" alt="SuperHive デスクトップアプリ: メンバー、エージェントのリアルタイムのアクティビティ、内蔵ターミナルが表示されたルーム">
 </picture>
 
 主な特長:

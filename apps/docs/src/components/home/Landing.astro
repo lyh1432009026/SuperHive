@@ -26,6 +26,8 @@ const shot = (name: string, theme: "dark" | "light") => {
   };
 };
 // 同一个标识在页面里出现多次（词云、手机网格各一份），渐变 id 加后缀；否则隐藏的那份会让另一份的渐变失效
+const dark = shot("studio", "dark");
+const light = shot("studio", "light");
 const logoSvg = (runtime: (typeof runtimes)[number], suffix: string) =>
   runtime.svg.replaceAll(`hl-${runtime.id}-`, `hl-${runtime.id}-${suffix}-`);
 const link = (key: string) =>
@@ -159,106 +161,44 @@ const hiveCells = Array.from({ length: 14 }, (_, index) => ({
       </div>
     </div>
 
+    <!--
+      实景窗口：HTML 里只有一张客户端截图（首屏先画它，手机上和搜索引擎看到的也是它）。
+      大屏上页面空闲后再加载 hero-demo.ts，在截图上盖一层可以点的演示；演示的结构和文案都在脚本里，不占页面体积。
+    -->
     <div class="hl-window-wrap">
       <div class="hl-window" data-hl-window>
         <div class="hl-window-bar">
           <span class="hl-lights" aria-hidden="true"><i></i><i></i><i></i></span>
-          <div class="hl-tabs" role="tablist" aria-label={t.hero.tabsLabel}>
-            {
-              t.hero.tabs.map((tab, index) => (
-                <button
-                  type="button"
-                  role="tab"
-                  id={`hl-tab-${tab.id}`}
-                  aria-controls={`hl-panel-${tab.id}`}
-                  aria-selected={index === 0 ? "true" : "false"}
-                  tabindex={index === 0 ? 0 : -1}
-                  data-hl-tab={tab.id}
-                >
-                  {tab.label}
-                </button>
-              ))
-            }
-          </div>
           <span class="hl-window-title">{t.hero.windowTitle}</span>
           <span class="hl-live"><i aria-hidden="true"></i>{t.hero.live}</span>
         </div>
-        <div class="hl-window-body">
-          {
-            t.hero.tabs.map((tab, index) => {
-              const dark = shot(tab.id === "room" ? "overview" : "preview-dock", "dark");
-              const light = shot(tab.id === "room" ? "overview" : "preview-dock", "light");
-              const first = index === 0;
-              return (
-                <div
-                  class="hl-panel"
-                  id={`hl-panel-${tab.id}`}
-                  role="tabpanel"
-                  aria-labelledby={`hl-tab-${tab.id}`}
-                  data-hl-panel={tab.id}
-                  hidden={!first}
-                >
-                  <img
-                    class="hl-shot hl-shot-dark"
-                    src={dark.src}
-                    srcset={dark.srcset}
-                    sizes="(min-width: 80rem) 72rem, 94vw"
-                    width="2880"
-                    height="1800"
-                    alt={tab.alt}
-                    loading={first ? "eager" : "lazy"}
-                    fetchpriority={first ? "high" : "auto"}
-                    decoding={first ? "sync" : "async"}
-                  />
-                  <img
-                    class="hl-shot hl-shot-light"
-                    src={light.src}
-                    srcset={light.srcset}
-                    sizes="(min-width: 80rem) 72rem, 94vw"
-                    width="2880"
-                    height="1800"
-                    alt={tab.alt}
-                    loading="lazy"
-                    decoding="async"
-                  />
-                  <div class="hl-hotspots">
-                    {t.hero.hotspots[tab.id].map((spot, spotIndex) => (
-                      <div
-                        class="hl-spot"
-                        style={`--sx:${spot.x}%;--sy:${spot.y}%`}
-                        data-side={spot.x > 60 ? "left" : "right"}
-                        data-low={spot.y > 55 ? "" : undefined}
-                      >
-                        <button
-                          type="button"
-                          aria-expanded="false"
-                          aria-controls={`hl-spot-${tab.id}-${spotIndex}`}
-                          aria-label={spot.title}
-                        >
-                          <span aria-hidden="true" />
-                        </button>
-                        <div
-                          class="hl-spot-card"
-                          id={`hl-spot-${tab.id}-${spotIndex}`}
-                          role="note"
-                          hidden
-                        >
-                          <strong>{spot.title}</strong>
-                          <span>{spot.text}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })
-          }
+        <div class="hl-window-body" data-hl-demo={lang}>
+          <img
+            class="hl-shot hl-shot-dark"
+            src={dark.src}
+            srcset={dark.srcset}
+            sizes="(min-width: 80rem) 72rem, 94vw"
+            width="2880"
+            height="1800"
+            alt={t.hero.alt}
+            loading="eager"
+            fetchpriority="high"
+            decoding="sync"
+          />
+          <img
+            class="hl-shot hl-shot-light"
+            src={light.src}
+            srcset={light.srcset}
+            sizes="(min-width: 80rem) 72rem, 94vw"
+            width="2880"
+            height="1800"
+            alt={t.hero.alt}
+            loading="lazy"
+            decoding="async"
+          />
         </div>
       </div>
-      <p class="hl-window-hint" aria-hidden="true">
-        <span class="hl-hint-wide">{t.hero.hotspotHint}</span>
-        <span class="hl-hint-narrow">{t.hero.hotspotHintNarrow}</span>
-      </p>
+      <p class="hl-window-hint" data-hl-demo-hint hidden>{t.hero.demoHint}</p>
     </div>
   </section>
 

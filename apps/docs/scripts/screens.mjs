@@ -36,6 +36,20 @@ export const SHOTS = [
     prepare: [`__shot.find(".worktree-batch")`],
   },
   {
+    // 首页首屏的大图（和 README 顶部的图）：和 overview 同一个房间，但按桌面端打开，底部开着终端面板。
+    // 首页在大屏上会换成可以点的演示（home/hero-demo.ts），这张图是首屏先显示的画面、手机上的展示和搜索引擎看到的图
+    name: "studio",
+    room: "shop-web",
+    desktop: true,
+    prepare: [
+      `__shot.find(".worktree-batch")`,
+      `__shot.click(".terminal-toggle")`,
+      `__shot.find(".xterm-rows")`,
+      // 终端占了下半截：把执行中的卡片滚到输入框上方，提问卡片和执行过程都在画面里
+      `__shot.find("article.thinking-card").then((el) => el.scrollIntoView({ block: "end" }))`,
+    ],
+  },
+  {
     name: "sidebar",
     room: "shop-web",
     clip: `__shot.rect(".rooms-panel")`,
@@ -362,6 +376,42 @@ async function evaluate(cdp, script, label, returnValue = false) {
   }
 }
 
+/**
+ * 截图用的假桌面端：网页只有在桌面端里才显示终端入口。这里给一个形状对的 window.superhiveDesktop，
+ * 新开终端时回放一段固定输出，不起真的 shell。
+ */
+const FAKE_DESKTOP = (cwd) => {
+  const esc = "\\u001b";
+  const prompt = `${esc}[1;36mshop-web${esc}[0m ${esc}[2mon${esc}[0m ${esc}[1;35mmain${esc}[0m\\r\\n${esc}[1;32m❯${esc}[0m `;
+  const replay = [
+    prompt + "pnpm vitest run src/mobile/checkout\\r\\n\\r\\n",
+    ` ${esc}[32m✓${esc}[0m src/mobile/checkout/price.test.ts ${esc}[2m(6 tests)${esc}[0m ${esc}[33m41ms${esc}[0m\\r\\n`,
+    ` ${esc}[32m✓${esc}[0m src/mobile/checkout/summary.test.ts ${esc}[2m(4 tests)${esc}[0m ${esc}[33m28ms${esc}[0m\\r\\n\\r\\n`,
+    ` ${esc}[2m Test Files${esc}[0m  ${esc}[1;32m2 passed${esc}[0m ${esc}[2m(2)${esc}[0m\\r\\n`,
+    ` ${esc}[2m      Tests${esc}[0m  ${esc}[1;32m10 passed${esc}[0m ${esc}[2m(10)${esc}[0m\\r\\n\\r\\n`,
+    prompt,
+  ].join("");
+  return `(() => {
+    const listeners = new Set();
+    window.superhiveDesktop = {
+      version: 1,
+      platform: "darwin",
+      terminal: {
+        async create() {
+          setTimeout(() => listeners.forEach((listener) => listener("demo-1", "${replay}")), 50);
+          return { id: "demo-1", shell: "/bin/zsh", cwd: ${JSON.stringify(cwd)} };
+        },
+        write() {},
+        resize() {},
+        kill() {},
+        onData(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+        onExit() { return () => {}; },
+        onNewRequest() { return () => {}; },
+      },
+    };
+  })();`;
+};
+
 const TEXT_PAIRS = Object.entries(TEXT).sort(([a], [b]) => b.length - a.length);
 
 async function captureShot(cdp, demo, shot, theme, file, locale) {
@@ -388,6 +438,8 @@ async function captureShot(cdp, demo, shot, theme, file, locale) {
   const { identifier } = await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
     source: `${SHOT_HELPERS}
       if (location.origin === ${JSON.stringify(url.origin)}) {
+        ${shot.desktop ? FAKE_DESKTOP(path.join(demo.home, "work", shot.room)) : ""}
+        ${shot.desktop ? `localStorage.setItem("superhive.terminal-layout", JSON.stringify({ position: "bottom", maximized: false, height: 200, width: 560 }));` : `localStorage.removeItem("superhive.terminal-layout");`}
         // 输入框草稿按房间存在 localStorage：上一张图（如浅色版）敲的「@」会留到下一张，再敲就成了「@@」
         for (const key of Object.keys(localStorage)) if (key.startsWith("superhive.draft.")) localStorage.removeItem(key);
         // 点过「在右侧栏打开」会记住：浅色版点过后，深色版一打开就已经停在右侧栏，找不到那个按钮

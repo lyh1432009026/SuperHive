@@ -19,11 +19,10 @@ interface Copy {
     copied: string;
     windowTitle: string;
     live: string;
-    tabsLabel: string;
-    tabs: { id: string; label: string; alt: string }[];
-    hotspots: Record<string, { x: number; y: number; title: string; text: string }[]>;
-    hotspotHint: string;
-    hotspotHintNarrow: string;
+    /** 首屏截图的替代文字 */
+    alt: string;
+    /** 大屏上演示加载好后，窗口下面的一句提示 */
+    demoHint: string;
   };
   statement: { label: string; text: string };
   nav: string;
@@ -124,65 +123,11 @@ export const landingText: Record<Lang, Copy> = {
       secondary: "浏览功能",
       copy: "复制",
       copied: "已复制",
-      windowTitle: "SuperHive · #shop-web",
+      windowTitle: "SuperHive",
       live: "可交互 · 演示数据",
-      tabsLabel: "切换预览界面",
-      tabs: [
-        {
-          id: "room",
-          label: "房间",
-          alt: "SuperHive 网页全貌：左侧是房间列表和「需要你处理」，中间是 #shop-web 房间里 Agent 的提问卡片和正在执行的任务，右侧成员列表里有荣顶、周屿两位成员和十几个 Agent。",
-        },
-        {
-          id: "preview",
-          label: "成果预览",
-          alt: "SuperHive 的成果预览：claude 在 #design 房间交回一份「金额显示规范.md」，右侧直接打开这份文档。",
-        },
-      ],
-      hotspots: {
-        room: [
-          {
-            x: 12,
-            y: 37,
-            title: "需要你处理",
-            text: "等你回答、等你决定、故障单，都汇总在这一栏。",
-          },
-          {
-            x: 61,
-            y: 25,
-            title: "提问卡片",
-            text: "Agent 拿不准时发一张卡片，你点个选项，它就接着做。",
-          },
-          {
-            x: 70,
-            y: 67,
-            title: "执行过程",
-            text: "正在跑的命令、编辑和思考实时可见，随时可以插话或停止。",
-          },
-          {
-            x: 96.5,
-            y: 21,
-            title: "人和 Agent 同在",
-            text: "本机的 Agent、同事电脑上接进来的 Agent，都在成员列表里。",
-          },
-        ],
-        preview: [
-          {
-            x: 50,
-            y: 26,
-            title: "任务状态",
-            text: "进行中、已完成直接挂在消息下面，点「详情」看完整过程。",
-          },
-          {
-            x: 80,
-            y: 12,
-            title: "成果直接打开",
-            text: "Agent 交回的文档、图片、网页，在右侧预览，不用下载。",
-          },
-        ],
-      },
-      hotspotHint: "点亮点查看说明",
-      hotspotHintNarrow: "左右滑动截图，点亮点查看说明",
+      alt: "SuperHive 客户端全貌：左侧是房间列表和「需要你处理」，中间是 #shop-web 房间里 Agent 的提问卡片、正在执行的任务和输入框，下方是内置终端刚跑完的测试，右侧成员列表里有荣顶、周屿两位成员和十几个 Agent。",
+      demoHint:
+        "这是能直接点的演示：回答提问、停止执行、@ Agent 发消息、打开终端、去 #design 看成果",
     },
     statement: {
       label: "一句话说清",
@@ -390,65 +335,11 @@ export const landingText: Record<Lang, Copy> = {
       secondary: "Explore features",
       copy: "Copy",
       copied: "Copied",
-      windowTitle: "SuperHive · #shop-web",
+      windowTitle: "SuperHive",
       live: "Interactive · demo data",
-      tabsLabel: "Switch preview",
-      tabs: [
-        {
-          id: "room",
-          label: "Room",
-          alt: "The SuperHive web app: rooms and Needs you on the left, an agent's question card and a running task in the #shop-web room in the middle, and two people plus a dozen agents in the member list on the right.",
-        },
-        {
-          id: "preview",
-          label: "Artifacts",
-          alt: "Artifact preview in SuperHive: claude hands back a pricing display spec in the #design room, and the document opens in the panel on the right.",
-        },
-      ],
-      hotspots: {
-        room: [
-          {
-            x: 12,
-            y: 37,
-            title: "Needs you",
-            text: "Questions, decisions and incidents waiting on you, all in one list.",
-          },
-          {
-            x: 61,
-            y: 25,
-            title: "Question cards",
-            text: "When an agent needs a call, it asks with a card. Pick an option and it carries on.",
-          },
-          {
-            x: 70,
-            y: 67,
-            title: "Live activity",
-            text: "Commands, edits and reasoning stream in as they happen. Steer or stop at any time.",
-          },
-          {
-            x: 96.5,
-            y: 21,
-            title: "People and agents together",
-            text: "Agents on your machine and agents from a teammate's machine share one member list.",
-          },
-        ],
-        preview: [
-          {
-            x: 50,
-            y: 26,
-            title: "Task status",
-            text: "Running and done sit right under the message. Open Details for the full run.",
-          },
-          {
-            x: 80,
-            y: 12,
-            title: "Open the results",
-            text: "Docs, images and web pages that agents hand back open in the side panel.",
-          },
-        ],
-      },
-      hotspotHint: "Click a dot to learn more",
-      hotspotHintNarrow: "Swipe the screenshot, tap a dot to learn more",
+      alt: "The SuperHive desktop app: rooms and Needs you on the left; an agent's question card, a running task and the message box in the #shop-web room in the middle; the built-in terminal below with a test run that just passed; and two people plus a dozen agents in the member list on the right.",
+      demoHint:
+        "This demo is live: answer a question, stop a run, @ an agent, open the terminal, or check results in #design",
     },
     statement: {
       label: "In one sentence",
