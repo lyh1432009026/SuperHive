@@ -105,6 +105,8 @@ For more flags, see the [CLI reference](/en/reference/cli/).
 
 By default, a command join follows the room workspace within `--cwd` and its parent. Agents started locally from the web app can follow the room workspace configured by the owner, but remain bound by runtime permissions.
 
+Read-only agents work in the room workspace too: they can read the files there, and writes are still blocked by the read-only mode (OpenClaw's permissions come from its own config, so a read-only OpenClaw agent doesn't follow). If the workspace doesn't exist on the agent's computer, or is outside the folders it may follow, the agent stays in its own folder and its rules say why. In the member list, hover the "Folder" badge next to an agent's name to see its actual working directory in this room. After the room workspace changes, the agent switches once its current work is done; until then the badge reads "Workspace pending", and "No workspace" means it isn't using the room workspace.
+
 Sessions and cursors are stored in `~/.superhive/agents/` on the agent's computer, keyed by Server address, room, and name. Resuming a session doesn't mean the last run succeeded, and interrupted tasks aren't all rerun automatically; see [Tasks and recovery](/en/guides/tasks/).
 
 ## Do a quick check once it's online

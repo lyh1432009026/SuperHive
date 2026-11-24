@@ -150,3 +150,81 @@ export class AgentManager {
     }
   }
 }
+
+/**
+ * 单房间模式（--room）：只管这一个房间。房间工作区变了，和多房间一样等空闲后换到新目录重新加入；
+ * 房间归档、到期或被移除时交给 onArchived（通常是退出进程）。
+ */
+export class SingleRoomStack {
+  private stack!: ManagedStack;
+  private builtFor: string;
+  private latest: RoomSummary | undefined;
+  private switching: Promise<void> | undefined;
+  private stopped = false;
+  private readonly log: (message: string) => void;
+
+  constructor(
+    private readonly options: {
+      room: RoomSummary;
+      createStack: (room: RoomSummary, hooks: StackHooks) => ManagedStack;
+      onArchived: () => void;
+      /** 换目录后没能重新加入 */
+      onSwitchFailed?: (error: unknown) => void;
+      log?: (message: string) => void;
+    },
+  ) {
+    this.builtFor = options.room.workspace ?? "";
+    this.log = options.log ?? console.log;
+  }
+
+  start(): Promise<void> {
+    this.stack = this.create(this.options.room);
+    return this.stack.start();
+  }
+
+  async stop(): Promise<void> {
+    this.stopped = true;
+    await this.switching?.catch(() => undefined);
+    await this.stack.stop();
+  }
+
+  /** 正在换目录时等它换完（测试和退出时用） */
+  async settled(): Promise<void> {
+    await this.switching;
+  }
+
+  private create(room: RoomSummary): ManagedStack {
+    return this.options.createStack(room, {
+      onArchived: () => {
+        this.stopped = true;
+        this.options.onArchived();
+      },
+      onRoomsChanged: (changed) => this.handleRoomsChanged(changed),
+    });
+  }
+
+  private handleRoomsChanged(changed: RoomSummary): void {
+    if (this.stopped || changed.id !== this.options.room.id || changed.archivedAt) return;
+    this.latest = changed;
+    if ((changed.workspace ?? "") === this.builtFor || this.switching) return;
+    this.switching = this.switchWorkspace()
+      .catch((error: unknown) => this.options.onSwitchFailed?.(error))
+      .finally(() => {
+        this.switching = undefined;
+      });
+  }
+
+  private async switchWorkspace(): Promise<void> {
+    // 换的过程中又改了：用最新的那个再换一次
+    while (this.latest && (this.latest.workspace ?? "") !== this.builtFor && !this.stopped) {
+      await this.stack.whenIdle?.();
+      if (this.stopped) return;
+      const next = this.latest;
+      await this.stack.stop().catch(() => undefined);
+      this.log(`[hive] 房间 #${next.id} 的工作区已变更，重新加入`);
+      this.builtFor = next.workspace ?? "";
+      this.stack = this.create(next);
+      await this.stack.start();
+    }
+  }
+}

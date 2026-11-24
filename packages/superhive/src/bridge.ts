@@ -57,7 +57,7 @@ import {
   describeFailures,
   parseAttachmentDirective,
 } from "./attachment-publisher.js";
-import type { AttachmentPaths } from "./prompt-builder.js";
+import type { AttachmentPaths, WorkspaceInfo } from "./prompt-builder.js";
 import { diffPromptContext, type PromptContextSnapshot } from "./prompt-context.js";
 
 type PreparedPrompt = {
@@ -281,6 +281,8 @@ export class AgentBridge {
       attachmentCacheDir?: string;
       /** Agent 工作目录：回复里声明的附件只允许来自这里 */
       cwd?: string;
+      /** 房间设置的工作区（原样，未解析）；没设时为空 */
+      roomWorkspace?: string;
       /** 房间工作区没有采用时的原因，写进规则 */
       workspaceNote?: string;
       onRoomsChanged?: (room: RoomSummary) => void;
@@ -355,6 +357,16 @@ export class AgentBridge {
         token: this.options.token,
         persona: this.options.persona,
         provider: this.options.provider,
+        // 让房间里的人看到这个 Agent 在本房间实际在哪个目录工作、房间工作区改了是否已生效
+        ...(options.cwd
+          ? {
+              workspace: {
+                cwd: options.cwd,
+                ...(options.roomWorkspace ? { roomWorkspace: options.roomWorkspace } : {}),
+                ...(options.workspaceNote ? { note: options.workspaceNote } : {}),
+              },
+            }
+          : {}),
       },
       {
         onSnapshot: (snapshot) => this.onSnapshot(snapshot),
@@ -426,14 +438,7 @@ export class AgentBridge {
       persona: this.options.persona,
       serverRules,
       ...(this.options.access ? { access: this.options.access } : {}),
-      ...(this.options.cwd
-        ? {
-            workspace: {
-              cwd: this.options.cwd,
-              ...(this.options.workspaceNote ? { note: this.options.workspaceNote } : {}),
-            },
-          }
-        : {}),
+      ...(this.options.cwd ? { workspace: this.workspaceInfo(this.options.cwd) } : {}),
     });
     // 换了工作目录：旧会话（Codex 线程、Claude 续接）会沿用旧目录，丢掉它从新会话开始；消息游标保留
     if (
@@ -799,6 +804,17 @@ export class AgentBridge {
    * 取走这几条消息的目录说明：任务卡片上写明这次没沿用哪个目录、为什么，返回给 Agent 的系统提示。
    * 每条说明只用一次。
    */
+  /** 写进规则的目录说明：房间工作区、当前工作目录，以及没用上房间工作区的原因 */
+  private workspaceInfo(cwd: string): WorkspaceInfo {
+    const onDefault = cwd === this.defaultCwd;
+    return {
+      cwd,
+      ...(this.options.roomWorkspace ? { roomWorkspace: this.options.roomWorkspace } : {}),
+      ...(!onDefault ? { taskDirectory: true } : {}),
+      ...(onDefault && this.options.workspaceNote ? { note: this.options.workspaceNote } : {}),
+    };
+  }
+
   private takeWorkspaceNote(messages: ChatMessage[]): string | undefined {
     const notices = messages.flatMap((message) => {
       const notice = this.workspaceNotices.get(message.id);
@@ -875,7 +891,7 @@ export class AgentBridge {
       persona: this.options.persona,
       serverRules: this.serverRules,
       ...(this.options.access ? { access: this.options.access } : {}),
-      workspace: { cwd: selected },
+      workspace: this.workspaceInfo(selected),
     });
     await this.store.save(this.state);
     return changed;

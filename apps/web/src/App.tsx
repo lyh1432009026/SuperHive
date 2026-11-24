@@ -2318,6 +2318,7 @@ export function App({
         )}
 
         <SidePanel
+          roomWorkspace={currentRoom?.workspace}
           accessNow={accessNow}
           agentDialogOpen={agentDialogOpen}
           agentSettingsButton={agentSettingsButton}

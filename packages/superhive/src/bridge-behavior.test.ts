@@ -301,6 +301,36 @@ describe("AgentBridge", () => {
     await rm(directory, { recursive: true, force: true });
   });
 
+  it("只读档在房间工作区里：加入时上报实际目录和房间工作区，规则写明当前工作目录", async () => {
+    let roomOptions: ConstructorParameters<typeof RoomClient>[0] | undefined;
+    bridge = new AgentBridge(
+      {
+        ...identity,
+        persona: "p",
+        provider: "claude",
+        token: "t",
+        access: "read-only",
+        cwd: directory,
+        roomWorkspace: "~/proj",
+        tuning: { batchWindowMs: 20 },
+      },
+      store,
+      responder,
+      () => undefined,
+      (options, handlers) => {
+        roomOptions = options;
+        room.handlers = handlers;
+        return room as unknown as RoomClient;
+      },
+    );
+    await bridge.start();
+    await room.handlers.onSnapshot({ self, latestSeq: 0, messages: [], participants: [self] });
+    expect(roomOptions?.workspace).toEqual({ cwd: directory, roomWorkspace: "~/proj" });
+    const input = await completePromptTurn();
+    expect(input.instructions).toContain("本房间工作区：~/proj");
+    expect(input.instructions).toContain(`你当前的工作目录：${directory}（只读`);
+  });
+
   it("compact receipts still deliver the full result to the responder", async () => {
     const result = chat({
       senderType: "agent",

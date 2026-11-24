@@ -39,6 +39,8 @@ export type RoomClientOptions = {
   provider?: string;
   /** 上报的代码版本；默认是本进程的版本 */
   version?: AgentCodeVersion;
+  /** 在本房间实际的工作目录、房间设置的工作区、没用上的原因；加入时上报，旧版服务端会忽略 */
+  workspace?: { cwd: string; roomWorkspace?: string; note?: string };
 };
 
 export type Snapshot = {
@@ -283,6 +285,7 @@ export class RoomClient {
           ...(this.options.provider ? { provider: this.options.provider } : {}),
           // 让 Server 知道这个进程跑的是哪份代码：落后时由本机 Server 在它空闲后重启
           version: this.options.version ?? runningCodeVersion(),
+          ...(this.options.workspace ? { workspace: this.options.workspace } : {}),
         }),
       );
     });

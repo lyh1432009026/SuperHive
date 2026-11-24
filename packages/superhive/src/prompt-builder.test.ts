@@ -93,6 +93,32 @@ describe("buildDeveloperInstructions", () => {
     ).toContain(expected);
   });
 
+  it("每轮规则写明本房间工作区和当前工作目录：只读档也写，退回原目录时写明原因", () => {
+    const base = { agentName: "agent-a", persona: "协作 Agent", serverRules: "server rules" };
+    const readOnly = buildDeveloperInstructions({
+      ...base,
+      access: "read-only",
+      workspace: { cwd: "/code/proj", roomWorkspace: "~/code/proj" },
+    });
+    expect(readOnly).toContain("本房间工作区：~/code/proj");
+    expect(readOnly).toContain("你当前的工作目录：/code/proj（只读：可以读这里的文件，不能修改）");
+    const fallback = buildDeveloperInstructions({
+      ...base,
+      access: "workspace",
+      workspace: { cwd: "/home/a", roomWorkspace: "/gone", note: "房间设置的工作区 /gone 不存在" },
+    });
+    expect(fallback).toContain("你当前的工作目录：/home/a\n房间设置的工作区 /gone 不存在");
+    const task = buildDeveloperInstructions({
+      ...base,
+      access: "workspace",
+      workspace: { cwd: "/wt/a", roomWorkspace: "/code/proj", taskDirectory: true },
+    });
+    expect(task).toContain("你当前的工作目录：/wt/a（本任务的任务目录）");
+    expect(
+      buildDeveloperInstructions({ ...base, access: "workspace", workspace: { cwd: "/x" } }),
+    ).toContain("本房间工作区：未设置");
+  });
+
   it("要人在外部系统操作、给凭据或拍板高风险操作时必须立刻提问，长任务开工先报进度", () => {
     const rules = buildDeveloperInstructions({
       agentName: "agent-a",

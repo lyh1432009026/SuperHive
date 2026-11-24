@@ -14,6 +14,7 @@ import {
 import { WhiteboardPanel } from "./whiteboard";
 import { avatarHueStyle, AvatarGlyph } from "./avatar";
 import { OutdatedBadge } from "./local-agent-updates";
+import { MemberWorkspaceBadge } from "./member-workspace";
 import { GuestMemberActions, GuestAccessBadge } from "./invite-dialog";
 import { agentProviderLabel, participantStatusLabel } from "./agent-setup";
 import type { Attachment, Participant, WhiteboardEntry } from "@superhive/protocol";
@@ -29,6 +30,7 @@ import type { GuestAccess } from "./access-gate";
 
 /** 右侧栏：成员、进展、定时三个标签页，或停靠在这里的文件预览 */
 export function SidePanel({
+  roomWorkspace,
   accessNow,
   agentDialogOpen,
   agentSettingsButton,
@@ -93,6 +95,8 @@ export function SidePanel({
   guest: GuestAccess | undefined;
   isLeadAgent: (participant: Participant) => boolean;
   isOwner: boolean;
+  /** 当前房间设置的工作区：和成员上报的对比，看工作区变更是否已生效 */
+  roomWorkspace: string | undefined;
   loadWhiteboardHistory: () => Promise<void>;
   local: LocalAgentsState;
   localAgentNames: Set<string>;
@@ -323,6 +327,10 @@ export function SidePanel({
                                 </span>
                               )}
                               <OutdatedBadge participant={participant} />
+                              <MemberWorkspaceBadge
+                                participant={participant}
+                                roomWorkspace={roomWorkspace}
+                              />
                               {participant.type === "agent" &&
                                 localAgentNames.has(participant.username.toLocaleLowerCase()) && (
                                   <>

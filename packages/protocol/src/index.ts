@@ -91,6 +91,17 @@ export const participantAccessSchema = z.object({
   revoked: z.boolean().optional(),
 });
 
+/** Agent 在某个房间实际的工作目录：加入房间时上报，成员列表据此显示、提示工作区变更是否已生效 */
+export const agentWorkspaceSchema = z.object({
+  /** Provider 进程实际的工作目录 */
+  cwd: z.string().min(1).max(4096),
+  /** 建这个房间的会话时房间设置的工作区（原样）；和房间当前的不同，说明变更还没生效 */
+  roomWorkspace: z.string().min(1).max(4096).optional(),
+  /** 房间工作区没有用上的原因（目录不存在、不在允许范围内等） */
+  note: z.string().max(2000).optional(),
+});
+export type AgentWorkspace = z.infer<typeof agentWorkspaceSchema>;
+
 export const participantSchema = z.object({
   id: z.string().uuid(),
   roomId: z.string().min(1).max(64),
@@ -106,6 +117,8 @@ export const participantSchema = z.object({
   version: agentCodeVersionSchema.optional(),
   /** 在线的 Agent 运行的代码比 Server 当前的旧：重启后才用上新代码 */
   outdated: z.boolean().optional(),
+  /** 在线的 Agent 在本房间实际的工作目录（旧版 Bridge 不上报） */
+  workspace: agentWorkspaceSchema.optional(),
 });
 
 /** 外部 IM 渠道：飞书（含 Lark）与个人微信 */
@@ -216,6 +229,8 @@ export const participantJoinEventSchema = z.object({
   provider: agentProviderSchema.optional(),
   /** Agent 运行的代码版本；格式不对时当作没上报，不影响加入 */
   version: agentCodeVersionSchema.optional().catch(undefined),
+  /** Agent 在这个房间实际的工作目录；格式不对时当作没上报，不影响加入 */
+  workspace: agentWorkspaceSchema.optional().catch(undefined),
 });
 
 export const messageSendEventSchema = z.object({

@@ -12,7 +12,7 @@ import {
   type TaskWorkspaceLookupOptions,
   type TaskWorkspaceNoticeSink,
 } from "./task-workspace.js";
-import { AgentManager, type StackHooks } from "./agent-manager.js";
+import { AgentManager, SingleRoomStack, type StackHooks } from "./agent-manager.js";
 import { ClaudeCodeResponder } from "./claude-client.js";
 import { CODEX_MIN_VERSION, CodexResponder } from "./codex-responder.js";
 import { CopilotResponder } from "./copilot-client.js";
@@ -388,6 +388,9 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
       allowedRoots,
       access,
       trusted: parsed.values["trust-room-workspace"] === true,
+      // OpenClaw 的工具权限由它自己的配置决定，Hive 限制不了只读：只读档不切到房间工作区
+      readOnlyEnforced: provider !== "openclaw",
+      scratchDefault: !parsed.values.cwd,
     });
     if (room.workspace) {
       console.log(
@@ -440,6 +443,7 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
         access,
         attachmentCacheDir: path.join(stateDir, "attachments"),
         cwd: workspace.cwd,
+        ...(room.workspace ? { roomWorkspace: room.workspace } : {}),
         ...(workspace.note ? { workspaceNote: workspace.note } : {}),
         ...(hooks?.onRoomsChanged ? { onRoomsChanged: hooks.onRoomsChanged } : {}),
         ...(hooks?.onArchived ? { onArchived: hooks.onArchived } : {}),
@@ -486,18 +490,26 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
     void stopAll().finally(() => process.exit(0));
   }
   if (roomId !== undefined) {
-    // 单房间模式在启动时确定房间工作区；之后房间改了工作区需要重启 Agent
+    // 单房间模式：房间改了工作区，和多房间一样等空闲后换到新目录重新加入
     const room = (await fetchRooms(serverUrl, token).catch(() => [])).find(
       (item) => item.id === roomId,
     );
-    const bridge: AgentBridge = buildStack(room ?? ({ id: roomId } as RoomSummary), {
+    const single: SingleRoomStack = new SingleRoomStack({
+      room: room ?? ({ id: roomId } as RoomSummary),
+      createStack: (target, hooks) => buildStack(target, hooks),
       onArchived: () => {
         console.error(`[hive] 已不能再访问房间 #${roomId}（归档、到期或被移除），Agent 退出。`);
-        void bridge.stop().finally(() => process.exit(1));
+        void single.stop().finally(() => process.exit(1));
+      },
+      onSwitchFailed: (error) => {
+        console.error(
+          `[hive] 换到房间 #${roomId} 的新工作区后没能重新加入：${error instanceof Error ? error.message : String(error)}`,
+        );
+        process.exit(1);
       },
     });
-    await bridge.start();
-    stopAll = () => bridge.stop();
+    await single.start();
+    stopAll = () => single.stop();
   } else {
     const manager = new AgentManager({
       listRooms: () => fetchRooms(serverUrl, token),

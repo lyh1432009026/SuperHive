@@ -18,13 +18,38 @@ import {
 /** 人发起的任务每个最多几条进度；与服务端 LIMITS.maxProgressPerTask 一致，超出时服务端会拒绝并说明 */
 const PROGRESS_PER_TASK = 3;
 
+export type WorkspaceInfo = {
+  /** 当前工作目录（Provider 进程的 cwd） */
+  cwd: string;
+  /** 房间设置的工作区（原样）；没设时为空 */
+  roomWorkspace?: string;
+  /** 当前目录是这个任务的任务目录（不是房间工作区本身） */
+  taskDirectory?: boolean;
+  /** 房间工作区没有采用时的原因 */
+  note?: string;
+};
+
+/** 规则里的目录说明：写明房间工作区和当前工作目录，免得模型自己猜路径 */
+export function workspaceLines(workspace: WorkspaceInfo, access: AgentAccessMode): string {
+  const lines = [`本房间工作区：${workspace.roomWorkspace ?? "未设置"}`];
+  const suffix = workspace.taskDirectory
+    ? "（本任务的任务目录）"
+    : access === "read-only"
+      ? "（只读：可以读这里的文件，不能修改）"
+      : "";
+  lines.push(`你当前的工作目录：${workspace.cwd}${suffix}`);
+  if (workspace.note) lines.push(workspace.note);
+  lines.push("读写项目文件时以当前工作目录为准，用相对路径；不要凭猜测去别的目录找代码。");
+  return `${lines.join("\n")}\n`;
+}
+
 export function buildDeveloperInstructions(input: {
   agentName: string;
   persona: string;
   serverRules: string;
   access?: AgentAccessMode;
   /** 本房间实际使用的工作目录，以及房间工作区没有采用时的原因 */
-  workspace?: { cwd: string; note?: string };
+  workspace?: WorkspaceInfo;
 }): string {
   const access = input.access ?? "read-only";
   const localAccessRule =
@@ -37,7 +62,7 @@ export function buildDeveloperInstructions(input: {
 
 你的名称是：${input.agentName}
 你的角色描述是：${input.persona}
-${input.workspace && input.access !== "read-only" ? `你在本房间的工作目录：${input.workspace.cwd}\n` : ""}${input.workspace?.note ? `${input.workspace.note}\n` : ""}
+${input.workspace ? workspaceLines(input.workspace, access) : ""}
 规则：
 
 1. 只有被明确 @ 时才回复；你是房间的主 Agent 时，没有 @ 任何人、或 @ 的名字不在房间/已离线的人类消息也会派给你接话。

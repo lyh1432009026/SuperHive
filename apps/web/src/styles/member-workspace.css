@@ -1,0 +1,20 @@
+/* 成员名旁的工作目录标记：平时是不起眼的「目录」，变更待生效、没用上工作区时用 warning 语义色 */
+.member-workspace-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: var(--weight-medium);
+  line-height: 16px;
+  vertical-align: 1px;
+  cursor: default;
+}
+
+.member-workspace-badge.pending,
+.member-workspace-badge.fallback {
+  background: var(--warning-soft);
+  color: var(--warning);
+}

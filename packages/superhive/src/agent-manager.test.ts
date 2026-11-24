@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AgentManager, type ManagedStack, type StackHooks } from "./agent-manager.js";
+import {
+  AgentManager,
+  SingleRoomStack,
+  type ManagedStack,
+  type StackHooks,
+} from "./agent-manager.js";
 import type { RoomSummary } from "./hive-protocol.js";
 
 function room(id: string, extra: Partial<RoomSummary> = {}): RoomSummary {
@@ -207,5 +212,63 @@ describe("AgentManager", () => {
     await vi.waitFor(() => expect(createStack).toHaveBeenCalledTimes(3));
     expect(first.stop).toHaveBeenCalledTimes(1);
     expect(createStack.mock.calls[2]?.[0]).toMatchObject({ id: "dev", workspace: "/work/dev" });
+  });
+});
+
+describe("SingleRoomStack（--room 单房间模式）", () => {
+  it("房间工作区变了：等空闲后在新目录重新加入；换的途中又改了用最新的；别的房间、改名不理会", async () => {
+    const idle = deferred<void>();
+    const created: { room: RoomSummary; hooks: StackHooks; stack: FakeStack }[] = [];
+    const single = new SingleRoomStack({
+      room: room("dev"),
+      createStack: (target, hooks) => {
+        const stack = fakeStack(
+          created.length === 0 ? { whenIdle: vi.fn(() => idle.promise) } : {},
+        );
+        created.push({ room: target, hooks, stack });
+        return stack;
+      },
+      onArchived: vi.fn(),
+      log: () => undefined,
+    });
+    await single.start();
+    const first = created[0]!;
+    first.hooks.onRoomsChanged(room("other", { workspace: "/x" }));
+    first.hooks.onRoomsChanged(room("dev", { name: "改名" }));
+    expect(created).toHaveLength(1);
+
+    first.hooks.onRoomsChanged(room("dev", { workspace: "/work/a" }));
+    first.hooks.onRoomsChanged(room("dev", { workspace: "/work/b" }));
+    await Promise.resolve();
+    expect(first.stack.stop).not.toHaveBeenCalled();
+    idle.resolve();
+    await single.settled();
+    expect(first.stack.stop).toHaveBeenCalledTimes(1);
+    expect(created).toHaveLength(2);
+    expect(created[1]!.room.workspace).toBe("/work/b");
+    expect(created[1]!.stack.start).toHaveBeenCalledTimes(1);
+
+    await single.stop();
+    expect(created[1]!.stack.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("归档时交给 onArchived，之后不再换目录", async () => {
+    const onArchived = vi.fn();
+    const created: StackHooks[] = [];
+    const single = new SingleRoomStack({
+      room: room("dev"),
+      createStack: (_target, hooks) => {
+        created.push(hooks);
+        return fakeStack();
+      },
+      onArchived,
+      log: () => undefined,
+    });
+    await single.start();
+    created[0]!.onArchived();
+    created[0]!.onRoomsChanged(room("dev", { workspace: "/work/a" }));
+    await single.settled();
+    expect(onArchived).toHaveBeenCalledTimes(1);
+    expect(created).toHaveLength(1);
   });
 });

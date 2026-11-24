@@ -1875,5 +1875,12 @@
   "原来的工作目录 {0} 是桌面端的安装目录，升级后会被删掉，已自动改成 {1}。": "The previous working directory {0} was the desktop app's install folder, which gets removed on upgrade. It was switched to {1} automatically.",
   "工作目录 {0} 不存在，这次先在 {1} 启动；目录恢复后重启这个 Agent 即回到原目录。": "Working directory {0} doesn't exist, so it started in {1} this time. Restart this agent once the folder is back to use it again.",
   "停止 @{0} 这一轮": "Stop @{0}'s current run",
-  "只停这一轮，不停 Agent": "Stops only this run, not the Agent"
+  "只停这一轮，不停 Agent": "Stops only this run, not the Agent",
+  "房间工作区已改为 {0}，{1} 空闲后生效；现在仍在 {2}": "Room workspace changed to {0}. {1} switches over once it's idle; it's still in {2} for now",
+  "房间已不再设工作区，{0} 空闲后生效；现在仍在 {1}": "The room no longer has a workspace. {0} switches over once it's idle; it's still in {1} for now",
+  "没有用上房间工作区：{0}": "Not using the room workspace: {0}",
+  "在本房间的工作目录：{0}": "Working directory in this room: {0}",
+  "工作区待生效": "Workspace pending",
+  "未用工作区": "No workspace",
+  "目录": "Folder"
 }

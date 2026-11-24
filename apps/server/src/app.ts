@@ -5,6 +5,7 @@ import {
   isResumableUnknown,
   isAgentOutdated,
   type AgentCodeVersion,
+  type AgentWorkspace,
 } from "@superhive/protocol";
 import { errorText, hiveErrorBody, wsText } from "./texts.js";
 import { resolveRoom, roomsNamedLike } from "./room-lookup.js";
@@ -146,6 +147,8 @@ type Connection = {
   local: boolean;
   /** Agent 加入时上报的代码版本 */
   version?: AgentCodeVersion | undefined;
+  /** Agent 加入时上报的本房间工作目录 */
+  workspace?: AgentWorkspace | undefined;
 };
 
 export type ConfiguredUrl = string | (() => string);
@@ -1095,14 +1098,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (participant.type !== "agent" || participant.status === "offline") return participant;
     const named = onlineByName.get(participantKey(participant.roomId, participant.username));
     let version: AgentCodeVersion | undefined;
-    for (const connection of named ?? []) version ??= connection.version;
+    let workspace: AgentWorkspace | undefined;
+    for (const connection of named ?? []) {
+      version ??= connection.version;
+      workspace ??= connection.workspace;
+    }
     const outdated =
       localAgents?.outdatedByName(participant.username) ??
       isAgentOutdated(version, localAgents?.currentCodeVersion(), false);
-    if (!version && !outdated) return participant;
+    if (!version && !outdated && !workspace) return participant;
     return {
       ...participant,
       ...(version ? { version } : {}),
+      ...(workspace ? { workspace } : {}),
       ...(outdated ? { outdated: true } : {}),
     };
   }
@@ -6025,7 +6033,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             });
           connection.participant = participant;
           connection.lastHeartbeat = Date.now();
-          if (participant.type === "agent") connection.version = event.version;
+          if (participant.type === "agent") {
+            connection.version = event.version;
+            connection.workspace = event.workspace;
+          }
           const activeConnections = namedConnections ?? new Set<Connection>();
           activeConnections.add(connection);
           onlineByName.set(key, activeConnections);
