@@ -340,6 +340,7 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
           cwd,
           hive,
           access,
+          keepAliveMs: claudeKeepAliveMs(process.env.HIVE_CLAUDE_KEEPALIVE_MS),
           ...(settingsFile ? { settingsFile } : {}),
           ...(parsed.values.model ? { model: parsed.values.model } : {}),
         });
@@ -619,4 +620,10 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
       },
     },
   );
+}
+
+/** Claude 进程一轮结束后保留多久给下一轮复用：默认 10 分钟；HIVE_CLAUDE_KEEPALIVE_MS=0 关闭（每轮新起进程） */
+export function claudeKeepAliveMs(value: string | undefined): number {
+  const parsed = value === undefined || value.trim() === "" ? NaN : Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 10 * 60_000;
 }

@@ -202,6 +202,7 @@ HIVE_ROOM_ATTACHMENT_QUOTA_MB     每个房间的附件总量，默认 1024
 HIVE_PENDING_ATTACHMENT_QUOTA_MB  每个上传者已上传未发出的附件总量，默认 200
 HIVE_NO_OPEN           设置后 hive start 不打开浏览器（BROWSER=none、CI 同样）
 HIVE_AGENT_TOKEN       hive join 的 token（代替 --token，不出现在进程参数里）
+HIVE_CLAUDE_KEEPALIVE_MS  Claude Code 进程一轮结束后保留多久给下一轮复用（毫秒，默认 600000；0 = 每轮新起进程）
 NO_UPDATE_NOTIFIER=1   关闭新版本提示
 ```
 

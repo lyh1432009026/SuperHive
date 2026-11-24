@@ -1,4 +1,4 @@
-import type { CommandRunner } from "./command-runner.js";
+import type { CommandResult, CommandRunner } from "./command-runner.js";
 import { streamCommandRunner } from "./stream-command-runner.js";
 import { ClaudeStream, type ClaudeResult } from "./claude-stream.js";
 import { classifyClaude, classifyText, isUpstreamKind } from "./failure.js";
@@ -28,6 +28,28 @@ function userLine(text: string, uuid: string): string {
     message: { role: "user", content: [{ type: "text", text }] },
   })}\n`;
 }
+
+/** 用 --mcp-config 的占位：常驻进程按参数判断能否复用，临时文件路径每次不同，不能算进去 */
+const MCP_CONFIG_PLACEHOLDER = "\u0000hive-mcp-config\u0000";
+
+/**
+ * 常驻的 Claude 进程：一轮结束后不关标准输入，下一轮直接写进新消息，省掉拉起进程、加载插件和 MCP、
+ * 读取会话记录（--resume）的时间。参数（规则、模型、思考强度、MCP、权限档）不变、会话也是同一个时才复用，
+ * 否则结束它另起；空闲超时、出错、被停止都会结束进程，下一轮照旧 --resume 接上。
+ */
+type WarmClaude = {
+  key: string;
+  /** 这个进程上一轮结束时的会话 ID：Bridge 下一轮要接的会话不是它就不能复用 */
+  sessionId?: string | undefined;
+  stdin?: { write: (text: string) => void; end: () => void };
+  /** 当前这一轮接收 stdout 的地方；空闲时丢弃 */
+  route: (chunk: string) => void;
+  /** 进程退出：正常退出 resolve，异常 reject（已经挂了处理，不会成为未处理的拒绝） */
+  exit: Promise<CommandResult>;
+  exited: boolean;
+  kill: AbortController;
+  idleTimer?: NodeJS.Timeout | undefined;
+};
 
 /** 正在跑的这一轮：标准输入保持打开，引导写进去，Claude 在工具间隙读到 */
 type ClaudeTurn = {
@@ -63,6 +85,26 @@ function upstreamFailure(
 
 export class ClaudeCodeResponder implements AgentResponder {
   private turn: ClaudeTurn | undefined;
+  private warm: WarmClaude | undefined;
+
+  /** 结束常驻进程（Bridge 停止、换任务目录时调用） */
+  async close(): Promise<void> {
+    const warm = this.warm;
+    this.warm = undefined;
+    if (!warm) return;
+    this.retire(warm);
+    await warm.exit.catch(() => undefined);
+  }
+
+  /** 关掉常驻进程的标准输入，让它自己退出；临时 MCP 配置在进程退出后删除 */
+  private retire(warm: WarmClaude): void {
+    if (this.warm === warm) this.warm = undefined;
+    if (warm.idleTimer) clearTimeout(warm.idleTimer);
+    warm.route = () => undefined;
+    if (warm.exited) return;
+    if (warm.stdin) warm.stdin.end();
+    else warm.kill.abort();
+  }
 
   /**
    * 引导：写进正在跑的这一轮的标准输入，Claude 回放（确认收进对话）后才算插进去。
@@ -90,6 +132,11 @@ export class ClaudeCodeResponder implements AgentResponder {
        * 每一轮重新读取，改动下一轮生效；不给时沿用 Claude Code 自己的全部 MCP 配置。
        */
       settingsFile?: string;
+      /**
+       * 一轮结束后保留 Claude 进程多久，期间下一轮直接复用（0 或不给：每轮新起进程，跑完就退出）。
+       * 只在 runner 支持流式输入时生效。
+       */
+      keepAliveMs?: number;
       /** 停止时请 Claude 自己中断，等多久没确认停下就改为结束进程（默认 5 秒） */
       interruptTimeoutMs?: number;
       /** 测试注入：按 cwd 和设置列出要加载的 MCP（不含 hive） */
@@ -101,10 +148,10 @@ export class ClaudeCodeResponder implements AgentResponder {
   ) {}
 
   /**
-   * 写出本轮的 MCP 配置文件。用文件而不是命令行参数：Hive token 和本机 MCP 配置里常有的密钥
+   * 本轮的 MCP 配置，写进临时文件交给 --mcp-config。用文件而不是命令行参数：Hive token 和本机 MCP 配置里常有的密钥
    * 放在命令行参数里会被同机其他用户通过 ps 看到。没有设置文件时只写 Hive 一项。
    */
-  private writeMcpConfig(): { file: string; cleanup: () => void } {
+  private mcpConfigJson(): string {
     const servers =
       this.options.settingsFile === undefined
         ? {}
@@ -117,10 +164,14 @@ export class ClaudeCodeResponder implements AgentResponder {
         mcpServers: Record<string, unknown>;
       }
     ).mcpServers;
+    // 名称有序且内容不变时文件逐字节相同，工具定义的前缀缓存不会因此失效
+    return JSON.stringify({ mcpServers: { ...servers, ...hive } });
+  }
+
+  private writeMcpConfig(content: string): { file: string; cleanup: () => void } {
     const dir = mkdtempSync(path.join(tmpdir(), "hive-claude-mcp-"));
     const file = path.join(dir, "mcp.json");
-    // 名称有序且内容不变时文件逐字节相同，工具定义的前缀缓存不会因此失效
-    writeFileSync(file, JSON.stringify({ mcpServers: { ...servers, ...hive } }), { mode: 0o600 });
+    writeFileSync(file, content, { mode: 0o600 });
     return { file, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
   }
 
@@ -146,7 +197,7 @@ export class ClaudeCodeResponder implements AgentResponder {
     ]
       .map((tool) => `mcp__hive__${tool}`)
       .join(",");
-    const mcp = this.writeMcpConfig();
+    const mcpConfig = this.mcpConfigJson();
     const args = [
       "--print",
       "--output-format",
@@ -162,7 +213,7 @@ export class ClaudeCodeResponder implements AgentResponder {
       "--append-system-prompt",
       input.instructions,
       "--mcp-config",
-      mcp.file,
+      MCP_CONFIG_PLACEHOLDER,
       ...(this.options.settingsFile !== undefined ? ["--strict-mcp-config"] : []),
       "--allowedTools",
       access === "workspace" ? `Read,Glob,Grep,Edit,Write,Bash,${hiveTools}` : hiveTools,
@@ -197,7 +248,22 @@ export class ClaudeCodeResponder implements AgentResponder {
     if (model) args.push("--model", model);
     // 思考强度：Agent 设置或「换个模型重试」选的才传，否则沿用 CLI 自己的配置
     if (input.effort) args.push("--effort", input.effort);
-    if (input.threadId) args.push("--resume", input.threadId);
+    // 能复用的常驻进程：参数（含 MCP 配置内容）完全一样，且停在 Bridge 要接的这个会话上
+    const key = JSON.stringify([this.options.cwd, args, mcpConfig]);
+    const previous = this.warm;
+    const reuse =
+      previous !== undefined &&
+      !previous.exited &&
+      previous.stdin !== undefined &&
+      previous.key === key &&
+      input.threadId !== undefined &&
+      previous.sessionId === input.threadId &&
+      !input.signal?.aborted;
+    if (previous && !reuse) this.retire(previous);
+    if (previous && reuse && previous.idleTimer) {
+      clearTimeout(previous.idleTimer);
+      previous.idleTimer = undefined;
+    }
 
     const stream = new ClaudeStream(
       (event) => input.onRuntimeEvent?.(event),
@@ -213,11 +279,21 @@ export class ClaudeCodeResponder implements AgentResponder {
     input.onRuntimeEvent?.({ kind: "activity", phase: "starting" });
     const turn: ClaudeTurn = { closed: false, unacked: new Map() };
     this.turn = turn;
-    // 出了结果、又没有还没收下的引导：关闭输入，进程跑完这一轮就退出；
+    const keepAliveMs = this.options.keepAliveMs ?? 0;
+    // 这一轮停在常驻进程里等下一轮（不关输入）：交给下面 await 的那个 Promise
+    let park: (() => void) | undefined;
+    const parked = new Promise<"parked">((resolve) => {
+      park = () => resolve("parked");
+    });
+    // 出了结果、又没有还没收下的引导：这一轮结束。成功的结果留着进程给下一轮用，否则关闭输入让进程退出；
     // 还有引导没收下就继续开着，Claude 会读到它们并接着再跑一轮
-    const closeIfIdle = () => {
+    const closeIfIdle = (result?: ClaudeResult) => {
       if (turn.closed || turn.unacked.size > 0) return;
       turn.closed = true;
+      if (keepAliveMs > 0 && turn.stdin && result && !result.is_error && result.session_id) {
+        park?.();
+        return;
+      }
       turn.stdin?.end();
     };
     if (input.onHiveTools) stream.onHiveTools = input.onHiveTools;
@@ -238,7 +314,8 @@ export class ClaudeCodeResponder implements AgentResponder {
      * 答复 control_response 并以 error_during_execution 结束这一轮，这样能确认确实停下（会话也还在，可以重试）。
      * 中断请求发不出去、或超时没有确认，才结束进程，那时只能按结果未知处理。
      */
-    const kill = new AbortController();
+    // 结束进程用的开关属于进程：复用时沿用常驻进程的
+    const kill = reuse ? previous.kill : new AbortController();
     const interrupt = { requestId: "", acked: false, settled: false };
     let killTimer: NodeJS.Timeout | undefined;
     const onAbort = () => {
@@ -290,7 +367,7 @@ export class ClaudeCodeResponder implements AgentResponder {
     stream.onControlResponse = (requestId, ok) => {
       if (requestId === interrupt.requestId && ok) interrupt.acked = true;
     };
-    stream.onResult = () => {
+    stream.onResult = (result) => {
       // 中断确认后出的这个结果就是这一轮的收尾：确认停下，关输入让进程退出
       if (interrupt.acked) {
         interrupt.settled = true;
@@ -301,23 +378,52 @@ export class ClaudeCodeResponder implements AgentResponder {
         }
         return;
       }
-      closeIfIdle();
+      closeIfIdle(result);
     };
     if (input.signal?.aborted) onAbort();
     else input.signal?.addEventListener("abort", onAbort, { once: true });
     const stoppedCleanly = () =>
       Boolean(input.signal?.aborted && interrupt.settled && !kill.signal.aborted);
-    let result;
-    try {
-      result = await (this.options.runner ?? streamCommandRunner)(this.options.command, args, {
+    let warm: WarmClaude;
+    if (reuse) {
+      warm = previous;
+      turn.stdin = warm.stdin!;
+      warm.route = (chunk) => stream.push(chunk);
+      warm.stdin!.write(userLine(input.prompt, randomUUID()));
+    } else {
+      if (input.threadId) args.push("--resume", input.threadId);
+      const mcp = this.writeMcpConfig(mcpConfig);
+      const spawnArgs = args.map((arg) => (arg === MCP_CONFIG_PLACEHOLDER ? mcp.file : arg));
+      const created: WarmClaude = {
+        key,
+        route: (chunk) => stream.push(chunk),
+        exit: Promise.resolve({ stdout: "", stderr: "" }),
+        exited: false,
+        kill,
+      };
+      created.exit = (this.options.runner ?? streamCommandRunner)(this.options.command, spawnArgs, {
         cwd: this.options.cwd,
         input: userLine(input.prompt, randomUUID()),
-        onStdout: (chunk) => stream.push(chunk),
+        onStdout: (chunk) => created.route(chunk),
         onStdin: (stdin) => {
+          created.stdin = stdin;
           turn.stdin = stdin;
         },
         signal: kill.signal,
       });
+      const ended = () => {
+        created.exited = true;
+        if (created.idleTimer) clearTimeout(created.idleTimer);
+        if (this.warm === created) this.warm = undefined;
+        mcp.cleanup();
+      };
+      created.exit.then(ended, ended);
+      warm = created;
+      if (keepAliveMs > 0) this.warm = created;
+    }
+    let result: CommandResult | "parked";
+    try {
+      result = await Promise.race([warm.exit, parked]);
     } catch (error) {
       settleTurn();
       reportUsage();
@@ -353,7 +459,7 @@ export class ClaudeCodeResponder implements AgentResponder {
         said ? `Claude Code 中途报错退出：${said}。` : "Claude Code 中途退出，没有给出原因。",
       );
     } finally {
-      mcp.cleanup();
+      warm.route = () => undefined;
     }
     settleTurn();
     if (killTimer) clearTimeout(killTimer);
@@ -362,9 +468,20 @@ export class ClaudeCodeResponder implements AgentResponder {
       reportUsage();
       throw new AgentCancelledError();
     }
-    // Injectable legacy runners can return a complete result rather than streaming it.
-    if (result.stdout) stream.push(result.stdout);
+    if (result !== "parked") {
+      if (this.warm === warm) this.warm = undefined;
+      // Injectable legacy runners can return a complete result rather than streaming it.
+      if (result.stdout) stream.push(result.stdout);
+    }
     const payload = stream.finish();
+    if (result === "parked") {
+      // 进程留着给下一轮：记下它停在哪个会话，空闲太久就关掉
+      warm.sessionId = payload?.session_id;
+      if (this.warm === warm && !warm.exited) {
+        warm.idleTimer = setTimeout(() => this.retire(warm), keepAliveMs);
+        warm.idleTimer.unref?.();
+      }
+    }
     reportUsage();
     if (!payload)
       throw new AgentExecutionUncertainError(

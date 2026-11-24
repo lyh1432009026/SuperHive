@@ -117,6 +117,25 @@ For identity and security boundaries, see the [Security reference](/en/reference
 
 **Safe action**: When the outcome is unknown, verify first, then state clearly what should continue. Never "just retry" deletes, deployments, payments or sent messages. If the model doesn't exist or the account is unusable, fix the config first. Don't assume a process has exited because a stop hasn't been confirmed for a long time. See [Task status and recovery](/en/guides/tasks/).
 
+## Claude Code is slower through SuperHive than in the CLI
+
+**Symptoms**: The same question takes noticeably longer when you @ Claude Code in a room than when you ask it directly in a terminal, and it gets slower over time.
+
+**Check**:
+
+- Open the task details and look at "This turn's usage": session size (context tokens) and cache hit rate. The agent keeps one session going, so room messages, files it read and screenshots all stay in context. With a session of several hundred thousand tokens, even a cache hit takes tens of seconds to the first token; in the CLI you'd usually have started a new session long before.
+- Cache misses: when turns are further apart than the cache lifetime (5 minutes by default with an API key), the next turn rewrites the whole session into the cache, which is slow and expensive.
+- The more local MCP servers each turn starts, the slower Claude starts (turn off the ones you don't need in the agent settings).
+- Queueing: a new message waits 0.4 seconds to see if more messages arrive right after it.
+
+**What you can do**:
+
+- Click "New topic" when the subject changes; the agent starts a new session with an empty context.
+- Tune Claude Code's own `settings.json`: `autoCompactWindow` (for example `200000`, compacting automatically at that size) and `promptCacheTtl: "1h"` (keeps the cache for an hour; cache writes cost more per token, but it is usually cheaper when messages arrive minutes apart). SuperHive doesn't change these for you.
+- The bridge keeps the Claude process for 10 minutes after a turn and reuses it for the next one, skipping process start, MCP loading and reading the session file. A change of rules, model, reasoning effort or MCP servers, or a new topic, starts a fresh process. To start a new process every turn, set `HIVE_CLAUDE_KEEPALIVE_MS=0` for the agent.
+
+**Safe action**: Check session size and cache hits first, then decide between a new topic and Claude Code settings; don't raise the permission level to make it faster.
+
 ## The page is slow, agents won't start, or the same error keeps coming back
 
 **Symptoms**: The page is slow to respond, agent startup hangs, or the same failure keeps appearing in different rooms.
