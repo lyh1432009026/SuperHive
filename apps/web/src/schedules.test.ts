@@ -5,7 +5,8 @@ import {
   formatRepeat,
   groupSchedules,
   scheduleNeedsAttention,
-  scheduleRoomOptions,
+  pendingSchedules,
+  scheduleRoomTabs,
 } from "./schedules";
 
 const base = {
@@ -61,23 +62,50 @@ describe("groupSchedules", () => {
   });
 });
 
-describe("scheduleRoomOptions", () => {
-  it("lists rooms that have schedules, current room first, then by name, with counts", () => {
-    const names: Record<string, string> = { a: "zeta", b: "alpha", c: "beta" };
-    const options = scheduleRoomOptions(
+describe("pendingSchedules", () => {
+  it("counts a series once, keeping the next run that can still be cancelled", () => {
+    const series = "00000000-0000-4000-8000-0000000002f1";
+    const list = [
+      // 到点时下一次已登记好：正在发出的第 3 次和待执行的第 4 次并存
+      at("11", {
+        seriesId: series,
+        occurrence: 3,
+        status: "firing",
+        runAt: "2026-11-10T11:00:00.000Z",
+      }),
+      at("12", { seriesId: series, occurrence: 4, runAt: "2026-11-10T11:30:00.000Z" }),
+      at("13", {
+        seriesId: series,
+        occurrence: 2,
+        status: "fired",
+        runAt: "2026-11-10T10:30:00.000Z",
+      }),
+      at("14", { runAt: "2026-11-10T11:10:00.000Z" }),
+    ];
+    expect(pendingSchedules(list).map((item) => item.id.slice(-2))).toEqual(["14", "12"]);
+    expect(groupSchedules(list).pending).toHaveLength(2);
+  });
+});
+
+describe("scheduleRoomTabs", () => {
+  it("lists only rooms with pending schedules, current room first, then by name", () => {
+    const names: Record<string, string> = { a: "zeta", b: "alpha", c: "beta", d: "delta" };
+    const tabs = scheduleRoomTabs(
       [
         at("01", { roomId: "a" }),
         at("02", { roomId: "b", status: "cancelled" }),
         at("03", { roomId: "c" }),
         at("04", { roomId: "c", status: "fired" }),
+        at("05", { roomId: "c", status: "firing" }),
+        at("06", { roomId: "d" }),
       ],
       (id) => names[id]!,
       "a",
     );
-    expect(options).toEqual([
-      { id: "a", name: "zeta", total: 1, pending: 1 },
-      { id: "b", name: "alpha", total: 1, pending: 0 },
-      { id: "c", name: "beta", total: 2, pending: 1 },
+    expect(tabs).toEqual([
+      { id: "a", name: "zeta", pending: 1 },
+      { id: "c", name: "beta", pending: 2 },
+      { id: "d", name: "delta", pending: 1 },
     ]);
   });
 });

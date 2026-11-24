@@ -3848,7 +3848,7 @@ describe("App mention autocomplete", () => {
     expect(names()).toEqual(["# frontend", "# general"]);
   });
 
-  it("lists every room's scheduled tasks in the left-side panel, filters by room, cancels and follows live updates", async () => {
+  it("lists every room's scheduled tasks in the left-side panel, with room tabs for pending ones, cancels and follows live updates", async () => {
     const user = userEvent.setup();
     localStorage.setItem("superhive.username", "Alice");
     localStorage.setItem("superhive.notify-prompt-dismissed", "true");
@@ -3945,18 +3945,36 @@ describe("App mention autocomplete", () => {
     });
     await user.click(entry);
     const dialog = screen.getByRole("dialog", { name: "定时任务" });
-    expect(
+    const tasks = () =>
+      [...dialog.querySelectorAll("li:not([hidden] li) .schedule-task")].map(
+        (task) => task.textContent,
+      );
+    const tabNames = () =>
       within(dialog)
-        .getAllByRole("heading", { level: 3 })
-        .map((heading) => heading.textContent),
-    ).toEqual(["待执行2", "最近结束2"]);
-    // 同组按执行时间：别的房间那个 20 分钟后的排在前面
-    expect([...dialog.querySelectorAll(".schedule-task")].map((task) => task.textContent)).toEqual([
-      "巡检 MR 评论",
-      "0 点提醒 Alice 看部署结果",
-      "推送日报",
-      "周报汇总",
+        .getAllByRole("tab")
+        .map((tab) => tab.getAttribute("aria-label"));
+    // 顶部一行 tab：全部 + 有待执行任务的房间，当前房间排在前面并默认选中
+    expect(tabNames()).toEqual([
+      "全部，2 个待执行",
+      "# general，1 个待执行",
+      "# frontend，1 个待执行",
     ]);
+    const generalTab = within(dialog).getByRole("tab", { name: "# general，1 个待执行" });
+    expect(generalTab.getAttribute("aria-selected")).toBe("true");
+    // 主区只列待执行；已结束的收在底部
+    expect(tasks()).toEqual(["0 点提醒 Alice 看部署结果"]);
+    const historyToggle = within(dialog).getByRole("button", { name: "已结束 1 条" });
+    expect(historyToggle.getAttribute("aria-expanded")).toBe("false");
+
+    // 左右键切 tab：切到「全部」，同组按执行时间，别的房间那个 20 分钟后的排在前面
+    generalTab.focus();
+    await user.keyboard("{ArrowLeft}");
+    const allTab = within(dialog).getByRole("tab", { name: "全部，2 个待执行" });
+    expect(allTab.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(allTab);
+    expect(tasks()).toEqual(["巡检 MR 评论", "0 点提醒 Alice 看部署结果"]);
+    await user.click(within(dialog).getByRole("button", { name: "已结束 2 条" }));
+    expect(tasks()).toEqual(["巡检 MR 评论", "0 点提醒 Alice 看部署结果", "推送日报", "周报汇总"]);
     expect(within(dialog).getAllByRole("button", { name: "打开房间 frontend" })).toHaveLength(2);
     expect(within(dialog).getByText(/每 30 分钟 · 第 2 次 · 到/)).toBeTruthy();
     expect(within(dialog).getByText("没有回复")).toBeTruthy();
@@ -3964,15 +3982,10 @@ describe("App mention autocomplete", () => {
     // 打开过就算看过：入口只剩待执行数
     expect(screen.getByRole("button", { name: "定时任务，2 个待执行" })).toBeTruthy();
 
-    // 按房间筛选
-    await user.click(within(dialog).getByRole("combobox", { name: "按房间筛选" }));
-    await user.click(screen.getByRole("option", { name: /# frontend/ }));
-    expect([...dialog.querySelectorAll(".schedule-task")].map((task) => task.textContent)).toEqual([
-      "巡检 MR 评论",
-      "周报汇总",
-    ]);
-    await user.click(within(dialog).getByRole("combobox", { name: "按房间筛选" }));
-    await user.click(screen.getByRole("option", { name: /全部房间/ }));
+    // 点房间 tab：已结束的也只列这个房间的
+    await user.click(within(dialog).getByRole("tab", { name: "# frontend，1 个待执行" }));
+    expect(tasks()).toEqual(["巡检 MR 评论", "周报汇总"]);
+    await user.click(allTab);
 
     // 取消走跨房间的 HTTP 接口，以当前用户名义
     await user.click(
@@ -3987,6 +4000,8 @@ describe("App mention autocomplete", () => {
     );
     await waitFor(() => expect(within(dialog).getByText("已取消")).toBeTruthy());
     expect(screen.getByRole("button", { name: "定时任务，1 个待执行" })).toBeTruthy();
+    // 取消后 general 没有待执行的了，它的 tab 跟着消失
+    expect(tabNames()).toEqual(["全部，1 个待执行", "# frontend，1 个待执行"]);
 
     // 别的房间推来的更新也合并进面板（服务端跨房间推送）
     act(() =>
@@ -4001,6 +4016,10 @@ describe("App mention autocomplete", () => {
       }),
     );
     expect(within(dialog).getByText("没能发出")).toBeTruthy();
+    // 一个待执行的都没有：空状态说明，已结束的照样能看
+    expect(tabNames()).toEqual(["全部，0 个待执行"]);
+    expect(within(dialog).getByText("没有待执行的定时任务")).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "已结束 4 条" })).toBeTruthy();
     // 看过之后新出的失败照样醒目提示
     expect(screen.getByRole("button", { name: "定时任务，1 个没有正常完成" })).toBeTruthy();
 

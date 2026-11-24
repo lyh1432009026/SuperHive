@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Invocation, Schedule } from "@superhive/protocol";
 import { AppDialog } from "./app-dialog";
 import { getLocale, t } from "./i18n";
-import { Select, type SelectOption } from "./select";
 import { Tooltip } from "./tooltip";
 import { Button } from "./button";
 
@@ -126,13 +125,29 @@ export function formatCountdown(iso: string, now: number): string {
 }
 
 /**
- * 分组：「待执行」按执行时间从近到远，「最近结束」按执行时间从新到旧；
- * 每组都是「下次（或那次）执行时间」排序，周期任务每一次单独一行。
+ * 还没执行的定时任务，按执行时间从近到远。侧栏角标、弹窗 tab 上的数字和列表都用它，三处数字一致。
+ * 周期任务算 1 个：到点时服务端先登记好下一次，正在发出的这一次和下一次会短暂并存，只留还能取消的那条。
+ */
+export function pendingSchedules(schedules: Iterable<Schedule>): Schedule[] {
+  const bySeries = new Map<string, Schedule>();
+  for (const schedule of schedules) {
+    if (!isPendingSchedule(schedule)) continue;
+    const key = schedule.seriesId ?? schedule.id;
+    const kept = bySeries.get(key);
+    if (!kept || (kept.status !== "scheduled" && schedule.status === "scheduled")) {
+      bySeries.set(key, schedule);
+    }
+  }
+  return [...bySeries.values()].sort((a, b) => a.runAt.localeCompare(b.runAt));
+}
+
+/**
+ * 分组：「待执行」见 pendingSchedules；「已结束」按执行时间从新到旧，周期任务每一次单独一行。
  */
 export function groupSchedules(schedules: Iterable<Schedule>) {
   const all = [...schedules];
   return {
-    pending: all.filter(isPendingSchedule).sort((a, b) => a.runAt.localeCompare(b.runAt)),
+    pending: pendingSchedules(all),
     history: all
       .filter((schedule) => !isPendingSchedule(schedule))
       .sort((a, b) => b.runAt.localeCompare(a.runAt)),
@@ -141,21 +156,18 @@ export function groupSchedules(schedules: Iterable<Schedule>) {
 
 const ALL_ROOMS = "";
 
-/** 房间筛选的选项：有定时任务的房间，当前房间排最前，其余按名称；每项带待执行数 */
-export function scheduleRoomOptions(
+/** 顶部房间 tab：只列有待执行任务的房间，当前房间排最前，其余按名称；数字是待执行数 */
+export function scheduleRoomTabs(
   schedules: Iterable<Schedule>,
   roomName: (roomId: string) => string,
   currentRoomId: string,
-): Array<{ id: string; name: string; total: number; pending: number }> {
-  const byRoom = new Map<string, { total: number; pending: number }>();
-  for (const schedule of schedules) {
-    const entry = byRoom.get(schedule.roomId) ?? { total: 0, pending: 0 };
-    entry.total += 1;
-    if (isPendingSchedule(schedule)) entry.pending += 1;
-    byRoom.set(schedule.roomId, entry);
+): Array<{ id: string; name: string; pending: number }> {
+  const byRoom = new Map<string, number>();
+  for (const schedule of pendingSchedules(schedules)) {
+    byRoom.set(schedule.roomId, (byRoom.get(schedule.roomId) ?? 0) + 1);
   }
   return [...byRoom]
-    .map(([id, counts]) => ({ id, name: roomName(id), ...counts }))
+    .map(([id, pending]) => ({ id, name: roomName(id), pending }))
     .sort((a, b) =>
       a.id === currentRoomId
         ? -1
@@ -167,7 +179,7 @@ export function scheduleRoomOptions(
 
 /**
  * 左侧「定时任务」入口打开的面板，和「Agent 任务」「故障」同款：
- * 所有能看到的房间的定时任务放在一起，每条写明所属房间，可以按房间筛选。
+ * 顶部一行 tab 是「全部」和每个有待执行任务的房间，主区只列待执行；已结束的收在底部，点开才看。
  */
 export function SchedulesDialog({
   schedules,
@@ -192,43 +204,59 @@ export function SchedulesDialog({
   onClose: () => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
-  const [roomFilter, setRoomFilter] = useState(ALL_ROOMS);
+  const rooms = useMemo(
+    () => scheduleRoomTabs(schedules.values(), roomName, currentRoomId),
+    [currentRoomId, roomName, schedules],
+  );
+  // 打开时：当前房间有待执行的就选它，没有就选「全部」
+  const [roomTab, setRoomTab] = useState(() =>
+    rooms.some((room) => room.id === currentRoomId) ? currentRoomId : ALL_ROOMS,
+  );
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [error, setError] = useState<string>();
   const [cancelling, setCancelling] = useState<ReadonlySet<string>>(new Set());
+  const idPrefix = useId();
+  const tablistRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
 
-  const rooms = useMemo(
-    () => scheduleRoomOptions(schedules.values(), roomName, currentRoomId),
-    [currentRoomId, roomName, schedules],
+  // 选中的房间没有待执行的了（刚取消、刚执行）就回到全部
+  const selected = rooms.some((room) => room.id === roomTab) ? roomTab : ALL_ROOMS;
+  const { pending: allPending, history: allHistory } = useMemo(
+    () => groupSchedules(schedules.values()),
+    [schedules],
   );
-  // 筛选的房间没有定时任务了（比如刚被清理）就回到全部
-  const filter = rooms.some((room) => room.id === roomFilter) ? roomFilter : ALL_ROOMS;
-  const visible = useMemo(
-    () =>
-      [...schedules.values()].filter(
-        (schedule) => filter === ALL_ROOMS || schedule.roomId === filter,
-      ),
-    [filter, schedules],
-  );
-  const { pending, history } = groupSchedules(visible);
-  const groups = [
-    { key: "pending", label: t("待执行"), items: pending },
-    { key: "history", label: t("最近结束"), items: history },
-  ].filter((group) => group.items.length > 0);
-  const filterOptions: SelectOption[] = [
-    { value: ALL_ROOMS, label: t("全部房间（{0}）", { 0: schedules.size }) },
+  const inTab = (schedule: Schedule) => selected === ALL_ROOMS || schedule.roomId === selected;
+  const pending = allPending.filter(inTab);
+  const history = allHistory.filter(inTab);
+  const tabs = [
+    { id: ALL_ROOMS, label: t("全部"), title: undefined, count: allPending.length },
     ...rooms.map((room) => ({
-      value: room.id,
+      id: room.id,
       label: `# ${room.name}`,
-      description: room.pending
-        ? t("{0} 个待执行 · 共 {1} 个", { 0: room.pending, 1: room.total })
-        : t("共 {0} 个", { 0: room.total }),
+      title: room.name,
+      count: room.pending,
     })),
   ];
+  const tabId = (index: number) => `${idPrefix}-tab-${index}`;
+  const panelId = `${idPrefix}-panel`;
+  const historyId = `${idPrefix}-history`;
+  const selectedIndex = Math.max(
+    0,
+    tabs.findIndex((tab) => tab.id === selected),
+  );
+
+  function selectTab(index: number) {
+    const tab = tabs[index];
+    if (!tab) return;
+    setRoomTab(tab.id);
+    const button = tablistRef.current?.ownerDocument.getElementById(tabId(index));
+    button?.focus();
+    button?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }
 
   async function cancel(schedule: Schedule) {
     setError(undefined);
@@ -250,21 +278,63 @@ export function SchedulesDialog({
     }
   }
 
+  const renderRow = (schedule: Schedule) => (
+    <ScheduleRow
+      key={schedule.id}
+      schedule={schedule}
+      invocation={schedule.invocationId ? invocations.get(schedule.invocationId) : undefined}
+      isAgentOnline={isAgentOnline}
+      roomName={roomName(schedule.roomId)}
+      currentRoom={schedule.roomId === currentRoomId}
+      now={now}
+      cancelling={cancelling.has(schedule.id)}
+      onCancel={() => void cancel(schedule)}
+      onJump={(messageId) => onJump(schedule.roomId, messageId)}
+      onOpenRoom={() => onOpenRoom(schedule.roomId)}
+    />
+  );
+
   return (
     <AppDialog
       size="lg"
       className="schedules-dialog"
       title={t("定时任务")}
-      tools={
-        rooms.length > 1 && (
-          <Select
-            className="schedules-room-filter"
-            aria-label={t("按房间筛选")}
-            value={filter}
-            options={filterOptions}
-            onChange={setRoomFilter}
-            menuMinWidth={220}
-          />
+      toolbar={
+        schedules.size > 0 && (
+          <div
+            ref={tablistRef}
+            className="schedule-tabs"
+            role="tablist"
+            aria-label={t("按房间查看待执行的定时任务")}
+            onKeyDown={(event) => {
+              const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+              if (event.key === "Home") selectTab(0);
+              else if (event.key === "End") selectTab(tabs.length - 1);
+              else if (step) selectTab((selectedIndex + step + tabs.length) % tabs.length);
+              else return;
+              event.preventDefault();
+            }}
+          >
+            {tabs.map((tab, index) => (
+              <Tooltip key={tab.id || "all"} content={tab.title}>
+                <button
+                  type="button"
+                  role="tab"
+                  id={tabId(index)}
+                  aria-selected={index === selectedIndex}
+                  aria-controls={panelId}
+                  aria-label={t("{0}，{1} 个待执行", { 0: tab.label, 1: tab.count })}
+                  tabIndex={index === selectedIndex ? 0 : -1}
+                  onClick={() => setRoomTab(tab.id)}
+                >
+                  <span className="schedule-tab-name">{tab.label}</span>
+                  <span className="schedule-tab-count" aria-hidden="true">
+                    {tab.count}
+                  </span>
+                </button>
+              </Tooltip>
+            ))}
+          </div>
         )
       }
       bodyClassName="schedules-dialog-body"
@@ -284,38 +354,47 @@ export function SchedulesDialog({
           </p>
         </div>
       ) : (
-        <div className="whiteboard schedules">
-          {groups.map((group) => (
-            <section
-              key={group.key}
-              className="whiteboard-slot"
-              aria-labelledby={`schedule-group-${group.key}`}
-            >
-              <h3 id={`schedule-group-${group.key}`}>
-                {group.label}
-                <span className="whiteboard-slot-count">{group.items.length}</span>
-              </h3>
-              <ul>
-                {group.items.map((schedule) => (
-                  <ScheduleRow
-                    key={schedule.id}
-                    schedule={schedule}
-                    invocation={
-                      schedule.invocationId ? invocations.get(schedule.invocationId) : undefined
-                    }
-                    isAgentOnline={isAgentOnline}
-                    roomName={roomName(schedule.roomId)}
-                    currentRoom={schedule.roomId === currentRoomId}
-                    now={now}
-                    cancelling={cancelling.has(schedule.id)}
-                    onCancel={() => void cancel(schedule)}
-                    onJump={(messageId) => onJump(schedule.roomId, messageId)}
-                    onOpenRoom={() => onOpenRoom(schedule.roomId)}
-                  />
-                ))}
+        <div
+          className="whiteboard schedules"
+          id={panelId}
+          role="tabpanel"
+          aria-labelledby={tabId(selectedIndex)}
+        >
+          {pending.length > 0 ? (
+            <ul className="schedule-list" aria-label={t("待执行")}>
+              {pending.map(renderRow)}
+            </ul>
+          ) : (
+            <div className="whiteboard-empty schedules-empty">
+              <strong>{t("没有待执行的定时任务")}</strong>
+              <p>{t("Agent 登记了「到点做某件事」就会列在这里；已执行、取消或错过的收在下面。")}</p>
+            </div>
+          )}
+          {history.length > 0 && (
+            <section className="schedules-history">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="schedules-history-toggle"
+                aria-expanded={historyOpen}
+                aria-controls={historyId}
+                onClick={() => setHistoryOpen((open) => !open)}
+              >
+                {t("已结束 {0} 条", { 0: history.length })}
+                <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </Button>
+              <ul
+                id={historyId}
+                className="schedule-list"
+                aria-label={t("已结束")}
+                hidden={!historyOpen}
+              >
+                {historyOpen && history.map(renderRow)}
               </ul>
             </section>
-          ))}
+          )}
         </div>
       )}
     </AppDialog>

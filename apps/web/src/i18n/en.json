@@ -1853,12 +1853,7 @@
   "定时任务{0}{1}": "Schedules{0}{1}",
   "，{0} 个待执行": ", {0} pending",
   "，{0} 个没有正常完成": ", {0} didn't finish normally",
-  "最近结束": "Recently ended",
-  "全部房间（{0}）": "All rooms ({0})",
-  "{0} 个待执行 · 共 {1} 个": "{0} pending · {1} total",
-  "共 {0} 个": "{0} total",
   "无法取消定时任务：{0}": "Couldn't cancel the scheduled task: {0}",
-  "按房间筛选": "Filter by room",
   "当前房间": "Current room",
   "去这个房间": "Go to this room",
   "打开房间 {0}": "Open room {0}",
@@ -1954,5 +1949,11 @@
   "{0} 个空闲": "{0} idle",
   "{0} 个离线": "{0} offline",
   "另有 {0}": "Plus {0}",
-  "没有 Agent 在忙": "No agents are busy"
+  "没有 Agent 在忙": "No agents are busy",
+  "按房间查看待执行的定时任务": "Pending scheduled tasks by room",
+  "{0}，{1} 个待执行": "{0}, {1} pending",
+  "没有待执行的定时任务": "No pending scheduled tasks",
+  "Agent 登记了「到点做某件事」就会列在这里；已执行、取消或错过的收在下面。": "When an agent schedules something to do later, it shows up here. Tasks that ran, were cancelled or were missed are tucked away below.",
+  "已结束 {0} 条": "{0} ended",
+  "已结束": "Ended"
 }

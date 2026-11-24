@@ -629,8 +629,102 @@
   padding-top: 4px;
 }
 
-.schedules-room-filter {
-  max-width: 200px;
+/* 顶部房间 tab：放在外壳的工具行里，一行放不下就横向滚动，不换行撑高 */
+.schedule-tabs {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  gap: 4px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+.schedule-tabs button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  height: 28px;
+  padding: 0 var(--dialog-row-pad);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.schedule-tabs button:hover {
+  background: var(--bg-hover);
+}
+
+.schedule-tabs button[aria-selected="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: var(--weight-medium);
+}
+
+.schedule-tab-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.schedule-tab-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  text-align: center;
+}
+
+.schedule-tabs button[aria-selected="true"] .schedule-tab-count {
+  background: var(--bg-main);
+}
+
+.schedule-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.schedules-empty {
+  margin-bottom: 8px;
+}
+
+/* 已结束的收在底部，点开才展开 */
+.schedules-history {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-light);
+}
+
+.schedules-history-toggle {
+  color: var(--text-secondary);
+}
+
+.schedules-history-toggle svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform var(--duration-fast);
+}
+
+.schedules-history-toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.schedules-history > .schedule-list {
+  margin-top: 4px;
 }
 
 /* 所属房间：点了跳过去 */

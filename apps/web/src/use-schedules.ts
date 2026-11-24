@@ -2,7 +2,12 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { Invocation, MetaResponse, Schedule } from "@superhive/protocol";
 import { localizeServerPayload } from "./server-text";
 import { t } from "./i18n";
-import { isPendingSchedule, scheduleNeedsAttention, upsertSchedule } from "./schedules";
+import {
+  isPendingSchedule,
+  pendingSchedules,
+  scheduleNeedsAttention,
+  upsertSchedule,
+} from "./schedules";
 
 /** 上次打开「定时任务」面板的时间：之后才失败、错过的才在入口上醒目提示 */
 export const schedulesSeenKey = "superhive.schedules-seen-at";
@@ -138,13 +143,11 @@ export function useSchedules({
   }, []);
 
   const counts = useMemo(() => {
-    let pending = 0;
+    // 待执行数和弹窗 tab、列表用同一个函数，周期任务算 1 个
+    const pending = pendingSchedules(schedules.values()).length;
     let attention = 0;
     for (const schedule of schedules.values()) {
-      if (isPendingSchedule(schedule)) {
-        pending += 1;
-        continue;
-      }
+      if (isPendingSchedule(schedule)) continue;
       const invocation = schedule.invocationId ? invocations.get(schedule.invocationId) : undefined;
       if (!scheduleNeedsAttention(schedule, invocation)) continue;
       if (later(schedule.updatedAt, invocation?.updatedAt) > seenAt) attention += 1;
