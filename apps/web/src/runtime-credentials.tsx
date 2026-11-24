@@ -9,6 +9,7 @@ import type {
 import { ConfirmPopover } from "./confirm-popover";
 import { t } from "./i18n";
 import type { LocalAgentsState, RuntimeCredentialsWithAgents } from "./local-agents";
+import { Button } from "./button";
 
 /**
  * 运行时接口地址与密钥的一行（Agent CLI 配置面板的「接入」里用）：
@@ -84,14 +85,14 @@ export function RestartNotice({
     <div className="runtime-credentials-restart" role="status">
       <p>{savedMessage(effect, agents, label)}</p>
       {effect === "restart" && live.length > 0 && (
-        <button
-          type="button"
-          className="settings-action"
+        <Button
+          size="sm"
+          className="settings-button"
           disabled={restarting}
           onClick={() => void restart()}
         >
           {restarting ? t("正在重启…") : t("重启这 {0} 个 Agent", { 0: live.length })}
-        </button>
+        </Button>
       )}
       {restartResult && <p className="settings-note">{restartResult}</p>}
     </div>
@@ -212,30 +213,30 @@ export function CredentialRow({
       <div className="runtime-credential-actions">
         {info.set &&
           (revealed !== undefined ? (
-            <button type="button" onClick={() => setRevealed(undefined)}>
+            <Button size="sm" onClick={() => setRevealed(undefined)}>
               {t("隐藏")}
-            </button>
+            </Button>
           ) : (
-            <button
-              type="button"
+            <Button
+              size="sm"
               ref={revealRef}
               aria-expanded={confirmReveal}
               disabled={busy}
               onClick={() => setConfirmReveal(true)}
             >
               {t("显示")}
-            </button>
+            </Button>
           ))}
         {info.editable && !editing && (
-          <button
-            type="button"
+          <Button
+            size="sm"
             onClick={() => {
               setEditing(true);
               setError(undefined);
             }}
           >
             {t("修改")}
-          </button>
+          </Button>
         )}
       </div>
       {confirmReveal && (
@@ -272,17 +273,8 @@ export function CredentialRow({
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
           />
-          <button
-            type="submit"
-            ref={saveRef}
-            className="primary"
-            disabled={!valid || busy}
-            aria-expanded={confirmSave}
-          >
-            {t("保存")}
-          </button>
-          <button
-            type="button"
+          <Button
+            size="sm"
             onClick={() => {
               setEditing(false);
               setDraft("");
@@ -290,7 +282,17 @@ export function CredentialRow({
             }}
           >
             {t("取消")}
-          </button>
+          </Button>
+          <Button
+            type="submit"
+            size="sm"
+            variant="primary"
+            ref={saveRef}
+            disabled={!valid || busy}
+            aria-expanded={confirmSave}
+          >
+            {t("保存")}
+          </Button>
         </form>
       )}
       {confirmSave && (

@@ -4,7 +4,7 @@ import { useElementSize } from "./hooks";
 import { IsolatedFrame } from "./isolated-frame";
 import { renderPptx, type RenderedSlide } from "./pptx-render";
 import type { OfficeViewProps } from "./types";
-import { Tooltip } from "../tooltip";
+import { Button, IconButton } from "../button";
 
 const SLIDE_CSS = "html,body{margin:0;overflow:hidden;background:#fff}";
 /** 面板至少这么宽才在左边放缩略图栏 */
@@ -147,7 +147,7 @@ export default function PptxView({ bytes, name, compact, onError }: OfficeViewPr
                 type="button"
                 key={position}
                 data-slide={position}
-                className={position === index ? "active" : ""}
+                className={`office-pptx-thumb${position === index ? " active" : ""}`}
                 aria-current={position === index ? "true" : undefined}
                 aria-label={t("第 {0} 页", { 0: position + 1 })}
                 onClick={() => go(position)}
@@ -175,38 +175,34 @@ export default function PptxView({ bytes, name, compact, onError }: OfficeViewPr
         </div>
       </div>
       <div className="office-pptx-bar">
-        <Tooltip content={t("上一页")}>
-          <button
-            type="button"
-            onClick={() => go(index - 1)}
-            disabled={index === 0}
-            aria-label={t("上一页")}
-          >
-            ‹
-          </button>
-        </Tooltip>
+        <IconButton
+          size="sm"
+          label={t("上一页")}
+          onClick={() => go(index - 1)}
+          disabled={index === 0}
+        >
+          ‹
+        </IconButton>
         <span className="office-pptx-count" aria-live="polite">
           {index + 1} / {count}
         </span>
-        <Tooltip content={t("下一页")}>
-          <button
-            type="button"
-            onClick={() => go(index + 1)}
-            disabled={index >= count - 1}
-            aria-label={t("下一页")}
-          >
-            ›
-          </button>
-        </Tooltip>
+        <IconButton
+          size="sm"
+          label={t("下一页")}
+          onClick={() => go(index + 1)}
+          disabled={index >= count - 1}
+        >
+          ›
+        </IconButton>
         {!compact && typeof document.documentElement.requestFullscreen === "function" && (
-          <button
-            type="button"
+          <Button
+            size="sm"
             className="office-pptx-fullscreen"
             aria-pressed={fullscreen}
             onClick={toggleFullscreen}
           >
             {fullscreen ? t("退出全屏") : t("全屏放映")}
-          </button>
+          </Button>
         )}
       </div>
     </div>

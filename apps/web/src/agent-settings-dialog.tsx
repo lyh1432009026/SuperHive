@@ -9,6 +9,7 @@ import { localized, t } from "./i18n";
 import { LogViewer, localAgentStatusLabels, type LocalAgentsState } from "./local-agents";
 import { RestartNowButton, agentUpdateNotes } from "./local-agent-updates";
 import { ClaudeContextSettings } from "./claude-context-settings";
+import { Button, IconButton } from "./button";
 import { EffortPicker, ModelPicker } from "./model-picker";
 
 function CloseGlyph() {
@@ -344,9 +345,9 @@ export function AgentSettingsDialog({
               )}
             </p>
           </div>
-          <button type="button" className="invite-close" aria-label={t("关闭")} onClick={onClose}>
+          <IconButton className="dialog-close" label={t("关闭")} onClick={onClose}>
             <CloseGlyph />
-          </button>
+          </IconButton>
         </header>
 
         <div className="invite-dialog-body">
@@ -368,55 +369,61 @@ export function AgentSettingsDialog({
             {live ? (
               <>
                 {onOpenTerminal && (
-                  <button type="button" onClick={onOpenTerminal}>
+                  <Button size="sm" onClick={onOpenTerminal}>
                     {t("在终端打开会话")}
-                  </button>
+                  </Button>
                 )}
-                <button
-                  type="button"
+                <Button
+                  size="sm"
                   disabled={
                     acting !== undefined || !local.canManage || agent.restartWhenIdle === true
                   }
                   onClick={() => void control("restart")}
                 >
                   {acting === "restart" ? t("重启中…") : t("重启")}
-                </button>
+                </Button>
                 <RestartNowButton
                   agent={agent}
                   local={local}
                   disabled={acting !== undefined || !local.canManage}
                   onError={setError}
                 />
-                <button
-                  type="button"
+                <Button
+                  size="sm"
                   disabled={acting !== undefined || !local.canManage}
                   onClick={() => void control("stop")}
                 >
                   {acting === "stop" ? t("停止中…") : t("停止")}
-                </button>
+                </Button>
               </>
             ) : (
               <>
-                <button
-                  type="button"
+                <Button
+                  size="sm"
+                  variant="primary"
                   disabled={acting !== undefined || !local.canManage}
                   onClick={() => void control("start")}
                 >
                   {acting === "start" ? t("启动中…") : t("启动")}
-                </button>
-                <button
-                  type="button"
-                  className="danger"
+                </Button>
+                <Button
+                  size="sm"
+                  tone="danger"
                   disabled={acting !== undefined || !local.canManage}
                   onClick={() => setConfirmRemove(true)}
                 >
                   {t("删除")}
-                </button>
+                </Button>
               </>
             )}
-            <button type="button" aria-expanded={logsOpen} onClick={() => setLogsOpen(!logsOpen)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-expanded={logsOpen}
+              onClick={() => setLogsOpen(!logsOpen)}
+            >
               {t("日志")}
-            </button>
+            </Button>
           </div>
           {agent.status === "crashed" && agent.lastError && (
             <p className="local-agent-error">{agent.lastError}</p>
@@ -431,17 +438,17 @@ export function AgentSettingsDialog({
               <span>
                 {t("删除 {0}？它会退出所有房间，之后要用得重新接入。", { 0: agent.name })}
               </span>
-              <button type="button" onClick={() => setConfirmRemove(false)}>
+              <Button size="sm" onClick={() => setConfirmRemove(false)}>
                 {t("取消")}
-              </button>
-              <button
-                type="button"
-                className="danger"
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
                 disabled={acting !== undefined}
                 onClick={() => void control("remove")}
               >
                 {t("删除")}
-              </button>
+              </Button>
             </div>
           )}
           {logsOpen && <LogViewer load={local.logs} agentId={agent.id} />}
@@ -487,13 +494,13 @@ export function AgentSettingsDialog({
                   {t("已保存。")}
                 </span>
               )}
-              <button
-                type="button"
+              <Button
+                size="sm"
                 disabled={savingModel || !modelDirty || !local.canManage}
                 onClick={() => void saveModel()}
               >
                 {savingModel ? t("保存中…") : effortSupported ? t("保存模型和强度") : t("保存模型")}
-              </button>
+              </Button>
             </div>
           </section>
           {agent.provider === "claude" && (
@@ -547,14 +554,15 @@ export function AgentSettingsDialog({
               {saved === "restarted" ? t("已保存并重启。") : t("已保存。")}
             </p>
           )}
-          <button
-            type="button"
-            className="invite-submit"
-            disabled={!changed || saving || !data?.supported || !local.canManage}
-            onClick={() => void save(needsRestart)}
-          >
-            {saving ? t("保存中…") : needsRestart ? t("保存并重启") : t("保存")}
-          </button>
+          <div className="dialog-actions">
+            <Button
+              variant="primary"
+              disabled={!changed || saving || !data?.supported || !local.canManage}
+              onClick={() => void save(needsRestart)}
+            >
+              {saving ? t("保存中…") : needsRestart ? t("保存并重启") : t("保存")}
+            </Button>
+          </div>
         </div>
       </div>
     </div>

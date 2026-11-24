@@ -31,6 +31,7 @@ import { keepAwakeSummary } from "./host-settings";
 import type { ShareSelection } from "./share-bar";
 import { ContextMenu, type ContextMenuItem, type ContextMenuState } from "./context-menu";
 import { Tooltip } from "./tooltip";
+import { Button, IconButton } from "./button";
 
 /** 对话区顶栏：房间名、在线人数、工作区与分支（房主可点开任务目录下拉），以及新话题、产物、代码、分享等入口 */
 export function ChatHeader({
@@ -459,8 +460,8 @@ export function ChatNotices({
                   0: worktreeNotices.get(currentRoomId)!.count,
                 })}
               </span>
-              <button
-                type="button"
+              <Button
+                variant="primary"
                 disabled={!local.canManage}
                 onClick={async () => {
                   const notice = worktreeNotices.get(currentRoomId)!;
@@ -478,19 +479,15 @@ export function ChatNotices({
                 }}
               >
                 {t("清理这批目录")}
-              </button>
+              </Button>
             </div>
           )}
           {error && (
             <div className="error-banner" role="alert">
               <span>{error}</span>
-              <button
-                type="button"
-                aria-label={t("关闭错误提示")}
-                onClick={() => setError(undefined)}
-              >
+              <IconButton label={t("关闭错误提示")} onClick={() => setError(undefined)}>
                 <Icon name="close" size={16} />
-              </button>
+              </IconButton>
             </div>
           )}
           {pausedInvocations.length > 0 && (
@@ -506,9 +503,9 @@ export function ChatNotices({
                 {pausedAgentNames.length > 3 ? t(" 等") : ""} {t("的调用触及了轮数上限。")}
               </p>
               <div className="notification-prompt-actions">
-                <button type="button" className="primary" onClick={extendAgentBudget}>
+                <Button variant="primary" onClick={extendAgentBudget}>
                   {t("继续 {0} 轮", { 0: BUDGET_EXTEND_TURNS })}
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -520,16 +517,10 @@ export function ChatNotices({
                 {t("页面不在前台时，有人 @ 你会收到系统提醒。")}
               </p>
               <div className="notification-prompt-actions">
-                <button type="button" onClick={dismissNotificationPrompt}>
-                  {t("暂不")}
-                </button>
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={() => void ensureNotificationPermission()}
-                >
+                <Button onClick={dismissNotificationPrompt}>{t("暂不")}</Button>
+                <Button variant="primary" onClick={() => void ensureNotificationPermission()}>
                   {t("开启")}
-                </button>
+                </Button>
               </div>
             </div>
           )}

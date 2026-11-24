@@ -130,22 +130,14 @@
   opacity: 1;
 }
 
-.composer-attachment-retry {
-  flex: 0 0 auto;
-  padding: 3px 8px;
-  border: 1px solid var(--border-heavy);
-  border-radius: var(--radius-pill);
-  background: var(--bg-main);
-  color: var(--text);
-  font-size: 11px;
-}
-
-.composer-attachment.image .composer-attachment-retry {
+/* 图片附件：「重试」压在缩略图底部居中 */
+.composer-attachment.image .btn.composer-attachment-retry {
   position: absolute;
+  right: 0;
   bottom: 4px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 1px 6px;
+  left: 0;
+  width: fit-content;
+  margin-inline: auto;
 }
 
 .composer-attach {
@@ -462,15 +454,8 @@
   height: 100%;
 }
 
-.file-preview-header .file-preview-size {
-  display: grid;
-  width: 30px;
-  min-height: 30px;
-  padding: 0;
-  place-items: center;
-}
-
-.file-preview-size svg {
+.file-preview-size svg,
+.file-preview-close svg {
   width: 16px;
   height: 16px;
   fill: none;
@@ -508,29 +493,6 @@
   font-size: var(--text-xs);
 }
 
-.file-preview-header button {
-  min-height: 32px;
-  border: 1px solid var(--border-heavy);
-  border-radius: var(--radius-md);
-  padding: 0 12px;
-  background: transparent;
-  color: var(--text);
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-
-.file-preview-header button:hover {
-  background: var(--bg-hover);
-}
-
-.file-preview-header .file-preview-close {
-  width: 32px;
-  padding: 0;
-  border-color: transparent;
-  font-size: 20px;
-  line-height: 1;
-}
-
 /* 停靠在右侧栏：铺满这一栏，不要弹窗的圆角、阴影；顶栏和对话区顶栏一样高 */
 .preview-docked .members-panel .file-preview {
   width: 100%;
@@ -549,19 +511,7 @@
   padding: 6px 10px 6px 14px;
 }
 
-.preview-docked
-  .members-panel
-  .file-preview-header
-  button:not(.file-preview-size, .file-preview-close) {
-  padding: 0 10px;
-}
-
 /* 同一个人又发了同名文件：点一下换成新版本 */
-.file-preview-header .file-preview-newer {
-  border-color: var(--accent);
-  color: var(--accent);
-  white-space: nowrap;
-}
 
 .file-preview-body {
   display: flex;
@@ -596,17 +546,26 @@
   border-radius: var(--radius-md);
 }
 
-.file-preview-header .file-preview-views button {
-  min-height: 30px;
+/* 「页面 / 源码」分段切换：一组单选，不是按钮 */
+.file-preview-views button {
+  min-height: 28px;
   border: 0;
   border-radius: 0;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-xs);
 }
 
-.file-preview-header .file-preview-views button + button {
+.file-preview-views button:hover {
+  background: var(--bg-hover);
+}
+
+.file-preview-views button + button {
   border-left: 1px solid var(--border-heavy);
 }
 
-.file-preview-header .file-preview-views button.active {
+.file-preview-views button.active {
   background: var(--bg-active);
   font-weight: var(--weight-medium);
 }

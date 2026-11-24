@@ -190,17 +190,6 @@ button.progress-row:focus-visible {
 
 .progress-more {
   margin: 2px 8px 0;
-  border: 0;
-  border-radius: var(--radius-pill);
-  padding: 4px 10px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-}
-
-.progress-more:hover {
-  background: var(--bg-hover);
-  color: var(--text);
 }
 
 /* Agent 白板原文：默认折叠，样式同任务目录分组 */

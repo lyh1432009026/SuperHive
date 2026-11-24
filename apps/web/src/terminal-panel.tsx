@@ -14,6 +14,7 @@ import "./styles/terminal.css";
 import { t } from "./i18n";
 import { Icon } from "./app-icons";
 import { Tooltip } from "./tooltip";
+import { IconButton } from "./button";
 import type { DesktopBridge } from "./desktop-bridge";
 import { applyTerminalTextStyle, prepareCjkFont, terminalFontFamily } from "./terminal-fonts";
 import { keyCombo } from "./shortcuts";
@@ -551,16 +552,9 @@ export function TerminalPanel({
             </button>
           </div>
         ))}
-        <Tooltip content={t("新建终端")}>
-          <button
-            type="button"
-            className="terminal-action"
-            aria-label={t("新建终端")}
-            onClick={() => void createTerminal()}
-          >
-            <Icon name="plus" size={14} />
-          </button>
-        </Tooltip>
+        <IconButton size="sm" label={t("新建终端")} onClick={() => void createTerminal()}>
+          <Icon name="plus" size={14} />
+        </IconButton>
         <span className="terminal-tabs-spacer" />
         {error && (
           <span className="terminal-error" role="alert">
@@ -568,40 +562,34 @@ export function TerminalPanel({
           </span>
         )}
         {!maximized && (
-          <Tooltip content={withKeys(positionLabel, POSITION_KEYS)}>
-            <button
-              type="button"
-              className="terminal-action"
-              aria-label={positionLabel}
-              data-action="position"
-              onClick={onTogglePosition}
-            >
-              <Icon name={position === "right" ? "panel-bottom" : "panel-right"} size={14} />
-            </button>
-          </Tooltip>
+          <IconButton
+            size="sm"
+            label={positionLabel}
+            tooltip={withKeys(positionLabel, POSITION_KEYS)}
+            data-action="position"
+            onClick={onTogglePosition}
+          >
+            <Icon name={position === "right" ? "panel-bottom" : "panel-right"} size={14} />
+          </IconButton>
         )}
-        <Tooltip content={withKeys(maximizeLabel, MAXIMIZE_KEYS)}>
-          <button
-            type="button"
-            className="terminal-action"
-            aria-label={maximizeLabel}
-            aria-pressed={maximized}
-            data-action="maximize"
-            onClick={onToggleMaximized}
-          >
-            <Icon name={maximized ? "minimize" : "maximize"} size={14} />
-          </button>
-        </Tooltip>
-        <Tooltip content={t("收起终端面板（终端继续运行）")}>
-          <button
-            type="button"
-            className="terminal-action"
-            aria-label={t("收起终端面板")}
-            onClick={onClose}
-          >
-            <Icon name={vertical && !maximized ? "arrow-right" : "arrow-down"} size={14} />
-          </button>
-        </Tooltip>
+        <IconButton
+          size="sm"
+          label={maximizeLabel}
+          tooltip={withKeys(maximizeLabel, MAXIMIZE_KEYS)}
+          aria-pressed={maximized}
+          data-action="maximize"
+          onClick={onToggleMaximized}
+        >
+          <Icon name={maximized ? "minimize" : "maximize"} size={14} />
+        </IconButton>
+        <IconButton
+          size="sm"
+          label={t("收起终端面板")}
+          tooltip={t("收起终端面板（终端继续运行）")}
+          onClick={onClose}
+        >
+          <Icon name={vertical && !maximized ? "arrow-right" : "arrow-down"} size={14} />
+        </IconButton>
       </div>
       <div className="terminal-viewport" ref={viewport} />
     </section>

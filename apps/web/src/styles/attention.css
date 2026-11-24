@@ -125,21 +125,6 @@
   pointer-events: auto;
 }
 
-.attention-toasts-bar button {
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  background: var(--bg-elevated);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.attention-toasts-bar button:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
 .attention-toast {
   display: flex;
   align-items: stretch;
@@ -249,22 +234,7 @@
 }
 
 .attention-toast-close {
-  flex: 0 0 auto;
   align-self: center;
-  width: 24px;
-  height: 24px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  color: var(--text-tertiary);
-  background: transparent;
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.attention-toast-close:hover {
-  background: var(--bg-hover);
-  color: var(--text);
 }
 
 @keyframes attention-toast-in {
@@ -382,32 +352,6 @@
   color: var(--success);
 }
 
-.onboarding-steps button,
-.onboarding-guide footer button,
-.onboarding-resume {
-  flex: 0 0 auto;
-  height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  color: var(--text);
-  background: var(--bg-main);
-  font: inherit;
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-
-.onboarding-steps button:hover,
-.onboarding-guide footer button:hover,
-.onboarding-resume:hover {
-  background: var(--bg-hover);
-}
-
-.onboarding-steps button:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
 .onboarding-step-done {
   color: var(--success);
   font-size: var(--text-sm);
@@ -421,21 +365,15 @@
   padding: 8px 24px 20px;
 }
 
-.onboarding-guide footer button.primary {
-  border-color: transparent;
-  color: var(--button-primary-text);
-  background: var(--button-primary-bg);
-}
-
-.onboarding-guide footer button.primary:hover {
-  background: var(--button-primary-hover);
-}
-
-.onboarding-resume {
+/* 浮在输入框上方居中；.btn 自带 position，这里多带一层选择器才压得住 */
+.btn.btn.onboarding-resume {
   position: fixed;
   bottom: 132px;
   left: 50%;
   z-index: 55;
+}
+
+.onboarding-resume {
   box-shadow: var(--shadow-popover);
   transform: translateX(-50%);
 }
@@ -444,7 +382,7 @@
   .onboarding-steps li {
     flex-wrap: wrap;
   }
-  .onboarding-steps li > button {
+  .onboarding-steps li > .btn {
     margin-left: 38px;
   }
 }

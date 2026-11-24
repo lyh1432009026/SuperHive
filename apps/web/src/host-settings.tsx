@@ -4,6 +4,7 @@ import type { LocalAgentsState, HostApprover, OwnerDevice } from "./local-agents
 import { SettingsSwitch } from "./settings-switch";
 import { copyTextToClipboard } from "./clipboard";
 import { localized, t } from "./i18n";
+import { Button } from "./button";
 
 /** 侧栏小月亮的悬停说明 */
 export function keepAwakeSummary(state: KeepAwakeState): string {
@@ -66,9 +67,9 @@ export function HostManageNotice({
             )}
       </p>
       {!waiting && (
-        <button
-          type="button"
-          className="settings-action"
+        <Button
+          size="sm"
+          className="settings-button"
           onClick={() => {
             setError(undefined);
             local.requestManage().catch((reason: unknown) => {
@@ -77,7 +78,7 @@ export function HostManageNotice({
           }}
         >
           {t("申请管理这台电脑")}
-        </button>
+        </Button>
       )}
       {error && <p className="settings-note error">{error}</p>}
     </div>
@@ -97,21 +98,21 @@ export function HostApprovalsBanner({ local }: { local: LocalAgentsState }) {
             {approval.summary}
           </p>
           <small>{t("不是你本人在操作就拒绝，并在设置 → 已登录设备里全部退出。")}</small>
-          <div className="host-approval-actions">
-            <button
-              type="button"
-              className="primary"
-              onClick={() => local.decideApproval(approval.id, true).catch(fail)}
-            >
-              {t("允许")}
-            </button>
-            <button
-              type="button"
-              className="danger"
+          <div className="dialog-actions host-approval-actions">
+            <Button
+              size="sm"
+              tone="danger"
               onClick={() => local.decideApproval(approval.id, false).catch(fail)}
             >
               {t("拒绝")}
-            </button>
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => local.decideApproval(approval.id, true).catch(fail)}
+            >
+              {t("允许")}
+            </Button>
           </div>
         </div>
       ))}
@@ -261,26 +262,26 @@ export function OwnerDevicesPanel({ local }: { local: LocalAgentsState }) {
             </p>
             <code className="owner-pair-url">{pair.url}</code>
             <div className="owner-pair-actions">
-              <button type="button" onClick={() => copy(pair.url, "link")}>
+              <Button size="sm" onClick={() => copy(pair.url, "link")}>
                 {copied === "link" ? t("已复制") : t("复制链接")}
-              </button>
-              <button type="button" onClick={() => setPair(undefined)}>
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setPair(undefined)}>
                 {t("收起")}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
       ) : (
-        <button
-          type="button"
-          className="settings-action"
+        <Button
+          size="sm"
+          className="settings-button"
           onClick={() => {
             setError(undefined);
             local.pairOwnerDevice().then(setPair, fail);
           }}
         >
           {t("显示登录二维码")}
-        </button>
+        </Button>
       )}
       <h4 className="owner-devices-heading">{t("已登录的设备")}</h4>
       {devices?.length ? (
@@ -300,12 +301,13 @@ export function OwnerDevicesPanel({ local }: { local: LocalAgentsState }) {
                 </small>
               </span>
               {(device.id === local.deviceId || local.canManage) && (
-                <button
-                  type="button"
+                <Button
+                  size="sm"
+                  tone="danger"
                   onClick={() => local.revokeOwnerDevice(device.id).then(refresh, fail)}
                 >
                   {t("退出登录")}
-                </button>
+                </Button>
               )}
             </li>
           ))}
@@ -315,9 +317,10 @@ export function OwnerDevicesPanel({ local }: { local: LocalAgentsState }) {
       )}
       {local.canManage &&
         (devices?.filter((device) => device.id !== local.deviceId).length ?? 0) > 0 && (
-          <button
-            type="button"
-            className="settings-action danger"
+          <Button
+            size="sm"
+            tone="danger"
+            className="settings-button"
             onClick={() => {
               if (!window.confirm(t("退出其他所有已登录的设备？手机丢了或怀疑被盗用时用。")))
                 return;
@@ -325,7 +328,7 @@ export function OwnerDevicesPanel({ local }: { local: LocalAgentsState }) {
             }}
           >
             {local.mode === "device" ? t("退出其他所有设备") : t("全部退出")}
-          </button>
+          </Button>
         )}
       {local.mode === "local" && <HostApproversGroup local={local} onError={fail} />}
       {local.mode === "local" && (
@@ -336,13 +339,13 @@ export function OwnerDevicesPanel({ local }: { local: LocalAgentsState }) {
               "这是房主的总钥匙，有完整权限，只在接入远程 Agent 或扫码不方便时使用，不要发给别人。",
             )}
           </p>
-          <button
-            type="button"
-            className="settings-action"
+          <Button
+            size="sm"
+            className="settings-button"
             onClick={() => local.ownerToken().then((token) => copy(token, "token"), fail)}
           >
             {copied === "token" ? t("已复制") : t("复制令牌")}
-          </button>
+          </Button>
         </details>
       )}
       {error && <p className="settings-note error">{error}</p>}

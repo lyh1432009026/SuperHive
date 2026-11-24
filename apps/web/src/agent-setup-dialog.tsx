@@ -20,6 +20,7 @@ import { ConfirmPopover } from "./confirm-popover";
 import { HostManageNotice } from "./host-settings";
 import type { RefObject, Dispatch, SetStateAction } from "react";
 import { Tooltip } from "./tooltip";
+import { Button, IconButton } from "./button";
 import { noSandboxNote, workspaceLacksSandbox } from "./member-sandbox";
 
 /** 接入 Agent 弹窗：选 Agent、设置权限、复制命令 */
@@ -111,15 +112,14 @@ export function AgentSetupDialog({
                 : t("三步完成：选择 Agent、设置本机权限，然后把命令复制到终端运行。")}
             </p>
           </div>
-          <button
+          <IconButton
             ref={agentDialogCloseRef}
-            className="agent-dialog-close"
-            type="button"
-            aria-label={t("关闭")}
+            className="dialog-close"
+            label={t("关闭")}
             onClick={closeAgentDialog}
           >
             <Icon name="close" />
-          </button>
+          </IconButton>
         </header>
 
         <ol className="agent-steps" aria-label={t("接入步骤")}>
@@ -135,6 +135,7 @@ export function AgentSetupDialog({
                 {state === "done" ? (
                   <button
                     type="button"
+                    className="agent-step-back"
                     aria-label={t("返回第 {0} 步：{1}", { 0: step, 1: label })}
                     onClick={() => goToAgentStep(step)}
                   >
@@ -269,8 +270,8 @@ export function AgentSetupDialog({
             </p>
           )}
           {agentStep === 1 && local.mode === "local" && (
-            <button
-              type="button"
+            <Button
+              variant="link"
               className="agent-runtime-link"
               onClick={() => openRuntimeSettings(agentProviderChosen ? agentProvider : undefined)}
             >
@@ -283,7 +284,7 @@ export function AgentSetupDialog({
                       })
                     : t("升级 {0} →", { 0: agentProviderLabel(agentProvider) })
                 : t("安装、升级 Agent 或调整它们的配置 →")}
-            </button>
+            </Button>
           )}
 
           {agentStep === 2 && (
@@ -375,10 +376,16 @@ export function AgentSetupDialog({
                       <small>{t("终端")}</small>
                     </div>
                     <code>{selectedAgentCommand}</code>
-                    <button type="button" disabled={!meta} onClick={() => void copyCommand()}>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="command-copy"
+                      disabled={!meta}
+                      onClick={() => void copyCommand()}
+                    >
                       <Icon name={commandCopied ? "check" : "copy"} size={16} />
                       <span>{commandCopied ? t("已复制到剪贴板") : t("复制命令")}</span>
-                    </button>
+                    </Button>
                   </div>
                   {copyError && (
                     <p className="command-copy-error" role="alert">
@@ -459,34 +466,30 @@ export function AgentSetupDialog({
               </a>
             </div>
           )}
-          <div className="agent-dialog-nav">
+          <div className="agent-dialog-nav dialog-actions">
             {agentStep > 1 && (
-              <button
-                type="button"
-                onClick={() => goToAgentStep((agentStep - 1) as AgentSetupStep)}
-              >
+              <Button onClick={() => goToAgentStep((agentStep - 1) as AgentSetupStep)}>
                 {t("上一步")}
-              </button>
+              </Button>
             )}
             {agentStep < 3 ? (
               <Tooltip
                 content={agentStep === 1 && !agentProviderChosen ? t("先选一个 Agent") : undefined}
               >
-                <button
-                  type="button"
-                  className="primary"
+                <Button
+                  variant="primary"
                   disabled={agentStep === 1 && !agentProviderChosen}
                   onClick={() => goToAgentStep((agentStep + 1) as AgentSetupStep)}
                 >
                   <span>{t("下一步")}</span>
                   <Icon name="arrow-right" size={16} />
-                </button>
+                </Button>
               </Tooltip>
             ) : (
               agentConnected && (
-                <button type="button" className="primary" onClick={closeAgentDialog}>
+                <Button variant="primary" onClick={closeAgentDialog}>
                   {t("完成")}
-                </button>
+                </Button>
               )
             )}
           </div>

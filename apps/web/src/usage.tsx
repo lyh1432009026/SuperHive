@@ -18,6 +18,7 @@ import {
 } from "@superhive/protocol";
 import { formatRelativeTime } from "./whiteboard";
 import { localized, t } from "./i18n";
+import { Button } from "./button";
 
 /** 每百万 token 的美元价格；按模型配置，存在本机浏览器里 */
 export type ModelPrice = { input: number; cacheWrite: number; cacheRead: number; output: number };
@@ -598,9 +599,9 @@ export function UsageSection({
                 )}
               </p>
               {onStartTopic && (
-                <button type="button" className="usage-action" onClick={onStartTopic}>
+                <Button size="sm" onClick={onStartTopic}>
                   {t("开启新话题")}
-                </button>
+                </Button>
               )}
             </div>
           )}
@@ -722,9 +723,9 @@ function SettingsRows({ value }: { value: UsageSettings }) {
           />
         </label>
       ))}
-      <button type="button" className="usage-action" onClick={resetUsageSettings}>
+      <Button size="sm" onClick={resetUsageSettings}>
         {t("恢复默认")}
-      </button>
+      </Button>
     </fieldset>
   );
 }

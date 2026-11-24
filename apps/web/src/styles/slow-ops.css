@@ -6,15 +6,6 @@
   justify-content: space-between;
 }
 
-.slow-ops-heading .settings-action {
-  flex-shrink: 0;
-  margin-top: 0;
-}
-
-.slow-ops-heading .settings-action:disabled {
-  opacity: 0.5;
-}
-
 .slow-ops {
   display: grid;
   gap: 6px;

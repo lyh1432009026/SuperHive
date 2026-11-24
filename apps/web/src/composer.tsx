@@ -12,6 +12,7 @@ import type { SendShortcut } from "./app-storage";
 import type { ComposerState } from "./use-composer";
 import { t } from "./i18n";
 import { Tooltip } from "./tooltip";
+import { IconButton } from "./button";
 
 /** 所见即所得输入框（Tiptap）单独打包，用到时才加载；加载完之前先用纯文本输入框顶着 */
 const RichComposer = lazy(() => import("./rich-composer"));
@@ -259,15 +260,14 @@ export function Composer({
         <div className="composer-answering" role="status">
           <strong>{t("回答 @{0} 的提问", { 0: answering.senderName })}</strong>
           <span>{answering.content.replace(/\s+/g, " ")}</span>
-          <Tooltip content={t("取消回答，改为普通消息")}>
-            <button
-              type="button"
-              aria-label={t("取消回答")}
-              onClick={() => setAnswering(undefined)}
-            >
-              ×
-            </button>
-          </Tooltip>
+          <IconButton
+            size="sm"
+            label={t("取消回答")}
+            tooltip={t("取消回答，改为普通消息")}
+            onClick={() => setAnswering(undefined)}
+          >
+            <Icon name="close" size={14} />
+          </IconButton>
         </div>
       )}
       <div

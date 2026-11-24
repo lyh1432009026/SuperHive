@@ -15,6 +15,7 @@ import { SettingsSwitch } from "./settings-switch";
 import { localized, t } from "./i18n";
 import { serverString } from "./server-text";
 import "./styles/incidents.css";
+import { Button } from "./button";
 
 export const incidentStatusLabel: Record<Incident["status"], string> = localized(() => ({
   open: t("待处理"),
@@ -744,24 +745,24 @@ function IncidentRow({
       </details>
       <div className="incident-actions">
         {canDispatch && (
-          <button type="button" onClick={() => onAction(incident.id, "dispatch")}>
+          <Button variant="primary" size="sm" onClick={() => onAction(incident.id, "dispatch")}>
             {t("派修")}
-          </button>
+          </Button>
         )}
         {incident.status !== "resolved" && incident.status !== "ignored" && (
           <>
-            <button type="button" onClick={() => onAction(incident.id, "resolve")}>
+            <Button size="sm" onClick={() => onAction(incident.id, "resolve")}>
               {t("标为已解决")}
-            </button>
-            <button type="button" onClick={() => onAction(incident.id, "ignore")}>
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => onAction(incident.id, "ignore")}>
               {t("忽略")}
-            </button>
+            </Button>
           </>
         )}
         {canReopen && (
-          <button type="button" onClick={() => onAction(incident.id, "reopen")}>
+          <Button size="sm" onClick={() => onAction(incident.id, "reopen")}>
             {t("重新打开")}
-          </button>
+          </Button>
         )}
       </div>
     </li>
@@ -794,17 +795,17 @@ function ProposalRow({
       <div className="incident-actions">
         {proposal.status === "pending" ? (
           <>
-            <button type="button" onClick={() => onDecide(proposal.id, "approve")}>
+            <Button variant="primary" size="sm" onClick={() => onDecide(proposal.id, "approve")}>
               {t("批准")}
-            </button>
-            <button type="button" onClick={() => onDecide(proposal.id, "reject")}>
+            </Button>
+            <Button size="sm" onClick={() => onDecide(proposal.id, "reject")}>
               {t("拒绝")}
-            </button>
+            </Button>
           </>
         ) : (
-          <button type="button" onClick={() => onDecide(proposal.id, "retire")}>
+          <Button size="sm" tone="danger" onClick={() => onDecide(proposal.id, "retire")}>
             {t("撤下")}
-          </button>
+          </Button>
         )}
       </div>
     </li>

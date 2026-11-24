@@ -54,6 +54,7 @@ import type { ShareSelection } from "./share-bar";
 import type { ComposerState } from "./use-composer";
 import type { MessageActions } from "./use-message-actions";
 import { Tooltip } from "./tooltip";
+import { Button, IconButton } from "./button";
 
 type SenderMenuOpener = (
   event: ReactMouseEvent<HTMLElement>,
@@ -215,10 +216,10 @@ export function MessageList({
               <p>
                 {t("发出第一条消息，或输入")} <code>@agent-name</code> {t("邀请一个 Agent 参与。")}
               </p>
-              <button type="button" onClick={() => textareaRef.current?.focus()}>
-                {t("开始一条消息")}
+              <Button onClick={() => textareaRef.current?.focus()}>
+                <span>{t("开始一条消息")}</span>
                 <Icon name="arrow-right" size={16} />
-              </button>
+              </Button>
             </div>
           )}
           <div
@@ -229,8 +230,9 @@ export function MessageList({
             }}
           >
             {hiddenCount > 0 ? (
-              <button
-                type="button"
+              <Button
+                size="sm"
+                variant="ghost"
                 className="load-earlier"
                 onClick={() => {
                   captureScrollAnchor();
@@ -241,12 +243,13 @@ export function MessageList({
                   0: Math.min(hiddenCount, 100),
                   1: hiddenCount,
                 })}
-              </button>
+              </Button>
             ) : (
               earlierTopicCount > 0 &&
               currentTopic && (
-                <button
-                  type="button"
+                <Button
+                  size="sm"
+                  variant="ghost"
                   className="load-earlier"
                   onClick={() => {
                     captureScrollAnchor();
@@ -254,7 +257,7 @@ export function MessageList({
                   }}
                 >
                   {t("显示更早的话题（{0} 条消息）", { 0: earlierTopicCount })}
-                </button>
+                </Button>
               )
             )}
             {timeline.map(({ message, newDay, grouped }) => (
@@ -823,37 +826,35 @@ function MessageItem({
         <div className="message-actions">
           {grouped && (
             <Tooltip content={t("复制序号引用")}>
-              <button
-                type="button"
-                className="message-action seq"
+              <Button
+                size="sm"
+                variant="ghost"
                 aria-label={t("复制消息序号 #{0}", { 0: message.seq })}
                 onClick={() => void copySeqReference(message)}
               >
-                {copiedMessageId === `seq:${message.id}` ? "✓" : `#${message.seq}`}
-              </button>
+                <span className="message-action-seq">
+                  {copiedMessageId === `seq:${message.id}` ? "✓" : `#${message.seq}`}
+                </span>
+              </Button>
             </Tooltip>
           )}
-          <Tooltip content={t("复制消息")}>
-            <button
-              type="button"
-              className="message-action"
-              aria-label={t("复制消息原文")}
-              onClick={() => void copyMessageContent(message)}
-            >
-              <Icon name={copiedMessageId === message.id ? "check" : "copy"} size={13} />
-            </button>
-          </Tooltip>
+          <IconButton
+            size="sm"
+            label={t("复制消息原文")}
+            tooltip={t("复制消息")}
+            onClick={() => void copyMessageContent(message)}
+          >
+            <Icon name={copiedMessageId === message.id ? "check" : "copy"} size={13} />
+          </IconButton>
           {message.senderName.toLocaleLowerCase() !== username.toLocaleLowerCase() ? (
-            <Tooltip content={`@${message.senderName}`}>
-              <button
-                type="button"
-                className="message-action"
-                aria-label={t("在输入框中提及 {0}", { 0: message.senderName })}
-                onClick={() => appendMention(message.senderName)}
-              >
-                @
-              </button>
-            </Tooltip>
+            <IconButton
+              size="sm"
+              label={t("在输入框中提及 {0}", { 0: message.senderName })}
+              tooltip={`@${message.senderName}`}
+              onClick={() => appendMention(message.senderName)}
+            >
+              @
+            </IconButton>
           ) : recallCandidateId === message.id ? (
             (() => {
               // 这条消息派出、还没结束的任务：撤回时默认一起停掉
@@ -890,38 +891,37 @@ function MessageItem({
                     </small>
                   )}
                   <span className="message-recall-actions">
-                    <button type="button" onClick={() => setRecallCandidateId(undefined)}>
+                    <Button size="sm" onClick={() => setRecallCandidateId(undefined)}>
                       {t("取消")}
-                    </button>
+                    </Button>
                     {started && (
                       <Tooltip content={t("消息撤回，正在做的照常做完，只是不再回复")}>
-                        <button type="button" onClick={() => recallMessage(message.id)}>
+                        <Button size="sm" onClick={() => recallMessage(message.id)}>
                           {t("只撤回")}
-                        </button>
+                        </Button>
                       </Tooltip>
                     )}
-                    <button
-                      type="button"
-                      className="danger"
+                    <Button
+                      size="sm"
+                      variant="danger"
                       onClick={() => recallMessage(message.id, open.length > 0)}
                     >
                       {open.length ? t("撤回并停止") : t("撤回")}
-                    </button>
+                    </Button>
                   </span>
                 </span>
               );
             })()
           ) : (
-            <Tooltip content={t("撤回")}>
-              <button
-                type="button"
-                className="message-action danger"
-                aria-label={t("撤回这条消息")}
-                onClick={() => setRecallCandidateId(message.id)}
-              >
-                <Icon name="undo" size={13} />
-              </button>
-            </Tooltip>
+            <IconButton
+              size="sm"
+              tone="danger"
+              label={t("撤回这条消息")}
+              tooltip={t("撤回")}
+              onClick={() => setRecallCandidateId(message.id)}
+            >
+              <Icon name="undo" size={13} />
+            </IconButton>
           )}
         </div>
       )}

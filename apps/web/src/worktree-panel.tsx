@@ -6,7 +6,7 @@ import { SheetPanel } from "./sheet-panel";
 import { BranchGlyph } from "./worktree-switcher";
 import { t } from "./i18n";
 import { DocsLink } from "./docs-link";
-import { Tooltip } from "./tooltip";
+import { Button, IconButton } from "./button";
 
 type WorktreeApi = Pick<
   LocalAgentsState,
@@ -217,29 +217,21 @@ export function WorktreePanel({
       closeLabel={t("关闭任务目录面板")}
       onClose={onClose}
       actions={
-        <Tooltip content={t("刷新")}>
-          <button
-            type="button"
-            className="sheet-icon-button"
-            aria-label={t("刷新")}
-            disabled={busy}
-            onClick={() => void refresh()}
+        <IconButton label={t("刷新")} disabled={busy} onClick={() => void refresh()}>
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.9"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
           >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.9"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" />
-            </svg>
-          </button>
-        </Tooltip>
+            <path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" />
+          </svg>
+        </IconButton>
       }
     >
       <section className="worktree-panel">
@@ -286,8 +278,9 @@ export function WorktreePanel({
         {batch && (
           <div className="worktree-batch" role="status">
             <span>{t("{0} 个任务目录已合入，可清理。", { 0: batch.count })}</span>
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               disabled={busy || !api.canManage}
               onClick={async () => {
                 setBusy(true);
@@ -303,7 +296,7 @@ export function WorktreePanel({
               }}
             >
               {t("清理这批目录")}
-            </button>
+            </Button>
           </div>
         )}
         {loading && <p role="status">{t("正在核对任务目录…")}</p>}
@@ -371,14 +364,14 @@ export function WorktreePanel({
               </label>
               {item.discardable && api.canManage && (
                 <div className="worktree-toolbar worktree-discard">
-                  <button
-                    type="button"
-                    className="danger"
+                  <Button
+                    size="sm"
+                    tone="danger"
                     disabled={busy || Boolean(discarding)}
                     onClick={() => void previewDiscard(item)}
                   >
                     {t("丢弃并删除")}
-                  </button>
+                  </Button>
                   <small>
                     {t(
                       "还没合入：变基或解过冲突后合入的，git 认不出来，确认内容已进主分支再丢弃。",
@@ -408,18 +401,18 @@ export function WorktreePanel({
                       })}
                     </small>
                   )}
-                  <div className="worktree-toolbar">
-                    <button type="button" disabled={busy} onClick={() => setDiscarding(undefined)}>
+                  <div className="dialog-actions">
+                    <Button size="sm" disabled={busy} onClick={() => setDiscarding(undefined)}>
                       {t("取消")}
-                    </button>
-                    <button
-                      type="button"
-                      className="danger"
+                    </Button>
+                    <Button
+                      variant="danger"
+                      size="sm"
                       disabled={busy || !api.canManage}
                       onClick={() => void discard()}
                     >
                       {t("确认丢弃并删除")}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )}
@@ -437,8 +430,8 @@ export function WorktreePanel({
                     )}
                   </p>
                   <div className="worktree-toolbar">
-                    <button
-                      type="button"
+                    <Button
+                      size="sm"
                       disabled={
                         busy ||
                         !api.canManage ||
@@ -449,14 +442,14 @@ export function WorktreePanel({
                       onClick={() => void repair(item, "restore")}
                     >
                       {t("切回登记分支")}
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
+                      size="sm"
                       disabled={busy || !api.canManage || item.activeInvocationIds.length > 0}
                       onClick={() => void repair(item, "adopt")}
                     >
                       {t("按当前分支重新登记")}
-                    </button>
+                    </Button>
                   </div>
                   {(item.dirty || item.untracked) && (
                     <small>
@@ -473,20 +466,20 @@ export function WorktreePanel({
         </div>
         {rows.length > 0 && (
           <div className="worktree-toolbar">
-            <button
-              type="button"
+            <Button
+              size="sm"
               disabled={!eligible.length || busy || !api.canManage}
               onClick={() => setSelected(eligible.map((item) => item.worktree.id))}
             >
               {t("选择可清理项（{0}）", { 0: eligible.length })}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              size="sm"
               disabled={!picked.length || busy || !api.canManage}
               onClick={() => setConfirmCleanup(true)}
             >
               {t("清理选中（{0}）", { 0: picked.length })}
-            </button>
+            </Button>
           </div>
         )}
         {confirmCleanup && (
@@ -505,17 +498,18 @@ export function WorktreePanel({
               {t("保留分支")}
             </label>
             <p>{t("不保留时也只用安全删除；squash 后 Git 拒绝删分支就保留并告知。")}</p>
-            <div className="worktree-toolbar">
-              <button type="button" disabled={busy} onClick={() => setConfirmCleanup(false)}>
+            <div className="dialog-actions">
+              <Button size="sm" disabled={busy} onClick={() => setConfirmCleanup(false)}>
                 {t("取消")}
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
                 disabled={busy || !picked.length || !api.canManage}
                 onClick={() => void clean()}
               >
                 {t("确认清理")}
-              </button>
+              </Button>
             </div>
           </div>
         )}

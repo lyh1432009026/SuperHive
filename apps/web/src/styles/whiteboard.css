@@ -34,7 +34,8 @@
   min-width: 0;
 }
 
-.whiteboard-toolbar button {
+/* 视图切换的两段（分段控件，不是规范按钮） */
+.whiteboard-views button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -55,11 +56,11 @@
     transform var(--duration-fast) var(--ease-out);
 }
 
-.whiteboard-toolbar button:active:not(:disabled) {
+.whiteboard-views button:active:not(:disabled) {
   transform: scale(0.96);
 }
 
-.whiteboard-toolbar button:disabled {
+.whiteboard-views button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -184,46 +185,15 @@
   color: var(--text);
 }
 
-.whiteboard-toolbar .whiteboard-bulk-pick {
+/* 窄侧栏里文字放不下时省略，不把筛选挤没 */
+.whiteboard-toolbar .btn.whiteboard-bulk-pick {
   flex: 0 1 auto;
-  background: var(--bg-hover);
-}
-
-.whiteboard-toolbar .whiteboard-bulk-pick:hover:not(:disabled) {
-  background: var(--bg-active);
-  color: var(--text);
-}
-
-.whiteboard-bulk-pick svg {
-  flex: 0 0 auto;
+  min-width: 0;
 }
 
 .whiteboard-bulk-pick span {
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* 只有图标的按钮：刷新历史、取消选择，title 做悬停提示，aria-label 给读屏 */
-.whiteboard-toolbar .whiteboard-icon-button {
-  flex: 0 0 auto;
-  width: 30px;
-  padding: 0;
-  color: var(--text-tertiary);
-}
-
-.whiteboard-toolbar .whiteboard-icon-button:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.whiteboard-icon-button[aria-busy="true"] svg {
-  animation: whiteboard-spin 0.9s linear infinite;
-}
-
-@keyframes whiteboard-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /* 批量条：有选中时才出现，加深的中性底，主操作靠右 */
@@ -247,12 +217,6 @@
   }
 }
 
-.whiteboard-toolbar .whiteboard-bulk .whiteboard-icon-button {
-  width: 26px;
-  height: 26px;
-  color: var(--text-secondary);
-}
-
 .whiteboard-bulk-count {
   min-width: 0;
   overflow: hidden;
@@ -263,17 +227,8 @@
   white-space: nowrap;
 }
 
-.whiteboard-toolbar .whiteboard-bulk-apply {
-  flex: 0 0 auto;
-  height: 26px;
+.whiteboard-bulk-apply {
   margin-left: auto;
-  background: var(--button-primary-bg);
-  color: var(--button-primary-text);
-  font-variant-numeric: tabular-nums;
-}
-
-.whiteboard-toolbar .whiteboard-bulk-apply:hover:not(:disabled) {
-  background: var(--button-primary-hover);
 }
 
 .whiteboard-status {
@@ -312,21 +267,14 @@
 }
 
 .whiteboard-entry-action {
-  min-height: 28px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 3px 8px;
-  background: var(--bg-main);
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
   max-width: 100%;
   margin-top: 6px;
-  overflow-wrap: anywhere;
 }
 
-.whiteboard-entry-action:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+/* 事项 key 很长时省略，悬停整条事项能看到全文 */
+.whiteboard-entry-action > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .whiteboard-slot h3 {
@@ -537,33 +485,17 @@
 }
 
 /* 移除按钮：仅在悬停 / 聚焦时出现 */
-.whiteboard-remove {
+/* 历史事项右上角的小叉：悬停整条才出现 */
+.whiteboard-entry .btn.whiteboard-remove {
   position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-tertiary);
+  top: 4px;
+  right: 4px;
   opacity: 0;
-  transition:
-    opacity var(--duration-fast),
-    background var(--duration-fast),
-    color var(--duration-fast);
 }
 
 .whiteboard-entry:hover .whiteboard-remove,
 .whiteboard-remove:focus-visible {
   opacity: 1;
-}
-
-.whiteboard-remove:hover {
-  background: var(--danger-soft);
-  color: var(--danger);
 }
 
 @media (hover: none) {
@@ -666,27 +598,6 @@
 
 .schedule-actions:empty {
   display: none;
-}
-
-.schedule-actions button {
-  height: 24px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0 8px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-}
-
-.schedule-actions button:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.schedule-actions button.danger:hover {
-  border-color: var(--danger);
-  background: var(--danger-soft);
-  color: var(--danger);
 }
 
 /* 侧栏窄：执行者与倒计时换行显示，不截断 */

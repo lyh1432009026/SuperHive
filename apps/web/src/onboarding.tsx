@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef } from "react";
 import { DocsLink } from "./docs-link";
 import { t } from "./i18n";
+import { Button } from "./button";
 
 /**
  * 首次使用引导：第一次打开网页的房主，带着做完三件事——接入 Agent、开通知、连 IM。
@@ -95,22 +96,22 @@ export function OnboardingGuide({
             {step.done ? (
               <span className="onboarding-step-done">{t("已完成")}</span>
             ) : (
-              <button
-                type="button"
+              <Button
+                size="sm"
                 disabled={Boolean(step.unavailable)}
                 onClick={(event) => step.onAction(event.currentTarget)}
               >
                 {step.action}
-              </button>
+              </Button>
             )}
           </li>
         ))}
       </ol>
       {/* 文档链接放在底部、排在按钮后面：打开时焦点仍落在要做的那一步（或「开始使用」）上，样式里反向排到左边 */}
       <footer>
-        <button type="button" className={allDone ? "primary" : ""} onClick={onClose}>
+        <Button variant={allDone ? "primary" : "secondary"} onClick={onClose}>
           {allDone ? t("开始使用") : t("跳过，以后再说")}
-        </button>
+        </Button>
         <DocsLink to="home">{t("看完整文档")}</DocsLink>
       </footer>
     </dialog>

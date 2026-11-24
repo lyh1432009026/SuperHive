@@ -190,20 +190,12 @@
   line-height: 1.6;
 }
 
-.workspace-empty-state .workspace-primary {
+.workspace-empty-state .workspace-empty-action {
   margin-top: 8px;
-  padding: 6px 14px;
-  border: 1px solid var(--button-primary-bg);
-  border-radius: var(--radius-md);
-  background: var(--button-primary-bg);
-  color: var(--button-primary-text);
-  font-size: var(--text-sm);
 }
 
-.workspace-empty button,
-.workspace-viewer-actions > button,
-.workspace-more,
-.workspace-confirm button {
+/* 代码、diff 标题条右侧的开关（换行、看源码、对比方式）：带 aria-pressed 的切换，不是操作按钮 */
+.workspace-viewer-actions > button {
   padding: 5px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -212,10 +204,7 @@
   font-size: var(--text-sm);
 }
 
-.workspace-empty button:hover,
-.workspace-viewer-actions > button:hover,
-.workspace-more:hover,
-.workspace-confirm button:hover {
+.workspace-viewer-actions > button:hover {
   background: var(--bg-hover);
 }
 
@@ -242,22 +231,7 @@
   background: var(--bg-active);
 }
 
-.workspace-empty .workspace-primary,
-.workspace-confirm .workspace-primary {
-  border-color: var(--button-primary-bg);
-  background: var(--button-primary-bg);
-  color: var(--button-primary-text);
-}
-
-.workspace-empty .workspace-primary:hover,
-.workspace-confirm .workspace-primary:hover {
-  background: var(--button-primary-hover);
-}
-
-.workspace-confirm > div {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
+.workspace-confirm > .dialog-actions {
   margin-top: 8px;
 }
 
@@ -699,20 +673,6 @@
   margin-left: auto;
 }
 
-.workspace-back {
-  padding: 3px 8px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-}
-
-.workspace-back:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
 .workspace-viewer-scroll {
   min-height: 0;
   flex: 1;
@@ -928,23 +888,9 @@
   content: "";
 }
 
-.diff-gap button {
-  flex: 0 0 auto;
-  padding: 2px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--bg-main);
-  color: var(--text-secondary);
+/* diff 区是等宽字体，按钮文字换回正文字体 */
+.diff-gap-label {
   font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  transition:
-    border-color var(--duration-fast),
-    color var(--duration-fast);
-}
-
-.diff-gap button:hover {
-  border-color: var(--border-heavy);
-  color: var(--text);
 }
 
 .workspace-code .hljs-comment,
@@ -1146,13 +1092,6 @@
 
 .workspace-media-fallback p {
   margin: 0;
-}
-
-.workspace-media-fallback .workspace-primary,
-.workspace-empty .workspace-primary {
-  border-color: var(--button-primary-bg);
-  background: var(--button-primary-bg);
-  color: var(--button-primary-text);
 }
 
 .workspace-media-skeleton {

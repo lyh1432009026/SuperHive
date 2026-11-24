@@ -24,6 +24,7 @@ export function Stepper({
     <div className={`stepper${disabled ? " disabled" : ""}`}>
       <button
         type="button"
+        className="stepper-step"
         tabIndex={-1}
         aria-label={t("减少")}
         disabled={disabled || value <= min}
@@ -55,6 +56,7 @@ export function Stepper({
       </span>
       <button
         type="button"
+        className="stepper-step"
         tabIndex={-1}
         aria-label={t("增加")}
         disabled={disabled || value >= max}

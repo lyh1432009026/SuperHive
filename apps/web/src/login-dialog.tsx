@@ -3,6 +3,7 @@ import { LoginShowcase } from "./login-showcase";
 import { t } from "./i18n";
 import { storedUsernameKey } from "./app-storage";
 import { Icon, HiveLogo } from "./app-icons";
+import { Button } from "./button";
 
 /** 点了「进入」之后如果还停在登录页（进入失败、被拦回来），过这么久按钮恢复可点 */
 export const LOGIN_BUSY_RESET_MS = 4_000;
@@ -125,11 +126,17 @@ export function LoginDialog({
               >
                 {error ?? t("支持中英文、数字、点、下划线与连字符。")}
               </p>
-              <button type="submit" disabled={busy} aria-busy={busy || undefined}>
-                {busy && <span className="login-spinner" aria-hidden="true" />}
+              <Button
+                type="submit"
+                variant="primary"
+                size="lg"
+                block
+                className="login-submit"
+                loading={busy}
+              >
                 <span>{busy ? t("正在进入…") : t("进入聊天室")}</span>
-                {!busy && <Icon name="arrow-right" />}
-              </button>
+                <Icon name="arrow-right" />
+              </Button>
             </form>
             <p className="login-next">
               <Icon name="plug" size={15} />

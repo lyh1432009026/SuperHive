@@ -57,26 +57,6 @@
   line-height: 1.35;
 }
 
-.settings-dialog-header > button {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--text-secondary);
-  transition:
-    background var(--duration-fast),
-    color var(--duration-fast);
-}
-
-.settings-dialog-header > button:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
 .settings-dialog-layout {
   min-height: 0;
   display: grid;
@@ -431,23 +411,6 @@
   flex: 1;
 }
 
-.notification-permission-note button {
-  min-height: 28px;
-  flex: 0 0 auto;
-  border: 0;
-  border-radius: var(--radius-pill);
-  padding: 0 12px;
-  background: var(--button-primary-bg);
-  color: var(--button-primary-text);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-medium);
-  transition: background var(--duration-fast);
-}
-
-.notification-permission-note button:hover {
-  background: var(--button-primary-hover);
-}
-
 /* 主题预览卡：迷你窗口示意浅色/深色/跟随系统（预览色为示意，不随主题变化） */
 .visual-choice-grid {
   display: grid;
@@ -701,19 +664,10 @@
 }
 
 /* 这台电脑：在其他设备上登录 */
-.settings-action {
+/* 设置里单独一行的按钮（外观见 button.css）：不被 flex 列拉宽，和上面的说明隔开一点 */
+.settings-button {
   align-self: flex-start;
   margin-top: 6px;
-  padding: 6px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--bg-main);
-  color: var(--text);
-  font-size: var(--text-sm);
-}
-
-.settings-action:hover {
-  background: var(--bg-hover);
 }
 
 .owner-pair {
@@ -752,16 +706,6 @@
   display: flex;
   gap: 8px;
   margin-top: 8px;
-}
-
-.owner-pair-actions button,
-.owner-devices button {
-  padding: 4px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--bg-main);
-  color: var(--text);
-  font-size: var(--text-xs);
 }
 
 .owner-devices-heading {
@@ -806,10 +750,6 @@
   color: var(--text-secondary);
   font-size: var(--text-sm);
   cursor: pointer;
-}
-
-.settings-action.danger {
-  color: var(--danger);
 }
 
 /* 房主在其他设备上：管理 Server 所在电脑要先申请 */
@@ -868,29 +808,6 @@
 
 .host-approval small {
   color: var(--text-secondary);
-}
-
-.host-approval-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.host-approval-actions button {
-  padding: 5px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--bg-main);
-  color: var(--text);
-}
-
-.host-approval-actions button.primary {
-  border-color: transparent;
-  background: var(--button-primary-bg);
-  color: var(--button-primary-text);
-}
-
-.host-approval-actions button.danger {
-  color: var(--danger);
 }
 
 /* 这台电脑：运行时接口地址与密钥 */
@@ -952,16 +869,6 @@
   gap: 6px;
 }
 
-.runtime-credential-actions button,
-.runtime-credential-edit button {
-  padding: 4px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--bg-main);
-  color: var(--text);
-  font-size: var(--text-xs);
-}
-
 .runtime-credential-edit {
   flex: 1 1 100%;
 }
@@ -969,22 +876,13 @@
 .runtime-credential-edit input {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 5px 10px;
+  height: 28px;
+  padding: 0 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-main);
   color: var(--text);
   font-size: var(--text-sm);
-}
-
-.runtime-credential-edit button.primary {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
-}
-
-.runtime-credential-edit button:disabled {
-  opacity: 0.5;
 }
 
 .runtime-credentials-restart {

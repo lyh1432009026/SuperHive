@@ -10,6 +10,7 @@ import {
 } from "@superhive/protocol";
 import { getLocale, t } from "./i18n";
 import { Select, type SelectOption } from "./select";
+import { Button } from "./button";
 
 /** 20 万 token / 200k tokens：按界面语言写 token 数 */
 export function compactWindowLabel(tokens: number): string {
@@ -195,9 +196,14 @@ export function ClaudeContextSettings({
             {t("已保存。")}
           </span>
         )}
-        <button type="button" disabled={disabled || saving || !dirty} onClick={() => void save()}>
+        <Button
+          size="sm"
+          variant="primary"
+          disabled={disabled || saving || !dirty}
+          onClick={() => void save()}
+        >
           {saving ? t("保存中…") : t("保存上下文设置")}
-        </button>
+        </Button>
       </div>
     </section>
   );

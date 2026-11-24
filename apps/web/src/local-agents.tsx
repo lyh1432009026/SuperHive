@@ -39,6 +39,7 @@ import { localized, t } from "./i18n";
 import { McpChecklist } from "./agent-settings-dialog";
 import { agentBatchNames } from "./agent-name";
 import { Stepper } from "./stepper";
+import { Button } from "./button";
 
 /**
  * 管理 Hive Server 所在电脑（本机 Agent、目录、保持在线…）：
@@ -1079,25 +1080,26 @@ export function DirectoryPicker({
   return (
     <div className="directory-picker" role="group" aria-label={t("选择工作目录")}>
       <div className="directory-picker-bar">
-        <button
-          type="button"
+        <Button
+          size="sm"
+          variant="ghost"
           disabled={!listing?.parent}
           aria-label={t("上一级目录")}
           onClick={() => listing?.parent && browse(listing.parent)}
         >
           {t("↑ 上一级")}
-        </button>
+        </Button>
         <code title={listing?.path}>
           {listing ? shortenPath(listing.path, listing.defaults.home) : t("加载中…")}
         </code>
         {listing && (
           <>
-            <button type="button" onClick={() => browse(listing.defaults.launch)}>
+            <Button size="sm" variant="ghost" onClick={() => browse(listing.defaults.launch)}>
               {t("Hive 目录")}
-            </button>
-            <button type="button" onClick={() => browse(listing.defaults.home)}>
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => browse(listing.defaults.home)}>
               {t("家目录")}
-            </button>
+            </Button>
           </>
         )}
       </div>
@@ -1105,7 +1107,11 @@ export function DirectoryPicker({
       <ul className="directory-picker-list">
         {listing?.entries.map((entry) => (
           <li key={entry.path}>
-            <button type="button" onClick={() => browse(entry.path)}>
+            <button
+              type="button"
+              className="directory-picker-entry"
+              onClick={() => browse(entry.path)}
+            >
               {entry.name}
             </button>
           </li>
@@ -1117,20 +1123,20 @@ export function DirectoryPicker({
       {listing?.truncated && (
         <p className="directory-picker-empty">{t("子目录过多，只列出了前 500 个。")}</p>
       )}
-      <div className="directory-picker-actions">
-        <button type="button" onClick={onClose}>
+      <div className="dialog-actions">
+        <Button size="sm" onClick={onClose}>
           {t("取消")}
-        </button>
-        <button
-          type="button"
-          className="primary"
+        </Button>
+        <Button
+          size="sm"
+          variant="primary"
           disabled={!listing}
           onClick={() => {
             if (listing) onPick(listing.path);
           }}
         >
           {t("选择当前目录")}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -1405,13 +1411,9 @@ export function LocalLaunch({
                     required
                     aria-label={t("工作目录")}
                   />
-                  <button
-                    type="button"
-                    aria-expanded={picking}
-                    onClick={() => setPicking((current) => !current)}
-                  >
+                  <Button aria-expanded={picking} onClick={() => setPicking((current) => !current)}>
                     {t("选择…")}
-                  </button>
+                  </Button>
                 </div>
               </label>
               {picking && (
@@ -1468,9 +1470,10 @@ export function LocalLaunch({
               {error}
             </p>
           )}
-          <button
+          <Button
             type="submit"
-            className="local-launch-button"
+            variant="primary"
+            block
             disabled={
               submitting || !canManage || !name.trim() || (info !== undefined && !info.installed)
             }
@@ -1481,7 +1484,7 @@ export function LocalLaunch({
                 ? t("在 {0} 上启动", { 0: local.hostLabel ?? t("Server 所在电脑") })
                 : t("在本机启动")}
             {!submitting && count > 1 ? ` ×${count}` : ""}
-          </button>
+          </Button>
         </form>
       )}
       <details className="local-launch-command">

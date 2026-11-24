@@ -9,6 +9,7 @@ import { SlowOpsList, thresholdNote, type SlowOpsState } from "./slow-ops";
 import { AppDialog } from "./app-dialog";
 import { t } from "./i18n";
 import { DocsLink } from "./docs-link";
+import { Button } from "./button";
 
 export type IncidentsTab = "incidents" | "slow-ops";
 
@@ -100,9 +101,9 @@ export function IncidentsDialog({
                 })
               : t("自动派修没打开，只记录和归类，可以手动派修。")}{" "}
             {data && (
-              <button
-                type="button"
-                className="incident-link incidents-dispatch-toggle"
+              <Button
+                variant="link"
+                className="incidents-dispatch-toggle"
                 aria-expanded={settingsOpen}
                 aria-controls="incidents-dispatch-settings"
                 onClick={() => setSettingsOpen((open) => !open)}
@@ -111,7 +112,7 @@ export function IncidentsDialog({
                 <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
                   <path d="m6 9 6 6 6-6" />
                 </svg>
-              </button>
+              </Button>
             )}{" "}
             <DocsLink to="incidents">{t("故障排查指南")}</DocsLink>
           </p>

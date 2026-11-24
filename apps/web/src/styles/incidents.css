@@ -265,37 +265,9 @@
   gap: 6px;
 }
 
-.incident-actions button {
-  padding: 2px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--bg-main);
-  color: var(--text);
-  font-size: var(--text-xs);
-}
-
-.incident-actions button:hover {
-  background: var(--bg-subtle);
-}
-
 .incident-list > li.focused {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-soft);
-}
-
-.incident-link {
-  justify-self: start;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-
-.incident-link:hover {
-  text-decoration: underline;
 }
 
 .incidents-dialog-body > .incidents {

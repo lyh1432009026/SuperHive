@@ -393,13 +393,8 @@
   white-space: nowrap;
 }
 
-.composer-answering button {
+.composer-answering .btn {
   margin-left: auto;
-  flex: 0 0 auto;
-  border: 0;
-  background: transparent;
-  color: var(--text-tertiary);
-  font-size: var(--text-sm);
 }
 
 /* ---------- 输入框里的 Markdown 着色：只改颜色、用描边模拟加粗，字宽不变，光标不会错位 ---------- */

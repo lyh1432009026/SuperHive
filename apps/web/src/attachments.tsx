@@ -21,6 +21,7 @@ import { t } from "./i18n";
 import { OfficePreview } from "./office-preview/office-preview";
 import { officeKind } from "./office-preview/office-kind";
 import { Tooltip } from "./tooltip";
+import { Button, IconButton } from "./button";
 
 // 预览 Markdown 时才用到渲染器，和消息里的共用同一个 chunk
 const PreviewMarkdown = lazy(() =>
@@ -324,14 +325,14 @@ export function ComposerAttachments({
           )}
           {item.status === "error" && (
             <Tooltip content={t("{0}，点击重试", { 0: item.error ?? t("上传失败") })}>
-              <button
-                type="button"
+              <Button
+                size="sm"
                 className="composer-attachment-retry"
                 onClick={() => onRetry(item.localId)}
                 aria-label={t("重试上传 {0}", { 0: item.name })}
               >
                 {t("重试")}
-              </button>
+              </Button>
             </Tooltip>
           )}
           <Tooltip content={item.status === "uploading" ? t("取消上传") : t("移除")}>
@@ -799,9 +800,9 @@ export function FilePreview({
         source={attachment.id}
         load={() => fetchAttachmentBlob(base, token, attachment.id)}
         download={
-          <button type="button" onClick={startDownload}>
+          <Button size="sm" onClick={startDownload}>
             {t("下载")}
-          </button>
+          </Button>
         }
       />
     ) : (
@@ -894,110 +895,101 @@ export function FilePreview({
                 </button>
               ))}
             </div>
-            <button type="button" onClick={openInNewWindow}>
+            <Button size="sm" onClick={openInNewWindow}>
               {t("新窗口打开")}
-            </button>
+            </Button>
           </>
         )}
-        <button type="button" onClick={startDownload}>
+        <Button size="sm" onClick={startDownload}>
           {t("下载")}
-        </button>
+        </Button>
         {localOpen?.canOpen(attachment) && (
-          <Tooltip content={t("用本机应用打开")}>
-            <button
-              type="button"
-              className="file-preview-size"
-              aria-label={t("用本机应用打开")}
-              onClick={() => {
-                setDownloadError(undefined);
-                localOpen.run(attachment, "open");
-              }}
-            >
-              <OpenLocallyIcon />
-            </button>
-          </Tooltip>
+          <IconButton
+            size="sm"
+            className="file-preview-size"
+            label={t("用本机应用打开")}
+            onClick={() => {
+              setDownloadError(undefined);
+              localOpen.run(attachment, "open");
+            }}
+          >
+            <OpenLocallyIcon />
+          </IconButton>
         )}
         {localOpen && (
-          <Tooltip content={revealInFolderLabel()}>
-            <button
-              type="button"
-              className="file-preview-size"
-              aria-label={revealInFolderLabel()}
-              onClick={() => {
-                setDownloadError(undefined);
-                localOpen.run(attachment, "reveal");
-              }}
-            >
-              <RevealInFolderIcon />
-            </button>
-          </Tooltip>
+          <IconButton
+            size="sm"
+            className="file-preview-size"
+            label={revealInFolderLabel()}
+            onClick={() => {
+              setDownloadError(undefined);
+              localOpen.run(attachment, "reveal");
+            }}
+          >
+            <RevealInFolderIcon />
+          </IconButton>
         )}
         {onDock && !docked && (
-          <Tooltip content={t("在右侧栏打开：一边看一边发消息")}>
-            <button
-              type="button"
-              className="file-preview-size"
-              aria-label={t("在右侧栏打开")}
-              onClick={() => {
-                savePreviewDocked(true);
-                onDock();
-              }}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <rect x="3" y="4" width="18" height="16" rx="2" />
-                <path d="M14 4v16" />
-              </svg>
-            </button>
-          </Tooltip>
+          <IconButton
+            size="sm"
+            className="file-preview-size"
+            label={t("在右侧栏打开")}
+            tooltip={t("在右侧栏打开：一边看一边发消息")}
+            onClick={() => {
+              savePreviewDocked(true);
+              onDock();
+            }}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <path d="M14 4v16" />
+            </svg>
+          </IconButton>
         )}
         {docked ? (
           onUndock && (
-            <Tooltip content={t("放大成弹窗")}>
-              <button
-                type="button"
-                className="file-preview-size"
-                aria-label={t("放大成弹窗")}
-                onClick={() => {
-                  savePreviewDocked(false);
-                  onUndock();
-                }}
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
-                </svg>
-              </button>
-            </Tooltip>
-          )
-        ) : (
-          <Tooltip content={maximized ? t("还原大小") : t("放大预览")}>
-            <button
-              type="button"
+            <IconButton
+              size="sm"
               className="file-preview-size"
-              aria-pressed={maximized}
-              aria-label={maximized ? t("还原大小") : t("放大预览")}
-              onClick={toggleMaximized}
+              label={t("放大成弹窗")}
+              onClick={() => {
+                savePreviewDocked(false);
+                onUndock();
+              }}
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
-                {maximized ? (
-                  <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
-                ) : (
-                  <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
-                )}
+                <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
               </svg>
-            </button>
-          </Tooltip>
-        )}
-        <Tooltip content={docked ? t("关闭侧栏预览") : undefined}>
-          <button
-            ref={closeRef}
-            type="button"
-            className="file-preview-close"
-            aria-label={docked ? t("关闭侧栏预览") : t("关闭")}
-            onClick={onClose}
+            </IconButton>
+          )
+        ) : (
+          <IconButton
+            size="sm"
+            className="file-preview-size"
+            label={maximized ? t("还原大小") : t("放大预览")}
+            aria-pressed={maximized}
+            onClick={toggleMaximized}
           >
-            ×
-          </button>
-        </Tooltip>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              {maximized ? (
+                <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+              ) : (
+                <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+              )}
+            </svg>
+          </IconButton>
+        )}
+        <IconButton
+          ref={closeRef}
+          size="sm"
+          className="file-preview-close"
+          label={docked ? t("关闭侧栏预览") : t("关闭")}
+          onClick={onClose}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 6l12 12M18 6 6 18" />
+          </svg>
+        </IconButton>
       </header>
       <div className="file-preview-body">{body}</div>
     </div>
@@ -1330,6 +1322,7 @@ export function Lightbox({
         <Tooltip content={t("缩小")} shortcut={["-"]}>
           <button
             type="button"
+            className="attachment-lightbox-step"
             aria-label={t("缩小")}
             disabled={zoom <= MIN_ZOOM}
             onClick={() => zoomTo(zoom / 1.5)}
@@ -1350,6 +1343,7 @@ export function Lightbox({
         <Tooltip content={t("放大")} shortcut={["+"]}>
           <button
             type="button"
+            className="attachment-lightbox-step"
             aria-label={t("放大")}
             disabled={zoom >= MAX_ZOOM}
             onClick={() => zoomTo(zoom * 1.5)}

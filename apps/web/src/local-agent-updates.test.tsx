@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LocalAgent, Participant } from "@superhive/protocol";
 import type { LocalAgentsState } from "./local-agents";
@@ -99,7 +99,7 @@ describe("LocalAgentUpdatesGroup", () => {
     const confirm = screen.getByRole("dialog", { name: "确认立即重启 rd-claude" });
     expect(confirm.textContent).toContain("正在执行的会被中断");
     expect(act).not.toHaveBeenCalled();
-    fireEvent.click(confirm.querySelector("button.primary")!);
+    fireEvent.click(within(confirm).getByRole("button", { name: "立即重启" }));
     await waitFor(() => expect(act).toHaveBeenCalledWith(base.id, "restart", { now: true }));
   });
 

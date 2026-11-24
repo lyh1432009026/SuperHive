@@ -108,9 +108,7 @@
 }
 
 .thinking-card-detail button,
-.thinking-card-trigger-chip,
-.thinking-card-act,
-.thinking-card-latest {
+.thinking-card-trigger-chip {
   flex: 0 0 auto;
   padding: 0 6px;
   border: 0;
@@ -124,9 +122,7 @@
 }
 
 .thinking-card-detail button:hover,
-.thinking-card-trigger-chip:not(:disabled):hover,
-.thinking-card-act:hover,
-.thinking-card-latest:hover {
+.thinking-card-trigger-chip:not(:disabled):hover {
   background: var(--bg-hover);
   color: var(--text);
 }
@@ -211,11 +207,20 @@
   color: var(--text-tertiary);
 }
 
-.thinking-card-latest {
+/* 卡片标题行只有 22px 高：里面的规范小按钮压一档，不把标题行撑高 */
+.thinking-card header .btn {
+  --btn-height: 22px;
+  --btn-pad: 8px;
+}
+
+/* 叙述区右下角浮着的「↓ 最新」 */
+.thinking-card .btn.thinking-card-latest {
   position: absolute;
   right: 0;
   bottom: 0;
-  background: var(--bg-elevated);
+}
+
+.thinking-card-latest {
   box-shadow: var(--shadow-popover);
 }
 
@@ -248,36 +253,6 @@
 }
 
 /* 等你决定：去触发消息下的失败卡片点「继续」或「忽略」 */
-.thinking-card-act {
-  border: 1px solid var(--border);
-  color: var(--text);
-  background: var(--bg-main);
-}
-
-/* 停止：平时和计时一样低调，悬停才变红；停止中时点不了 */
-.thinking-card-stop {
-  flex: 0 0 auto;
-  padding: 0 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  background: transparent;
-  font: inherit;
-  font-size: var(--text-xs);
-  line-height: 20px;
-  cursor: pointer;
-}
-
-.thinking-card-stop:hover:not(:disabled) {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-.thinking-card-stop:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-
 /* 完整时间线：说的话和步骤按顺序排，最多约 40% 屏高，在卡片里滚动 */
 .thinking-card-narrative.full {
   max-height: 40vh;

@@ -39,6 +39,7 @@ import { SheetPanel } from "./sheet-panel";
 import { SplitResizer, useSplitWidth } from "./split-resizer";
 import { formatRelativeTime } from "./whiteboard";
 import { Tooltip } from "./tooltip";
+import { Button, IconButton } from "./button";
 
 /**
  * 房间「产物」面板：汇总房间里随消息发出的图片和文件，和「代码」一样是从头部打开的大面板。
@@ -827,62 +828,54 @@ export function ArtifactsPanel({
 
   const itemActions = (item: ArtifactItem) => (
     <span className="artifact-actions">
-      <Tooltip content={t("下载")}>
-        <button
-          type="button"
-          className="artifact-action"
-          aria-label={t("下载 {0}", { 0: item.name })}
+      <IconButton
+        size="sm"
+        label={t("下载 {0}", { 0: item.name })}
+        tooltip={t("下载")}
+        onClick={(event) => {
+          event.stopPropagation();
+          download(item);
+        }}
+      >
+        <DownloadIcon />
+      </IconButton>
+      {localOpen?.canOpen(item) && (
+        <IconButton
+          size="sm"
+          label={t("用本机应用打开 {0}", { 0: item.name })}
+          tooltip={t("用本机应用打开")}
           onClick={(event) => {
             event.stopPropagation();
-            download(item);
+            openLocally(item, "open");
           }}
         >
-          <DownloadIcon />
-        </button>
-      </Tooltip>
-      {localOpen?.canOpen(item) && (
-        <Tooltip content={t("用本机应用打开")}>
-          <button
-            type="button"
-            className="artifact-action"
-            aria-label={t("用本机应用打开 {0}", { 0: item.name })}
-            onClick={(event) => {
-              event.stopPropagation();
-              openLocally(item, "open");
-            }}
-          >
-            <OpenLocallyIcon />
-          </button>
-        </Tooltip>
+          <OpenLocallyIcon />
+        </IconButton>
       )}
       {localOpen && (
-        <Tooltip content={revealInFolderLabel()}>
-          <button
-            type="button"
-            className="artifact-action"
-            aria-label={`${revealInFolderLabel()}：${item.name}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              openLocally(item, "reveal");
-            }}
-          >
-            <RevealInFolderIcon />
-          </button>
-        </Tooltip>
-      )}
-      <Tooltip content={t("定位到消息")}>
-        <button
-          type="button"
-          className="artifact-action"
-          aria-label={t("定位到 {0} 所在的消息", { 0: item.name })}
+        <IconButton
+          size="sm"
+          label={`${revealInFolderLabel()}：${item.name}`}
+          tooltip={revealInFolderLabel()}
           onClick={(event) => {
             event.stopPropagation();
-            locate(item);
+            openLocally(item, "reveal");
           }}
         >
-          <LocateIcon />
-        </button>
-      </Tooltip>
+          <RevealInFolderIcon />
+        </IconButton>
+      )}
+      <IconButton
+        size="sm"
+        label={t("定位到 {0} 所在的消息", { 0: item.name })}
+        tooltip={t("定位到消息")}
+        onClick={(event) => {
+          event.stopPropagation();
+          locate(item);
+        }}
+      >
+        <LocateIcon />
+      </IconButton>
     </span>
   );
 
@@ -1048,27 +1041,20 @@ export function ArtifactsPanel({
       />
       <header className="artifact-detail-header">
         <h3 title={selectedItem.name}>{selectedItem.name}</h3>
-        <Tooltip content={t("关闭详情")}>
-          <button
-            type="button"
-            className="sheet-icon-button"
-            aria-label={t("关闭详情")}
-            onClick={closeDetail}
+        <IconButton label={t("关闭详情")} onClick={closeDetail}>
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.9"
+            strokeLinecap="round"
+            aria-hidden="true"
           >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.9"
-              strokeLinecap="round"
-              aria-hidden="true"
-            >
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </Tooltip>
+            <path d="M6 6l12 12M18 6 6 18" />
+          </svg>
+        </IconButton>
       </header>
       <div className="artifact-detail-scroll">
         {selectedItem.kind === "image" ? (
@@ -1104,42 +1090,34 @@ export function ArtifactsPanel({
         )}
         <div className="artifact-detail-actions">
           {(selectedItem.kind === "image" || previewKind(selectedItem)) && (
-            <button
-              type="button"
-              className="artifact-button primary"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => open(selectedItem, selectedArtifact)}
             >
               {selectedItem.kind === "image" ? t("查看大图") : t("预览")}
-            </button>
+            </Button>
           )}
-          <button type="button" className="artifact-button" onClick={() => download(selectedItem)}>
+          <Button size="sm" onClick={() => download(selectedItem)}>
             <DownloadIcon />
             {t("下载")}
-          </button>
+          </Button>
           {localOpen?.canOpen(selectedItem) && (
-            <button
-              type="button"
-              className="artifact-button"
-              onClick={() => openLocally(selectedItem, "open")}
-            >
+            <Button size="sm" onClick={() => openLocally(selectedItem, "open")}>
               <OpenLocallyIcon />
               {t("用本机应用打开")}
-            </button>
+            </Button>
           )}
           {localOpen && (
-            <button
-              type="button"
-              className="artifact-button"
-              onClick={() => openLocally(selectedItem, "reveal")}
-            >
+            <Button size="sm" onClick={() => openLocally(selectedItem, "reveal")}>
               <RevealInFolderIcon />
               {revealInFolderLabel()}
-            </button>
+            </Button>
           )}
-          <button type="button" className="artifact-button" onClick={() => locate(selectedItem)}>
+          <Button size="sm" onClick={() => locate(selectedItem)}>
             <LocateIcon />
             {t("定位到消息")}
-          </button>
+          </Button>
         </div>
         <dl className="artifact-detail-info">
           <dt>{t("类型")}</dt>
@@ -1323,13 +1301,15 @@ export function ArtifactsPanel({
               )}
             </h3>
             {scoped && (
-              <button type="button" className="artifact-scope" onClick={clearScope}>
-                {[senderName, range !== "any" ? RANGE_LABELS[range] : undefined]
-                  .filter(Boolean)
-                  .join(" · ")}
-                <span aria-hidden="true"> ×</span>
+              <Button size="sm" className="artifact-scope" onClick={clearScope}>
+                <span className="artifact-scope-text">
+                  {[senderName, range !== "any" ? RANGE_LABELS[range] : undefined]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+                <span aria-hidden="true">×</span>
                 <span className="sr-only">{t("清除发送者和时间筛选")}</span>
-              </button>
+              </Button>
             )}
             {!fileFilter && (
               <div className="artifact-view-toggle" role="group" aria-label={t("图片显示方式")}>
@@ -1359,13 +1339,9 @@ export function ArtifactsPanel({
               <header>
                 <h4>{t("图片")}</h4>
                 {(counts?.image ?? 0) > strip.artifacts.length && (
-                  <button
-                    type="button"
-                    className="artifact-more"
-                    onClick={() => setFilter("image")}
-                  >
+                  <Button variant="link" size="sm" onClick={() => setFilter("image")}>
                     {t("全部 {0} 张", { 0: counts?.image ?? 0 })}
-                  </button>
+                  </Button>
                 )}
               </header>
               <ul className="artifact-grid">
@@ -1388,15 +1364,15 @@ export function ArtifactsPanel({
             )}
             {listBody}
             {list.nextCursor && (
-              <button
+              <Button
                 ref={sentinelRef}
-                type="button"
+                size="sm"
                 className="artifact-load-more"
                 disabled={list.more}
                 onClick={loadMore}
               >
                 {list.more ? t("加载中…") : t("加载更多")}
-              </button>
+              </Button>
             )}
             {list.status === "error" && list.artifacts.length > 0 && (
               <p className="artifact-status danger" role="alert">

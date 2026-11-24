@@ -13,6 +13,7 @@ import { RuntimeConfigPanel, type RuntimeConfigApi } from "./runtime-config-pane
 import { hasRuntimeConfig } from "./runtime-credentials";
 import "./styles/agent-clis.css";
 import { Tooltip } from "./tooltip";
+import { Button } from "./button";
 
 /**
  * 这台电脑装了哪些 Agent CLI（只在 Server 所在电脑上的本机房主页面显示）：版本、安装位置与来源、
@@ -200,14 +201,9 @@ export function AgentClisGroup({
             )}
           </p>
         </div>
-        <button
-          type="button"
-          className="settings-action"
-          disabled={loading || Boolean(activity)}
-          onClick={() => void load(true)}
-        >
+        <Button size="sm" disabled={loading || Boolean(activity)} onClick={() => void load(true)}>
           {loading ? t("正在检测…") : t("重新检测")}
-        </button>
+        </Button>
       </div>
       {activity && (
         <p className="settings-note" role="status">
@@ -313,14 +309,13 @@ function AgentCliCard({
         </div>
         <div className="agent-cli-buttons">
           {configurable && (
-            <button
-              type="button"
-              className="settings-action agent-cli-button"
+            <Button
+              size="sm"
               aria-expanded={configOpen}
               onClick={() => setConfigOpen((open) => !open)}
             >
               {configOpen ? t("收起配置") : t("配置")}
-            </button>
+            </Button>
           )}
           {(offered || mine) && (
             <Tooltip
@@ -332,17 +327,16 @@ function AgentCliCard({
                   : undefined
               }
             >
-              <button
-                type="button"
+              <Button
                 ref={buttonRef}
-                className="settings-action agent-cli-button"
+                size="sm"
                 aria-expanded={confirming}
                 disabled={Boolean(activity) || submitting}
                 onClick={() => setConfirming(true)}
               >
                 {mine && <span className="agent-cli-spinner" aria-hidden />}
                 {label}
-              </button>
+              </Button>
             </Tooltip>
           )}
         </div>
@@ -606,14 +600,14 @@ function JobStatus({
           : t("这台电脑上还没有用 {0} 的 Agent。", { 0: info.name })}
       </p>
       {live.length > 0 && (
-        <button
-          type="button"
-          className="settings-action"
+        <Button
+          size="sm"
+          className="agent-cli-restart"
           disabled={restarting}
           onClick={() => void restart()}
         >
           {restarting ? t("正在重启…") : t("重启这 {0} 个 Agent", { 0: live.length })}
-        </button>
+        </Button>
       )}
       {restartResult && <p className="settings-note">{restartResult}</p>}
     </div>

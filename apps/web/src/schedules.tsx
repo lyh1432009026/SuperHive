@@ -4,6 +4,7 @@ import { AppDialog } from "./app-dialog";
 import { getLocale, t } from "./i18n";
 import { Select, type SelectOption } from "./select";
 import { Tooltip } from "./tooltip";
+import { Button } from "./button";
 
 export function upsertSchedule(
   current: ReadonlyMap<string, Schedule>,
@@ -385,23 +386,23 @@ function ScheduleRow({
       </p>
       <p className="schedule-actions">
         {resultId && (
-          <button type="button" onClick={() => onJump(resultId)}>
+          <Button size="sm" onClick={() => onJump(resultId)}>
             {invocation?.replyMessageId ? t("查看结果") : t("查看消息")}
-          </button>
+          </Button>
         )}
         {schedule.status === "scheduled" && (
           <Tooltip
             content={schedule.everyMinutes ? t("取消后整个周期结束，后面的不再执行") : undefined}
           >
-            <button
-              type="button"
-              className="danger"
-              disabled={cancelling}
+            <Button
+              size="sm"
+              tone="danger"
+              loading={cancelling}
               aria-label={t("取消定时任务：{0}", { 0: schedule.task })}
               onClick={onCancel}
             >
               {schedule.everyMinutes ? t("结束周期") : t("取消")}
-            </button>
+            </Button>
           </Tooltip>
         )}
       </p>

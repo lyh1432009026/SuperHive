@@ -42,22 +42,10 @@
   min-height: 0;
 }
 
-.panel-close {
+/* 抽屉的关闭按钮只在窄屏出现；.btn 自带 display，这里多带一层选择器才压得住 */
+:is(.rooms-panel, .members-panel) .btn.panel-close {
   display: none;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 auto;
-  place-items: center;
   margin-left: auto;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-secondary);
-}
-
-.panel-close:hover {
-  background: var(--bg-hover);
-  color: var(--text);
 }
 
 /* ---------- 左侧栏 ---------- */
@@ -407,16 +395,6 @@
 .room-archived-toggle {
   align-self: flex-start;
   margin: 0 0 6px 4px;
-  padding: 4px 6px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-}
-
-.room-archived-toggle:hover {
-  color: var(--text);
 }
 
 .sidebar-user {
@@ -787,22 +765,6 @@
   flex: 1;
 }
 
-.error-banner button {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: inherit;
-}
-
-.error-banner button:hover {
-  background: var(--bg-hover);
-}
-
 .notification-prompt > .icon {
   color: var(--text-secondary);
 }
@@ -831,30 +793,6 @@
   display: flex;
   flex: 0 0 auto;
   gap: 6px;
-}
-
-.notification-prompt-actions button {
-  height: 32px;
-  padding: 0 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--bg-main);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-}
-
-.notification-prompt-actions button:hover {
-  background: var(--bg-hover);
-}
-
-.notification-prompt-actions button.primary {
-  border-color: transparent;
-  background: var(--button-primary-bg);
-  color: var(--button-primary-text);
-}
-
-.notification-prompt-actions button.primary:hover {
-  background: var(--button-primary-hover);
 }
 
 /* ---------- 右侧成员 / 白板面板 ---------- */
@@ -1223,8 +1161,8 @@ div.member[role="button"] {
     display: flex;
   }
 
-  .members-panel .panel-close {
-    display: grid;
+  .members-panel .btn.panel-close {
+    display: inline-flex;
   }
 
   .panel-scrim {
@@ -1267,8 +1205,8 @@ div.member[role="button"] {
     animation: drawer-left 220ms var(--ease-out);
   }
 
-  .rooms-panel .panel-close {
-    display: grid;
+  .rooms-panel .btn.panel-close {
+    display: inline-flex;
   }
 
   .sidebar-header {

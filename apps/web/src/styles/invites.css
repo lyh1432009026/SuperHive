@@ -63,7 +63,7 @@
   overflow: hidden;
 }
 
-.duration-stepper button {
+.duration-stepper-step {
   width: 36px;
   height: 100%;
   border: 0;
@@ -72,12 +72,12 @@
   font-size: var(--text-base);
 }
 
-.duration-stepper button:hover:not(:disabled) {
+.duration-stepper-step:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--text);
 }
 
-.duration-stepper button:disabled {
+.duration-stepper-step:disabled {
   opacity: 0.35;
 }
 
@@ -147,24 +147,6 @@
 .invite-dialog-header b {
   color: var(--text);
   font-weight: var(--weight-medium);
-}
-
-.invite-close {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  margin: -6px -8px 0 0;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--text-secondary);
-}
-
-.invite-close:hover {
-  background: var(--bg-hover);
-  color: var(--text);
 }
 
 .invite-dialog-body {
@@ -238,25 +220,6 @@
   transform: translateX(16px);
 }
 
-.invite-submit {
-  min-height: 44px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--button-primary-bg);
-  color: var(--button-primary-text);
-  font-size: var(--text-base);
-  font-weight: var(--weight-semibold);
-  transition: background var(--duration-fast);
-}
-
-.invite-submit:hover:not(:disabled) {
-  background: var(--button-primary-hover);
-}
-
-.invite-submit:disabled {
-  opacity: 0.5;
-}
-
 .invite-created {
   /* minmax(0, 1fr) 与 min-width: 0：不换行的长链接不能把卡片和弹窗撑宽 */
   min-width: 0;
@@ -268,6 +231,10 @@
   padding: 14px;
   background: var(--bg-elevated);
   animation: pop-in var(--duration) var(--ease-out);
+}
+
+.invite-created-copy {
+  justify-self: start;
 }
 
 .invite-created > code {
@@ -310,52 +277,6 @@
   font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* 小号描边按钮：复制、续期、撤销 */
-.invite-dialog button.ghost {
-  min-height: 30px;
-  flex: 0 0 auto;
-  padding: 0 12px;
-  border: 1px solid var(--border-heavy);
-  border-radius: var(--radius-pill);
-  background: var(--bg-elevated);
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-medium);
-  transition:
-    border-color var(--duration-fast),
-    color var(--duration-fast),
-    background var(--duration-fast);
-}
-
-.invite-dialog button.ghost:hover {
-  border-color: var(--text-tertiary);
-  color: var(--text);
-}
-
-.invite-dialog button.ghost.danger {
-  color: var(--danger);
-}
-
-.invite-dialog button.ghost.danger:hover {
-  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
-  background: var(--danger-soft);
-}
-
-.invite-dialog button.primary {
-  min-height: 30px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--button-primary-bg);
-  color: var(--button-primary-text);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
-}
-
-.invite-dialog button.primary:disabled {
-  opacity: 0.5;
 }
 
 /* ---------- 邀请链接列表 ---------- */
@@ -476,23 +397,8 @@
   font-size: var(--text-xs);
 }
 
-.invite-renew-buttons {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
 .invite-toggle {
   align-self: flex-start;
-  border: 0;
-  padding: 4px 0;
-  background: transparent;
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-}
-
-.invite-toggle:hover {
-  color: var(--text);
 }
 
 @media (max-width: 560px) {
@@ -640,24 +546,6 @@
   width: 100%;
 }
 
-.guest-popover-primary {
-  min-height: 34px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--button-primary-bg);
-  color: var(--button-primary-text);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-}
-
-.guest-popover-primary:hover:not(:disabled) {
-  background: var(--button-primary-hover);
-}
-
-.guest-popover-primary:disabled {
-  opacity: 0.45;
-}
-
 .guest-popover footer {
   display: flex;
   flex-wrap: wrap;
@@ -674,25 +562,6 @@
   font-size: var(--text-xs);
 }
 
-.guest-popover footer button {
-  min-height: 28px;
-  border: 1px solid var(--border-heavy);
-  border-radius: var(--radius-pill);
-  padding: 0 12px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-}
-
-.guest-popover footer button.danger {
-  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-  color: var(--danger);
-}
-
-.guest-popover footer button.danger:hover:not(:disabled) {
-  background: var(--danger-soft);
-}
-
 /* 叠加在 .login-card 上；login.css 在后面加载，必须提高优先级，否则会沿用两栏布局把内容挤成一列竖排 */
 .login-card.access-card {
   max-width: 460px;
@@ -705,12 +574,6 @@
   align-self: flex-start;
   justify-self: start;
   margin-top: 12px;
-  border: 0;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 
 /* ---------- 本机 Agent 设置（MCP 开关） ---------- */
@@ -811,8 +674,8 @@
   min-width: 0;
 }
 
-.model-picker-row > button,
-.agent-model-actions button {
+/* 模型下拉的触发按钮：灰底药丸，和旁边的「刷新」按钮同高 */
+.model-picker-row > .select-trigger {
   height: 32px;
   flex: 0 0 auto;
   padding: 0 14px;
@@ -823,8 +686,7 @@
   font-size: var(--text-xs);
 }
 
-.model-picker-row > button:hover:not(:disabled),
-.agent-model-actions button:hover:not(:disabled) {
+.model-picker-row > .select-trigger:hover:not(:disabled) {
   background: var(--bg-active);
 }
 
@@ -969,26 +831,6 @@
   line-height: 1.5;
 }
 
-.agent-run-control button {
-  height: 28px;
-  flex: 0 0 auto;
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--bg-hover);
-  color: var(--text);
-  font-size: var(--text-xs);
-}
-
-.agent-run-control button:hover:not(:disabled) {
-  background: var(--bg-active);
-}
-
-.agent-run-control button.danger,
-.agent-remove-confirm button.danger {
-  color: var(--danger);
-}
-
 .agent-remove-confirm {
   display: flex;
   flex-wrap: wrap;
@@ -1003,13 +845,4 @@
 .agent-remove-confirm span {
   flex: 1;
   min-width: 12em;
-}
-
-.agent-remove-confirm button {
-  height: 28px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--bg-hover);
-  font-size: var(--text-xs);
 }

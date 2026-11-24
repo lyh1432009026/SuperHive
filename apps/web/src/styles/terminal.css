@@ -127,8 +127,7 @@
   white-space: nowrap;
 }
 
-.terminal-tab-close,
-.terminal-action {
+.terminal-tab-close {
   display: grid;
   flex: none;
   place-items: center;
@@ -141,8 +140,7 @@
   cursor: pointer;
 }
 
-.terminal-tab-close:hover,
-.terminal-action:hover {
+.terminal-tab-close:hover {
   background: var(--bg-hover);
   color: var(--text);
 }

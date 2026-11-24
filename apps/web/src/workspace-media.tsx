@@ -6,6 +6,7 @@ import { OfficePreview } from "./office-preview/office-preview";
 import { officeKind } from "./office-preview/office-kind";
 import { formatBytes } from "./workspace-diff";
 import { Tooltip } from "./tooltip";
+import { Button } from "./button";
 
 /**
  * 工作区面板里的图片、音视频、PDF 预览，以及图片改动的改前 / 改后对照。
@@ -163,10 +164,9 @@ export function DownloadButton({
   if (reveal && ref === "worktree")
     return (
       <>
-        <button
-          type="button"
-          className="workspace-primary"
-          disabled={busy}
+        <Button
+          variant="primary"
+          loading={busy}
           onClick={async () => {
             setBusy(true);
             setError(undefined);
@@ -180,7 +180,7 @@ export function DownloadButton({
           }}
         >
           {isMac() ? t("在访达中显示") : t("在文件夹中显示")}
-        </button>
+        </Button>
         {error && (
           <p className="workspace-error" role="alert">
             {error}
@@ -190,9 +190,8 @@ export function DownloadButton({
     );
   return (
     <>
-      <button
-        type="button"
-        className="workspace-primary"
+      <Button
+        variant="primary"
         disabled={busy}
         onClick={async () => {
           setBusy(true);
@@ -219,7 +218,7 @@ export function DownloadButton({
         }}
       >
         {busy ? t("准备下载…") : (label ?? t("下载"))}
-      </button>
+      </Button>
       {error && (
         <p className="workspace-error" role="alert">
           {error}

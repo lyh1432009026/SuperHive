@@ -15,6 +15,7 @@ import {
   UPSTREAM_FAILURE_PREFIX,
 } from "./attention";
 import { Tooltip } from "./tooltip";
+import { Button } from "./button";
 
 /** 人点一次「继续」为当前 Agent 对话追加的轮数，同时放宽连续轮数、转交深度和单链条数 */
 export const BUDGET_EXTEND_TURNS = 10;
@@ -626,29 +627,28 @@ export function InvocationChips({
                 </span>
               </button>
               {onLocate && canJumpTo(invocation.messageId) && (
-                <button
-                  type="button"
-                  className="invocation-action subtle"
+                <Button
+                  size="sm"
+                  variant="ghost"
                   aria-label={t("{0}，定位到原消息", { 0: ariaSummary })}
                   onClick={() => onLocate(invocation.messageId)}
                 >
                   {t("原消息")}
-                </button>
+                </Button>
               )}
               {jumpTarget && (
-                <button
-                  type="button"
-                  className="invocation-action"
+                <Button
+                  size="sm"
+                  variant="ghost"
                   aria-label={t("{0}，跳到回复", { 0: ariaSummary })}
                   onClick={() => onJump(jumpTarget)}
                 >
                   {t("查看回复")}
-                </button>
+                </Button>
               )}
               {isExtendableBlock(invocation) ? (
-                <button
-                  type="button"
-                  className="invocation-action primary"
+                <Button
+                  size="sm"
                   aria-label={t("为 Agent 对话追加 {0} 轮，恢复 @{1}", {
                     0: BUDGET_EXTEND_TURNS,
                     1: invocation.agentName,
@@ -656,7 +656,7 @@ export function InvocationChips({
                   onClick={onExtend}
                 >
                   {t("继续 {0} 轮", { 0: BUDGET_EXTEND_TURNS })}
-                </button>
+                </Button>
               ) : (
                 canRetry && (
                   <Tooltip
@@ -666,43 +666,47 @@ export function InvocationChips({
                         : undefined
                     }
                   >
-                    <button
-                      type="button"
-                      className={`invocation-action ${invocation.blockReason === "guest_approval" || needsDecision(invocation) ? "primary" : ""}`}
+                    <Button
+                      size="sm"
+                      variant={
+                        invocation.blockReason === "guest_approval" || needsDecision(invocation)
+                          ? "secondary"
+                          : "ghost"
+                      }
                       aria-label={`${retryLabel(invocation)} @${invocation.agentName}`}
                       aria-describedby={consequenceId}
                       onClick={() => onRetry(invocation)}
                     >
                       {retryLabel(invocation)}
-                    </button>
+                    </Button>
                   </Tooltip>
                 )
               )}
               {canRetryWithModel && (
                 <Tooltip content={t("选一个模型，只对这一次重试生效")}>
-                  <button
-                    type="button"
-                    className="invocation-action subtle"
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     aria-label={t("换个模型重试 @{0}", { 0: invocation.agentName })}
                     aria-describedby={consequenceId}
                     onClick={() => onRetryWithModel!(invocation)}
                   >
                     {t("换个模型重试")}
-                  </button>
+                  </Button>
                 </Tooltip>
               )}
               {onDismiss &&
                 canDismissInvocation(invocation) &&
                 (invocation.blockReason !== "guest_approval" || isOwner) && (
                   <Tooltip content={t("标为已处理，不再算作需要处理；记录仍保留")}>
-                    <button
-                      type="button"
-                      className="invocation-action subtle"
+                    <Button
+                      size="sm"
+                      variant="ghost"
                       aria-label={t("忽略 @{0} 的这次调用", { 0: invocation.agentName })}
                       onClick={() => onDismiss(invocation)}
                     >
                       {t("忽略")}
-                    </button>
+                    </Button>
                   </Tooltip>
                 )}
               {onSteer &&
@@ -713,14 +717,13 @@ export function InvocationChips({
                     ?.provider,
                 ) && (
                   <Tooltip content={t("不排队，让它在当前这一轮里接着处理这条")}>
-                    <button
-                      type="button"
-                      className="invocation-action primary"
+                    <Button
+                      size="sm"
                       aria-label={t("用这条引导 @{0} 正在执行的任务", { 0: invocation.agentName })}
                       onClick={() => onSteer(invocation)}
                     >
                       {t("引导")}
-                    </button>
+                    </Button>
                   </Tooltip>
                 )}
               {onPreempt &&
@@ -732,14 +735,15 @@ export function InvocationChips({
                   <Tooltip
                     content={t("先停下正在执行的任务（它会变成已停止或结果未知），停下后先做这条")}
                   >
-                    <button
-                      type="button"
-                      className="invocation-action subtle"
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      tone="danger"
                       aria-label={t("停下 @{0} 当前的任务，改做这条", { 0: invocation.agentName })}
                       onClick={() => onPreempt(invocation)}
                     >
                       {t("停下当前，改做这条")}
-                    </button>
+                    </Button>
                   </Tooltip>
                 )}
               {canCancelInvocation(invocation) &&
@@ -748,14 +752,15 @@ export function InvocationChips({
                   const siblings = turnSiblings(invocation, all);
                   if (siblings.length === 0) {
                     return (
-                      <button
-                        type="button"
-                        className="invocation-action subtle"
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        tone="danger"
                         aria-label={t("停止 @{0}", { 0: invocation.agentName })}
                         onClick={() => onCancel(invocation)}
                       >
                         {t("停止")}
-                      </button>
+                      </Button>
                     );
                   }
                   // 几条合在一轮里处理：停的是整轮。访客停不了有别人消息的这一轮，按钮点不了并说清楚
@@ -779,9 +784,10 @@ export function InvocationChips({
                             })
                       }
                     >
-                      <button
-                        type="button"
-                        className="invocation-action subtle"
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        tone="danger"
                         aria-label={t("停止 @{0} 这一轮的 {1} 条消息", {
                           0: invocation.agentName,
                           1: siblings.length + 1,
@@ -793,7 +799,7 @@ export function InvocationChips({
                         }}
                       >
                         {t("停止这一轮")}
-                      </button>
+                      </Button>
                     </Tooltip>
                   );
                 })()}

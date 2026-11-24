@@ -11,6 +11,7 @@ import { t } from "./i18n";
 import type { LocalAgentsState, RuntimeConfigResult } from "./local-agents";
 import { CredentialRow, RestartNotice, RUNTIME_LABELS } from "./runtime-credentials";
 import "./styles/runtime-config.css";
+import { Button } from "./button";
 
 /**
  * Agent CLI 卡片上「配置」点开的面板（只给 Server 所在电脑上的本机房主）：分接入、行为、MCP、提示词、
@@ -286,20 +287,20 @@ function FieldsSection({
         );
       })}
       <div className="runtime-config-actions">
-        <button
-          type="button"
+        <Button
           ref={saveRef}
-          className="settings-action"
+          size="sm"
+          variant="primary"
           disabled={!changed || busy}
           aria-expanded={confirming}
           onClick={() => setConfirming(true)}
         >
           {t("保存")}
-        </button>
+        </Button>
         {changed && (
-          <button type="button" className="settings-action" onClick={() => setDraft({})}>
+          <Button size="sm" onClick={() => setDraft({})}>
             {t("撤销修改")}
-          </button>
+          </Button>
         )}
       </div>
       {confirming && (
@@ -432,21 +433,22 @@ function McpSection({ api, provider, label, config, onSaved }: SectionProps) {
             </div>
             <div className="runtime-config-actions">
               {mcp.canToggle && (
-                <button
-                  type="button"
+                <Button
+                  size="sm"
                   disabled={busy}
                   onClick={() =>
                     void run(() => api.toggleRuntimeMcp(provider, server.name, !server.enabled))
                   }
                 >
                   {server.enabled ? t("停用") : t("启用")}
-                </button>
+                </Button>
               )}
-              <button type="button" disabled={busy} onClick={() => setEditing(draftOf(server))}>
+              <Button size="sm" disabled={busy} onClick={() => setEditing(draftOf(server))}>
                 {t("编辑")}
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                size="sm"
+                tone="danger"
                 ref={(element) => {
                   deleteRefs.current.set(server.name, element);
                 }}
@@ -455,7 +457,7 @@ function McpSection({ api, provider, label, config, onSaved }: SectionProps) {
                 onClick={() => setDeleting(server.name)}
               >
                 {t("删除")}
-              </button>
+              </Button>
             </div>
             {deleting === server.name && (
               <ConfirmPopover
@@ -505,14 +507,14 @@ function McpSection({ api, provider, label, config, onSaved }: SectionProps) {
           }}
         />
       ) : (
-        <button
-          type="button"
-          className="settings-action"
+        <Button
+          size="sm"
+          className="settings-button"
           disabled={busy}
           onClick={() => setEditing(emptyDraft())}
         >
           {t("添加 MCP 服务器")}
-        </button>
+        </Button>
       )}
       {error && <p className="settings-note error">{error}</p>}
     </div>
@@ -605,12 +607,12 @@ function McpForm({
         />
       </label>
       <div className="runtime-config-actions">
-        <button type="submit" className="settings-action" disabled={!valid || busy}>
+        <Button type="submit" size="sm" variant="primary" disabled={!valid || busy}>
           {t("保存")}
-        </button>
-        <button type="button" className="settings-action" onClick={onCancel}>
+        </Button>
+        <Button size="sm" onClick={onCancel}>
           {t("取消")}
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -673,18 +675,18 @@ function FileEditor({
         !error && <p className="settings-note">{t("正在读取…")}</p>
       )}
       <div className="runtime-config-actions">
-        <button
-          type="button"
-          className="settings-action"
+        <Button
+          size="sm"
+          variant="primary"
           disabled={!loaded || busy || content === loaded.content}
           onClick={() => void save()}
         >
           {busy ? t("正在保存…") : t("保存")}
-        </button>
+        </Button>
         {onClose && (
-          <button type="button" className="settings-action" onClick={onClose}>
+          <Button size="sm" onClick={onClose}>
             {t("收起")}
-          </button>
+          </Button>
         )}
       </div>
       {error && <p className="settings-note error">{error}</p>}
@@ -725,8 +727,8 @@ function AdvancedSection({ api, provider, label, config, onSaved }: SectionProps
             <code>{file.path}</code>
             {!file.exists && <span className="runtime-credentials-badge">{t("不存在")}</span>}
             {open !== file.id && (
-              <button
-                type="button"
+              <Button
+                size="sm"
                 ref={(element) => {
                   refs.current.set(file.id, element);
                 }}
@@ -734,7 +736,7 @@ function AdvancedSection({ api, provider, label, config, onSaved }: SectionProps
                 onClick={() => setConfirming(file.id)}
               >
                 {t("查看并编辑")}
-              </button>
+              </Button>
             )}
           </div>
           {confirming === file.id && (

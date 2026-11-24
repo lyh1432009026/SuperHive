@@ -7,6 +7,7 @@ import {
 import { getLocale, localized, t } from "./i18n";
 import { RefLink, RefText } from "./workspace-refs";
 import { Tooltip } from "./tooltip";
+import { Button, IconButton } from "./button";
 
 /** 阻塞最需要人关注，排在最前；里程碑是历史记录，放最后 */
 export const whiteboardSlots: Array<{ slot: WhiteboardSlot; label: string }> = localized(() => [
@@ -255,28 +256,24 @@ export function WhiteboardPanel({
             </button>
           </div>
           {view === "archived" && (
-            <Tooltip content={t("刷新历史")}>
-              <button
-                type="button"
-                className="whiteboard-icon-button"
-                aria-label={t("刷新历史")}
-                aria-busy={historyLoading}
-                disabled={historyLoading}
-                onClick={() => {
-                  setHistoryLoading(true);
-                  setError(undefined);
-                  loadHistory()
-                    .then(
-                      () => setHistoryLoaded(true),
-                      (reason: unknown) =>
-                        setError(reason instanceof Error ? reason.message : String(reason)),
-                    )
-                    .finally(() => setHistoryLoading(false));
-                }}
-              >
-                <RefreshIcon />
-              </button>
-            </Tooltip>
+            <IconButton
+              size="sm"
+              label={t("刷新历史")}
+              loading={historyLoading}
+              onClick={() => {
+                setHistoryLoading(true);
+                setError(undefined);
+                loadHistory()
+                  .then(
+                    () => setHistoryLoaded(true),
+                    (reason: unknown) =>
+                      setError(reason instanceof Error ? reason.message : String(reason)),
+                  )
+                  .finally(() => setHistoryLoading(false));
+              }}
+            >
+              <RefreshIcon />
+            </IconButton>
           )}
         </div>
         <div className="whiteboard-toolbar-row">
@@ -307,8 +304,8 @@ export function WhiteboardPanel({
           </label>
           {canManage && sorted.length > 0 && (
             <Tooltip content={view === "current" ? hint : undefined}>
-              <button
-                type="button"
+              <Button
+                size="sm"
                 className="whiteboard-bulk-pick"
                 disabled={busy || !bulkSelectable.length}
                 onClick={() =>
@@ -319,28 +316,26 @@ export function WhiteboardPanel({
               >
                 <SelectAllIcon />
                 <span>{view === "current" ? t("选择可归档事项") : t("选择历史事项")}</span>
-              </button>
+              </Button>
             </Tooltip>
           )}
         </div>
         {canManage && selected.size > 0 && (
           <div className="whiteboard-bulk" role="group" aria-label={t("批量操作")}>
-            <Tooltip content={t("取消选择")}>
-              <button
-                type="button"
-                className="whiteboard-icon-button"
-                aria-label={t("取消选择")}
-                disabled={busy}
-                onClick={() => setSelected(new Map())}
-              >
-                <CloseIcon />
-              </button>
-            </Tooltip>
+            <IconButton
+              size="sm"
+              label={t("取消选择")}
+              disabled={busy}
+              onClick={() => setSelected(new Map())}
+            >
+              <CloseIcon />
+            </IconButton>
             <span className="whiteboard-bulk-count">
               {t("已选择 {0} 条", { 0: selected.size })}
             </span>
-            <button
-              type="button"
+            <Button
+              size="sm"
+              variant="primary"
               className="whiteboard-bulk-apply"
               disabled={busy}
               onClick={() => void changeArchive([...selected.values()])}
@@ -348,7 +343,7 @@ export function WhiteboardPanel({
               {view === "current"
                 ? t("归档所选 ({0})", { 0: selected.size })
                 : t("恢复所选 ({0})", { 0: selected.size })}
-            </button>
+            </Button>
           </div>
         )}
         {historyLoading && (
@@ -469,39 +464,39 @@ export function WhiteboardPanel({
                     </time>
                   </p>
                   {canManage && canSelect(entry) && (
-                    <button
+                    <Button
+                      size="sm"
                       className="whiteboard-entry-action"
-                      type="button"
                       disabled={busy}
                       onClick={() => void changeArchive([entry])}
                     >
                       {view === "current"
                         ? t("归档事项：{0}", { 0: entry.key })
                         : t("恢复事项：{0}", { 0: entry.key })}
-                    </button>
+                    </Button>
                   )}
                   {canManage && view === "archived" && (
-                    <Tooltip content={t("从白板移除")}>
-                      <button
-                        type="button"
-                        className="whiteboard-remove"
-                        aria-label={t("从白板移除：{0}", { 0: entry.summary })}
-                        onClick={() => onRemove(entry)}
+                    <IconButton
+                      size="sm"
+                      tone="danger"
+                      className="whiteboard-remove"
+                      label={t("从白板移除：{0}", { 0: entry.summary })}
+                      tooltip={t("从白板移除")}
+                      onClick={() => onRemove(entry)}
+                    >
+                      <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        aria-hidden="true"
                       >
-                        <svg
-                          width="13"
-                          height="13"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          aria-hidden="true"
-                        >
-                          <path d="m6 6 12 12M18 6 6 18" />
-                        </svg>
-                      </button>
-                    </Tooltip>
+                        <path d="m6 6 12 12M18 6 6 18" />
+                      </svg>
+                    </IconButton>
                   )}
                 </li>
               ))}

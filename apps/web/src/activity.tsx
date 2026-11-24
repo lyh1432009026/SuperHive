@@ -13,6 +13,7 @@ import { AppDialog } from "./app-dialog";
 import { localized, t } from "./i18n";
 import { UsageSection } from "./usage";
 import { Tooltip } from "./tooltip";
+import { Button } from "./button";
 
 export type ActivityView = "search" | "mentions" | "tasks";
 
@@ -696,9 +697,9 @@ export function ActivityPanel({
             </div>
           )}
           {view === "mentions" && unreadMentions > 0 && (
-            <button type="button" className="activity-header-action" onClick={onMarkMentionsRead}>
+            <Button size="sm" onClick={onMarkMentionsRead}>
               {t("全部标为已读")}
-            </button>
+            </Button>
           )}
         </>
       }
@@ -758,9 +759,9 @@ export function ActivityPanel({
                               "把这些失败、被拦、结果未知的调用都标为已处理，记录仍可在消息下查看",
                             )}
                           >
-                            <button
-                              type="button"
-                              className="activity-section-action"
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               onClick={() =>
                                 onDismiss(
                                   invocations.filter(
@@ -772,7 +773,7 @@ export function ActivityPanel({
                               }
                             >
                               {t("全部忽略")}
-                            </button>
+                            </Button>
                           </Tooltip>
                         )}
                       </h3>

@@ -140,23 +140,6 @@
   justify-content: flex-start;
 }
 
-.worktree-panel button,
-.worktree-batch button {
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  color: var(--text);
-  border-radius: 7px;
-  padding: 7px 10px;
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.worktree-panel button:disabled,
-.worktree-batch button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
 .worktree-confirmation,
 .worktree-batch {
   padding: 12px;
@@ -194,10 +177,6 @@
 
 .worktree-discard-confirm {
   margin: 10px 0 0 43px;
-}
-
-.worktree-panel button.danger {
-  color: var(--danger);
 }
 
 .worktree-discard-commits {

@@ -56,6 +56,7 @@ import {
   type Token,
 } from "./workspace-diff";
 import { Tooltip } from "./tooltip";
+import { Button, IconButton } from "./button";
 
 /**
  * 房间工作区面板：从聊天头部「代码」打开的宽抽屉，只读。
@@ -516,9 +517,9 @@ export function WorkspacePanel({
         hint={t("设好工作区后，可以在这里浏览文件、查看 Agent 改了哪些代码。")}
       >
         {isOwner && onOpenSettings && (
-          <button type="button" className="workspace-primary" onClick={onOpenSettings}>
+          <Button variant="primary" className="workspace-empty-action" onClick={onOpenSettings}>
             {t("去设置工作区")}
-          </button>
+          </Button>
         )}
       </EmptyState>
     );
@@ -526,9 +527,7 @@ export function WorkspacePanel({
     body = (
       <div className="workspace-empty" role="alert">
         <p>{overview.error}</p>
-        <button type="button" onClick={() => void overview.reload()}>
-          {t("重试")}
-        </button>
+        <Button onClick={() => void overview.reload()}>{t("重试")}</Button>
       </div>
     );
   } else if (!overview.data || !source) {
@@ -561,9 +560,7 @@ export function WorkspacePanel({
     body = (
       <div className="workspace-empty">
         <p>{t("工作区不是 Git 仓库，没有变更可看。")}</p>
-        <button type="button" onClick={() => setTab("files")}>
-          {t("浏览文件")}
-        </button>
+        <Button onClick={() => setTab("files")}>{t("浏览文件")}</Button>
       </div>
     );
   } else {
@@ -600,28 +597,21 @@ export function WorkspacePanel({
         closeLabel={t("关闭工作区面板")}
         onClose={onClose}
         actions={
-          <Tooltip content={t("刷新")}>
-            <button
-              type="button"
-              className="sheet-icon-button"
-              aria-label={t("刷新")}
-              onClick={() => setRefreshTick((value) => value + 1)}
+          <IconButton label={t("刷新")} onClick={() => setRefreshTick((value) => value + 1)}>
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.9"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
             >
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.9"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" />
-              </svg>
-            </button>
-          </Tooltip>
+              <path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" />
+            </svg>
+          </IconButton>
         }
       >
         {overview.data?.configured && (
@@ -1143,9 +1133,7 @@ function DiffViewer({
     content = (
       <div className="workspace-empty" role="alert">
         <p>{diff.error}</p>
-        <button type="button" onClick={() => void diff.reload()}>
-          {t("重试")}
-        </button>
+        <Button onClick={() => void diff.reload()}>{t("重试")}</Button>
       </div>
     );
   else if (diff.data?.sensitive && diff.data.patch === undefined)
@@ -1194,9 +1182,7 @@ function DiffViewer({
         <p className="workspace-muted">
           {t("这个文件改了 {0} 行，一次显示可能会卡。", { 0: lineCount.toLocaleString() })}
         </p>
-        <button type="button" onClick={() => setTooManyConfirmed(true)}>
-          {t("仍然显示")}
-        </button>
+        <Button onClick={() => setTooManyConfirmed(true)}>{t("仍然显示")}</Button>
       </div>
     );
   else
@@ -1219,12 +1205,14 @@ function DiffViewer({
             return (
               <div key={block.gap.id} className="diff-gap" role="row">
                 <span role="cell">
-                  <button
-                    type="button"
+                  <Button
+                    size="sm"
                     onClick={() => setExpanded((current) => new Set(current).add(block.gap.id))}
                   >
-                    {t("展开 {0} 行未改动", { 0: block.gap.count })}
-                  </button>
+                    <span className="diff-gap-label">
+                      {t("展开 {0} 行未改动", { 0: block.gap.count })}
+                    </span>
+                  </Button>
                 </span>
               </div>
             );
@@ -1277,9 +1265,9 @@ function DiffViewer({
     <div className="workspace-viewer">
       <div className="workspace-viewer-bar">
         {onBack && (
-          <button type="button" className="workspace-back" onClick={onBack}>
+          <Button variant="ghost" size="sm" onClick={onBack}>
             ← {t("返回列表")}
-          </button>
+          </Button>
         )}
         <span className="workspace-viewer-path" title={selection.path}>
           {selection.oldPath && selection.oldPath !== selection.path
@@ -1412,19 +1400,15 @@ function SensitiveNotice({ canReveal, onReveal }: { canReveal: boolean; onReveal
         confirming ? (
           <div className="workspace-confirm" role="alert">
             <p className="workspace-muted">{t("显示后内容会出现在屏幕上，注意周围和屏幕共享。")}</p>
-            <div>
-              <button type="button" onClick={() => setConfirming(false)}>
-                {t("取消")}
-              </button>
-              <button type="button" className="workspace-primary" onClick={onReveal}>
+            <div className="dialog-actions center">
+              <Button onClick={() => setConfirming(false)}>{t("取消")}</Button>
+              <Button variant="primary" onClick={onReveal}>
                 {t("确认显示")}
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
-          <button type="button" onClick={() => setConfirming(true)}>
-            {t("显示内容…")}
-          </button>
+          <Button onClick={() => setConfirming(true)}>{t("显示内容…")}</Button>
         )
       ) : (
         <p className="workspace-muted">{t("只有房主可以查看。")}</p>
@@ -1862,9 +1846,9 @@ function FilePreview({
     <div className="workspace-viewer">
       <div className="workspace-viewer-bar">
         {onBack && (
-          <button type="button" className="workspace-back" onClick={onBack}>
+          <Button variant="ghost" size="sm" onClick={onBack}>
             ← {t("返回列表")}
-          </button>
+          </Button>
         )}
         <span className="workspace-viewer-path" title={path}>
           {path}
@@ -1981,13 +1965,13 @@ function CommitsView({
           </ul>
           {loading && <p className="workspace-muted workspace-list-note">{t("加载中…")}</p>}
           {more && !loading && (
-            <button
-              type="button"
+            <Button
+              size="sm"
               className="workspace-more"
               onClick={() => void loadPage(commits.length)}
             >
               {t("加载更多")}
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -2011,13 +1995,9 @@ function CommitsView({
             <div className="workspace-viewer">
               <div className="workspace-viewer-bar">
                 {narrow && (
-                  <button
-                    type="button"
-                    className="workspace-back"
-                    onClick={() => setSelectedCommit(undefined)}
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedCommit(undefined)}>
                     ← {t("返回列表")}
-                  </button>
+                  </Button>
                 )}
                 <span className="workspace-viewer-path is-title">
                   {detail.data?.commit?.subject ?? selectedCommit.slice(0, 7)}

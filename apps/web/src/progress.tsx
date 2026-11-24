@@ -9,6 +9,7 @@ import { attentionKind, attentionLabels, type AttentionKind } from "./attention"
 import { t } from "./i18n";
 import { formatRelativeTime } from "./whiteboard";
 import { Tooltip } from "./tooltip";
+import { Button } from "./button";
 
 /**
  * 「进展」：右侧栏给人看的那一面。白板原文是 Agent 之间的协作记录（提交号、测试数、目录），
@@ -302,13 +303,14 @@ export function ProgressPanel({
               </ul>
             )}
             {group === "done" && items.length > DONE_PREVIEW && (
-              <button
-                type="button"
+              <Button
+                size="sm"
+                variant="ghost"
                 className="progress-more"
                 onClick={() => setShowAllDone((value) => !value)}
               >
                 {showAllDone ? t("收起") : t("显示全部 {0} 条", { 0: items.length })}
-              </button>
+              </Button>
             )}
           </section>
         );

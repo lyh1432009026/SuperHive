@@ -15,6 +15,7 @@ import {
 } from "./access-api";
 import { localized, t, useLocale } from "./i18n";
 import { useAppReady, useAppReadyFallback } from "./boot-splash";
+import { Button } from "./button";
 
 /** 进了房间后等消息快照再收起加载画面；一直等不到（连不上实时通道）也最多盖这么久 */
 const APP_READY_FALLBACK_MS = 4_000;
@@ -272,9 +273,16 @@ function RedeemForm({
             autoComplete="username"
             spellCheck={false}
           />
-          <button type="submit" disabled={busy || !username.trim()}>
+          <Button
+            type="submit"
+            variant="primary"
+            block
+            className="login-submit"
+            disabled={!username.trim()}
+            loading={busy}
+          >
             <span>{busy ? t("正在加入…") : t("加入")}</span>
-          </button>
+          </Button>
           {error && (
             <p className="room-dialog-error" role="alert">
               {error}
@@ -311,9 +319,9 @@ function NoAccess({
         )}
         {detail && <p className="fine-print">{detail}</p>}
       </div>
-      <button type="button" className="access-retry" onClick={onRetry}>
+      <Button variant="link" className="access-retry" onClick={onRetry}>
         {t("重新检查")}
-      </button>
+      </Button>
       {showOwner ? (
         <form
           onSubmit={(event) => {
@@ -329,14 +337,14 @@ function NoAccess({
             onChange={(event) => setToken(event.target.value)}
             placeholder={t("在 Server 所在电脑的页面或启动日志里找到")}
           />
-          <button type="submit">
+          <Button type="submit" variant="primary" size="lg" block className="login-submit">
             <span>{t("以房主身份进入")}</span>
-          </button>
+          </Button>
         </form>
       ) : (
-        <button type="button" className="access-owner-link" onClick={() => setShowOwner(true)}>
+        <Button variant="link" className="access-owner-link" onClick={() => setShowOwner(true)}>
           {t("我是房主，从别的电脑访问")}
-        </button>
+        </Button>
       )}
     </>
   );

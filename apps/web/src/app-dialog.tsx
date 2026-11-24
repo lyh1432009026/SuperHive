@@ -16,6 +16,7 @@ import {
   type RefObject,
 } from "react";
 import { t } from "./i18n";
+import { IconButton } from "./button";
 
 export type AppDialogSize = "sm" | "md" | "lg" | "xl";
 
@@ -115,16 +116,11 @@ export function AppDialog({
         <header className="app-dialog-header">
           {header ?? <h2 id={titleId}>{title}</h2>}
           {tools}
-          <button
-            type="button"
-            className="app-dialog-close"
-            aria-label={t("关闭")}
-            onClick={onClose}
-          >
+          <IconButton className="app-dialog-close" label={t("关闭")} onClick={onClose}>
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
               <path d="m6 6 12 12M18 6 6 18" />
             </svg>
-          </button>
+          </IconButton>
         </header>
         {toolbar && <div className="app-dialog-toolbar">{toolbar}</div>}
         <div

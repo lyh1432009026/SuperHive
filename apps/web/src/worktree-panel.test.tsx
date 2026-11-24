@@ -262,7 +262,9 @@ describe("WorktreePanel", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "刷新" }));
     await waitFor(() =>
-      expect((screen.getByText("确认清理") as HTMLButtonElement).disabled).toBe(true),
+      expect((screen.getByRole("button", { name: "确认清理" }) as HTMLButtonElement).disabled).toBe(
+        true,
+      ),
     );
     expect(client.cleanupWorktrees).not.toHaveBeenCalled();
   });
@@ -272,7 +274,9 @@ describe("WorktreePanel", () => {
     render(<WorktreePanel roomId="general" api={client} onClose={() => undefined} />);
     await screen.findByText("feat/clean");
     expect((screen.getByLabelText("选择目录 feat/clean") as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByText("选择可清理项（1）") as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "选择可清理项（1）" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
     expect(client.cleanupWorktrees).not.toHaveBeenCalled();
   });
 

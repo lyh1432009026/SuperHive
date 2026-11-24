@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { sortReasoningEfforts, type LocalAgentModelsResponse } from "@superhive/protocol";
 import { t } from "./i18n";
 import { Select, type SelectOption } from "./select";
+import { Button, IconButton } from "./button";
 
 const CUSTOM = "\u0000custom";
 
@@ -80,9 +81,9 @@ export function ModelPicker({
           }}
         />
         {onRefresh && (
-          <button type="button" disabled={disabled || !data} onClick={onRefresh}>
+          <Button disabled={disabled || !data} onClick={onRefresh}>
             {t("刷新")}
-          </button>
+          </Button>
         )}
       </div>
       {editing && (
@@ -318,9 +319,9 @@ export function RetryModelDialog({
                 : t("只对这一次重试生效，之后还是用它设置里的模型。")}
             </p>
           </div>
-          <button type="button" className="invite-close" aria-label={t("关闭")} onClick={onClose}>
+          <IconButton label={t("关闭")} onClick={onClose}>
             <CloseGlyph />
-          </button>
+          </IconButton>
         </header>
         <div className="invite-dialog-body">
           <ModelPicker
@@ -347,9 +348,12 @@ export function RetryModelDialog({
               />
             </div>
           )}
-          <button type="submit" className="invite-submit" disabled={!ready}>
-            {submitLabel}
-          </button>
+          <div className="dialog-actions">
+            <Button onClick={onClose}>{t("取消")}</Button>
+            <Button type="submit" variant="primary" disabled={!ready}>
+              {submitLabel}
+            </Button>
+          </div>
         </div>
       </form>
     </div>

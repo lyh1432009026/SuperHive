@@ -80,16 +80,6 @@
   align-items: center;
 }
 
-.runtime-config-actions > button:not(.settings-action),
-.runtime-raw-file button {
-  padding: 3px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--bg-main);
-  color: var(--text);
-  font-size: var(--text-xs);
-}
-
 .runtime-config-actions code,
 .runtime-mcp-list code {
   overflow-wrap: anywhere;

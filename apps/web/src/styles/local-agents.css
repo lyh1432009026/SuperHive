@@ -79,23 +79,6 @@
   margin-left: auto;
 }
 
-.local-agent-actions button {
-  height: 26px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--bg-hover);
-  font-size: var(--text-xs);
-}
-
-.local-agent-actions button:hover:not(:disabled) {
-  background: var(--bg-active);
-}
-
-.local-agent-actions button.danger {
-  color: var(--danger);
-}
-
 .local-agent-logs {
   max-height: 200px;
   overflow: auto;
@@ -193,27 +176,13 @@
 
 .local-launch-cwd-row {
   display: flex;
+  align-items: center;
   gap: 8px;
 }
 
 .local-launch-cwd-row input {
   min-width: 0;
   flex: 1;
-}
-
-.local-launch-cwd-row button {
-  flex: 0 0 auto;
-  height: 38px;
-  padding: 0 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-main);
-  color: var(--text);
-  font-size: var(--text-sm);
-}
-
-.local-launch-cwd-row button:hover {
-  background: var(--bg-hover);
 }
 
 .directory-picker {
@@ -241,24 +210,6 @@
   white-space: nowrap;
 }
 
-.directory-picker-bar button {
-  flex: 0 0 auto;
-  height: 26px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--bg-hover);
-  font-size: var(--text-xs);
-}
-
-.directory-picker-bar button:hover:not(:disabled) {
-  background: var(--bg-active);
-}
-
-.directory-picker-bar button:disabled {
-  color: var(--text-tertiary);
-}
-
 .directory-picker-list {
   max-height: 180px;
   overflow-y: auto;
@@ -267,7 +218,7 @@
   list-style: none;
 }
 
-.directory-picker-list button {
+.directory-picker-entry {
   width: 100%;
   min-height: 30px;
   padding: 0 8px;
@@ -279,7 +230,7 @@
   text-align: left;
 }
 
-.directory-picker-list button:hover {
+.directory-picker-entry:hover {
   background: var(--bg-hover);
 }
 
@@ -287,45 +238,6 @@
   padding: 6px 8px;
   color: var(--text-tertiary);
   font-size: var(--text-xs);
-}
-
-.directory-picker-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.directory-picker-actions button {
-  height: 30px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--bg-hover);
-  font-size: var(--text-sm);
-}
-
-.directory-picker-actions button.primary {
-  background: var(--button-primary-bg);
-  color: var(--button-primary-text);
-}
-
-.local-launch-button {
-  height: 40px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--button-primary-bg);
-  color: var(--button-primary-text);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-}
-
-.local-launch-button:hover:not(:disabled) {
-  background: var(--button-primary-hover);
-}
-
-.local-launch-button:disabled {
-  background: var(--bg-active);
-  color: var(--text-tertiary);
 }
 
 .local-launch-result {

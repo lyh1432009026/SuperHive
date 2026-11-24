@@ -58,34 +58,6 @@
   line-height: 1.5;
 }
 
-.confirm-popover-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.confirm-popover-actions button {
-  height: 28px;
-  padding: 0 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md, 8px);
-  background: transparent;
-  color: var(--text);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.confirm-popover-actions button.primary {
-  border-color: transparent;
-  background: var(--text);
-  color: var(--bg-elevated);
-}
-
 .confirm-popover.danger strong {
   color: var(--danger);
-}
-
-.confirm-popover.danger .confirm-popover-actions button.primary {
-  background: var(--danger);
-  color: #fff;
 }

@@ -197,21 +197,16 @@
   font-size: var(--text-sm);
 }
 
-.artifact-scope {
+/* 发送者、时间筛选的标签：名字太长时省略，按钮本身可以收窄 */
+.artifacts-main-toolbar .btn.artifact-scope {
   min-width: 0;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  padding: 2px 10px;
-  background: var(--bg-active);
-  color: var(--text);
-  font-size: var(--text-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  flex: 0 1 auto;
 }
 
-.artifact-scope:hover {
-  border-color: var(--border-heavy);
+.artifact-scope-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .artifact-view-toggle {
@@ -260,19 +255,6 @@
   color: var(--text-tertiary);
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
-}
-
-.artifact-more {
-  border: 0;
-  padding: 2px 4px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-}
-
-.artifact-more:hover {
-  color: var(--text);
-  text-decoration: underline;
 }
 
 .artifact-grid,
@@ -555,31 +537,8 @@ tr.selected .artifact-actions,
   }
 }
 
-.artifact-action {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-}
-
-.artifact-action:hover {
-  background: var(--bg-active);
-  color: var(--text);
-}
-
-.artifact-load-more {
+.artifact-section .btn.artifact-load-more {
   justify-self: center;
-  min-height: 28px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  padding: 2px 14px;
-  background: var(--bg-main);
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
 }
 
 .artifact-status,
@@ -732,34 +691,6 @@ tr.selected .artifact-actions,
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-}
-
-.artifact-button {
-  display: inline-flex;
-  min-height: 30px;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 0 10px;
-  background: var(--bg-main);
-  color: var(--text);
-  font-size: var(--text-sm);
-}
-
-.artifact-button:hover {
-  border-color: var(--border-heavy);
-  background: var(--bg-hover);
-}
-
-.artifact-button.primary {
-  border-color: var(--button-primary-bg);
-  background: var(--button-primary-bg);
-  color: var(--button-primary-text);
-}
-
-.artifact-button.primary:hover {
-  background: var(--button-primary-hover);
 }
 
 .artifact-detail-info {

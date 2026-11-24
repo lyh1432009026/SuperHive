@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { OwnerDevicesPanel } from "./host-settings";
 import { t } from "./i18n";
+import { IconButton } from "./button";
 import type { LocalAgentsState } from "./local-agents";
 
 /**
@@ -47,7 +48,7 @@ export function OwnerDevicesDialog({
                   )}
             </p>
           </div>
-          <button type="button" className="invite-close" aria-label={t("关闭")} onClick={onClose}>
+          <IconButton className="dialog-close" label={t("关闭")} onClick={onClose}>
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
               <path
                 d="m6 6 12 12M18 6 6 18"
@@ -56,7 +57,7 @@ export function OwnerDevicesDialog({
                 strokeLinecap="round"
               />
             </svg>
-          </button>
+          </IconButton>
         </header>
         <div className="invite-dialog-body">
           <OwnerDevicesPanel local={local} />

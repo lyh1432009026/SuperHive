@@ -40,11 +40,6 @@
   margin-top: 8px;
 }
 
-.office-preview-problem > button {
-  min-height: 30px;
-  padding: 0 14px;
-}
-
 .office-preview-muted {
   color: var(--text-secondary);
 }
@@ -96,7 +91,14 @@
   outline: none;
 }
 
+/* 全屏放映是黑底：把这一块的文字、悬停、描边变量换成深色主题的值，底栏按钮跟着变，不单独改按钮颜色 */
 .office-pptx.fullscreen {
+  --text: #ececec;
+  --text-secondary: #b4b4b4;
+  --bg-elevated: transparent;
+  --bg-hover: rgb(255 255 255 / 0.1);
+  --border-heavy: rgb(255 255 255 / 0.24);
+  --focus-ring: rgb(255 255 255 / 0.4);
   background: #000;
 }
 
@@ -117,7 +119,7 @@
   border-right: 1px solid var(--border-light);
 }
 
-.office-pptx-thumbs button {
+.office-pptx-thumbs .office-pptx-thumb {
   position: relative;
   display: flex;
   align-items: flex-start;
@@ -130,7 +132,7 @@
   font-size: var(--text-xs);
 }
 
-.office-pptx-thumbs button > span {
+.office-pptx-thumbs .office-pptx-thumb > span {
   order: -1;
   width: 14px;
   text-align: right;
@@ -141,11 +143,11 @@
   border-radius: 2px;
 }
 
-.office-pptx-thumbs button.active {
+.office-pptx-thumbs .office-pptx-thumb.active {
   color: var(--accent);
 }
 
-.office-pptx-thumbs button.active .office-slide {
+.office-pptx-thumbs .office-pptx-thumb.active .office-slide {
   outline: 2px solid var(--accent);
 }
 
@@ -202,11 +204,6 @@
   color: #eee;
 }
 
-.office-pptx-bar button {
-  min-width: 30px;
-  min-height: 28px;
-}
-
 .office-pptx-count {
   min-width: 64px;
   color: var(--text-secondary);
@@ -218,7 +215,7 @@
   color: #ccc;
 }
 
-.office-pptx-fullscreen {
+.office-pptx-bar .btn.office-pptx-fullscreen {
   position: absolute;
   right: 12px;
 }

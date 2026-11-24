@@ -132,6 +132,7 @@ import { ShareBar, useShareSelection } from "./share-bar";
 import { Composer } from "./composer";
 import { Tooltip } from "./tooltip";
 import { useAppReady } from "./boot-splash";
+import { Button } from "./button";
 
 export function App({
   guest,
@@ -813,8 +814,8 @@ export function App({
   }, [dockedPreview, messages]);
   const dockedNewerNotice = dockedNewerVersion && (
     <Tooltip content={t("换成最新发的 {0}", { 0: dockedPreview?.attachment.name ?? "" })}>
-      <button
-        type="button"
+      <Button
+        size="sm"
         className="file-preview-newer"
         onClick={() =>
           setDockedPreview(
@@ -828,7 +829,7 @@ export function App({
         }
       >
         {t("有新版本")}
-      </button>
+      </Button>
     </Tooltip>
   );
 
@@ -2700,12 +2701,12 @@ export function App({
         <OnboardingGuide steps={onboardingSteps} onClose={closeOnboarding} />
       )}
       {showOnboarding && !onboardingOpen && !agentDialogOpen && !imDialogOpen && (
-        <button type="button" className="onboarding-resume" onClick={() => setOnboardingOpen(true)}>
+        <Button className="onboarding-resume" onClick={() => setOnboardingOpen(true)}>
           {t("继续上手引导（{0}/{1}）", {
             0: onboardingSteps.filter((step) => step.done).length,
             1: onboardingSteps.length,
           })}
-        </button>
+        </Button>
       )}
     </main>
   );

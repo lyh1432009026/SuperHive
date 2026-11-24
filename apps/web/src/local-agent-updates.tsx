@@ -6,6 +6,7 @@ import { localAgentStatusLabels, type LocalAgentsState } from "./local-agents";
 import { SettingsSwitch } from "./settings-switch";
 import "./styles/local-agent-updates.css";
 import { Tooltip } from "./tooltip";
+import { Button } from "./button";
 
 const POLL_MS = 5_000;
 
@@ -46,17 +47,17 @@ export function RestartNowButton({
   };
   return (
     <>
-      <button
+      <Button
         ref={anchorRef}
-        type="button"
+        size="sm"
         // 正忙时才用警示色：这时立即重启会打断任务
-        className={agent.busy ? "danger" : undefined}
+        {...(agent.busy ? { tone: "danger" as const } : {})}
         disabled={disabled || busy}
         aria-expanded={confirming}
         onClick={() => setConfirming((current) => !current)}
       >
         {busy ? t("重启中…") : t("立即重启")}
-      </button>
+      </Button>
       {confirming && (
         <ConfirmPopover
           anchorRef={anchorRef}
@@ -183,13 +184,13 @@ export function LocalAgentUpdatesGroup({ local }: { local: LocalAgentsState }) {
                 {live && (
                   <span className="agent-update-actions">
                     <Tooltip content={t("等手上的任务都做完再重启")}>
-                      <button
-                        type="button"
+                      <Button
+                        size="sm"
                         disabled={!local.canManage || acting === agent.id || agent.restartWhenIdle}
                         onClick={() => restartWhenIdle(agent)}
                       >
                         {t("重启")}
-                      </button>
+                      </Button>
                     </Tooltip>
                     <RestartNowButton
                       agent={agent}

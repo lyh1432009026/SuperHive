@@ -7,6 +7,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { Button } from "./button";
 
 interface ConfirmPopoverProps {
   /** 读屏名称，说明在确认什么 */
@@ -127,19 +128,19 @@ export function ConfirmPopover({
     >
       {title ? <strong>{title}</strong> : null}
       <p>{message}</p>
-      <div className="confirm-popover-actions">
-        <button type="button" onClick={onCancel}>
+      <div className="confirm-popover-actions dialog-actions">
+        <Button size="sm" onClick={onCancel}>
           {cancelLabel}
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
           ref={confirmButtonRef}
-          className="primary"
+          size="sm"
+          variant={danger ? "danger" : "primary"}
           disabled={busy}
           onClick={onConfirm}
         >
           {confirmLabel}
-        </button>
+        </Button>
       </div>
     </div>,
     portalTarget,

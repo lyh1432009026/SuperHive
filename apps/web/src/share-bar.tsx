@@ -5,6 +5,7 @@ import { copyTextToClipboard } from "./clipboard";
 import { AvatarGlyph, avatarHueStyle } from "./avatar";
 import { MessageMarkdown } from "./message-markdown-lazy";
 import { t } from "./i18n";
+import { Button } from "./button";
 
 /** 分享模式：选中若干条消息，复制或下载成 Markdown，或导出成图片 */
 export function useShareSelection({
@@ -144,40 +145,37 @@ export function ShareBar({
           <span className="share-count" role="status">
             {t("已选 {0} 条", { 0: selectedMessages.length })}
           </span>
-          <button type="button" onClick={toggleSelectAllMessages}>
+          <Button onClick={toggleSelectAllMessages}>
             {messages.length > 0 && selectedMessageIds.size === messages.length
               ? t("清空")
               : t("全选")}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             disabled={selectedMessages.length === 0 || shareBusy}
             onClick={() => void copyShareMarkdown()}
           >
             {t("复制 Markdown")}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             disabled={selectedMessages.length === 0 || shareBusy}
             onClick={downloadShareMarkdown}
           >
             {t("下载 .md")}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             disabled={selectedMessages.length === 0 || shareBusy}
             onClick={() => void exportShareImage()}
           >
             {shareBusy ? t("导出中…") : t("导出图片")}
-          </button>
+          </Button>
           {shareFeedback && (
             <span className="share-feedback" role="status">
               {shareFeedback}
             </span>
           )}
-          <button type="button" className="share-exit" onClick={exitShareMode}>
+          <Button variant="ghost" className="share-exit" onClick={exitShareMode}>
             {t("退出")}
-          </button>
+          </Button>
         </div>
       )}
       {shareMode && selectedMessages.length > 0 && (

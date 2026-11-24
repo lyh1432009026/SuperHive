@@ -213,7 +213,7 @@ export const APP_SHOTS = [
       await d.hover(".artifact-tile", { ms: 800 });
       await d.wait(600);
       await d.click(".artifact-open", { match: text(/金额显示规范/), after: 900 });
-      await d.click(".artifact-button.primary", { after: 1200 });
+      await d.click(".artifact-detail-actions .btn-primary", { after: 1200 });
       await d.click('.file-preview-size[aria-label="在右侧栏打开"]', { after: 1400 });
       const id = await d.highlight('[aria-label="用本机应用打开"]', "用本机应用打开", {
         below: true,

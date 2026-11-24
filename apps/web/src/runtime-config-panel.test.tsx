@@ -110,7 +110,9 @@ function api(provider: RuntimeCredentialProvider = "claude") {
 const tab = (name: string) => fireEvent.click(screen.getByRole("tab", { name }));
 const confirmIn = (name: string) =>
   act(async () => {
-    fireEvent.click(screen.getByRole("dialog", { name }).querySelector("button.primary")!);
+    fireEvent.click(
+      screen.getByRole("dialog", { name }).querySelector<HTMLButtonElement>("button:last-child")!,
+    );
   });
 
 describe("RuntimeConfigPanel", () => {
@@ -135,7 +137,7 @@ describe("RuntimeConfigPanel", () => {
     const client = api();
     render(<RuntimeConfigPanel api={client} provider="claude" />);
     const model = (await screen.findByDisplayValue("opus")) as HTMLInputElement;
-    expect((screen.getByText("保存") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "保存" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(model, { target: { value: "" } });
     fireEvent.click(screen.getByText("保存"));
     expect(client.updateRuntimeFields).not.toHaveBeenCalled();

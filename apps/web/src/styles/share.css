@@ -60,39 +60,8 @@
   font-variant-numeric: tabular-nums;
 }
 
-.share-bar button {
-  min-height: 32px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  padding: 0 14px;
-  background: var(--bg-elevated);
-  color: var(--text);
-  font-size: var(--text-sm);
-  white-space: nowrap;
-  transition:
-    background var(--duration-fast),
-    border-color var(--duration-fast),
-    color var(--duration-fast);
-}
-
-.share-bar button:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-
-.share-bar button:disabled {
-  opacity: 0.45;
-}
-
 .share-bar .share-exit {
   margin-left: auto;
-  border-color: transparent;
-  background: transparent;
-  color: var(--text-secondary);
-}
-
-.share-bar .share-exit:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text);
 }
 
 .share-feedback {
@@ -224,11 +193,6 @@
   .share-bar {
     gap: 6px;
     padding: 8px 10px;
-  }
-
-  .share-bar button {
-    min-height: 34px;
-    padding: 0 12px;
   }
 
   .share-count {

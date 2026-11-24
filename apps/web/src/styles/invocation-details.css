@@ -78,22 +78,6 @@
 .invocation-details-eyebrow {
   overflow-wrap: anywhere;
 }
-.invocation-details-close {
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-  padding: 0;
-  color: var(--text-secondary);
-  border: none;
-  background: transparent;
-  border-radius: var(--radius-md);
-  font: 22px/1 var(--font-sans);
-  cursor: pointer;
-}
-.invocation-details-close:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
 
 /* 状态：一枚带色点的徽章 + 连接说明 */
 .invocation-details-state {
@@ -293,27 +277,6 @@
   margin: 0 0 8px;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-}
-.invocation-details-reply {
-  min-height: 36px;
-  padding: 6px 16px;
-  border: 1px solid var(--border-heavy);
-  border-radius: var(--radius-md);
-  background: var(--bg-subtle);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-.invocation-details-reply:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-.invocation-details-reply.secondary {
-  background: transparent;
-}
-.invocation-details-reply:disabled {
-  color: var(--text-tertiary);
-  cursor: default;
 }
 .invocation-details :is(button, summary):focus-visible {
   outline: 2px solid var(--focus-ring);

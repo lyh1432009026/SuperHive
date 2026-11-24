@@ -16,6 +16,7 @@ import {
 } from "./access-api";
 import { copyTextToClipboard } from "./clipboard";
 import { localized, t } from "./i18n";
+import { Button, IconButton } from "./button";
 
 type DurationChoice = { kind: "preset"; minutes: number | null } | { kind: "custom" };
 
@@ -78,6 +79,7 @@ export function DurationPicker({
           <div className="duration-stepper">
             <button
               type="button"
+              className="duration-stepper-step"
               aria-label={t("减少")}
               disabled={amount <= limits.min}
               onClick={() => setAmount((value) => clamp(value - 1))}
@@ -97,6 +99,7 @@ export function DurationPicker({
             />
             <button
               type="button"
+              className="duration-stepper-step"
               aria-label={t("增加")}
               disabled={amount >= limits.max}
               onClick={() => setAmount((value) => clamp(value + 1))}
@@ -262,16 +265,16 @@ export function InviteDialog({
           {state !== "revoked" && renewing !== invite.id && (
             <div className="invite-item-actions">
               {link && state === "active" && (
-                <button type="button" className="ghost" onClick={() => void copy(invite.id, link)}>
+                <Button size="sm" onClick={() => void copy(invite.id, link)}>
                   {copiedId === invite.id ? t("已复制") : t("复制链接")}
-                </button>
+                </Button>
               )}
-              <button type="button" className="ghost" onClick={() => setRenewing(invite.id)}>
+              <Button size="sm" onClick={() => setRenewing(invite.id)}>
                 {t("续期")}
-              </button>
-              <button
-                type="button"
-                className="ghost danger"
+              </Button>
+              <Button
+                size="sm"
+                tone="danger"
                 onClick={() => {
                   if (
                     invite.uses === 0 ||
@@ -286,7 +289,7 @@ export function InviteDialog({
                 }}
               >
                 {t("撤销")}
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -294,13 +297,13 @@ export function InviteDialog({
           <div className="invite-renew">
             <span>{t("从现在起续期，凭这个链接已加入的人一起延长：")}</span>
             <DurationPicker onChange={setRenewMinutes} />
-            <div className="invite-renew-buttons">
-              <button type="button" className="ghost" onClick={() => setRenewing(undefined)}>
+            <div className="dialog-actions">
+              <Button size="sm" onClick={() => setRenewing(undefined)}>
                 {t("取消")}
-              </button>
-              <button
-                type="button"
-                className="primary"
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
                 disabled={renewMinutes === undefined}
                 onClick={() =>
                   void renewInvite(base, adminToken, invite.id, renewMinutes ?? null)
@@ -312,7 +315,7 @@ export function InviteDialog({
                 }
               >
                 {t("确认续期")}
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -342,9 +345,9 @@ export function InviteDialog({
               {t("。链接有效期内谁拿到都能用，到期后所有人一起失效。")}
             </p>
           </div>
-          <button type="button" className="invite-close" aria-label={t("关闭")} onClick={onClose}>
+          <IconButton className="dialog-close" label={t("关闭")} onClick={onClose}>
             <CloseGlyph />
-          </button>
+          </IconButton>
         </header>
 
         <div className="invite-dialog-body">
@@ -421,24 +424,18 @@ export function InviteDialog({
                 </div>
                 <div className="invite-link-row">
                   <code>{created.link}</code>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => void copy(created.invite.id, created.link)}
-                  >
+                  <Button size="sm" onClick={() => void copy(created.invite.id, created.link)}>
                     {copiedId === created.invite.id ? t("已复制") : t("复制")}
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
 
-            <button
-              type="submit"
-              className="invite-submit"
-              disabled={busy || minutes === undefined}
-            >
-              {busy ? t("正在生成…") : created ? t("再生成一个链接") : t("生成并复制链接")}
-            </button>
+            <div className="dialog-actions">
+              <Button type="submit" variant="primary" disabled={busy || minutes === undefined}>
+                {busy ? t("正在生成…") : created ? t("再生成一个链接") : t("生成并复制链接")}
+              </Button>
+            </div>
           </form>
 
           <section className="invite-list" aria-label={t("本房间的邀请")}>
@@ -453,8 +450,8 @@ export function InviteDialog({
             )}
             {inactive.length > 0 && (
               <>
-                <button
-                  type="button"
+                <Button
+                  variant="link"
                   className="invite-toggle"
                   aria-expanded={showInactive}
                   onClick={() => setShowInactive((value) => !value)}
@@ -463,7 +460,7 @@ export function InviteDialog({
                     0: showInactive ? t("收起") : t("显示"),
                     1: inactive.length,
                   })}
-                </button>
+                </Button>
                 {showInactive && <ul className="inactive">{inactive.map(renderInvite)}</ul>}
               </>
             )}
@@ -624,16 +621,16 @@ export function GuestMemberActions({
                   {ended ? t("续期后可重新进入") : t("从现在起续期")}
                 </span>
                 <DurationPicker onChange={setMinutes} />
-                <button
-                  type="button"
-                  className="guest-popover-primary"
+                <Button
+                  variant="primary"
+                  block
                   disabled={busy || minutes === undefined}
                   onClick={() =>
                     void run(() => renewGuest(base, adminToken, access.sessionId, minutes ?? null))
                   }
                 >
                   {busy ? t("正在续期…") : t("确认续期")}
-                </button>
+                </Button>
               </section>
             )}
             {!ended && (
@@ -641,24 +638,24 @@ export function GuestMemberActions({
                 {confirmRemove ? (
                   <>
                     <span>{t("他和他带入的 Agent 会被立即断开。")}</span>
-                    <button type="button" onClick={() => setConfirmRemove(false)}>
+                    <Button size="sm" onClick={() => setConfirmRemove(false)}>
                       {t("取消")}
-                    </button>
-                    <button
-                      type="button"
-                      className="danger"
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="danger"
                       disabled={busy}
                       onClick={() =>
                         void run(() => removeGuest(base, adminToken, access.sessionId))
                       }
                     >
                       {t("确认移除")}
-                    </button>
+                    </Button>
                   </>
                 ) : (
-                  <button type="button" className="danger" onClick={() => setConfirmRemove(true)}>
+                  <Button size="sm" tone="danger" onClick={() => setConfirmRemove(true)}>
                     {t("移出房间")}
-                  </button>
+                  </Button>
                 )}
               </footer>
             )}
@@ -704,9 +701,9 @@ export function GuestAgentDialog({
           <div>
             <h2 id="guest-agent-title">{t("带入我的 Agent")}</h2>
           </div>
-          <button type="button" aria-label={t("关闭")} onClick={onClose}>
-            ×
-          </button>
+          <IconButton className="dialog-close" label={t("关闭")} onClick={onClose}>
+            <CloseGlyph />
+          </IconButton>
         </header>
         <form
           className="room-dialog-body"
@@ -747,8 +744,9 @@ export function GuestAgentDialog({
             <div className="invite-created" role="status">
               <strong>{t("在你自己的电脑上运行（可加 --provider claude 等参数）")}</strong>
               <code>{command}</code>
-              <button
-                type="button"
+              <Button
+                size="sm"
+                className="invite-created-copy"
                 onClick={() =>
                   void copyTextToClipboard(command).then(
                     () => setCopied(true),
@@ -757,13 +755,17 @@ export function GuestAgentDialog({
                 }
               >
                 {copied ? t("已复制") : t("复制命令")}
-              </button>
+              </Button>
             </div>
           )}
-          <footer className="room-dialog-footer">
-            <button type="submit" disabled={busy || !name.trim() || Boolean(command)}>
+          <footer className="room-dialog-footer dialog-actions">
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={busy || !name.trim() || Boolean(command)}
+            >
               {t("生成接入命令")}
-            </button>
+            </Button>
           </footer>
         </form>
       </div>

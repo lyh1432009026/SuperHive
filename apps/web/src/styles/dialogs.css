@@ -63,27 +63,9 @@
   line-height: 1.35;
 }
 
-.agent-dialog-close,
-.room-dialog-header > button {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  margin: -6px -4px 0 0;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--text-secondary);
-  transition:
-    background var(--duration-fast),
-    color var(--duration-fast);
-}
-
-.agent-dialog-close:hover,
-.room-dialog-header > button:hover {
-  background: var(--bg-hover);
-  color: var(--text);
+/* 弹窗标题栏右上角的关闭按钮（IconButton）：往右上收一点，和标题首行对齐 */
+.dialog-close {
+  margin: -4px -6px 0 0;
 }
 
 /* ---------- Agent 接入弹窗 ---------- */
@@ -251,16 +233,6 @@
 .agent-runtime-link {
   align-self: flex-start;
   margin-top: 10px;
-  padding: 2px 0;
-  border: 0;
-  background: transparent;
-  color: var(--accent);
-  font-size: var(--text-sm);
-  text-align: left;
-}
-
-.agent-runtime-link:hover {
-  text-decoration: underline;
 }
 
 .provider-selector button,
@@ -446,70 +418,6 @@
 
 /* 完全访问的风险确认已改成就地气泡（confirm-popover.css），旧的底部确认区样式删除 */
 
-.room-archive-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-/* 弹窗内通用按钮：次要为描边幽灵胶囊，主要为黑/白实心胶囊 */
-.room-archive-actions button,
-.agent-dialog-nav button,
-.room-dialog-footer button {
-  min-height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  padding: 0 16px;
-  background: transparent;
-  color: var(--text);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  white-space: nowrap;
-  transition:
-    background var(--duration-fast),
-    border-color var(--duration-fast),
-    color var(--duration-fast);
-}
-
-.room-archive-actions button:hover:not(:disabled),
-.agent-dialog-nav button:hover:not(:disabled),
-.room-dialog-footer button:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-
-.room-archive-actions button:last-child {
-  border-color: transparent;
-  background: var(--danger);
-  color: var(--text-inverse);
-}
-
-.room-archive-actions button:last-child:hover:not(:disabled) {
-  background: var(--danger);
-  filter: brightness(1.08);
-}
-
-.agent-dialog-nav button.primary,
-.room-dialog-footer button[type="submit"] {
-  border-color: transparent;
-  background: var(--button-primary-bg);
-  color: var(--button-primary-text);
-}
-
-.agent-dialog-nav button.primary:hover,
-.room-dialog-footer button[type="submit"]:hover:not(:disabled) {
-  background: var(--button-primary-hover);
-}
-
-.room-archive-actions button:disabled,
-.agent-dialog-nav button:disabled,
-.room-dialog-footer button:disabled {
-  opacity: 0.45;
-}
-
 /* 终端命令：代码块配色，等宽 12.5px */
 .command {
   overflow: hidden;
@@ -556,28 +464,11 @@
   user-select: all;
 }
 
-.command button {
-  min-height: 34px;
+/* 复制命令：代码块右下角 */
+.command-copy {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  width: fit-content;
   margin: 0 12px 12px auto;
-  border: 0;
-  border-radius: var(--radius-pill);
-  padding: 0 14px;
-  background: var(--button-primary-bg);
-  color: var(--button-primary-text);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  transition: background var(--duration-fast);
-}
-
-.command button:hover:not(:disabled) {
-  background: var(--button-primary-hover);
-}
-
-.command button:disabled {
-  opacity: 0.45;
 }
 
 .command-copy-error,
@@ -858,24 +749,14 @@
 }
 
 .room-dialog-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
   margin-top: 4px;
 }
 
-.room-dialog-footer button[type="submit"] {
-  margin-left: auto;
-}
-
-.room-dialog-footer .room-archive {
-  color: var(--danger);
-}
-
-.room-dialog-footer .room-archive:hover:not(:disabled) {
-  border-color: transparent;
-  background: var(--danger-soft);
+/* 房间设置底部左侧：清空、归档 / 恢复（和保存无关的操作） */
+.room-dialog-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 /* ---------- 用户菜单（侧栏底部身份条弹出） ---------- */
@@ -1042,17 +923,12 @@
     margin-left: 0;
   }
 
-  .agent-dialog-nav button {
-    min-height: 42px;
+  .agent-dialog-nav > .btn {
     flex: 1;
   }
 
   .room-dialog-body {
     padding: 16px 16px max(20px, env(safe-area-inset-bottom));
-  }
-
-  .room-dialog-footer button {
-    min-height: 42px;
   }
 
   @keyframes sheet-in {

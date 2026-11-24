@@ -8,7 +8,7 @@ import {
   type RefObject,
 } from "react";
 import { t } from "./i18n";
-import { Tooltip } from "./tooltip";
+import { IconButton } from "./button";
 
 /**
  * 从聊天头部打开的大面板外壳（「代码」「产物」「任务目录」共用）：
@@ -157,54 +157,43 @@ export function SheetPanel({
         {headerExtra}
         <div className="sheet-header-actions">
           {actions}
-          <Tooltip content={maximized ? t("还原为侧边面板") : t("占满整个窗口")}>
-            <button
-              type="button"
-              className="sheet-icon-button"
-              aria-label={maximized ? t("还原为侧边面板") : t("占满整个窗口")}
-              aria-pressed={maximized}
-              onClick={() => setMaximized((current) => !current)}
+          <IconButton
+            label={maximized ? t("还原为侧边面板") : t("占满整个窗口")}
+            aria-pressed={maximized}
+            onClick={() => setMaximized((current) => !current)}
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.9"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
             >
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.9"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                {maximized ? (
-                  <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
-                ) : (
-                  <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
-                )}
-              </svg>
-            </button>
-          </Tooltip>
-          <Tooltip content={t("关闭")}>
-            <button
-              type="button"
-              className="sheet-icon-button"
-              aria-label={closeLabel}
-              onClick={onClose}
+              {maximized ? (
+                <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+              ) : (
+                <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+              )}
+            </svg>
+          </IconButton>
+          <IconButton label={closeLabel} tooltip={t("关闭")} onClick={onClose}>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.9"
+              strokeLinecap="round"
+              aria-hidden="true"
             >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.9"
-                strokeLinecap="round"
-                aria-hidden="true"
-              >
-                <path d="M6 6l12 12M18 6 6 18" />
-              </svg>
-            </button>
-          </Tooltip>
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </IconButton>
         </div>
       </header>
       {children}

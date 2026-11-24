@@ -16,6 +16,7 @@ import type { ActivityView } from "./activity";
 import type { IncidentAttentionItem } from "./incidents-panel";
 import type { useRoomReorder } from "./room-reorder";
 import { Tooltip } from "./tooltip";
+import { Button, IconButton } from "./button";
 
 /** 左侧栏：房间列表、需要处理的事项与当前用户 */
 export function RoomSidebar({
@@ -141,15 +142,14 @@ export function RoomSidebar({
                 : t("连接已中断")}
           </span>
         </div>
-        <button
+        <IconButton
           ref={roomsCloseRef}
           className="panel-close"
-          type="button"
-          aria-label={t("关闭房间列表")}
+          label={t("关闭房间列表")}
           onClick={() => closeMobilePanel()}
         >
           <Icon name="close" />
-        </button>
+        </IconButton>
       </div>
       <nav className="sidebar-actions" aria-label={t("快捷操作")}>
         {isOwner && (
@@ -325,13 +325,14 @@ export function RoomSidebar({
           {sidebarRooms.others.map((room, index) => renderRoomItem(room, index, false))}
         </div>
       </div>
-      <button
-        type="button"
+      <Button
+        size="sm"
+        variant="ghost"
         className="room-archived-toggle"
         onClick={() => setShowArchivedRooms((current) => !current)}
       >
         {showArchivedRooms ? t("隐藏已归档房间") : t("显示已归档房间")}
-      </button>
+      </Button>
       <div
         className="sidebar-user"
         ref={userMenuRef}

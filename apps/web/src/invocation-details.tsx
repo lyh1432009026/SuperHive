@@ -7,6 +7,8 @@ import { TraceLog } from "./live-trace";
 import "./styles/invocation-details.css";
 import { getLocale, t } from "./i18n";
 import { Tooltip } from "./tooltip";
+import { Button, IconButton } from "./button";
+import { Icon } from "./app-icons";
 
 function activeElement(): Element | null {
   let element = document.activeElement;
@@ -159,14 +161,13 @@ export function InvocationDetails({
           </p>
           <h2 id={titleId}>{t("调用详情")}</h2>
         </div>
-        <button
-          type="button"
+        <IconButton
           className="invocation-details-close"
-          aria-label={t("关闭调用详情")}
+          label={t("关闭调用详情")}
           onClick={onClose}
         >
-          ×
-        </button>
+          <Icon name="close" size={18} />
+        </IconButton>
       </header>
       <div className="invocation-details-content">
         <div
@@ -329,16 +330,10 @@ export function InvocationDetails({
         </details>
       </div>
       {(onJump || onOpenTerminal || onViewChanges) && (
-        <footer className="invocation-details-footer">
+        <footer className="invocation-details-footer dialog-actions">
           {onViewChanges && (
             <Tooltip content={t("在「代码」面板里打开它的任务线，看它改了什么")}>
-              <button
-                type="button"
-                className="invocation-details-reply secondary"
-                onClick={onViewChanges}
-              >
-                {t("看改动")}
-              </button>
+              <Button onClick={onViewChanges}>{t("看改动")}</Button>
             </Tooltip>
           )}
           {onOpenTerminal && (
@@ -349,19 +344,13 @@ export function InvocationDetails({
                   : t("在终端里接着它在这个房间的会话")
               }
             >
-              <button
-                type="button"
-                className="invocation-details-reply secondary"
-                onClick={onOpenTerminal}
-              >
-                {t("在终端打开会话")}
-              </button>
+              <Button onClick={onOpenTerminal}>{t("在终端打开会话")}</Button>
             </Tooltip>
           )}
           {onJump && (
-            <button type="button" className="invocation-details-reply" onClick={onJump}>
+            <Button variant="primary" onClick={onJump}>
               {t("查看回复")}
-            </button>
+            </Button>
           )}
         </footer>
       )}

@@ -20,6 +20,7 @@ import {
 } from "./live-trace";
 import "./styles/thinking-card.css";
 import { Tooltip } from "./tooltip";
+import { Button } from "./button";
 
 // 和消息正文共用同一个 Markdown 渲染器（独立 chunk，App 启动时已在预加载）；没加载好之前先按纯文本显示
 type MarkdownComponent = (typeof import("./message-markdown"))["MessageMarkdown"];
@@ -155,8 +156,8 @@ function FollowScroll({
         {children}
       </div>
       {live && behind && (
-        <button
-          type="button"
+        <Button
+          size="sm"
           className="thinking-card-latest"
           onClick={() => {
             const element = scrollRef.current;
@@ -167,7 +168,7 @@ function FollowScroll({
           }}
         >
           {t("↓ 最新")}
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -412,21 +413,20 @@ export function ThinkingCard({
           {live && onStop && (
             // 停止中时按钮还在但点不了，停完卡片照常收起
             <Tooltip content={t("只停这一轮，不停 Agent")}>
-              <button
-                type="button"
-                className="thinking-card-stop"
+              <Button
+                size="sm"
                 aria-label={t("停止 @{0} 这一轮", { 0: invocation.agentName })}
                 disabled={invocation.status === "cancelling"}
                 onClick={onStop}
               >
                 {invocation.status === "cancelling" ? t("停止中…") : t("停止")}
-              </button>
+              </Button>
             </Tooltip>
           )}
           {attention === "decide" && onJumpToTrigger && (
-            <button type="button" className="thinking-card-act" onClick={onJumpToTrigger}>
+            <Button size="sm" variant="primary" onClick={onJumpToTrigger}>
               {t("去处理")}
-            </button>
+            </Button>
           )}
           {observable && (
             <span className="thinking-card-detail" role="group" aria-label={t("显示多少")}>

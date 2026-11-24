@@ -30,6 +30,7 @@ import type {
 } from "react";
 import type { LocalAgentsState } from "./local-agents";
 import type { GuestAccess } from "./access-gate";
+import { IconButton } from "./button";
 
 /** 右侧栏：成员、进展、定时三个标签页，或停靠在这里的文件预览 */
 export function SidePanel({
@@ -229,15 +230,14 @@ export function SidePanel({
                 </button>
               </Tooltip>
             </div>
-            <button
+            <IconButton
               ref={membersCloseRef}
               className="panel-close"
-              type="button"
-              aria-label={t("关闭成员列表")}
+              label={t("关闭成员列表")}
               onClick={() => closeMobilePanel()}
             >
               <Icon name="close" />
-            </button>
+            </IconButton>
           </div>
           {sidePanelTab === "whiteboard" ? (
             <div

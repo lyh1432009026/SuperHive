@@ -38,7 +38,7 @@
     color var(--duration-fast);
 }
 
-.invocation-chip:not(:has(.invocation-action)) {
+.invocation-chip:not(:has(.btn)) {
   padding-right: 10px;
 }
 
@@ -127,54 +127,15 @@ button.invocation-summary:focus-visible {
   content: "·";
 }
 
-/* chip 内按钮：小号幽灵胶囊 */
-.invocation-action {
-  min-height: 20px;
-  flex: 0 0 auto;
-  border: 0;
-  border-radius: var(--radius-pill);
-  padding: 0 9px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-medium);
-  white-space: nowrap;
-  transition:
-    background var(--duration-fast),
-    color var(--duration-fast);
+/* chip 只有 26px 高：里面的规范小按钮再压一档，不把每条消息下面的 chip 撑高 */
+.invocation-chip .btn.btn {
+  --btn-height: 20px;
+  --btn-pad: 9px;
 }
 
-.invocation-action:hover {
-  background: var(--bg-active);
-  color: var(--text);
-}
-
-/* 点不了但要能悬停看说明（访客停不了有别人消息的这一轮） */
-.invocation-action[aria-disabled="true"],
-.invocation-action[aria-disabled="true"]:hover {
-  background: transparent;
-  color: var(--text-tertiary);
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.invocation-action.primary {
-  background: var(--bg-elevated);
-  color: var(--text);
-  box-shadow: 0 0 0 1px var(--border);
-}
-
-.invocation-action.primary:hover {
-  background: var(--bg-hover);
-}
-
-.invocation-action.subtle {
-  color: var(--text-tertiary);
-}
-
-.invocation-action.subtle:hover {
-  background: var(--danger-soft);
-  color: var(--danger);
+/* 点不了但要能悬停看说明（访客停不了有别人消息的这一轮）：不用 disabled，禁用的按钮收不到悬停 */
+.invocation-chip .btn[aria-disabled="true"] {
+  opacity: 0.45;
 }
 
 /* 排队中：空心点 */
@@ -343,9 +304,9 @@ button.invocation-summary:focus-visible {
 
 /* 触屏上按钮需要更大的点击区域 */
 @media (hover: none) {
-  .invocation-action {
-    min-height: 28px;
-    padding: 0 12px;
+  .invocation-chip .btn.btn {
+    --btn-height: 28px;
+    --btn-pad: 12px;
   }
 
   .invocation-progress {

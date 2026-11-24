@@ -25,6 +25,7 @@ import {
   type MessageSize,
 } from "./app-storage";
 import { KeyCombo } from "./key-combo";
+import { Button, IconButton } from "./button";
 import { SettingsSwitch } from "./settings-switch";
 import {
   attentionDeliveryOptions,
@@ -152,14 +153,14 @@ export function SettingsDialog({
           <div>
             <h2 id="settings-dialog-title">{t("偏好设置")}</h2>
           </div>
-          <button
+          <IconButton
             ref={settingsCloseRef}
-            type="button"
-            aria-label={t("关闭设置")}
+            className="dialog-close"
+            label={t("关闭设置")}
             onClick={closeSettings}
           >
             <Icon name="close" />
-          </button>
+          </IconButton>
         </header>
         <div className="settings-dialog-layout">
           <nav className="settings-tabs" aria-label={t("设置分类")} role="tablist">
@@ -347,9 +348,9 @@ export function SettingsDialog({
                   <div className="notification-permission-note" role="status">
                     <Icon name="bell" size={16} />
                     <span>{t("浏览器尚未授权通知，当前选项要等授权后才会生效。")}</span>
-                    <button type="button" onClick={() => void ensureNotificationPermission()}>
+                    <Button size="sm" onClick={() => void ensureNotificationPermission()}>
                       {t("立即授权")}
-                    </button>
+                    </Button>
                   </div>
                 )}
                 <div className="settings-group">

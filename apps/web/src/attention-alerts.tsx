@@ -13,6 +13,8 @@ import { localized, t } from "./i18n";
 import type { IncidentAttentionItem } from "./incidents-panel";
 import "./styles/attention.css";
 import { Tooltip } from "./tooltip";
+import { Button, IconButton } from "./button";
+import { Icon } from "./app-icons";
 
 /**
  * 「需要你处理」的提醒：跨房间、按调用状态提醒（不只是当前房间的新消息）。
@@ -362,9 +364,9 @@ export function AttentionToasts({
       {toasts.length > 1 && (
         <div className="attention-toasts-bar">
           <span>{hidden > 0 ? t("还有 {0} 条", { 0: hidden }) : ""}</span>
-          <button type="button" onClick={onDismissAll}>
+          <Button size="sm" onClick={onDismissAll}>
             {t("全部关闭")}
-          </button>
+          </Button>
         </div>
       )}
       {shown.map((toast) => (
@@ -409,14 +411,14 @@ function AttentionToastItem({
           </span>
         </button>
       </Tooltip>
-      <button
-        type="button"
+      <IconButton
+        size="sm"
         className="attention-toast-close"
-        aria-label={t("关闭提醒")}
+        label={t("关闭提醒")}
         onClick={() => onDismiss(toast.id)}
       >
-        ×
-      </button>
+        <Icon name="close" size={14} />
+      </IconButton>
     </div>
   );
 }

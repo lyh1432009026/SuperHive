@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { QuestionAnswer, QuestionSpec } from "@superhive/protocol";
 import { t } from "./i18n";
+import { Button } from "./button";
 
 /**
  * Agent 提问的选项：单选点一下即提交，多选勾选后统一提交；最后一行固定是「其它」自由输入。
@@ -131,27 +132,29 @@ export function QuestionOptions({
               />
             )}
             {!spec.multiple && otherOpen && (
-              <button
-                type="button"
+              <Button
+                size="sm"
+                variant="primary"
                 className="question-submit"
                 disabled={!otherText}
                 onClick={() => onSubmit([], otherText)}
               >
                 {t("提交")}
-              </button>
+              </Button>
             )}
           </div>
         )
       )}
       {spec.multiple && editable && (
-        <button
-          type="button"
+        <Button
+          size="sm"
+          variant="primary"
           className="question-submit"
           disabled={checked.size === 0 && !(otherOpen && otherText)}
           onClick={submitMultiple}
         >
           {t("提交回答")}
-        </button>
+        </Button>
       )}
       {pending && <span className="question-options-note">{t("正在提交…")}</span>}
       {waiting && !answer && !pending && (
