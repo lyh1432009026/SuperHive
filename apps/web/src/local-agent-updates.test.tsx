@@ -131,7 +131,10 @@ describe("OutdatedBadge", () => {
         participant={{ ...participant, outdated: true, version: { package: "0.3.0" } }}
       />,
     );
-    expect(screen.getByText("旧版本").getAttribute("title")).toBe(
+    const badge = screen.getByText("旧版本");
+    // 需要重启才用上新代码：提醒级（黄色），和成员名旁其它标签同一套样式
+    expect(badge.className).toBe("member-badge warning");
+    expect(badge.getAttribute("aria-label")).toBe(
       "运行的是 0.3.0，比当前代码旧；重启后才用上新代码",
     );
   });

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatAgentVersion, type LocalAgent, type Participant } from "@superhive/protocol";
 import { ConfirmPopover } from "./confirm-popover";
 import { t } from "./i18n";
+import { MemberBadge } from "./member-badge";
 import { localAgentStatusLabels, type LocalAgentsState } from "./local-agents";
 import { SettingsSwitch } from "./settings-switch";
 import "./styles/local-agent-updates.css";
@@ -17,12 +18,9 @@ export function OutdatedBadge({ participant }: { participant: Participant }) {
     ? t("运行的是 {0}", { 0: formatAgentVersion(participant.version) })
     : t("没有上报版本（更新前启动的）");
   return (
-    <span
-      className="member-outdated-badge"
-      title={t("{0}，比当前代码旧；重启后才用上新代码", { 0: running })}
-    >
+    <MemberBadge level="warning" hint={t("{0}，比当前代码旧；重启后才用上新代码", { 0: running })}>
       {t("旧版本")}
-    </span>
+    </MemberBadge>
   );
 }
 

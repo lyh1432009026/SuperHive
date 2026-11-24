@@ -1,7 +1,6 @@
 import type { Participant } from "@superhive/protocol";
 import { t } from "./i18n";
-import "./styles/member-workspace.css";
-import { Tooltip } from "./tooltip";
+import { MemberBadge } from "./member-badge";
 
 export type MemberWorkspaceState =
   | { kind: "pending"; cwd: string; next: string | undefined }
@@ -38,7 +37,16 @@ export function memberWorkspaceHint(state: MemberWorkspaceState, name: string): 
   return t("在本房间的工作目录：{0}", { 0: state.cwd });
 }
 
-/** 成员名旁的工作目录标记：悬停看实际目录；工作区变更没生效、没用上时给出醒目的提示 */
+/** 名字上的悬停提示：Agent 在本房间实际的工作目录；旧版 Bridge 不上报时没有 */
+export function memberWorkspaceCwdHint(
+  participant: Participant,
+  roomWorkspace: string | undefined,
+): string | undefined {
+  const state = memberWorkspaceState(participant, roomWorkspace);
+  return state && t("在本房间的工作目录：{0}", { 0: state.cwd });
+}
+
+/** 成员名旁的工作区标签：只在房间工作区的变更还没生效、或没用上时提醒；正常跟随时不挂（目录看名字的悬停提示） */
 export function MemberWorkspaceBadge({
   participant,
   roomWorkspace,
@@ -47,25 +55,10 @@ export function MemberWorkspaceBadge({
   roomWorkspace: string | undefined;
 }) {
   const state = memberWorkspaceState(participant, roomWorkspace);
-  if (!state) return null;
-  const label =
-    state.kind === "pending"
-      ? t("工作区待生效")
-      : state.kind === "fallback"
-        ? t("未用工作区")
-        : t("目录");
-  const hint = memberWorkspaceHint(state, participant.username);
+  if (!state || state.kind === "following") return null;
   return (
-    <Tooltip content={hint}>
-      <span
-        className={`member-workspace-badge ${state.kind}`}
-        tabIndex={0}
-        aria-label={hint}
-        onClick={(event) => event.stopPropagation()}
-        onKeyDown={(event) => event.stopPropagation()}
-      >
-        {label}
-      </span>
-    </Tooltip>
+    <MemberBadge level="warning" hint={memberWorkspaceHint(state, participant.username)}>
+      {state.kind === "pending" ? t("工作区待生效") : t("未用工作区")}
+    </MemberBadge>
   );
 }

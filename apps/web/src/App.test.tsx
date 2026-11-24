@@ -1360,7 +1360,11 @@ describe("App mention autocomplete", () => {
     const socket = FakeWebSocket.instances[0]!;
     act(() => socket.open());
     const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
-    const helper = participant("00000000-0000-4000-8000-000000000002", "helper", "agent");
+    // 正常跟随工作区的 Agent：名字后面不挂任何标签（以前会挂「目录」）
+    const helper = {
+      ...participant("00000000-0000-4000-8000-000000000002", "helper", "agent"),
+      workspace: { cwd: "/code/proj" },
+    };
     act(() =>
       socket.serverEvent({
         type: "room.snapshot",
@@ -1373,6 +1377,8 @@ describe("App mention autocomplete", () => {
     const roomsPanel = screen.getByLabelText("房间列表");
     await waitFor(() => expect(within(roomsPanel).getByText("# frontend")).toBeTruthy());
     expect(screen.queryByText("主")).toBeNull();
+    expect(screen.queryByText("目录")).toBeNull();
+    expect(document.querySelector(".member-badge")).toBeNull();
     expect(screen.getByPlaceholderText("发送消息，输入 @ 选择成员…")).toBeTruthy();
     act(() =>
       socket.serverEvent({
@@ -1381,6 +1387,8 @@ describe("App mention autocomplete", () => {
       }),
     );
     await waitFor(() => expect(screen.getByText("主")).toBeTruthy());
+    // 「主」弱化成灰字，不是标签
+    expect(screen.getByText("主").className).toBe("member-lead-mark");
     expect(screen.getByPlaceholderText("发送消息，不 @ 时交给主 Agent helper…")).toBeTruthy();
   });
 
@@ -2735,7 +2743,10 @@ describe("App mention autocomplete", () => {
     const agent = participant("00000000-0000-4000-8000-0000000000a9", "Alice-opencode", "agent");
     act(() => socket.serverEvent({ type: "presence.changed", participant: agent }));
     await waitFor(() => expect(screen.getByText(/已上线/)).toBeTruthy(), { timeout: 4_000 });
-    expect(screen.getByTitle("由本机 Hive Server 启动")).toBeTruthy();
+    // 「本机」写在第二行说明里（提供方 · 本机 · 角色），不在名字后挂标签
+    const origin = screen.getByTitle("由本机 Hive Server 启动");
+    expect(origin.textContent).toBe("本机");
+    expect(origin.closest("small")?.textContent).toMatch(/^Agent · 本机 · 通用协作 Agent$/);
 
     // 本机房主也可以一键启动完全访问：需要工作目录，并给出无沙箱警告
     await user.click(screen.getByRole("button", { name: "返回第 2 步：设置权限" }));

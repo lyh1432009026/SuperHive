@@ -1008,20 +1008,6 @@ div.member[role="button"] {
   line-height: 1;
 }
 
-/* 主 Agent 标记 */
-.member-lead-badge {
-  display: inline-block;
-  margin-left: 6px;
-  border-radius: var(--radius-sm);
-  padding: 0 5px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-medium);
-  line-height: 16px;
-  vertical-align: 1px;
-}
-
 .member.muted {
   opacity: 0.55;
 }

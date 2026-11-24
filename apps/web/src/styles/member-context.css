@@ -1,0 +1,8 @@
+/* 成员第二行里的上下文和缓存：和角色描述同一行的普通文字，快到阈值、缓存过期时用 warning 语义色 */
+.member-context {
+  cursor: default;
+}
+
+.member-context.warning {
+  color: var(--warning);
+}

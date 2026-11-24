@@ -46,9 +46,8 @@
   gap: 6px;
 }
 
-/* 「旧版本」：成员列表和本机 Agent 列表共用 warning 语义色 */
-.agent-update-badge,
-.member-outdated-badge {
+/* 本机 Agent 列表里的「旧版本」：warning 语义色（成员列表里的用 MemberBadge） */
+.agent-update-badge {
   display: inline-block;
   margin-left: 6px;
   padding: 0 6px;

@@ -280,17 +280,6 @@
   opacity: 0.55;
 }
 
-.member-local-badge {
-  margin-left: 6px;
-  padding: 1px 6px;
-  border-radius: var(--radius-pill);
-  background: var(--bg-hover);
-  color: var(--text-secondary);
-  font-size: 10px;
-  font-weight: var(--weight-medium);
-  vertical-align: 1px;
-}
-
 /* 接入时选择本机 MCP */
 .local-launch-mcp {
   display: grid;

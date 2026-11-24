@@ -14,7 +14,8 @@ import {
 import { WhiteboardPanel } from "./whiteboard";
 import { avatarHueStyle, AvatarGlyph } from "./avatar";
 import { OutdatedBadge } from "./local-agent-updates";
-import { MemberWorkspaceBadge } from "./member-workspace";
+import { MemberWorkspaceBadge, memberWorkspaceCwdHint } from "./member-workspace";
+import { LeadMark, MemberName } from "./member-badge";
 import { MemberHiveToolsBadge } from "./member-hive-tools";
 import { MemberContextBadge } from "./member-context";
 import { MemberSandboxBadge } from "./member-sandbox";
@@ -319,41 +320,25 @@ export function SidePanel({
                             />
                           </span>
                           <span className="member-copy">
-                            <strong>
-                              {participant.username}
-                              {isLeadAgent(participant) && (
-                                <span
-                                  className="member-lead-badge"
-                                  title={t("主 Agent：没有 @ 任何人的消息由它接话、调度其他 Agent")}
-                                >
-                                  {t("主")}
-                                </span>
-                              )}
-                              <OutdatedBadge participant={participant} />
-                              <MemberWorkspaceBadge
-                                participant={participant}
-                                roomWorkspace={roomWorkspace}
+                            <strong className="member-name-row">
+                              <MemberName
+                                name={participant.username}
+                                hint={memberWorkspaceCwdHint(participant, roomWorkspace)}
                               />
-                              <MemberHiveToolsBadge participant={participant} />
-                              <MemberSandboxBadge participant={participant} />
+                              {isLeadAgent(participant) && <LeadMark />}
+                              {/* 只放需要人看一眼的标签；正常状态什么都不挂。放不下时先收起标签，名字优先 */}
+                              <span className="member-badges">
+                                <OutdatedBadge participant={participant} />
+                                <MemberWorkspaceBadge
+                                  participant={participant}
+                                  roomWorkspace={roomWorkspace}
+                                />
+                                <MemberHiveToolsBadge participant={participant} />
+                                <MemberSandboxBadge participant={participant} />
+                              </span>
                               {participant.type === "agent" &&
-                                localAgentNames.has(participant.username.toLocaleLowerCase()) && (
-                                  <>
-                                    <span
-                                      className="member-local-badge"
-                                      title={
-                                        local.mode === "device"
-                                          ? t("由 {0} 上的 Hive Server 启动", {
-                                              0: local.hostLabel ?? t("Server 所在电脑"),
-                                            })
-                                          : t("由本机 Hive Server 启动")
-                                      }
-                                    >
-                                      {local.mode === "device" ? t("主机") : t("本机")}
-                                    </span>
-                                    {agentSettingsButton(participant.username)}
-                                  </>
-                                )}
+                                localAgentNames.has(participant.username.toLocaleLowerCase()) &&
+                                agentSettingsButton(participant.username)}
                               {task && (
                                 <span className="guest-actions">
                                   <button
@@ -392,6 +377,25 @@ export function SidePanel({
                               ) : participant.type === "agent" ? (
                                 <>
                                   {`${agentProviderLabel(participant.provider)} · `}
+                                  {/* 本机启动的 Agent：「本机 / 主机」写在说明里，不在名字后挂标签 */}
+                                  {localAgentNames.has(
+                                    participant.username.toLocaleLowerCase(),
+                                  ) && (
+                                    <>
+                                      <span
+                                        title={
+                                          local.mode === "device"
+                                            ? t("由 {0} 上的 Hive Server 启动", {
+                                                0: local.hostLabel ?? t("Server 所在电脑"),
+                                              })
+                                            : t("由本机 Hive Server 启动")
+                                        }
+                                      >
+                                        {local.mode === "device" ? t("主机") : t("本机")}
+                                      </span>
+                                      {" · "}
+                                    </>
+                                  )}
                                   {/* 名字那一行放不下：上下文和缓存放在第二行，排在角色描述前面 */}
                                   {participant.context && (
                                     <>
@@ -442,16 +446,9 @@ export function SidePanel({
                         />
                       </span>
                       <span className="member-copy">
-                        <strong>
-                          {participant.username}
-                          {isLeadAgent(participant) && (
-                            <span
-                              className="member-lead-badge"
-                              title={t("主 Agent：没有 @ 任何人的消息由它接话、调度其他 Agent")}
-                            >
-                              {t("主")}
-                            </span>
-                          )}
+                        <strong className="member-name-row">
+                          <MemberName name={participant.username} />
+                          {isLeadAgent(participant) && <LeadMark />}
                           {participant.type === "agent" &&
                             agentSettingsButton(participant.username)}
                           {isOwner && authToken && participant.access && (

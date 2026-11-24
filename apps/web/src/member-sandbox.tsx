@@ -1,7 +1,6 @@
 import type { Participant } from "@superhive/protocol";
 import { t } from "./i18n";
-import "./styles/member-workspace.css";
-import { Tooltip } from "./tooltip";
+import { MemberBadge } from "./member-badge";
 
 /**
  * 工作区档却没有系统沙箱时的说明（Windows 上的 Claude Code）。设置弹窗的档位说明和成员列表的悬停说明共用这一句，
@@ -25,21 +24,12 @@ export function workspaceLacksSandbox(
   return provider === "claude" && access === "workspace" && hostPlatform === "win32";
 }
 
-/** 成员名旁的低调标记：Agent 加入时报了自己在工作区档但没有系统沙箱才显示 */
+/** 成员名旁的灰色信息标签（不是正常状态，命令能访问工作区以外的文件，值得知道）：Agent 加入时报了自己在工作区档但没有系统沙箱才显示 */
 export function MemberSandboxBadge({ participant }: { participant: Participant }) {
   if (participant.type !== "agent" || !participant.workspace?.noSandbox) return null;
-  const hint = noSandboxNote();
   return (
-    <Tooltip content={hint}>
-      <span
-        className="member-workspace-badge"
-        tabIndex={0}
-        aria-label={hint}
-        onClick={(event) => event.stopPropagation()}
-        onKeyDown={(event) => event.stopPropagation()}
-      >
-        {t("无沙箱")}
-      </span>
-    </Tooltip>
+    <MemberBadge level="info" hint={noSandboxNote()}>
+      {t("无沙箱")}
+    </MemberBadge>
   );
 }

@@ -28,7 +28,7 @@ describe("成员的 Hive 工具连不上标记", () => {
     };
     render(<MemberHiveToolsBadge participant={down} />);
     const badge = screen.getByText("工具未连上");
-    expect(badge.className).toContain("tools-unavailable");
+    expect(badge.className).toBe("member-badge danger");
     const hint = badge.getAttribute("aria-label") ?? "";
     expect(hint).toContain("菜包-claude 连不上 Hive 工具");
     expect(hint).toContain("读不到附件和图片");

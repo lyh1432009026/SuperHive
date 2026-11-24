@@ -1,0 +1,81 @@
+/* 成员名旁的标签：只用来提醒异常，所有标签共用这一套尺寸和圆角，颜色按级别分 */
+.member-badge {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  font-size: 10px;
+  font-weight: var(--weight-medium);
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.member-badge.warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.member-badge.danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.member-badge.info {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.member-badge:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* 名字一行：名字、「主」、标签、操作按钮横排；放不下时先收标签，名字最后才省略 */
+.member-copy strong.member-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.member-name {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-lead-mark {
+  flex: none;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+/*
+ * 标签的基准宽度是 0、只分剩下的空间（最多到自身内容宽），所以永远不和名字抢地方。
+ * 一行高：放不下的整个折到第二行被裁掉，不出现半截；只剩一个也放不下时省略文字
+ */
+.member-badges {
+  min-width: 0;
+  max-width: max-content;
+  height: 16px;
+  display: flex;
+  flex: 1 1 0;
+  flex-wrap: wrap;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.member-badges:empty {
+  display: none;
+}
+
+.member-name-row .guest-actions {
+  flex: none;
+  margin-left: 0;
+}

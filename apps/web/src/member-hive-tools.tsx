@@ -1,7 +1,6 @@
 import type { Participant } from "@superhive/protocol";
 import { t } from "./i18n";
-import "./styles/member-workspace.css";
-import { Tooltip } from "./tooltip";
+import { MemberBadge } from "./member-badge";
 
 /** 悬停说明：少了哪些能力、常见原因、怎么处理 */
 export function memberHiveToolsHint(participant: Participant): string | undefined {
@@ -19,16 +18,8 @@ export function MemberHiveToolsBadge({ participant }: { participant: Participant
   const hint = memberHiveToolsHint(participant);
   if (!hint) return null;
   return (
-    <Tooltip content={hint}>
-      <span
-        className="member-workspace-badge tools-unavailable"
-        tabIndex={0}
-        aria-label={hint}
-        onClick={(event) => event.stopPropagation()}
-        onKeyDown={(event) => event.stopPropagation()}
-      >
-        {t("工具未连上")}
-      </span>
-    </Tooltip>
+    <MemberBadge level="danger" hint={hint}>
+      {t("工具未连上")}
+    </MemberBadge>
   );
 }

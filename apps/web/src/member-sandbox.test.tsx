@@ -24,8 +24,8 @@ describe("工作区档没有系统沙箱的标记", () => {
       />,
     );
     const badge = screen.getByText("无沙箱");
-    // 低调：不用 warning / danger 语义色
-    expect(badge.className).toBe("member-workspace-badge");
+    // 信息级（灰色）：不用 warning / danger 语义色
+    expect(badge.className).toBe("member-badge info");
     expect(badge.getAttribute("aria-label")).toBe(noSandboxNote());
     expect(noSandboxNote()).toContain("Windows 上没有系统沙箱");
     expect(noSandboxNote()).toContain("有风险的操作靠 Claude 的自动审核拦下，或先请你确认");

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AgentContextStatus, Participant } from "@superhive/protocol";
 import { t } from "./i18n";
-import "./styles/member-workspace.css";
+import "./styles/member-context.css";
 import { Tooltip } from "./tooltip";
 import { formatTokens } from "./usage";
 

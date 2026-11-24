@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { Participant } from "@superhive/protocol";
 import {
   MemberWorkspaceBadge,
+  memberWorkspaceCwdHint,
   memberWorkspaceHint,
   memberWorkspaceState,
 } from "./member-workspace";
@@ -55,7 +56,7 @@ describe("成员的工作目录标记", () => {
     const pending = { ...agent, workspace: { cwd: "/code/old", roomWorkspace: "/code/old" } };
     render(<MemberWorkspaceBadge participant={pending} roomWorkspace="/code/new" />);
     const badge = screen.getByText("工作区待生效");
-    expect(badge.className).toContain("pending");
+    expect(badge.className).toBe("member-badge warning");
     expect(badge.getAttribute("aria-label")).toBe(
       "房间工作区已改为 /code/new，reader 空闲后生效；现在仍在 /code/old",
     );
@@ -64,20 +65,32 @@ describe("成员的工作目录标记", () => {
     ).toContain("不再设工作区");
   });
 
-  it("平时显示「目录」，悬停看实际工作目录；没上报时不渲染", () => {
+  it("正常跟随房间工作区时不挂标签，实际目录放在名字的悬停提示里；没上报时都没有", () => {
+    const following = {
+      ...agent,
+      workspace: { cwd: "D:\\Code\\Proj", roomWorkspace: "D:/Code/Proj" },
+    };
     const { container, rerender } = render(
+      <MemberWorkspaceBadge participant={following} roomWorkspace="D:/Code/Proj" />,
+    );
+    expect(container.textContent).toBe("");
+    // 设了工作区却没用上：提醒级标签
+    rerender(
       <MemberWorkspaceBadge
         participant={{
           ...agent,
-          workspace: { cwd: "D:\\Code\\Proj", roomWorkspace: "D:/Code/Proj" },
+          workspace: { cwd: "/home/a", roomWorkspace: "D:/Code/Proj", note: "不存在" },
         }}
         roomWorkspace="D:/Code/Proj"
       />,
     );
-    expect(screen.getByText("目录").getAttribute("aria-label")).toBe(
+    expect(screen.getByText("未用工作区").className).toBe("member-badge warning");
+    rerender(<MemberWorkspaceBadge participant={following} roomWorkspace="D:/Code/Proj" />);
+    expect(memberWorkspaceCwdHint(following, "D:/Code/Proj")).toBe(
       "在本房间的工作目录：D:\\Code\\Proj",
     );
     rerender(<MemberWorkspaceBadge participant={agent} roomWorkspace="D:/Code/Proj" />);
     expect(container.textContent).toBe("");
+    expect(memberWorkspaceCwdHint(agent, "D:/Code/Proj")).toBeUndefined();
   });
 });
