@@ -843,7 +843,7 @@ export function App({
       // 从抽屉里打开的弹窗盖在上面时，Esc 先交给弹窗关：抽屉这时收起会让弹窗重渲染、
       // 它自己的 Esc 监听在这次按键里被换掉，弹窗就关不上了
       if (
-        document.querySelector("dialog[open], [aria-modal='true'], .activity-layer, .sheet-panel")
+        document.querySelector("dialog[open], [aria-modal='true'], .app-dialog-layer, .sheet-panel")
       )
         return;
       closeMobilePanel();

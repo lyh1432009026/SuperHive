@@ -1,0 +1,207 @@
+/*
+ * 统一的居中弹窗外壳（app-dialog.tsx）：Agent 任务、定时任务、故障、提及我、搜索、跳转、快捷键。
+ *
+ * 内容区内边距只在这里定：标题、工具行、内容、底部都离弹窗边 --dialog-inset。
+ * 面板的样式表不能改 .app-dialog-body 的左右内边距，也不能改 --dialog-inset（app-dialog.test.ts 会拦）；
+ * 要上下收紧可以改 padding-top / padding-bottom。
+ * 可悬停的行把高亮底色向外伸出 --dialog-row-pad，文字仍和标题对齐。
+ */
+.app-dialog-layer {
+  position: fixed;
+  z-index: 75;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.app-dialog-layer.top {
+  align-items: start;
+  padding-top: 12vh;
+}
+
+.app-dialog-scrim {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  padding: 0;
+  background: var(--bg-scrim);
+  cursor: default;
+  animation: fade-in var(--duration) ease-out;
+}
+
+.app-dialog-scrim:focus-visible {
+  outline: none;
+}
+
+.app-dialog {
+  --dialog-inset: 20px;
+  --dialog-row-pad: 10px;
+  --app-dialog-max-height: var(--dialog-max-height);
+
+  position: relative;
+  width: min(var(--app-dialog-width), 100%);
+  max-height: var(--app-dialog-max-height);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--radius-2xl);
+  background: var(--bg-elevated);
+  color: var(--text);
+  box-shadow: var(--shadow-dialog);
+  outline: none;
+  animation: pop-in var(--duration) var(--ease-out);
+}
+
+/*
+ * 四档宽度，按内容选：
+ * sm 命令面板（搜索、跳转、快捷键）；md 消息列表（提及我）；
+ * lg 带筛选和多行明细的列表（定时任务）；xl 信息最密的（Agent 任务的用量表、故障单）。
+ * lg、xl 固定高度，切换筛选、标签时弹窗不跳；sm、md 随内容高矮。
+ */
+.app-dialog.sm {
+  --app-dialog-width: 640px;
+}
+
+.app-dialog.md {
+  --app-dialog-width: var(--dialog-width);
+}
+
+.app-dialog.lg {
+  --app-dialog-width: var(--dialog-width-wide);
+
+  height: var(--app-dialog-max-height);
+}
+
+.app-dialog.xl {
+  --app-dialog-width: 1040px;
+
+  height: var(--app-dialog-max-height);
+}
+
+.app-dialog-layer.top .app-dialog {
+  --app-dialog-max-height: min(560px, 76vh);
+
+  height: auto;
+  animation-name: fade-in;
+}
+
+/* 弹窗只是接收键盘焦点的容器，不需要额外的焦点轮廓 */
+.app-dialog:focus-visible {
+  outline: none;
+}
+
+.app-dialog-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 60px;
+  padding: 10px 12px 10px var(--dialog-inset);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.app-dialog-header h2 {
+  min-width: 0;
+  flex: 1;
+  color: var(--text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.app-dialog-header input[type="search"] {
+  min-width: 0;
+  flex: 1;
+  height: 40px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-lg);
+}
+
+/* 已有关闭按钮，去掉浏览器自带的清除图标 */
+.app-dialog-header input[type="search"]::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.app-dialog-header input[type="search"]:focus-visible {
+  outline: none;
+}
+
+.app-dialog-header input[type="search"]::placeholder {
+  color: var(--text-tertiary);
+}
+
+.app-dialog-close {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.app-dialog-close:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.app-dialog-close svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.app-dialog-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  /* 工具行里的按钮自带 --dialog-row-pad 内边距，文字和标题对齐 */
+  padding: 8px calc(var(--dialog-inset) - var(--dialog-row-pad));
+  border-bottom: 1px solid var(--border-light);
+}
+
+.app-dialog-body {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px var(--dialog-inset) 20px;
+}
+
+.app-dialog-footer {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px var(--dialog-inset);
+  border-top: 1px solid var(--border-light);
+}
+
+/* 窄屏（手机、窄窗口）：接近全屏，四角不留圆角，顶上让出刘海 */
+@media (max-width: 720px) {
+  .app-dialog-layer,
+  .app-dialog-layer.top {
+    padding: 0;
+    place-items: stretch;
+  }
+
+  .app-dialog,
+  .app-dialog-layer.top .app-dialog {
+    --dialog-inset: 16px;
+    --app-dialog-max-height: 100dvh;
+
+    width: 100%;
+    height: 100dvh;
+    padding-top: env(safe-area-inset-top);
+    border-radius: 0;
+    animation-name: sheet-in;
+  }
+}

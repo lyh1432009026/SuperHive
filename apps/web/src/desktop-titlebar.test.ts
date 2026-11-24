@@ -191,7 +191,7 @@ describe("desktop-titlebar.css", () => {
       ".agent-dialog-layer",
       ".settings-dialog-layer",
       ".file-preview-backdrop",
-      ".activity-panel",
+      ".app-dialog-layer",
       ".invocation-details",
       ".onboarding-guide",
     ])

@@ -708,9 +708,9 @@
   font-size: var(--text-xs);
 }
 
-/* 左侧「定时任务」面板：沿用「Agent 任务」弹出面板，行样式同上 */
-/* 左右内边距沿用 .activity-body 的 --activity-inset，和「Agent 任务」「故障」等面板一致；只把顶部收紧一点 */
-.schedules-dialog .activity-body {
+/* 左侧「定时任务」弹窗：统一弹窗外壳（app-dialog.css），行样式同上 */
+/* 左右内边距归外壳管，和其它弹窗一致；这里只把顶部收紧一点 */
+.schedules-dialog-body {
   padding-top: 4px;
 }
 

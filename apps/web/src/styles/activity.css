@@ -1,4 +1,4 @@
-/* 侧栏跨房间入口的计数，以及紧贴侧栏弹出的搜索 / @我的 / Agent 任务面板 */
+/* 侧栏跨房间入口的计数，以及搜索 / 提及我 / Agent 任务弹窗的内容 */
 .sidebar-action > span:not(.sidebar-badge) {
   flex: 1;
   min-width: 0;
@@ -65,108 +65,7 @@
   }
 }
 
-/* ---------- 弹出面板 ---------- */
-.activity-layer {
-  position: fixed;
-  z-index: 75;
-  inset: 0;
-}
-
-.activity-scrim {
-  position: absolute;
-  inset: 0;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  cursor: default;
-}
-
-.activity-panel {
-  position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: calc(var(--sidebar-width) + 4px);
-  /* 提及、任务面板放消息预览和用量表格，比搜索框更需要横向空间 */
-  width: min(800px, calc(100vw - var(--sidebar-width) - 24px));
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border-radius: var(--radius-xl);
-  background: var(--bg-elevated);
-  box-shadow: var(--shadow-dialog);
-  outline: none;
-  /* 标题、正文、列表文字都离面板边 16px；可悬停的行把高亮底色向外伸出 --activity-row-pad，文字仍对齐 */
-  --activity-inset: 16px;
-  --activity-row-pad: 10px;
-  animation: activity-in var(--duration) var(--ease-out);
-}
-
-/* 搜索做成居中的命令面板，便于 ⌘K 随手打开 */
-.activity-panel.search {
-  top: 12vh;
-  bottom: auto;
-  left: 50%;
-  width: min(640px, calc(100vw - 32px));
-  max-height: min(560px, 76vh);
-  transform: translateX(-50%);
-  animation: fade-in var(--duration) var(--ease-out);
-}
-
-.activity-layer:has(.activity-panel.search) .activity-scrim {
-  background: var(--bg-scrim);
-}
-
-/* 面板只是接收键盘焦点的容器，不需要额外的焦点轮廓 */
-.activity-panel:focus-visible {
-  outline: none;
-}
-
-@keyframes activity-in {
-  from {
-    opacity: 0;
-    transform: translateX(-8px);
-  }
-}
-
-.activity-header {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 8px;
-  min-height: 56px;
-  padding: 8px 10px 8px var(--activity-inset);
-  border-bottom: 1px solid var(--border-light);
-}
-
-.activity-header h2 {
-  flex: 1;
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
-}
-
-.activity-header input {
-  min-width: 0;
-  flex: 1;
-  height: 40px;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font-size: var(--text-lg);
-}
-
-/* 已有关闭按钮，去掉浏览器自带的清除图标 */
-.activity-header input::-webkit-search-cancel-button {
-  appearance: none;
-}
-
-.activity-header input:focus-visible {
-  outline: none;
-}
-
-.activity-header input::placeholder {
-  color: var(--text-tertiary);
-}
-
+/* ---------- 提及我、Agent 任务、搜索弹窗里的内容（外壳见 app-dialog.css） ---------- */
 /* 提及筛选：未读 / 全部 的分段按钮 */
 .activity-filter {
   display: flex;
@@ -210,43 +109,12 @@
   background: var(--bg-active);
 }
 
-.activity-close {
-  width: 32px;
-  height: 32px;
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-secondary);
-}
-
-.activity-close:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.activity-close svg {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-}
-
-.activity-body {
-  min-height: 0;
-  flex: 1;
-  overflow-y: auto;
-  padding: 10px var(--activity-inset) 16px;
-}
-
 /* 可悬停、键盘选中的行：底色伸到正文边距里，文字和标题、说明文字对齐 */
 .activity-result,
 .agent-runtime-row {
-  width: calc(100% + 2 * var(--activity-row-pad));
-  margin-inline: calc(-1 * var(--activity-row-pad));
-  padding-inline: var(--activity-row-pad);
+  width: calc(100% + 2 * var(--dialog-row-pad));
+  margin-inline: calc(-1 * var(--dialog-row-pad));
+  padding-inline: var(--dialog-row-pad);
 }
 
 .activity-empty {
@@ -288,7 +156,6 @@
 }
 
 .activity-result {
-  width: 100%;
   display: grid;
   gap: 3px;
   padding-block: 10px;
@@ -395,21 +262,76 @@
   color: var(--warning);
 }
 
+/* Agent 任务：任务列表是主角放左边；成员状态在右侧窄栏，弹窗不够宽时挪到任务上面 */
+.activity-tasks {
+  container-type: inline-size;
+}
+
+.activity-tasks-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.activity-tasks-main {
+  min-width: 0;
+}
+
+.activity-tasks-side {
+  order: -1;
+  min-width: 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+/* 窄的时候只占一小块：有事的 Agent 多了在里面滚动，不撑高弹窗 */
+.activity-tasks-side .agent-runtime-list {
+  max-height: 168px;
+  overflow-y: auto;
+}
+
+@container (min-width: 760px) {
+  .activity-tasks-layout {
+    grid-template-columns: minmax(0, 1fr) 248px;
+    gap: 28px;
+  }
+
+  .activity-tasks-side {
+    position: sticky;
+    top: 0;
+    order: 0;
+    align-self: start;
+    max-height: calc(var(--app-dialog-max-height) - 120px);
+    overflow-y: auto;
+    padding: 0 0 0 20px;
+    border-bottom: 0;
+    border-left: 1px solid var(--border-light);
+  }
+
+  .activity-tasks-side .agent-runtime-list {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+.agent-runtime-total {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
 .agent-runtime-list {
   display: grid;
   gap: 2px;
-  margin: 0 0 6px;
+  margin: 0 0 2px;
   padding: 0;
   list-style: none;
 }
 
 .agent-runtime-row {
-  width: 100%;
-  display: flex;
+  display: grid;
   min-width: 0;
-  align-items: center;
-  gap: 8px;
-  padding-block: 7px;
+  gap: 2px;
+  padding-block: 6px;
   border: 0;
   border-radius: var(--radius-lg);
   background: transparent;
@@ -422,11 +344,63 @@ button.agent-runtime-row:hover {
   background: var(--bg-hover);
 }
 
-.agent-runtime-row strong {
-  flex: 0 0 auto;
+.agent-runtime-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-runtime-head strong {
+  min-width: 0;
+  overflow: hidden;
   color: var(--text);
   font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-runtime-none {
+  padding: 4px 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+/* 空闲、离线的合成一行，点开才列出来 */
+.agent-runtime-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 0 0 calc(-1 * var(--dialog-row-pad));
+  padding: 4px var(--dialog-row-pad);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.agent-runtime-more:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.agent-runtime-more svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform var(--duration-fast);
+}
+
+.agent-runtime-more[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+.agent-runtime-list.quiet {
+  margin-top: 2px;
 }
 
 .agent-runtime-dot {
@@ -485,9 +459,11 @@ button.agent-runtime-row:hover {
   flex: 0 0 auto;
 }
 
+/* 第二行：当前在做什么，和名字对齐（圆点 8px + 间距 8px） */
 .agent-runtime-current {
   min-width: 0;
   overflow: hidden;
+  padding-left: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -503,18 +479,6 @@ button.agent-runtime-row:hover {
   bottom: 6px;
   left: var(--child-indent, 6px);
   border-left: 1px solid var(--border);
-}
-
-@media (max-width: 720px) {
-  .activity-panel,
-  .activity-panel.search {
-    inset: 0;
-    width: 100%;
-    max-height: none;
-    border-radius: 0;
-    transform: none;
-    padding-top: env(safe-area-inset-top);
-  }
 }
 
 @media (hover: none) {

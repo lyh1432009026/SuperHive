@@ -49,7 +49,7 @@ export function readTitlebarAppearance(
 
 /** 盖住整个窗口、带遮罩的弹层：打开时右上角系统按钮那块也要跟着变暗 */
 export const MODAL_SELECTOR =
-  'dialog[open], [aria-modal="true"], .activity-layer, .file-preview-backdrop, .attachment-lightbox';
+  'dialog[open], [aria-modal="true"], .app-dialog-layer, .file-preview-backdrop, .attachment-lightbox';
 
 type Rgba = { r: number; g: number; b: number; a: number };
 

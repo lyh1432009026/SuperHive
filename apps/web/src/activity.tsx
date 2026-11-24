@@ -9,6 +9,7 @@ import type {
 import { attentionKind } from "./attention";
 import { delegationSummary, invocationStatusLabel } from "./invocations";
 import { formatRelativeTime } from "./whiteboard";
+import { AppDialog } from "./app-dialog";
 import { localized, t } from "./i18n";
 import { UsageSection } from "./usage";
 import { Tooltip } from "./tooltip";
@@ -98,6 +99,22 @@ export function agentRuntimeRows(
         runtimeStateOrder[a.state] - runtimeStateOrder[b.state] ||
         a.participant.username.localeCompare(b.participant.username),
     );
+}
+
+/**
+ * 成员状态分两部分：有事的 Agent（等你回答、需要处理、工作中，或手上还有没结束的调用）逐个列出；
+ * 空闲、离线又没事的只计数，收成一行，点开才列。Agent 多的房间不会把任务列表挤到下面。
+ */
+export function splitRuntimeRows(rows: readonly AgentRuntimeRow[]) {
+  const active: AgentRuntimeRow[] = [];
+  const idle: AgentRuntimeRow[] = [];
+  const offline: AgentRuntimeRow[] = [];
+  for (const row of rows) {
+    if (row.current || (row.state !== "idle" && row.state !== "offline")) active.push(row);
+    else if (row.state === "idle") idle.push(row);
+    else offline.push(row);
+  }
+  return { active, idle, offline };
 }
 
 /**
@@ -355,58 +372,93 @@ function AgentRuntimeList({
   messageFor: (invocation: Invocation) => ChatMessage | undefined;
   onOpen: (message: ChatMessage) => void;
 }) {
+  const [showQuiet, setShowQuiet] = useState(false);
+  const { active, idle, offline } = splitRuntimeRows(rows);
+  const quiet = [...idle, ...offline];
+  const quietSummary =
+    idle.length && offline.length
+      ? t("{0} 个空闲、{1} 个离线", { 0: idle.length, 1: offline.length })
+      : idle.length
+        ? t("{0} 个空闲", { 0: idle.length })
+        : t("{0} 个离线", { 0: offline.length });
+
+  const renderRow = (row: AgentRuntimeRow) => {
+    const message = row.current ? messageFor(row.current) : undefined;
+    const counts = [
+      row.attention ? t("{0} 个需处理", { 0: row.attention }) : undefined,
+      row.inFlight ? t("{0} 个进行中", { 0: row.inFlight }) : undefined,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const current = row.current
+      ? [
+          invocationStatusLabel(row.current, row.state !== "offline"),
+          row.current.status === "running" ? row.current.progress : row.current.detail,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : undefined;
+    const content = (
+      <>
+        <span className="agent-runtime-head">
+          <span className={`agent-runtime-dot ${row.state}`} aria-hidden="true" />
+          <strong>@{row.participant.username}</strong>
+          <span className={`agent-runtime-state ${row.state}`}>
+            {runtimeStateLabels[row.state]}
+          </span>
+          {counts && <span className="agent-runtime-counts">{counts}</span>}
+        </span>
+        {current && <span className="agent-runtime-current">{current}</span>}
+      </>
+    );
+    return (
+      <li key={row.participant.id}>
+        {message ? (
+          <button
+            type="button"
+            className="agent-runtime-row"
+            aria-label={t("@{0} {1}，跳到当前任务", {
+              0: row.participant.username,
+              1: runtimeStateLabels[row.state],
+            })}
+            onClick={() => onOpen(message)}
+          >
+            {content}
+          </button>
+        ) : (
+          <div className="agent-runtime-row">{content}</div>
+        )}
+      </li>
+    );
+  };
+
   return (
-    <section aria-label={t("成员状态")}>
-      <h3 className="activity-section-label">{t("成员状态 · 当前房间")}</h3>
-      <ul className="agent-runtime-list">
-        {rows.map((row) => {
-          const message = row.current ? messageFor(row.current) : undefined;
-          const counts = [
-            row.attention ? t("{0} 个需处理", { 0: row.attention }) : undefined,
-            row.inFlight ? t("{0} 个进行中", { 0: row.inFlight }) : undefined,
-          ]
-            .filter(Boolean)
-            .join(" · ");
-          const current = row.current
-            ? [
-                invocationStatusLabel(row.current, row.state !== "offline"),
-                row.current.status === "running" ? row.current.progress : row.current.detail,
-              ]
-                .filter(Boolean)
-                .join(" · ")
-            : undefined;
-          const content = (
-            <>
-              <span className={`agent-runtime-dot ${row.state}`} aria-hidden="true" />
-              <strong>@{row.participant.username}</strong>
-              <span className={`agent-runtime-state ${row.state}`}>
-                {runtimeStateLabels[row.state]}
-              </span>
-              {counts && <span className="agent-runtime-counts">{counts}</span>}
-              {current && <span className="agent-runtime-current">{current}</span>}
-            </>
-          );
-          return (
-            <li key={row.participant.id}>
-              {message ? (
-                <button
-                  type="button"
-                  className="agent-runtime-row"
-                  aria-label={t("@{0} {1}，跳到当前任务", {
-                    0: row.participant.username,
-                    1: runtimeStateLabels[row.state],
-                  })}
-                  onClick={() => onOpen(message)}
-                >
-                  {content}
-                </button>
-              ) : (
-                <div className="agent-runtime-row">{content}</div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+    <section className="agent-runtime" aria-label={t("成员状态")}>
+      <h3 className="activity-section-label">
+        {t("成员状态 · 当前房间")}
+        <span className="agent-runtime-total">{rows.length}</span>
+      </h3>
+      {active.length > 0 ? (
+        <ul className="agent-runtime-list">{active.map(renderRow)}</ul>
+      ) : (
+        <p className="agent-runtime-none">{t("没有 Agent 在忙")}</p>
+      )}
+      {quiet.length > 0 && (
+        <>
+          <button
+            type="button"
+            className="agent-runtime-more"
+            aria-expanded={showQuiet}
+            onClick={() => setShowQuiet((open) => !open)}
+          >
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+              <path d="m6 4 4 4-4 4" />
+            </svg>
+            {active.length > 0 ? t("另有 {0}", { 0: quietSummary }) : quietSummary}
+          </button>
+          {showQuiet && <ul className="agent-runtime-list quiet">{quiet.map(renderRow)}</ul>}
+        </>
+      )}
     </section>
   );
 }
@@ -573,12 +625,7 @@ export function ActivityPanel({
   };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      onClose();
-      return;
-    }
-    if (items.length === 0) return;
+    if (items.length === 0 || event.nativeEvent.isComposing) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setActiveIndex((index) => (index + 1) % items.length);
@@ -603,31 +650,27 @@ export function ActivityPanel({
   };
 
   return (
-    <div className="activity-layer">
-      <button type="button" className="activity-scrim" aria-label={t("关闭")} onClick={onClose} />
-      <div
-        ref={panelRef}
-        className={`activity-panel ${view}`}
-        role="dialog"
-        aria-label={title}
-        tabIndex={-1}
-        onKeyDown={onKeyDown}
-      >
-        <header className="activity-header">
-          {view === "search" ? (
-            <input
-              ref={inputRef}
-              type="search"
-              value={query}
-              placeholder={t("搜索所有房间的消息…")}
-              aria-label={t("搜索消息")}
-              aria-controls="activity-results"
-              aria-activedescendant={items.length ? `activity-option-${activeIndex}` : undefined}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          ) : (
-            <h2>{title}</h2>
-          )}
+    <AppDialog
+      size={view === "search" ? "sm" : view === "mentions" ? "md" : "xl"}
+      placement={view === "search" ? "top" : "center"}
+      className={`activity-dialog ${view}`}
+      title={title}
+      header={
+        view === "search" ? (
+          <input
+            ref={inputRef}
+            type="search"
+            value={query}
+            placeholder={t("搜索所有房间的消息…")}
+            aria-label={t("搜索消息")}
+            aria-controls="activity-results"
+            aria-activedescendant={items.length ? `activity-option-${activeIndex}` : undefined}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        ) : undefined
+      }
+      tools={
+        <>
           {view === "mentions" && (
             <div className="activity-filter" role="group" aria-label={t("筛选提及")}>
               <button
@@ -657,120 +700,125 @@ export function ActivityPanel({
               {t("全部标为已读")}
             </button>
           )}
-          <button type="button" className="activity-close" aria-label={t("关闭")} onClick={onClose}>
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path d="m6 6 12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </header>
+        </>
+      }
+      bodyId="activity-results"
+      dialogRef={panelRef}
+      {...(view === "search" ? { initialFocus: inputRef } : {})}
+      onKeyDown={onKeyDown}
+      onClose={onClose}
+    >
+      {view === "search" &&
+        (searchState.status === "idle" ? (
+          <p className="activity-empty">{t("输入关键词，按 ↑↓ 选择、Enter 跳到原文。")}</p>
+        ) : searchState.status === "error" ? (
+          <p className="activity-empty">{t("搜索失败，请稍后重试。")}</p>
+        ) : searchState.status === "done" && items.length === 0 ? (
+          <p className="activity-empty">
+            {t("没有找到包含“{0}”的消息。", { 0: searchState.query })}
+          </p>
+        ) : (
+          <ResultList items={items} query={searchState.query} {...listProps} />
+        ))}
 
-        <div className="activity-body" id="activity-results">
-          {view === "search" &&
-            (searchState.status === "idle" ? (
-              <p className="activity-empty">{t("输入关键词，按 ↑↓ 选择、Enter 跳到原文。")}</p>
-            ) : searchState.status === "error" ? (
-              <p className="activity-empty">{t("搜索失败，请稍后重试。")}</p>
-            ) : searchState.status === "done" && items.length === 0 ? (
-              <p className="activity-empty">
-                {t("没有找到包含“{0}”的消息。", { 0: searchState.query })}
-              </p>
-            ) : (
-              <ResultList items={items} query={searchState.query} {...listProps} />
-            ))}
+      {view === "mentions" &&
+        (items.length === 0 ? (
+          <p className="activity-empty">
+            {mentionFilter === "unread" && mentions.length > 0
+              ? t("提及都已读完。")
+              : t("还没有人在任何房间 @ 你。")}
+          </p>
+        ) : (
+          <ResultList items={items} {...listProps} />
+        ))}
 
-          {view === "mentions" &&
-            (items.length === 0 ? (
-              <p className="activity-empty">
-                {mentionFilter === "unread" && mentions.length > 0
-                  ? t("提及都已读完。")
-                  : t("还没有人在任何房间 @ 你。")}
-              </p>
-            ) : (
-              <ResultList items={items} {...listProps} />
-            ))}
-
-          {view === "tasks" && agentRows.length > 0 && (
-            <AgentRuntimeList
-              rows={agentRows}
-              messageFor={(invocation) => invocationMessages.get(invocation.messageId)}
-              onOpen={activate}
-            />
-          )}
-
-          {view === "tasks" &&
-            (items.length === 0 ? (
-              <p className="activity-empty">{t("当前没有进行中或需要处理的 Agent 调用。")}</p>
-            ) : (
-              <>
-                {taskItems.waiting.length > 0 && (
-                  <section aria-label={t("等你回答")}>
-                    <h3 className="activity-section-label">
-                      {t("等你回答 · {0}", { 0: taskItems.waiting.length })}
-                    </h3>
-                    <ResultList items={taskItems.waiting} {...listProps} />
-                  </section>
-                )}
-                {taskItems.attention.length > 0 && (
-                  <section aria-label={t("需要处理")}>
-                    <h3 className="activity-section-label">
-                      {t("需要处理 ·")} {taskItems.attention.length}
-                      {onDismiss && (
-                        <Tooltip
-                          content={t(
-                            "把这些失败、被拦、结果未知的调用都标为已处理，记录仍可在消息下查看",
-                          )}
-                        >
-                          <button
-                            type="button"
-                            className="activity-section-action"
-                            onClick={() =>
-                              onDismiss(
-                                invocations.filter(
-                                  (invocation) =>
-                                    needsAttention(invocation) &&
-                                    invocation.status !== "waiting_human",
-                                ),
-                              )
-                            }
+      {view === "tasks" && (
+        <div className="activity-tasks">
+          <div className="activity-tasks-layout">
+            <div className="activity-tasks-main">
+              {items.length === 0 ? (
+                <p className="activity-empty">{t("当前没有进行中或需要处理的 Agent 调用。")}</p>
+              ) : (
+                <>
+                  {taskItems.waiting.length > 0 && (
+                    <section aria-label={t("等你回答")}>
+                      <h3 className="activity-section-label">
+                        {t("等你回答 · {0}", { 0: taskItems.waiting.length })}
+                      </h3>
+                      <ResultList items={taskItems.waiting} {...listProps} />
+                    </section>
+                  )}
+                  {taskItems.attention.length > 0 && (
+                    <section aria-label={t("需要处理")}>
+                      <h3 className="activity-section-label">
+                        {t("需要处理 ·")} {taskItems.attention.length}
+                        {onDismiss && (
+                          <Tooltip
+                            content={t(
+                              "把这些失败、被拦、结果未知的调用都标为已处理，记录仍可在消息下查看",
+                            )}
                           >
-                            {t("全部忽略")}
-                          </button>
-                        </Tooltip>
-                      )}
-                    </h3>
-                    <ResultList
-                      items={taskItems.attention}
-                      {...listProps}
-                      offset={taskItems.waiting.length}
-                    />
-                  </section>
-                )}
-                {taskItems.inFlight.length > 0 && (
-                  <section aria-label={t("进行中")}>
-                    <h3 className="activity-section-label">
-                      {t("进行中 · {0}", { 0: taskItems.inFlight.length })}
-                    </h3>
-                    <ResultList
-                      items={taskItems.inFlight}
-                      {...listProps}
-                      offset={taskItems.waiting.length + taskItems.attention.length}
-                    />
-                  </section>
-                )}
-              </>
-            ))}
-
-          {view === "tasks" && usageRoomId && loadUsage && (
-            <UsageSection
-              roomId={usageRoomId}
-              load={loadUsage}
-              refreshKey={usageRefreshKey}
-              participants={participants}
-              {...(onStartTopic ? { onStartTopic } : {})}
-            />
-          )}
+                            <button
+                              type="button"
+                              className="activity-section-action"
+                              onClick={() =>
+                                onDismiss(
+                                  invocations.filter(
+                                    (invocation) =>
+                                      needsAttention(invocation) &&
+                                      invocation.status !== "waiting_human",
+                                  ),
+                                )
+                              }
+                            >
+                              {t("全部忽略")}
+                            </button>
+                          </Tooltip>
+                        )}
+                      </h3>
+                      <ResultList
+                        items={taskItems.attention}
+                        {...listProps}
+                        offset={taskItems.waiting.length}
+                      />
+                    </section>
+                  )}
+                  {taskItems.inFlight.length > 0 && (
+                    <section aria-label={t("进行中")}>
+                      <h3 className="activity-section-label">
+                        {t("进行中 · {0}", { 0: taskItems.inFlight.length })}
+                      </h3>
+                      <ResultList
+                        items={taskItems.inFlight}
+                        {...listProps}
+                        offset={taskItems.waiting.length + taskItems.attention.length}
+                      />
+                    </section>
+                  )}
+                </>
+              )}
+              {usageRoomId && loadUsage && (
+                <UsageSection
+                  roomId={usageRoomId}
+                  load={loadUsage}
+                  refreshKey={usageRefreshKey}
+                  participants={participants}
+                  {...(onStartTopic ? { onStartTopic } : {})}
+                />
+              )}
+            </div>
+            {agentRows.length > 0 && (
+              <aside className="activity-tasks-side">
+                <AgentRuntimeList
+                  rows={agentRows}
+                  messageFor={(invocation) => invocationMessages.get(invocation.messageId)}
+                  onOpen={activate}
+                />
+              </aside>
+            )}
+          </div>
         </div>
-      </div>
-    </div>
+      )}
+    </AppDialog>
   );
 }

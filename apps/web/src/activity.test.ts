@@ -6,6 +6,7 @@ import {
   orderByDelegation,
   plainPreview,
   searchSnippet,
+  splitRuntimeRows,
 } from "./activity";
 
 describe("plainPreview", () => {
@@ -139,6 +140,31 @@ describe("agentRuntimeRows", () => {
   it("只有排队中的调用时仍算空闲，不冒充工作中", () => {
     const [row] = agentRuntimeRows([agent("a", "alpha")], [call("1", "a", "queued")]);
     expect(row).toMatchObject({ state: "idle", inFlight: 1 });
+  });
+
+  it("成员状态只单列有事的 Agent，空闲、离线又没任务的另算", () => {
+    const rows = agentRuntimeRows(
+      [
+        agent("a", "alpha"),
+        agent("b", "beta"),
+        agent("c", "gamma", "offline"),
+        agent("d", "delta"),
+        agent("e", "eps", "offline"),
+        agent("f", "zeta", "offline"),
+      ],
+      [
+        call("1", "a", "running"),
+        call("2", "b", "failed"),
+        call("3", "d", "queued"),
+        call("4", "e", "queued"),
+      ],
+    );
+    const { active, idle, offline } = splitRuntimeRows(rows);
+    const names = (list: typeof rows) => list.map((row) => row.participant.username);
+    // 排队中的空闲 Agent、离线但手上有任务的 Agent 也要列出来，点了能跳到那条任务
+    expect(names(active)).toEqual(["beta", "alpha", "delta", "eps"]);
+    expect(names(idle)).toEqual([]);
+    expect(names(offline)).toEqual(["gamma", "zeta"]);
   });
 });
 

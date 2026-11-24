@@ -1,13 +1,12 @@
-/* ---------- Go To 跳转器与快捷键帮助：复用搜索面板的居中外壳 ---------- */
+/* ---------- Go To 跳转器与快捷键帮助：用统一弹窗外壳（app-dialog.css）的命令面板样式 ---------- */
+/* 范围筛选放在外壳的工具行里，左右边距由外壳给 */
 .goto-filters {
   display: flex;
-  flex: 0 0 auto;
+  min-width: 0;
+  flex: 1;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  /* 筛选按钮自带 10px 内边距，文字和标题一样离面板边 --activity-inset */
-  padding: 8px calc(var(--activity-inset) - 10px);
-  border-bottom: 1px solid var(--border-light);
 }
 
 .goto-filters button {
@@ -15,7 +14,7 @@
   align-items: center;
   gap: 5px;
   height: 26px;
-  padding: 0 10px;
+  padding: 0 var(--dialog-row-pad);
   border: 0;
   border-radius: var(--radius-pill);
   background: transparent;
@@ -68,8 +67,8 @@
   align-items: center;
   gap: 10px;
   min-height: 44px;
-  margin-inline: calc(-1 * var(--activity-row-pad));
-  padding: 6px var(--activity-row-pad);
+  margin-inline: calc(-1 * var(--dialog-row-pad));
+  padding: 6px var(--dialog-row-pad);
   border-radius: var(--radius-md);
   cursor: pointer;
 }
@@ -129,10 +128,7 @@
 
 .goto-footer {
   display: flex;
-  flex: 0 0 auto;
   gap: 14px;
-  padding: 8px var(--activity-inset) 10px;
-  border-top: 1px solid var(--border-light);
   color: var(--text-tertiary);
   font-size: 11px;
 }
@@ -179,7 +175,7 @@
 }
 
 @media (max-width: 720px) {
-  .goto-footer {
+  .app-dialog-footer:has(.goto-footer) {
     display: none;
   }
 

@@ -1948,5 +1948,10 @@
   "缓存约剩 {0} 分钟（从最后一次模型请求算起），过期后下一轮要整段重写缓存。": "About {0} {0|minute|minutes} of cache left (from the last model request); after that the next turn rewrites the whole cache.",
   "缓存已过期：下一轮要把整段会话重新写进缓存，更慢也更贵。": "The cache has expired: the next turn rewrites the whole session into the cache, which is slower and costs more.",
   "缓存 {0} 分": "cache {0}m",
-  "缓存已过期": "cache expired"
+  "缓存已过期": "cache expired",
+  "{0} 个空闲、{1} 个离线": "{0} idle, {1} offline",
+  "{0} 个空闲": "{0} idle",
+  "{0} 个离线": "{0} offline",
+  "另有 {0}": "Plus {0}",
+  "没有 Agent 在忙": "No agents are busy"
 }

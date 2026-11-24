@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AppDialog } from "./app-dialog";
 import { filterGoToItems, type GoToFilter, type GoToItem } from "./goto";
 import { t } from "./i18n";
 import { keyLabel } from "./shortcuts";
@@ -50,7 +51,6 @@ export function GoToPalette({
   );
   const attentionTotal = items.filter((item) => item.kind === "task" && item.attention).length;
 
-  useEffect(() => inputRef.current?.focus(), []);
   useEffect(() => setActiveIndex(0), [query, filter]);
   useEffect(() => {
     listRef.current
@@ -66,10 +66,7 @@ export function GoToPalette({
 
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (event.nativeEvent.isComposing) return;
-    if (event.key === "Escape") {
-      event.preventDefault();
-      onClose();
-    } else if (event.key === "Tab") {
+    if (event.key === "Tab") {
       event.preventDefault();
       const index = filters.findIndex((entry) => entry.value === filter);
       const step = event.shiftKey ? -1 : 1;
@@ -87,34 +84,26 @@ export function GoToPalette({
   };
 
   return (
-    <div className="activity-layer goto-layer">
-      <button type="button" className="activity-scrim" aria-label={t("关闭")} onClick={onClose} />
-      <div
-        className="activity-panel search goto-panel"
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("跳转到")}
-        onKeyDown={onKeyDown}
-      >
-        <header className="activity-header">
-          <input
-            ref={inputRef}
-            type="search"
-            value={query}
-            role="combobox"
-            aria-expanded="true"
-            aria-label={t("跳转到房间、Agent 或任务")}
-            aria-controls="goto-results"
-            aria-activedescendant={results.length ? `goto-option-${activeIndex}` : undefined}
-            placeholder={t("跳转到房间、Agent 或任务…")}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          <button type="button" className="activity-close" aria-label={t("关闭")} onClick={onClose}>
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path d="m6 6 12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </header>
+    <AppDialog
+      size="sm"
+      placement="top"
+      className="goto-panel"
+      title={t("跳转到")}
+      header={
+        <input
+          ref={inputRef}
+          type="search"
+          value={query}
+          role="combobox"
+          aria-expanded="true"
+          aria-label={t("跳转到房间、Agent 或任务")}
+          aria-controls="goto-results"
+          aria-activedescendant={results.length ? `goto-option-${activeIndex}` : undefined}
+          placeholder={t("跳转到房间、Agent 或任务…")}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      }
+      toolbar={
         <div className="goto-filters" role="group" aria-label={t("范围")}>
           {filters.map((entry) => (
             <button
@@ -149,49 +138,9 @@ export function GoToPalette({
             </Tooltip>
           )}
         </div>
-        <div className="activity-body">
-          {results.length === 0 ? (
-            <p className="activity-empty">
-              {query.trim()
-                ? t("没有匹配“{0}”的房间、Agent 或任务。", { 0: query.trim() })
-                : filter === "attention"
-                  ? t("现在没有要你处理的任务。")
-                  : t("这里还没有内容。")}
-            </p>
-          ) : (
-            <ul id="goto-results" ref={listRef} role="listbox" className="goto-list">
-              {results.map((item, index) => (
-                <li
-                  key={item.key}
-                  id={`goto-option-${index}`}
-                  data-index={index}
-                  role="option"
-                  aria-selected={index === activeIndex}
-                  className={`goto-item ${item.kind}${index === activeIndex ? " active" : ""}`}
-                  onMouseMove={() => setActiveIndex(index)}
-                  onClick={() => choose(item)}
-                >
-                  <span className="goto-kind">{t(kindLabels[item.kind])}</span>
-                  <span className="goto-text">
-                    <strong>{item.title}</strong>
-                    {item.subtitle && <small>{item.subtitle}</small>}
-                  </span>
-                  {item.kind === "room" && item.current && (
-                    <span className="goto-tag">{t("当前")}</span>
-                  )}
-                  {item.attention > 0 && (
-                    <span className="goto-attention">
-                      {item.kind === "task"
-                        ? t("要处理")
-                        : t("{0} 个要处理", { 0: item.attention })}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <footer className="goto-footer">
+      }
+      footer={
+        <div className="goto-footer">
           <span>
             <kbd>↑</kbd>
             <kbd>↓</kbd> {t("选择")}
@@ -205,8 +154,50 @@ export function GoToPalette({
           <span>
             <kbd>Esc</kbd> {t("关闭")}
           </span>
-        </footer>
-      </div>
-    </div>
+        </div>
+      }
+      initialFocus={inputRef}
+      onKeyDown={onKeyDown}
+      onClose={onClose}
+    >
+      {results.length === 0 ? (
+        <p className="activity-empty">
+          {query.trim()
+            ? t("没有匹配“{0}”的房间、Agent 或任务。", { 0: query.trim() })
+            : filter === "attention"
+              ? t("现在没有要你处理的任务。")
+              : t("这里还没有内容。")}
+        </p>
+      ) : (
+        <ul id="goto-results" ref={listRef} role="listbox" className="goto-list">
+          {results.map((item, index) => (
+            <li
+              key={item.key}
+              id={`goto-option-${index}`}
+              data-index={index}
+              role="option"
+              aria-selected={index === activeIndex}
+              className={`goto-item ${item.kind}${index === activeIndex ? " active" : ""}`}
+              onMouseMove={() => setActiveIndex(index)}
+              onClick={() => choose(item)}
+            >
+              <span className="goto-kind">{t(kindLabels[item.kind])}</span>
+              <span className="goto-text">
+                <strong>{item.title}</strong>
+                {item.subtitle && <small>{item.subtitle}</small>}
+              </span>
+              {item.kind === "room" && item.current && (
+                <span className="goto-tag">{t("当前")}</span>
+              )}
+              {item.attention > 0 && (
+                <span className="goto-attention">
+                  {item.kind === "task" ? t("要处理") : t("{0} 个要处理", { 0: item.attention })}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </AppDialog>
   );
 }

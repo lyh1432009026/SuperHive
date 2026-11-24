@@ -170,9 +170,18 @@
   border-top: 1px solid var(--border);
 }
 
-/* 居中的弹窗（房间、Agent、IM、邀请、设置、文件预览）：整体从窗口按钮那一行下面开始排 */
+/*
+ * 居中的弹窗（房间、Agent、IM、邀请、设置、文件预览，以及 Agent 任务、定时任务、故障、提及我等统一外壳弹窗）：
+ * 整体从窗口按钮那一行下面开始排
+ */
 :root[data-titlebar]
-  :is(.room-dialog-layer, .agent-dialog-layer, .settings-dialog-layer, .file-preview-backdrop) {
+  :is(
+    .room-dialog-layer,
+    .agent-dialog-layer,
+    .settings-dialog-layer,
+    .file-preview-backdrop,
+    .app-dialog-layer
+  ) {
   padding-top: calc(8px + var(--titlebar-safe-top));
 }
 
@@ -185,14 +194,13 @@
   max-height: min(820px, calc(100dvh - 16px - 2 * var(--titlebar-safe-top)));
 }
 
-/* 提及、任务、定时任务、故障、搜索、跳转、快捷键面板：顶边让到窗口按钮下面 */
-:root[data-titlebar] .activity-panel:not(.search) {
-  top: calc(8px + var(--titlebar-safe-top));
+/* 搜索、跳转、快捷键这类靠上的命令面板：顶边至少让到窗口按钮下面，高度跟着少 */
+:root[data-titlebar] .app-dialog-layer.top {
+  padding-top: max(12vh, calc(8px + var(--titlebar-safe-top)));
 }
 
-:root[data-titlebar] .activity-panel.search {
-  top: max(12vh, calc(8px + var(--titlebar-safe-top)));
-  max-height: min(560px, calc(100dvh - 16px - var(--titlebar-safe-top)));
+:root[data-titlebar] .app-dialog-layer.top .app-dialog {
+  --app-dialog-max-height: min(560px, calc(100dvh - 16px - var(--titlebar-safe-top)));
 }
 
 /* 图片大图：黑底铺满窗口，关闭按钮挪到窗口按钮那一行下面 */
@@ -215,9 +223,14 @@
     max-height: none;
   }
 
-  :root[data-titlebar] :is(.activity-panel, .activity-panel.search) {
-    top: 0;
-    max-height: none;
+  /* 统一外壳弹窗铺满窗口：内容从窗口按钮那一行下面开始，弹窗底色照样铺到顶 */
+  :root[data-titlebar] :is(.app-dialog-layer, .app-dialog-layer.top) {
+    padding-top: 0;
+  }
+
+  :root[data-titlebar] :is(.app-dialog, .app-dialog-layer.top .app-dialog) {
+    --app-dialog-max-height: 100dvh;
+
     padding-top: var(--titlebar-safe-top);
   }
 }

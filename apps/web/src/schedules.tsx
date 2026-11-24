@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Invocation, Schedule } from "@superhive/protocol";
+import { AppDialog } from "./app-dialog";
 import { getLocale, t } from "./i18n";
 import { Select, type SelectOption } from "./select";
 import { Tooltip } from "./tooltip";
@@ -189,14 +190,12 @@ export function SchedulesDialog({
   onOpenRoom: (roomId: string) => void;
   onClose: () => void;
 }) {
-  const panelRef = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState(() => Date.now());
   const [roomFilter, setRoomFilter] = useState(ALL_ROOMS);
   const [error, setError] = useState<string>();
   const [cancelling, setCancelling] = useState<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
-    panelRef.current?.focus();
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
@@ -251,90 +250,74 @@ export function SchedulesDialog({
   }
 
   return (
-    <div className="activity-layer">
-      <button type="button" className="activity-scrim" aria-label={t("关闭")} onClick={onClose} />
-      <div
-        ref={panelRef}
-        className="activity-panel schedules-dialog"
-        role="dialog"
-        aria-label={t("定时任务")}
-        tabIndex={-1}
-        onKeyDown={(event) => {
-          if (event.key !== "Escape" || event.defaultPrevented) return;
-          event.preventDefault();
-          onClose();
-        }}
-      >
-        <header className="activity-header">
-          <h2>{t("定时任务")}</h2>
-          {rooms.length > 1 && (
-            <Select
-              className="schedules-room-filter"
-              aria-label={t("按房间筛选")}
-              value={filter}
-              options={filterOptions}
-              onChange={setRoomFilter}
-              menuMinWidth={220}
-            />
-          )}
-          <button type="button" className="activity-close" aria-label={t("关闭")} onClick={onClose}>
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path d="m6 6 12 12M18 6 6 18" />
-            </svg>
-          </button>
-        </header>
-        <div className="activity-body schedules-dialog-body">
-          {error && (
-            <p className="settings-note error" role="alert">
-              {error}
-            </p>
-          )}
-          {schedules.size === 0 ? (
-            <div className="whiteboard-empty">
-              <strong>{t("还没有定时任务")}</strong>
-              <p>
-                {t("让 Agent 「到点做某件事」时，它会用")} <code>hive_schedule_create</code>{" "}
-                {t("登记在这里：到点后服务端发消息唤醒它，关掉网页、重启 Server 都不影响。")}
-              </p>
-            </div>
-          ) : (
-            <div className="whiteboard schedules">
-              {groups.map((group) => (
-                <section
-                  key={group.key}
-                  className="whiteboard-slot"
-                  aria-labelledby={`schedule-group-${group.key}`}
-                >
-                  <h3 id={`schedule-group-${group.key}`}>
-                    {group.label}
-                    <span className="whiteboard-slot-count">{group.items.length}</span>
-                  </h3>
-                  <ul>
-                    {group.items.map((schedule) => (
-                      <ScheduleRow
-                        key={schedule.id}
-                        schedule={schedule}
-                        invocation={
-                          schedule.invocationId ? invocations.get(schedule.invocationId) : undefined
-                        }
-                        isAgentOnline={isAgentOnline}
-                        roomName={roomName(schedule.roomId)}
-                        currentRoom={schedule.roomId === currentRoomId}
-                        now={now}
-                        cancelling={cancelling.has(schedule.id)}
-                        onCancel={() => void cancel(schedule)}
-                        onJump={(messageId) => onJump(schedule.roomId, messageId)}
-                        onOpenRoom={() => onOpenRoom(schedule.roomId)}
-                      />
-                    ))}
-                  </ul>
-                </section>
-              ))}
-            </div>
-          )}
+    <AppDialog
+      size="lg"
+      className="schedules-dialog"
+      title={t("定时任务")}
+      tools={
+        rooms.length > 1 && (
+          <Select
+            className="schedules-room-filter"
+            aria-label={t("按房间筛选")}
+            value={filter}
+            options={filterOptions}
+            onChange={setRoomFilter}
+            menuMinWidth={220}
+          />
+        )
+      }
+      bodyClassName="schedules-dialog-body"
+      onClose={onClose}
+    >
+      {error && (
+        <p className="settings-note error" role="alert">
+          {error}
+        </p>
+      )}
+      {schedules.size === 0 ? (
+        <div className="whiteboard-empty">
+          <strong>{t("还没有定时任务")}</strong>
+          <p>
+            {t("让 Agent 「到点做某件事」时，它会用")} <code>hive_schedule_create</code>{" "}
+            {t("登记在这里：到点后服务端发消息唤醒它，关掉网页、重启 Server 都不影响。")}
+          </p>
         </div>
-      </div>
-    </div>
+      ) : (
+        <div className="whiteboard schedules">
+          {groups.map((group) => (
+            <section
+              key={group.key}
+              className="whiteboard-slot"
+              aria-labelledby={`schedule-group-${group.key}`}
+            >
+              <h3 id={`schedule-group-${group.key}`}>
+                {group.label}
+                <span className="whiteboard-slot-count">{group.items.length}</span>
+              </h3>
+              <ul>
+                {group.items.map((schedule) => (
+                  <ScheduleRow
+                    key={schedule.id}
+                    schedule={schedule}
+                    invocation={
+                      schedule.invocationId ? invocations.get(schedule.invocationId) : undefined
+                    }
+                    isAgentOnline={isAgentOnline}
+                    roomName={roomName(schedule.roomId)}
+                    currentRoom={schedule.roomId === currentRoomId}
+                    now={now}
+                    cancelling={cancelling.has(schedule.id)}
+                    onCancel={() => void cancel(schedule)}
+                    onJump={(messageId) => onJump(schedule.roomId, messageId)}
+                    onOpenRoom={() => onOpenRoom(schedule.roomId)}
+                  />
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      )}
+    </AppDialog>
   );
 }
 
