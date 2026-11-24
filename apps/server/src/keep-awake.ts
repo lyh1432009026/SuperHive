@@ -34,12 +34,17 @@ const RETRY_MS = [5_000, 30_000, 120_000];
 /** macOS：pmset -g batt 第一行写着当前电源 */
 async function readMacPower(): Promise<"ac" | "battery" | "unknown"> {
   return new Promise((resolve) => {
-    execFile("/usr/bin/pmset", ["-g", "batt"], { timeout: 5_000 }, (error, stdout) => {
-      if (error) return resolve("unknown");
-      if (stdout.includes("'AC Power'")) return resolve("ac");
-      if (stdout.includes("'Battery Power'")) return resolve("battery");
-      resolve("unknown");
-    });
+    execFile(
+      "/usr/bin/pmset",
+      ["-g", "batt"],
+      { timeout: 5_000, windowsHide: true },
+      (error, stdout) => {
+        if (error) return resolve("unknown");
+        if (stdout.includes("'AC Power'")) return resolve("ac");
+        if (stdout.includes("'Battery Power'")) return resolve("battery");
+        resolve("unknown");
+      },
+    );
   });
 }
 
@@ -273,5 +278,8 @@ function spawnWindowsAssertion(pid: number): ChildProcess {
 
 /** -i 只阻止空闲睡眠（屏幕照常熄灭）；-w 绑定 Server 进程，Server 不在了断言自动解除 */
 function spawnCaffeinate(pid: number): ChildProcess {
-  return spawn("/usr/bin/caffeinate", ["-i", "-w", String(pid)], { stdio: "ignore" });
+  return spawn("/usr/bin/caffeinate", ["-i", "-w", String(pid)], {
+    stdio: "ignore",
+    windowsHide: true,
+  });
 }

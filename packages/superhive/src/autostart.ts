@@ -32,7 +32,18 @@ export type AutostartPlan = {
   afterWrite: string[][];
   /** 删除前要执行的命令 */
   beforeRemove: string[][];
+  /** 文件编码，默认 utf8 */
+  encoding?: "utf8" | "utf16le";
+  /** 旧版本写过的自启动文件：开启时换掉、关闭时一起删 */
+  legacyFiles?: string[];
 };
+
+/** 写自启动文件：utf16le 带 BOM（Windows Script Host 靠它识别编码） */
+export function autostartFileContent(plan: AutostartPlan): string | Buffer {
+  return plan.encoding === "utf16le"
+    ? Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(plan.content, "utf16le")])
+    : plan.content;
+}
 
 export type AutostartInput = {
   platform: NodeJS.Platform;
@@ -120,9 +131,15 @@ ${args}
     const command = [input.node, input.cli, "start", "--no-open", ...input.startArgs]
       .map((arg) => `"${arg.replace(/"/g, '""')}"`)
       .join(" ");
+    // cmd /s /c "…"：去掉最外层一对引号后原样执行，里面的路径引号保持不变
+    const cmdLine = `cmd.exe /d /s /c "${command} >> "${input.logFile}" 2>&1"`;
     return {
-      file: path.join(startup, "SuperHive.cmd"),
-      content: `@echo off\r\nrem SuperHive: start Hive Server at login (remove with: hive autostart off)\r\ncd /d "%USERPROFILE%"\r\n${command} >> "${input.logFile}" 2>&1\r\n`,
+      // 用 VBScript 以隐藏窗口（Run 的第二个参数 0）拉起：.cmd 放在启动文件夹里，登录时会闪出一个命令行窗口
+      file: path.join(startup, "SuperHive.vbs"),
+      content: `' SuperHive: start Hive Server at login (remove with: hive autostart off)\r\nSet shell = CreateObject("WScript.Shell")\r\nshell.CurrentDirectory = shell.ExpandEnvironmentStrings("%USERPROFILE%")\r\nshell.Run "${cmdLine.replace(/"/g, '""')}", 0, False\r\n`,
+      // WSH 只认 ANSI 和带 BOM 的 UTF-16：路径里有中文时 ANSI 会乱码
+      encoding: "utf16le",
+      legacyFiles: [path.join(startup, "SuperHive.cmd")],
       afterWrite: [],
       beforeRemove: [],
     };
@@ -161,7 +178,7 @@ function currentCli(): string {
 
 function run(commands: string[][]): void {
   for (const [command, ...args] of commands) {
-    const result = spawnSync(command!, args, { stdio: "inherit" });
+    const result = spawnSync(command!, args, { stdio: "inherit", windowsHide: true });
     if (result.status !== 0) {
       throw new Error(`${[command, ...args].join(" ")} 执行失败。`);
     }
@@ -208,22 +225,23 @@ export async function autostartCommand(argv: string[]): Promise<void> {
     pathEnv: process.env.PATH ?? "/usr/bin:/bin",
     logFile: path.join(dataDir ? path.resolve(dataDir) : superhiveHome(), "autostart.log"),
   });
+  const installed = [plan.file, ...(plan.legacyFiles ?? [])].filter((file) => existsSync(file));
   if (action === "status") {
     console.log(
-      existsSync(plan.file)
-        ? `[hive] 开机自启已开启：${plan.file}`
+      installed.length
+        ? `[hive] 开机自启已开启：${installed.join("、")}`
         : "[hive] 开机自启未开启（hive autostart on 开启）。",
     );
     return;
   }
   if (action === "off") {
-    if (!existsSync(plan.file)) {
+    if (!installed.length) {
       console.log("[hive] 开机自启本来就没有开启。");
       return;
     }
-    run(plan.beforeRemove);
-    rmSync(plan.file, { force: true });
-    console.log(`[hive] 已关闭开机自启，删除了 ${plan.file}`);
+    if (existsSync(plan.file)) run(plan.beforeRemove);
+    for (const file of installed) rmSync(file, { force: true });
+    console.log(`[hive] 已关闭开机自启，删除了 ${installed.join("、")}`);
     return;
   }
   if (cli.endsWith(".ts")) {
@@ -232,7 +250,8 @@ export async function autostartCommand(argv: string[]): Promise<void> {
     );
   }
   mkdirSync(path.dirname(plan.file), { recursive: true });
-  writeFileSync(plan.file, plan.content, { mode: 0o644 });
+  writeFileSync(plan.file, autostartFileContent(plan), { mode: 0o644 });
+  for (const file of plan.legacyFiles ?? []) rmSync(file, { force: true });
   run(plan.afterWrite);
   console.log(`[hive] 已开启开机自启：${plan.file}`);
   console.log(`[hive] 登录后会运行：${[process.execPath, cli, "start", ...startArgs].join(" ")}`);

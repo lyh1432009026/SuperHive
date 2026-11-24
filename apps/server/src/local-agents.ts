@@ -1,5 +1,6 @@
 import { serverText } from "@superhive/protocol";
-import { execFile, execFileSync, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { spawnBackground } from "./background-process.js";
 import {
   closeSync,
   mkdirSync,
@@ -40,6 +41,8 @@ export type AgentCli = { command: string; args: string[] };
 
 export type ChildHandle = {
   pid: number | undefined;
+  /** pid 要稍后才知道时（Windows 上由 PowerShell 代为拉起）：拿到后 resolve；拉起失败时 resolve undefined */
+  pidReady?: Promise<number | undefined>;
   onOutput(listener: (chunk: string) => void): void;
   onExit(listener: (code: number | null, error?: Error) => void): void;
   kill(signal: NodeJS.Signals): void;
@@ -224,55 +227,51 @@ function fileSize(file: string): number {
 
 export const defaultSpawnAgent: SpawnAgent = (command, args, options) => {
   const logFile = options.logFile;
-  let fd: number | undefined;
-  if (logFile) {
-    if (fileSize(logFile) > LOG_FILE_MAX_BYTES) {
-      try {
-        renameSync(logFile, `${logFile}.1`);
-      } catch {
-        // Windows 上旧进程还开着这个文件时不能改名：本次接着追加，下次再轮转
-      }
-    }
-    fd = openSync(logFile, "a");
+  const env = { ...process.env, ...options.env };
+  if (!logFile) {
+    // 输出走管道：随 Server 一起结束；windowsHide 且不继承句柄，Windows 上得到一个看不见的控制台
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    return pipedChild(child);
   }
-  const offset = logFile ? fileSize(logFile) : 0;
-  const child = spawn(command, args, {
-    cwd: options.cwd,
-    env: { ...process.env, ...options.env },
-    // 写日志文件的 Agent 自成进程组：Server（及 dev 结束 Server 进程组）退出时不会把它一起带走
-    stdio: fd === undefined ? ["ignore", "pipe", "pipe"] : ["ignore", fd, fd],
-    // Windows 上不 detached 的子进程会被放进「父进程退出即全部结束」的作业对象，交接重启时会被一起结束
-    detached: fd !== undefined,
-    windowsHide: true,
-  });
-  if (fd !== undefined) closeSync(fd);
-  const exitListeners: Array<(code: number | null, error?: Error) => void> = [];
-  const outputListeners: Array<(chunk: string) => void> = [];
+  if (fileSize(logFile) > LOG_FILE_MAX_BYTES) {
+    try {
+      renameSync(logFile, `${logFile}.1`);
+    } catch {
+      // Windows 上旧进程还开着这个文件时不能改名：本次接着追加，下次再轮转
+    }
+  }
+  const fd = openSync(logFile, "a");
+  const offset = fileSize(logFile);
+  let launched: ReturnType<typeof spawnBackground>;
+  try {
+    // 写日志文件的 Agent 是后台常驻进程：Server 退出、交接重启时它照样活着，Windows 上也不弹窗
+    launched = spawnBackground(command, args, { cwd: options.cwd, env, logFd: fd });
+  } finally {
+    closeSync(fd);
+  }
+  return backgroundChild(launched, logFile, offset);
+};
+
+function pipedChild(child: ChildProcess): ChildHandle {
   let exited = false;
-  let released = false;
-  let stopTail: (() => void) | undefined;
+  const exitListeners: Array<(code: number | null, error?: Error) => void> = [];
   const emitExit = (code: number | null, error?: Error) => {
-    if (exited || released) return;
+    if (exited) return;
     exited = true;
-    stopTail?.();
     for (const listener of exitListeners) listener(code, error);
   };
   child.on("error", (error) => emitExit(null, error));
   child.on("close", (code) => emitExit(code));
-  if (logFile) {
-    child.unref();
-    stopTail = tailFile(logFile, offset, (chunk) => {
-      for (const listener of outputListeners) listener(chunk);
-    });
-  }
   return {
     pid: child.pid,
     onOutput(listener) {
-      if (logFile) outputListeners.push(listener);
-      else {
-        child.stdout?.setEncoding("utf8").on("data", listener);
-        child.stderr?.setEncoding("utf8").on("data", listener);
-      }
+      child.stdout?.setEncoding("utf8").on("data", listener);
+      child.stderr?.setEncoding("utf8").on("data", listener);
     },
     onExit(listener) {
       exitListeners.push(listener);
@@ -283,12 +282,101 @@ export const defaultSpawnAgent: SpawnAgent = (command, args, options) => {
       else child.kill(signal);
     },
     release() {
-      released = true;
-      stopTail?.();
+      exited = true;
       child.removeAllListeners();
     },
   };
-};
+}
+
+/**
+ * 后台常驻的 Agent：输出从日志文件末尾读。macOS / Linux 上能直接拿到子进程的退出码；
+ * Windows 上进程由 PowerShell 代为拉起，pid 稍后才知道，退出靠轮询发现（同接管的进程）。
+ */
+function backgroundChild(
+  launched: ReturnType<typeof spawnBackground>,
+  logFile: string,
+  offset: number,
+): ChildHandle {
+  const exitListeners: Array<(code: number | null, error?: Error) => void> = [];
+  const outputListeners: Array<(chunk: string) => void> = [];
+  let exited = false;
+  let released = false;
+  let pid: number | undefined;
+  let pendingSignal: NodeJS.Signals | undefined;
+  let poll: ReturnType<typeof setInterval> | undefined;
+  const stopTail = tailFile(logFile, offset, (chunk) => {
+    for (const listener of outputListeners) listener(chunk);
+  });
+  const emitExit = (code: number | null, error?: Error) => {
+    if (exited || released) return;
+    exited = true;
+    if (poll) clearInterval(poll);
+    stopTail();
+    for (const listener of exitListeners) listener(code, error);
+  };
+  const signal = (value: NodeJS.Signals) => {
+    if (!pid) return;
+    if (process.platform === "win32") {
+      killTree(pid);
+      return;
+    }
+    try {
+      process.kill(pid, value);
+    } catch {
+      /* 已经退出 */
+    }
+  };
+  const child = launched.child;
+  if (child) {
+    pid = child.pid;
+    child.on("error", (error) => emitExit(null, error));
+    child.on("close", (code) => emitExit(code));
+  }
+  const pidReady = launched.pid.then(
+    (value) => {
+      pid = value;
+      if (!child) {
+        poll = setInterval(() => {
+          if (!isAlive(value)) emitExit(null);
+        }, 1_000);
+        poll.unref();
+      }
+      if (pendingSignal && !exited) signal(pendingSignal);
+      return value as number | undefined;
+    },
+    (error: Error) => {
+      emitExit(null, error);
+      return undefined;
+    },
+  );
+  return {
+    get pid() {
+      return pid;
+    },
+    pidReady,
+    onOutput(listener) {
+      outputListeners.push(listener);
+    },
+    onExit(listener) {
+      exitListeners.push(listener);
+    },
+    kill(value) {
+      if (exited) return;
+      if (!pid) {
+        pendingSignal = value;
+        return;
+      }
+      if (child && process.platform !== "win32") child.kill(value);
+      else signal(value);
+    },
+    release() {
+      released = true;
+      if (poll) clearInterval(poll);
+      stopTail();
+      child?.removeAllListeners();
+    },
+  };
+}
 
 function isAlive(pid: number): boolean {
   try {
@@ -450,7 +538,7 @@ export class LocalAgentSupervisor {
           execFile(
             options.cli.command,
             [...options.cli.args, ...args],
-            { timeout: 90_000, maxBuffer: 4 * 1024 * 1024 },
+            { timeout: 90_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
             (error, stdout) => (error ? reject(error) : resolve(stdout)),
           ),
         ));
@@ -1114,13 +1202,17 @@ export class LocalAgentSupervisor {
     runtime.startedAt = startedAt;
     runtime.child = child;
     runtime.pid = child.pid ?? null;
-    if (child.pid) {
+    const recordPid = (pid: number | undefined) => {
+      if (!pid || runtime.child !== child) return;
+      runtime.pid = pid;
       this.options.database.setLocalAgentProcess(
         runtime.config.id,
-        child.pid,
+        pid,
         new Date(startedAt).toISOString(),
       );
-    }
+    };
+    if (child.pid) recordPid(child.pid);
+    else void child.pidReady?.then(recordPid);
     let resolveExited!: () => void;
     runtime.exited = new Promise((resolve) => (resolveExited = resolve));
     child.onOutput((chunk) => this.appendLog(runtime, chunk));
@@ -1230,6 +1322,7 @@ function processCommandLine(pid: number): string | undefined {
     return execFileSync("ps", ["-o", "args=", "-p", String(pid)], {
       encoding: "utf8",
       timeout: 5_000,
+      windowsHide: true,
     });
   } catch {
     return undefined;

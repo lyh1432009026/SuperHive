@@ -999,6 +999,30 @@ describe("LocalAgentSupervisor", () => {
     return { supervisor, spawner, timers, advance: (ms: number) => (now += ms) };
   }
 
+  it("records the pid once a Windows background launch reports it", async () => {
+    const database = new HiveDatabase(":memory:");
+    let reportPid!: (pid: number | undefined) => void;
+    const late = new FakeChild(0, "node", [], {});
+    const handle: ChildHandle = {
+      get pid() {
+        return undefined;
+      },
+      pidReady: new Promise((resolve) => (reportPid = resolve)),
+      onOutput: (listener) => late.onOutput(listener),
+      onExit: (listener) => late.onExit(listener),
+      kill: (signal) => late.kill(signal),
+    };
+    const { supervisor } = supervisorWith(database, { spawn: vi.fn<SpawnAgent>(() => handle) });
+    const agent = supervisor.create({ provider: "omp", name: "rd-omp", access: "read-only" });
+    expect(supervisor.get(agent.id).pid).toBeNull();
+    expect(database.listLocalAgents()[0]?.pid).toBeNull();
+    reportPid(4321);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(supervisor.get(agent.id).pid).toBe(4321);
+    expect(database.listLocalAgents()[0]?.pid).toBe(4321);
+  });
+
   it("hands its agents over to the next Server and the next Server adopts them by pid", () => {
     const database = new HiveDatabase(":memory:");
     const first = supervisorWith(database);

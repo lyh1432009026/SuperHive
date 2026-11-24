@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autostartPlan, type AutostartInput } from "./autostart.js";
+import { autostartFileContent, autostartPlan, type AutostartInput } from "./autostart.js";
 
 const base: AutostartInput = {
   platform: "darwin",
@@ -62,11 +62,16 @@ describe("autostartPlan", () => {
       cli: "C:\\npm\\node_modules\\superhive\\dist\\cli.js",
       startArgs: [],
     });
-    expect(plan.file).toMatch(/Startup[\\/]SuperHive\.cmd$/);
+    // 用隐藏窗口的 VBScript 拉起，登录时不闪命令行窗口；旧版写的 .cmd 开启时换掉、关闭时一起删
+    expect(plan.file).toMatch(/Startup[\\/]SuperHive\.vbs$/);
+    expect(plan.legacyFiles).toEqual([expect.stringMatching(/Startup[\\/]SuperHive\.cmd$/)]);
     expect(plan.content).toContain(
-      '"C:\\Program Files\\nodejs\\node.exe" "C:\\npm\\node_modules\\superhive\\dist\\cli.js" "start" "--no-open"',
+      'shell.Run "cmd.exe /d /s /c """"C:\\Program Files\\nodejs\\node.exe"" ""C:\\npm\\node_modules\\superhive\\dist\\cli.js"" ""start"" ""--no-open"" >> ""',
     );
+    expect(plan.content).toMatch(/2>&1""", 0, False\r\n$/);
     expect(plan.content).not.toContain("--foreground");
-    expect(plan.content).toContain("\r\n");
+    const bytes = autostartFileContent(plan) as Buffer;
+    expect([...bytes.subarray(0, 2)]).toEqual([0xff, 0xfe]);
+    expect(bytes.subarray(2).toString("utf16le")).toBe(plan.content);
   });
 });

@@ -373,7 +373,7 @@ npx superhive@latest restart
   hive autostart off
   ```
 
-- macOS 写入 `~/Library/LaunchAgents/dev.superhive.server.plist`，Linux 写入 systemd 用户服务 `~/.config/systemd/user/superhive.service`，Windows 在「启动」文件夹里放一个 `SuperHive.cmd`。都只对当前用户生效，不需要管理员权限。
+- macOS 写入 `~/Library/LaunchAgents/dev.superhive.server.plist`，Linux 写入 systemd 用户服务 `~/.config/systemd/user/superhive.service`，Windows 在「启动」文件夹里放一个 `SuperHive.vbs`，以隐藏窗口启动，登录时不会闪出命令行窗口（旧版本写的 `SuperHive.cmd` 会在重新开启时换掉、关闭时一起删除）。都只对当前用户生效，不需要管理员权限。
 - 不写 `--host`、`--port`、`--public-url`、`--no-local-agents` 时，沿用正在运行的 Server 的启动配置（所以最好在 Server 运行时开启）；Server 没在运行时用默认配置。
 - 开机后 Server 起来，网页上启动过、没手动停止的本机 Agent 会跟着逐个恢复（见 [本机 Agent 的自动恢复](#本机-agent-的自动恢复)）。
 - 自启动记下的是当前这份 `superhive` 的 node 和脚本路径。用 `npx` 临时运行时，这份文件在 npm 缓存里，清缓存后会失效；建议先 `npm i -g superhive` 再开启。`hive update` 原地更新，路径不变，一般不用重新开启；换了 Node 版本管理器或全局安装目录后再运行一次 `hive autostart on`。

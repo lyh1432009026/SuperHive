@@ -388,6 +388,7 @@ Agent 的行为规则有一份权威来源：`apps/server/src/agent-instructions
 - **崩溃重启**：意外退出按 1 秒起指数退避（最长 60 秒），10 分钟内退出 5 次熔断，停止自动重启。
 - **交接**：开发时代码换代或 Server 升级，旧 Server 调 `detach()` 只停止跟踪不结束进程，进程号落库后由新 Server 接管；Agent 断线期间自行重连。由 Server 拉起的 Agent 带 `HIVE_SUPERVISOR_PID`，Server 消失且宽限期内没有新 Server 接管时自行离线退出，不留孤儿。
 - **关闭**：`shutdown()` 先 SIGTERM（Windows 上经 WebSocket 请它自己退出）让 Agent 正常离线，5 秒后仍未退出再强制结束。
+- **Windows 上不弹窗**：Server 和写日志文件的本机 Agent 都是后台常驻进程，统一用 `background-process.ts` 的 `spawnBackground` 拉起（server 和 superhive 各带一份，内容相同）。macOS / Linux 仍是 detached 加日志文件。Windows 上不能用 detached，因为 `DETACHED_PROCESS` 让进程没有控制台，它再拉起的控制台程序只要漏写 `windowsHide`，就会各自新开一个可见窗口；不 detached 又会被 libuv 的作业对象绑住，父进程一退就跟着结束。所以 Windows 上先带 `windowsHide` 起一个 PowerShell，它会得到隐藏的控制台，再由它 `Start-Process -NoNewWindow` 拉起真正的进程：真正的进程共用这个隐藏控制台、脱离作业对象，日志句柄照常继承，pid 经临时文件交回，退出靠轮询发现。其余所有 `spawn` / `execFile` 都要写 `windowsHide: true`，三个包里各有一条 `console-window.test.ts` 扫源码检查，确实要开窗口的（「在终端打开」）写进白名单并说明原因。
 - **开机自启**：`hive autostart`（`packages/superhive/src/autostart.ts`）只负责登录后启动 Server（`hive start --no-open`，沿用 `server.json` 里上次的启动配置），Agent 的恢复仍由上面的 autostart 标记决定。
 
 ## 安全边界

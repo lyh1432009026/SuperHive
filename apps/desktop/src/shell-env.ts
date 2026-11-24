@@ -29,6 +29,7 @@ export async function loginShellPath(
         timeout: timeoutMs,
         env: { ...env, DISABLE_AUTO_UPDATE: "true", ZSH_TMUX_AUTOSTARTED: "true" },
         maxBuffer: 1024 * 1024,
+        windowsHide: true,
       },
       (error, stdout) => {
         const text = String(stdout ?? "");

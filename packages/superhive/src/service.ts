@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
+import { spawnBackground } from "./background-process.js";
 
 type ServiceStartOptions = {
   host: string;
@@ -339,22 +340,42 @@ export async function startService(args = process.argv.slice(3)): Promise<void> 
   }
 
   const logFd = openSync(servicePaths.logPath, "a", 0o600);
-  const child = spawn(process.execPath, [serverEntry], {
-    detached: true,
-    env: serverEnv,
-    stdio: ["ignore", logFd, logFd],
-  });
-  closeSync(logFd);
-  if (!child.pid) throw new Error("无法创建 Hive Server 后台进程。");
+  let launched: ReturnType<typeof spawnBackground>;
+  try {
+    // 后台常驻：CLI 退出后 Server 照样运行；Windows 上给它一个看不见的控制台，它再拉起的命令不会弹窗
+    launched = spawnBackground(process.execPath, [serverEntry], { env: serverEnv, logFd });
+  } finally {
+    closeSync(logFd);
+  }
+  let serverPid: number;
+  try {
+    serverPid = await launched.pid;
+  } catch (error) {
+    throw new Error(
+      `无法创建 Hive Server 后台进程：${(error as Error).message}。日志：${servicePaths.logPath}`,
+    );
+  }
+  const exitError = (detail: string) => new Error(`Server 进程提前退出（${detail}）。`);
   const childExited = new Promise<void>((_resolve, reject) => {
-    child.once("exit", (code, signal) => {
-      reject(new Error(`Server 进程提前退出（${signal ?? `exit ${code ?? "unknown"}`}）。`));
-    });
+    const child = launched.child;
+    if (child) {
+      child.once("exit", (code, signal) =>
+        reject(exitError(signal ?? `exit ${code ?? "unknown"}`)),
+      );
+      return;
+    }
+    // Windows 上 Server 由 PowerShell 代为拉起，拿不到退出事件，只能轮询
+    const poll = setInterval(() => {
+      if (processExists(serverPid)) return;
+      clearInterval(poll);
+      reject(exitError("exit unknown"));
+    }, 500);
+    poll.unref();
   });
-  child.unref();
+  childExited.catch(() => undefined);
 
   const state: ServiceState = {
-    pid: child.pid,
+    pid: serverPid,
     instanceId,
     healthUrl,
     shutdownToken,
@@ -373,7 +394,7 @@ export async function startService(args = process.argv.slice(3)): Promise<void> 
   try {
     await Promise.race([waitUntilReady(healthUrl, instanceId), childExited]);
   } catch (error) {
-    if (processExists(child.pid)) process.kill(child.pid, "SIGTERM");
+    if (processExists(serverPid)) process.kill(serverPid, "SIGTERM");
     rmSync(servicePaths.statePath, { force: true });
     throw new Error(`${(error as Error).message}日志：${servicePaths.logPath}`);
   }

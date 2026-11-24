@@ -226,7 +226,11 @@ export function packageRootOf(moduleFile: string): string {
 
 function runInherit(file: string, args: string[]): Promise<number> {
   return new Promise((resolve, reject) => {
-    const child = spawn(file, args, { stdio: "inherit", shell: process.platform === "win32" });
+    const child = spawn(file, args, {
+      stdio: "inherit",
+      shell: process.platform === "win32",
+      windowsHide: true,
+    });
     child.once("error", reject);
     child.once("exit", (code, signal) => resolve(code ?? (signal ? 1 : 0)));
   });

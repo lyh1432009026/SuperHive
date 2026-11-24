@@ -107,6 +107,7 @@ function spawnGit(cwd: string, args: string[], input?: string): Promise<GitResul
       {
         env: { ...env, GIT_TERMINAL_PROMPT: "0" },
         stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
       },
     );
     let stdout = "";

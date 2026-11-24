@@ -664,6 +664,7 @@ export const defaultSpawnUpgrade: SpawnUpgrade = (command, env) => {
     cwd: tmpdir(),
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
+    windowsHide: true,
   });
   const outputs: Array<(chunk: string) => void> = [];
   const exits: Array<(code: number | null, error?: Error) => void> = [];
