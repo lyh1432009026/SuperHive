@@ -98,6 +98,10 @@ await build({
   logLevel: "warning",
 });
 cpSync(path.join(desktopDir, "forge.config.cjs"), path.join(stageDir, "forge.config.cjs"));
+cpSync(
+  path.join(desktopDir, "scripts/prune-natives.cjs"),
+  path.join(stageDir, "prune-natives.cjs"),
+);
 
 // 3. 运行时依赖：superhive 的 dependencies + node-pty，版本钉成仓库里实际装的
 function installedVersion(name, fromDir) {

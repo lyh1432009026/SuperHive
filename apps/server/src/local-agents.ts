@@ -300,6 +300,25 @@ function isAlive(pid: number): boolean {
 }
 
 /**
+ * 拉起 superhive CLI 时字符串选项一律写成 `--key=value`：桌面端在 Windows 上用 Electron 跑 CLI，
+ * Electron 发现命令行里「像网址的参数后面还跟着 `--` 开关」会直接退出（防协议处理器注入），
+ * `--server http://127.0.0.1:8787 --name x` 正好命中；写成一个参数就不会。node 的 parseArgs 两种都认。
+ */
+export function cliOption(key: string, value: string): string {
+  return `--${key}=${value}`;
+}
+
+/** 从 `hive join` 命令行里取 Agent 名字：新的 `--name=X` 和老进程的 `--name X` 都认 */
+export function joinArgumentName(args: readonly string[]): string | undefined {
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    if (arg === "--name") return args[i + 1];
+    if (arg.startsWith("--name=")) return arg.slice("--name=".length);
+  }
+  return undefined;
+}
+
+/**
  * 按 pid 接管：进程还在，并且命令行确实是这个名字的 `hive join`（防止 pid 被别的进程复用），
  * 之后靠轮询发现它退出、靠信号结束它，输出从日志文件末尾接着读。
  */
@@ -308,8 +327,7 @@ export const defaultAdoptAgent: AdoptAgent = (pid, options) => {
   const commandLine = processCommandLine(pid);
   if (!commandLine) return undefined;
   const args = commandLine.trim().split(/\s+/);
-  const nameAt = args.indexOf("--name");
-  if (!args.includes("join") || nameAt < 0 || args[nameAt + 1] !== options.name) return undefined;
+  if (!args.includes("join") || joinArgumentName(args) !== options.name) return undefined;
   const exitListeners: Array<(code: number | null, error?: Error) => void> = [];
   const outputListeners: Array<(chunk: string) => void> = [];
   let exited = false;
@@ -439,7 +457,7 @@ export class LocalAgentSupervisor {
     this.listModels =
       options.listModels ??
       (async (provider) => {
-        const stdout = await this.listMcp(["models", "--provider", provider, "--json"]);
+        const stdout = await this.listMcp(["models", cliOption("provider", provider), "--json"]);
         const line = stdout.trim().split("\n").at(-1) ?? "";
         const parsed = JSON.parse(line) as LocalAgentModelsResponse;
         return {
@@ -644,11 +662,9 @@ export class LocalAgentSupervisor {
     const stdout = await this.listMcp([
       "mcp",
       "list",
-      "--provider",
-      provider,
-      "--cwd",
-      cwd ?? homedir(),
-      ...(settingsFile ? ["--agent-settings", settingsFile] : []),
+      cliOption("provider", provider),
+      cliOption("cwd", cwd ?? homedir()),
+      ...(settingsFile ? [cliOption("agent-settings", settingsFile)] : []),
       "--json",
       ...(measure && provider === "claude" ? ["--measure"] : []),
     ]);
@@ -1059,18 +1075,14 @@ export class LocalAgentSupervisor {
     const args = [
       ...this.options.cli.args,
       "join",
-      "--server",
-      this.options.serverUrl,
-      "--name",
-      config.name,
-      "--provider",
-      config.provider,
-      "--access",
-      config.access,
-      ...(config.cwd ? ["--cwd", config.cwd] : []),
+      cliOption("server", this.options.serverUrl),
+      cliOption("name", config.name),
+      cliOption("provider", config.provider),
+      cliOption("access", config.access),
+      ...(config.cwd ? [cliOption("cwd", config.cwd)] : []),
       // 有设置文件时模型只从设置文件读（每一轮生效），不再作为启动参数：改回默认才能真的回到默认
-      ...(config.model && !settingsFile ? ["--model", config.model] : []),
-      ...(settingsFile ? ["--agent-settings", settingsFile] : []),
+      ...(config.model && !settingsFile ? [cliOption("model", config.model)] : []),
+      ...(settingsFile ? [cliOption("agent-settings", settingsFile)] : []),
       // 本机拉起的 Agent 是房主自己的：房主在网页上给房间设的工作区直接跟随，不用再手动 --allow-root
       "--trust-room-workspace",
     ];

@@ -48,6 +48,16 @@ pnpm --filter @superhive/desktop package   # 只打 .app / 目录，不做安装
 
 产物在 `apps/desktop/out/`（已 gitignore）：macOS 是 `out/make/dmg/arm64/SuperHive-<版本>-arm64.dmg` 和 `out/make/zip/darwin/arm64/*.zip`。Windows（Squirrel 安装包、zip）和 Linux（deb、rpm、zip）的 maker 已经配好，需要在对应系统上打。
 
+打包时 `scripts/prune-natives.cjs`（Forge 的 `afterCopy` 钩子）把 node-pty、better-sqlite3 里非目标平台的预编译、`.pdb` 调试符号和 C++ 源码删掉，Windows 安装包因此从 191MB 降到 168MB。
+
+Windows 上打包（Windows 11 x64 实测过）：
+
+- 在 Windows 本机打，`node scripts\forge.mjs make --arch x64 --targets @electron-forge/maker-squirrel`（只要 zip 就换成 `maker-zip`）。
+- 连不上 GitHub 时设 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` 下载 Electron。
+- 打包时重命名临时目录报 `EPERM`，多半是 Defender 正在扫刚解压的文件，重试或把构建目录加进排除项。
+- Squirrel 最后用 rcedit 给 `Setup.exe` 写版本信息时可能报 `Unable to commit changes`，Forge 会把这当失败；这时 `out/make/squirrel.windows/x64/Setup.exe` 已经生成、可以正常安装，只是没有版本信息、也没改名成 `SuperHive-Setup.exe`。
+- 安装包装到 `%LOCALAPPDATA%\SuperHive`，安装时建开始菜单和桌面快捷方式，卸载时删掉（主进程处理 `--squirrel-*` 事件，见 `src/squirrel.ts`）；Electron 自己的数据在 `%APPDATA%\SuperHive`，Hive 数据仍是 `%USERPROFILE%\.superhive`。
+
 打包版的冒烟测试（fuses 开着，用 Chromium 远程调试端口连上窗口）：
 
 ```bash
@@ -72,5 +82,8 @@ SUPERHIVE_DESKTOP_APP=out/SuperHive-darwin-arm64/SuperHive.app/Contents/MacOS/Su
 - 未签名的 macOS 应用第一次打开会被 Gatekeeper 拦下，需要右键「打开」，或在「系统设置 → 隐私与安全性」里允许。
 - 每个本机 Agent 是一个不带窗口的 Electron 主进程，比直接用 Node 多占几十 MB 内存。
 - 安装 Agent CLI（`npm i -g @anthropic-ai/claude-code` 之类）仍然需要系统里有 Node.js；桌面端本身不需要。
-- Windows：npm 全局装的 Agent CLI 如果是 `.cmd` 包装、旁边又没有 `node.exe`，Hive 会退回用 `process.execPath` 运行它，在桌面端里这会是 Electron 本身。需要在 Windows 上实测。
-- Windows 和 Linux 只配好了 maker，没有在对应系统上实际打包和运行过。
+- Windows 上 Electron 遇到「像网址的参数后面还跟着 `--` 开关」会直接退出（防协议处理器注入），所以 Server 拉起 CLI 时字符串选项一律写成 `--key=value`（`apps/server/src/local-agents.ts` 的 `cliOption`）。
+- 命令行模式（`--superhive-cli`）下除了常驻的 `join`，命令做完主动退出（Electron 的消息循环不会自己停）；Chromium 缓存按 Agent 分目录放在 `<userData>/cli/` 下，不和桌面端、别的 Agent 抢。
+- Windows：npm 全局装的 Agent CLI 如果是 `.cmd` 包装、旁边又没有 `node.exe`，Hive 会退回用 `process.execPath` 运行它，在桌面端里这会是 Electron 本身。用 nvm 装的 node（`node.exe` 和 `.cmd` 在同一目录）实测正常，其它装法还没测。
+- Windows 安装包未签名，从网上下载后打开时 SmartScreen 一般会提示「已保护你的电脑」，需要点「更多信息 → 仍要运行」。
+- Linux 只配好了 maker，没有实际打包和运行过。

@@ -5,6 +5,7 @@ import { createRequire } from "module";
 import { fileURLToPath } from "node:url";
 import { autostartCommand } from "./autostart.js";
 import { DOCS_URL } from "./docs-url.js";
+import { shouldExitAfterCommand } from "./electron-exit.js";
 import { mcpCommand } from "./mcp-command.js";
 import { modelsCommand } from "./models-command.js";
 import { run } from "./run.js";
@@ -133,13 +134,21 @@ async function main(): Promise<void> {
 
 const updateCheck = startUpdateCheck(process.argv[2]);
 
+let failed = false;
 main()
   .catch((error: unknown) => {
     console.error(`[hive] ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
+    failed = true;
   })
   .then(async () => {
     // 命令跑完再提示，不打断它自己的输出；前台常驻的 hive start --foreground 不会走到这里，也就不提示
     const latest = await updateCheck;
     if (latest) console.log(updateNotice(version, latest, detectInstall(packageRoot)));
+    const electron = Boolean(process.versions.electron);
+    if (shouldExitAfterCommand({ command: process.argv[2], failed, electron })) {
+      // macOS / Linux 上管道写是异步的：等前面的输出都写出去再退，不然 Server 拿到的 JSON 可能被截断
+      const code = process.exitCode ?? 0;
+      process.stderr.write("", () => process.stdout.write("", () => process.exit(code)));
+    }
   });

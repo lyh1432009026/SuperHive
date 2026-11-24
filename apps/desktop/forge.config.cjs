@@ -8,6 +8,7 @@
 const path = require("node:path");
 const { FusesPlugin } = require("@electron-forge/plugin-fuses");
 const { FuseV1Options, FuseVersion } = require("@electron/fuses");
+const { prune: pruneNatives } = require("./prune-natives.cjs");
 
 // scripts/forge.mjs 传进来；Forge 加载配置时 __dirname 不一定是 .stage/app
 const desktopDir = process.env.SUPERHIVE_DESKTOP_DIR ?? path.resolve(__dirname, "../..");
@@ -26,7 +27,9 @@ module.exports = {
     },
     // 运行时依赖在 stage 里已经是 npm 装好的生产依赖，不用再裁剪
     prune: false,
-    ignore: [/^\/forge\.config\.cjs$/, /^\/out($|\/)/, /\.map$/],
+    ignore: [/^\/forge\.config\.cjs$/, /^\/prune-natives\.cjs$/, /^\/out($|\/)/, /\.map$/],
+    // 原生模块只留目标平台的预编译，去掉调试符号和 C++ 源码
+    afterCopy: [pruneNatives],
     // TODO(签名)：osxSign: {}、osxNotarize: { appleId, appleIdPassword, teamId }，需要 Apple Developer 证书
     // TODO(签名)：Windows 用 windowsSign（证书或 Azure Trusted Signing）
   },

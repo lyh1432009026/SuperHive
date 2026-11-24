@@ -25,6 +25,7 @@ import {
   type WebContents,
   type WebPreferences,
 } from "electron";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -51,6 +52,8 @@ import {
   type SplashPhase,
   type SplashTheme,
 } from "./splash.js";
+import { cliUserDataName } from "./cli-mode.js";
+import { handleSquirrelEvent } from "./squirrel.js";
 import { TerminalManager, type PtySpawn } from "./terminal-manager.js";
 import { langFor, text, type Lang, type TextKey } from "./texts.js";
 import {
@@ -79,12 +82,42 @@ const superhiveRoot = path.join(appRoot, "superhive");
 const cliIndex = process.argv.indexOf(CLI_FLAG);
 if (cliIndex >= 0) {
   void runCli(process.argv.slice(cliIndex + 1));
-} else {
+} else if (
+  !handleSquirrelEvent({
+    platform: process.platform,
+    argv: process.argv,
+    execPath: process.execPath,
+    run: runUpdateExe,
+    quit: () => app.quit(),
+  })
+) {
   runApp();
+}
+
+/** Windows 安装 / 卸载时跑 Update.exe 建删快捷方式；最多等 10 秒，跑不起来也照样退出 */
+function runUpdateExe(command: string, args: string[], done: () => void): void {
+  const timer = setTimeout(done, 10_000);
+  try {
+    const child = spawn(command, args, { detached: true, stdio: "ignore", windowsHide: true });
+    child.once("error", () => {
+      clearTimeout(timer);
+      done();
+    });
+    child.once("close", () => {
+      clearTimeout(timer);
+      done();
+    });
+  } catch {
+    clearTimeout(timer);
+    done();
+  }
 }
 
 async function runCli(args: string[]): Promise<void> {
   app.dock?.hide();
+  // 命令行模式不画界面：关掉硬件加速；Chromium 的缓存放到单独目录，不和桌面端、别的 Agent 抢
+  app.disableHardwareAcceleration();
+  app.setPath("userData", path.join(app.getPath("userData"), "cli", cliUserDataName(args)));
   const cli = path.join(superhiveRoot, "dist", "cli.js");
   process.argv = [process.execPath, cli, ...args];
   try {

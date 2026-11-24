@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { HiveDatabase } from "./database.js";
 import {
+  cliOption,
+  joinArgumentName,
   LocalAgentSupervisor,
   type ChildHandle,
   type LocalAgentSupervisorOptions,
@@ -95,6 +97,21 @@ const probe = async (command: string) =>
   command === "opencode"
     ? { installed: true, version: "1.19.4" }
     : { installed: false, version: null };
+
+describe("CLI arguments for the desktop app on Windows", () => {
+  it("passes every string option as one --key=value argument", () => {
+    expect(cliOption("server", "http://127.0.0.1:8787")).toBe("--server=http://127.0.0.1:8787");
+    expect(cliOption("cwd", "C:\\Users\\a b")).toBe("--cwd=C:\\Users\\a b");
+  });
+
+  it("reads the agent name from both new and old join command lines", () => {
+    expect(joinArgumentName(["cli.js", "join", "--server=http://x", "--name=rd-a"])).toBe("rd-a");
+    expect(joinArgumentName(["cli.js", "join", "--server", "http://x", "--name", "rd-b"])).toBe(
+      "rd-b",
+    );
+    expect(joinArgumentName(["cli.js", "join"])).toBeUndefined();
+  });
+});
 
 describe("local agent routes", () => {
   let closeApp: (() => Promise<void>) | undefined;
@@ -562,16 +579,12 @@ describe("local agent routes", () => {
     expect(child.args).toEqual([
       "/opt/superhive/dist/cli.js",
       "join",
-      "--server",
-      "http://127.0.0.1:8787",
-      "--name",
-      "rd-opencode",
-      "--provider",
-      "opencode",
-      "--access",
-      "read-only",
-      "--model",
-      "p/m",
+      // 一律 --key=value：Windows 上 Electron 见到「网址参数后面跟开关」会直接退出
+      "--server=http://127.0.0.1:8787",
+      "--name=rd-opencode",
+      "--provider=opencode",
+      "--access=read-only",
+      "--model=p/m",
       "--trust-room-workspace",
     ]);
     expect(child.args.join(" ")).not.toContain("join-token");
@@ -596,7 +609,9 @@ describe("local agent routes", () => {
   it("passes an agent settings file and applies MCP selections without a restart", async () => {
     const settingsDir = mkdtempSync(path.join(tmpdir(), "hive-agent-settings-"));
     const listMcp = vi.fn(async (args: string[]) => {
-      const file = args[args.indexOf("--agent-settings") + 1]!;
+      const file = args
+        .find((arg) => arg.startsWith("--agent-settings="))!
+        .slice("--agent-settings=".length);
       const disabled = (JSON.parse(readFileSync(file, "utf8")) as { mcpDisabled: string[] })
         .mcpDisabled;
       return `${JSON.stringify({
@@ -623,7 +638,9 @@ describe("local agent routes", () => {
     });
     const id = created.json().agent.id as string;
     const args = spawner.children[0]!.args;
-    const file = args[args.indexOf("--agent-settings") + 1]!;
+    const file = args
+      .find((arg) => arg.startsWith("--agent-settings="))!
+      .slice("--agent-settings=".length);
     expect(file).toBe(path.join(settingsDir, `${id}.json`));
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ mcpDisabled: [] });
 
@@ -668,7 +685,7 @@ describe("local agent routes", () => {
       payload: { provider: "opencode", name: "rd-opencode", access: "read-only" },
     });
     // 其他 provider 也有设置文件（模型从这里读），只是没有 MCP 可勾选
-    expect(spawner.children[1]!.args).toContain("--agent-settings");
+    expect(spawner.children[1]!.args.some((arg) => arg.startsWith("--agent-settings="))).toBe(true);
     expect(
       (
         await app.inject({
@@ -703,7 +720,9 @@ describe("local agent routes", () => {
     const args = spawner.children[0]!.args;
     // 模型只从设置文件读：改回默认时才能真的回到默认
     expect(args).not.toContain("--model");
-    const file = args[args.indexOf("--agent-settings") + 1]!;
+    const file = args
+      .find((arg) => arg.startsWith("--agent-settings="))!
+      .slice("--agent-settings=".length);
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({
       mcpDisabled: [],
       model: "zhipu/glm-5",
@@ -798,7 +817,13 @@ describe("local agent routes", () => {
       headers: owner,
     });
     expect(preview.json()).toMatchObject({ supported: true, servers: [{ name: "rea" }] });
-    expect(listMcp.mock.calls[0]![0]).not.toContain("--agent-settings");
+    expect(listMcp.mock.calls[0]![0]).toEqual([
+      "mcp",
+      "list",
+      "--provider=claude",
+      `--cwd=${homedir()}`,
+      "--json",
+    ]);
     expect(
       (await app.inject({ method: "GET", url: "/api/local/mcp?provider=nope", headers: owner }))
         .statusCode,
@@ -812,7 +837,9 @@ describe("local agent routes", () => {
     });
     expect(created.json().agent.mcpDisabled).toEqual(["rea"]);
     const args = spawner.children[0]!.args;
-    const file = args[args.indexOf("--agent-settings") + 1]!;
+    const file = args
+      .find((arg) => arg.startsWith("--agent-settings="))!
+      .slice("--agent-settings=".length);
     // 第一次启动就按选择加载，不需要接入后再改一次
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ mcpDisabled: ["rea"] });
     rmSync(settingsDir, { recursive: true, force: true });
@@ -852,7 +879,7 @@ describe("local agent routes", () => {
       });
       expect(workspace.statusCode).toBe(201);
       expect(workspace.json().agent.cwd).toBe(realpathSync(directory));
-      expect(spawner.children[0]!.args).toContain("--cwd");
+      expect(spawner.children[0]!.args).toContain(`--cwd=${realpathSync(directory)}`);
       const duplicate = await post({ provider: "opencode", name: "RD-OMP", access: "read-only" });
       expect(duplicate.statusCode).toBe(409);
       // 手输的 ~ 会被展开
@@ -873,7 +900,7 @@ describe("local agent routes", () => {
       expect(full.statusCode).toBe(201);
       expect(full.json().agent).toMatchObject({ access: "full", cwd: realpathSync(directory) });
       expect(spawner.children.at(-1)!.args).toEqual(
-        expect.arrayContaining(["--access", "full", "--cwd", realpathSync(directory)]),
+        expect.arrayContaining(["--access=full", `--cwd=${realpathSync(directory)}`]),
       );
     } finally {
       rmSync(directory, { recursive: true, force: true });
@@ -1095,9 +1122,9 @@ describe("LocalAgentSupervisor", () => {
 
     const second = supervisorWith(database);
     second.supervisor.start();
-    expect(
-      second.spawner.children.map((child) => child.args[child.args.indexOf("--name") + 1]),
-    ).toEqual(["rd-omp"]);
+    expect(second.spawner.children.map((child) => joinArgumentName(child.args))).toEqual([
+      "rd-omp",
+    ]);
     expect(second.supervisor.get(stopped.id).status).toBe("stopped");
     expect(second.supervisor.get(running.id).status).toBe("starting");
     database.close();
@@ -1113,8 +1140,7 @@ describe("LocalAgentSupervisor", () => {
 
     const second = supervisorWith(database);
     second.supervisor.start();
-    const names = () =>
-      second.spawner.children.map((child) => child.args[child.args.indexOf("--name") + 1]);
+    const names = () => second.spawner.children.map((child) => joinArgumentName(child.args));
     // 第一个立即启动，其余排队，排队中也显示「启动中」
     expect(names()).toEqual(["a"]);
     expect(second.timers.timers.map((timer) => timer.ms)).toEqual([2_000, 4_000, 6_000]);
