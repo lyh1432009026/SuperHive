@@ -15,6 +15,7 @@ import {
   type TerminalLayoutAction,
   type TerminalSessionInfo,
 } from "./ipc-contract.js";
+import type { PickFilesRequest, PickFilesResult } from "./file-picker.js";
 import { applyDesktopMarks, parseTitlebarArg, setFullscreenMark } from "./titlebar-dom.js";
 
 function queryOrigin(): string | undefined {
@@ -52,6 +53,17 @@ if (allowedOrigin && window.location.origin === allowedOrigin && window.top === 
     /** 网页首屏画好了，收起桌面端的启动加载画面（重复调用无害） */
     ready: (): void => {
       ipcRenderer.send(IPC.appReady);
+    },
+    files: {
+      /**
+       * 打开系统选文件窗口，起始目录是这个房间绑定的工作区（主进程自己查，网页只给房间 ID）。
+       * 按上传上限读回选中的文件；超限的只有名字和大小（skipped 说明原因）。
+       */
+      pick: (request: PickFilesRequest): Promise<PickFilesResult> =>
+        ipcRenderer.invoke(IPC.pickFiles, {
+          roomId: typeof request?.roomId === "string" ? request.roomId : null,
+          multiple: request?.multiple !== false,
+        }),
     },
     titlebar: {
       /** "mac"：红黄绿按钮在左上；"overlay"：系统按钮在右上；"native"：系统标题栏 */

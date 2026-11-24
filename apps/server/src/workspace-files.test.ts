@@ -922,4 +922,38 @@ describe("工作区文件接口", () => {
     expect((await reveal("tool.bin", OWNER)).statusCode).toBe(401);
     expect(revealed).toHaveLength(1);
   });
+
+  it("本机房主能查房间绑定的工作区（桌面端选附件的起始目录）；只有总令牌、未绑定、房间不存在各有回应", async () => {
+    const root = repository();
+    const app = await buildApp({
+      databasePath: ":memory:",
+      token: "test-token",
+      staticDir: "/definitely-not-present",
+      localAgents: {
+        cli: { command: "/usr/bin/node", args: ["cli.js"] },
+        serverUrl: "http://127.0.0.1:8787",
+        spawn: () => {
+          throw new Error("no agents");
+        },
+        probe: async () => ({ installed: true, version: "1.0.0" }),
+      },
+    });
+    cleanup.push(() => app.close());
+    const { ownerToken } = (await app.inject({ url: "/api/local/session" })).json();
+    const query = (
+      room: string,
+      headers: Record<string, string> = { "x-hive-owner": ownerToken },
+    ) => app.inject({ url: `/api/local/rooms/${room}/workspace`, headers });
+    expect((await query("general")).json()).toEqual({ workspace: null });
+    await app.inject({
+      method: "PATCH",
+      url: "/api/rooms/general",
+      headers: OWNER,
+      payload: { workspace: root },
+    });
+    expect((await query("general")).json()).toEqual({ workspace: root });
+    expect((await query("no-such-room")).statusCode).toBe(404);
+    expect((await query("general", OWNER)).statusCode).toBe(401);
+    expect((await query("general", {})).statusCode).toBe(401);
+  });
 });

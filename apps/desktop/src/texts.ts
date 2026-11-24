@@ -28,6 +28,7 @@ const texts = {
   view: { zh: "视图", en: "View" },
   window: { zh: "窗口", en: "Window" },
   help: { zh: "帮助", en: "Help" },
+  pickAttachments: { zh: "添加附件", en: "Add Attachments" },
   newTerminal: { zh: "新建终端", en: "New Terminal" },
   toggleTerminalMaximized: { zh: "最大化 / 还原终端", en: "Maximize / Restore Terminal" },
   toggleTerminalPosition: {

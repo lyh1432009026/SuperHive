@@ -41,6 +41,23 @@ export type DesktopTitlebarApi = {
   setAppearance(appearance: DesktopTitlebarAppearance): void;
 };
 
+/** 系统选文件窗口选中的一个文件；data 不在时表示超出上传上限没读，skipped 说明原因 */
+export type DesktopPickedFile = {
+  name: string;
+  type: string;
+  size: number;
+  data?: Uint8Array;
+  skipped?: "too-large" | "total" | "count";
+};
+
+/** 输入框「添加附件」：系统选文件窗口默认打开房间工作区（起始目录由桌面端自己向 Hive 查，网页只给房间 ID） */
+export type DesktopFilesApi = {
+  pick(request: {
+    roomId?: string | null;
+    multiple?: boolean;
+  }): Promise<{ canceled: boolean; files: DesktopPickedFile[] }>;
+};
+
 export type DesktopBridge = {
   version: number;
   platform: string;
@@ -48,6 +65,8 @@ export type DesktopBridge = {
   titlebar?: DesktopTitlebarApi;
   /** 网页首屏画好了，桌面端收起启动加载画面（老版本桌面端没有这一项） */
   ready?: () => void;
+  /** 选附件（老版本桌面端没有这一项，照旧用 <input type=file>） */
+  files?: DesktopFilesApi;
 };
 
 declare global {
@@ -83,6 +102,11 @@ export function desktopBridge(
     const cleaned: Partial<DesktopTerminalApi> = { ...terminal };
     for (const name of optional) if (typeof cleaned[name] !== "function") delete cleaned[name];
     return desktopBridge({ ...value, terminal: cleaned });
+  }
+  const files = value.files as Partial<DesktopFilesApi> | undefined;
+  if (files !== undefined && (!files || typeof files.pick !== "function")) {
+    // 选附件接口形状不对只丢掉这一项，退回网页自己的选文件
+    return desktopBridge({ ...value, files: undefined });
   }
   const titlebar = value.titlebar as Partial<DesktopTitlebarApi> | undefined;
   if (titlebar !== undefined && (!titlebar || typeof titlebar.setAppearance !== "function")) {

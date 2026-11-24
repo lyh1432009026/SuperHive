@@ -19,7 +19,8 @@
 对照 [Electron 安全清单](https://www.electronjs.org/docs/latest/tutorial/security)：
 
 - 所有渲染进程开 `sandbox`、`contextIsolation`，关 `nodeIntegration`、`webviewTag`；
-- preload 只经 `contextBridge` 暴露 `window.superhiveDesktop`（终端的创建、读写、调整大小、结束；标题栏外观同步，只收 `#rrggbb` 颜色和 28–80 的高度），并且只在页面来源是本机 Hive 回环地址、且是顶层框架时才暴露；
+- preload 只经 `contextBridge` 暴露 `window.superhiveDesktop`（终端的创建、读写、调整大小、结束；标题栏外观同步，只收 `#rrggbb` 颜色和 28–80 的高度；输入框「添加附件」的系统选文件窗口 `files.pick`），并且只在页面来源是本机 Hive 回环地址、且是顶层框架时才暴露；
+- **选附件**（`src/file-picker.ts`）：网页只给房间 ID，对话框起始目录由主进程自己向本机 Hive 查（本机凭证 + `GET /api/local/rooms/:roomId/workspace`），必须是存在的目录，否则用用户主目录；起始目录只用来打开对话框，不读、不列。只读回用户在对话框里选中的文件，按上传上限读（单个 20 MB、10 个、合计 50 MB），超限的只回名字和大小；对话框关上时页面已经跳走就什么都不交；同一页面同时只开一个对话框；
 - 每个 IPC 都在主进程再校验一次 `senderFrame`：必须是我们窗口的顶层框架、来源等于本机 Hive 地址，iframe、别的窗口、跳走后的页面一律拒绝；每个终端只归创建它的页面，别的页面读写不了；
 - 不允许跳到别的站点，外部链接交给系统浏览器；同源新窗口不带 preload；禁止 webview；权限请求只放行剪贴板、通知、全屏，并且只给本机 Hive；
 - Fuses：关 `RunAsNode`、`EnableNodeOptionsEnvironmentVariable`、`EnableNodeCliInspectArguments`，开 asar 完整性校验和 `OnlyLoadAppFromAsar`，开 Cookie 加密；

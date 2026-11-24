@@ -10,6 +10,7 @@
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   Menu,
   nativeTheme,
@@ -26,6 +27,8 @@ import {
   type WebPreferences,
 } from "electron";
 import { spawn } from "node:child_process";
+import { readFile, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -36,6 +39,7 @@ import {
   type OwnedServer,
 } from "./hive-server.js";
 import { IPC, type TerminalCreateRequest, type TerminalLayoutAction } from "./ipc-contract.js";
+import { createPickFilesHandler, createWorkspaceLookup, readPickedFiles } from "./file-picker.js";
 import { isLoopbackOrigin, isTrustedSender, originAnswer, originOf } from "./ipc-guard.js";
 import { loginShellPath, mergePath } from "./shell-env.js";
 import {
@@ -236,6 +240,34 @@ function runApp(): void {
     if (result) pending.delete(result.id);
     return result ?? null;
   });
+
+  // ---------- 输入框「添加附件」：系统选文件窗口默认打开房间工作区 ----------
+  // 网页只给房间 ID；起始目录由主进程自己向本机 Hive 查，选中的文件按上传上限读回去
+  const roomWorkspace = createWorkspaceLookup({ origin: () => allowedOrigin, fetch });
+  ipcMain.handle(
+    IPC.pickFiles,
+    createPickFilesHandler<IpcMainInvokeEvent>({
+      trusted,
+      roomWorkspace,
+      home: homedir,
+      isDirectory: async (target) => (await stat(target)).isDirectory(),
+      title: () => t("pickAttachments"),
+      showDialog: (event, { title, defaultPath, multiple }) => {
+        const options: Electron.OpenDialogOptions = {
+          title,
+          defaultPath,
+          properties: multiple ? ["openFile", "multiSelections"] : ["openFile"],
+        };
+        const owner = BrowserWindow.fromWebContents(event.sender);
+        return owner ? dialog.showOpenDialog(owner, options) : dialog.showOpenDialog(options);
+      },
+      readFiles: (paths) =>
+        readPickedFiles(paths, {
+          stat,
+          readFile: async (file) => new Uint8Array(await readFile(file)),
+        }),
+    }),
+  );
 
   // preload 问自己能不能拿到桌面端能力：只回答主窗口的顶层框架，而且页面已经在本机 Hive 上
   ipcMain.on(IPC.originQuery, (event) => {

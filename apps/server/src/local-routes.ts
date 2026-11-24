@@ -182,6 +182,8 @@ export type LocalRoomActions = {
   openTerminal?: (command: string) => Promise<void>;
   /** 房间工作区（或它的 worktree）里一个文件的真实路径；路径校验与只读浏览接口相同 */
   workspaceFile?: (roomId: string, source: string, path: string) => Promise<string>;
+  /** 房间绑定的工作区目录（桌面端选附件时用作对话框起始目录）；房间不存在时抛 HiveError，没绑定时为 undefined */
+  roomWorkspace?: (roomId: string) => string | undefined;
   /** 在文件管理器里选中文件；测试里替换掉 */
   revealInFolder?: (file: string) => Promise<void>;
   /** 用系统默认应用打开文件；测试里替换掉 */
@@ -1250,6 +1252,25 @@ export function registerLocalAgentRoutes(
           error: error instanceof Error ? error.message : String(error),
           code: "OPEN_FAILED",
         });
+      }
+    },
+  );
+
+  /**
+   * 房间绑定的工作区目录（只限本机房主，要本机凭证）：桌面端主进程选附件时拿它当对话框的起始目录，
+   * 不信网页传来的路径。只回路径本身，不列目录内容。
+   */
+  app.get<{ Params: { roomId: string } }>(
+    "/api/local/rooms/:roomId/workspace",
+    async (request, reply) => {
+      if (!authorize(request, reply, "local")) return reply;
+      if (!rooms.roomWorkspace)
+        return reply.code(404).send({ ...errorText(serverText("error.feature.disabled")) });
+      try {
+        return { workspace: rooms.roomWorkspace(request.params.roomId) ?? null };
+      } catch (error) {
+        if (error instanceof HiveError) return reply.code(404).send(hiveErrorBody(error));
+        throw error;
       }
     },
   );

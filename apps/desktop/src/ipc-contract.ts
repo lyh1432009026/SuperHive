@@ -22,6 +22,8 @@ export const IPC = {
   originQuery: "superhive:origin:query",
   /** 网页首屏画好了：主进程收起启动加载画面 */
   appReady: "superhive:app:ready",
+  /** 输入框「添加附件」：系统选文件窗口，起始目录是房间工作区 */
+  pickFiles: "superhive:files:pick",
 } as const;
 
 export type TerminalCreateRequest = {

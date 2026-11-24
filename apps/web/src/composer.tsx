@@ -60,6 +60,7 @@ export function Composer({
     dragActive,
     setDragActive,
     addAttachments,
+    openFilePicker,
     mentionSuggestions,
     mentionMenuRef,
     draftTooLong,
@@ -367,7 +368,7 @@ export function Composer({
             <button
               type="button"
               className="composer-attach"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={openFilePicker}
               aria-label={t("添加附件")}
             >
               <PaperclipIcon />

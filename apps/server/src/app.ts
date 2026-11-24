@@ -926,6 +926,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         throw new HiveError("ATTACHMENT_REVOKED", serverText("error.attachment.messageRecalled"));
       return item;
     },
+    roomWorkspace: (roomId) => {
+      const room = database.getRoom(roomId);
+      if (!room) throw new HiveError("ROOM_NOT_FOUND", serverText("error.room.notFound"));
+      return room.workspace ?? undefined;
+    },
     // 工作区面板「在访达中显示」：和只读浏览接口同样的来源解析与路径校验
     workspaceFile: async (roomId, source, file) => {
       const room = database.getRoom(roomId);

@@ -8,7 +8,7 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -216,6 +216,71 @@ test("local agents launch through the app binary, not a separate Node", async ()
   await launchLocalAgent(page);
 });
 
+test("attach button opens the system file dialog in the room workspace", async () => {
+  await enterRoom(page);
+  const workspace = realpathSync(mkdtempSync(path.join(os.tmpdir(), "superhive-attach-ws-")));
+  const picked = path.join(workspace, "picked-note.txt");
+  writeFileSync(picked, "hello from the workspace");
+  try {
+    const created = await page.evaluate(async (dir) => {
+      const meta = (await (await fetch("/api/meta")).json()) as { joinToken?: string };
+      const response = await fetch("/api/rooms", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${meta.joinToken ?? ""}`,
+        },
+        body: JSON.stringify({ id: "attach", name: "attach", workspace: dir }),
+      });
+      return response.status;
+    }, workspace);
+    expect([200, 201]).toContain(created);
+
+    // 换掉系统对话框：记下打开参数，直接「选中」工作区里的文件
+    await app.evaluate(({ dialog }, file) => {
+      const calls: unknown[] = [];
+      (globalThis as unknown as { __pickCalls: unknown[] }).__pickCalls = calls;
+      dialog.showOpenDialog = (async (...args: unknown[]) => {
+        calls.push(args.length > 1 ? args[1] : args[0]);
+        return { canceled: false, filePaths: [file] };
+      }) as typeof dialog.showOpenDialog;
+    }, picked);
+    const pickCalls = () =>
+      app.evaluate(
+        () =>
+          (globalThis as unknown as { __pickCalls: Array<Record<string, unknown>> }).__pickCalls,
+      );
+
+    await page.goto(`http://127.0.0.1:${port}/#attach`);
+    await expect(page.locator("header.chat-header")).toBeVisible({ timeout: 30_000 });
+    await page.locator("button.composer-attach").click();
+    const chip = page.locator(".composer-attachment", { hasText: "picked-note.txt" });
+    await expect(chip).toBeVisible({ timeout: 15_000 });
+    await expect(chip).not.toHaveClass(/uploading|error/, { timeout: 15_000 });
+    const [first] = await pickCalls();
+    expect(first?.defaultPath).toBe(workspace);
+    expect(first?.properties).toEqual(["openFile", "multiSelections"]);
+    expect(String(first?.title)).toMatch(/添加附件|Add Attachments/);
+    await chip.locator(".composer-attachment-remove").click();
+
+    // 没绑定工作区的房间：从用户主目录开始
+    await page.goto(`http://127.0.0.1:${port}/#general`);
+    await expect(page.locator("header.chat-header")).toBeVisible({ timeout: 30_000 });
+    await page.locator("button.composer-attach").click();
+    await expect(page.locator(".composer-attachment", { hasText: "picked-note.txt" })).toBeVisible({
+      timeout: 15_000,
+    });
+    const calls = await pickCalls();
+    expect(calls[1]?.defaultPath).toBe(os.homedir());
+    await page
+      .locator(".composer-attachment", { hasText: "picked-note.txt" })
+      .locator(".composer-attachment-remove")
+      .click();
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test("renderer is locked down", async () => {
   const prefs = await app.evaluate(({ BrowserWindow }) => {
     const win = BrowserWindow.getAllWindows().find((w) =>
@@ -246,7 +311,7 @@ test("renderer is locked down", async () => {
     await page.evaluate(() =>
       Object.keys((window as unknown as { superhiveDesktop: object }).superhiveDesktop).sort(),
     ),
-  ).toEqual(["platform", "ready", "terminal", "titlebar", "version"]);
+  ).toEqual(["files", "platform", "ready", "terminal", "titlebar", "version"]);
   // 同源的 iframe 拿不到能力：preload 只在顶层框架暴露
   const inFrame = await page.evaluate(async () => {
     const frame = document.createElement("iframe");

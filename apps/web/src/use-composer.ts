@@ -14,6 +14,8 @@ import { composerHistory, stepComposerHistory } from "./composer-history";
 import type { ComposerHandle, ComposerKeyInfo } from "./rich-composer";
 import { MAX_MESSAGE_LENGTH } from "./collapsible-message";
 import { useAttachmentQueue } from "./attachments";
+import { desktopBridge } from "./desktop-bridge";
+import { pickedToFiles } from "./desktop-files";
 import { t } from "./i18n";
 import {
   storedUsernameKey,
@@ -94,10 +96,33 @@ export function useComposer({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [attachmentNotice, setAttachmentNotice] = useState<string>();
   const [dragActive, setDragActive] = useState(false);
-  function addAttachments(files: File[]) {
-    if (files.length === 0) return;
-    setAttachmentNotice(attachmentQueue.add(files));
+  function addAttachments(files: File[], extraNotice?: string) {
+    if (files.length === 0) {
+      if (extraNotice) setAttachmentNotice(extraNotice);
+      return;
+    }
+    setAttachmentNotice(attachmentQueue.add(files) ?? extraNotice);
     window.requestAnimationFrame(() => textareaRef.current?.focus());
+  }
+  /**
+   * 附件按钮：桌面端用系统选文件窗口，默认打开房间绑定的工作区；
+   * 浏览器（或老版本桌面端）照旧用 <input type=file>，浏览器不能指定起始目录。
+   */
+  function openFilePicker() {
+    const files = desktopBridge()?.files;
+    if (!files) {
+      fileInputRef.current?.click();
+      return;
+    }
+    files
+      .pick({ roomId: currentRoomId, multiple: true })
+      .then((result) => {
+        if (result.canceled) return;
+        const { files: picked, notice } = pickedToFiles(result.files);
+        addAttachments(picked, notice);
+      })
+      // 桌面端这条路走不通（比如来源校验没过）：退回网页自己的选文件
+      .catch(() => fileInputRef.current?.click());
   }
   const recentMentions = useMemo(
     () => recentMentionOrder(messages, username),
@@ -412,6 +437,7 @@ export function useComposer({
     dragActive,
     setDragActive,
     addAttachments,
+    openFilePicker,
     mentionSuggestions,
     mentionMenuRef,
     draftTooLong,
