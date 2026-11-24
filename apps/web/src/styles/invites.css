@@ -887,6 +887,28 @@
   line-height: 1.5;
 }
 
+/* Agent 设置：Claude 的自动压缩阈值、缓存时长 */
+.agent-context .agent-mcp-hint {
+  line-height: 1.5;
+}
+
+.agent-context .agent-mcp-hint.warning {
+  color: var(--warning);
+}
+
+.agent-context-custom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.agent-context-custom input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Agent 设置：人发的消息自动引导 */
 .agent-auto-steer {
   display: flex;

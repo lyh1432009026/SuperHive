@@ -48,7 +48,7 @@ import {
 } from "./room-client.js";
 import { StateStore, type AgentState } from "./state-store.js";
 import { isIrreversibleStep, isMutatingStep, sanitizeTraceStep } from "./trace.js";
-import { readAgentSettings } from "./mcp-servers.js";
+import { CLAUDE_COMPACT_WINDOW_DEFAULT, readAgentSettings } from "./mcp-servers.js";
 import { failurePolicy, type FailureKind } from "./failure.js";
 import { anyProcessAlive, liveRuntimePids, onRuntimeSpawn } from "./runtime-processes.js";
 import type { TraceStep } from "./hive-protocol.js";
@@ -210,8 +210,17 @@ type ActiveBatch = {
     effort?: string;
     /** 运行时第一次交出输出（思考、文字、工具调用或进度）的时间 */
     firstOutputAt?: number;
+    /** 这一轮里运行时自动压缩了上下文（Claude Code） */
+    compactions?: Array<{ preTokens: number; postTokens?: number; durationMs?: number }>;
+    /** 这一轮传给运行时的自动压缩阈值（只有 Claude 用） */
+    compactWindow?: number;
   };
 };
+
+/** 状态里写的 token 数：289737 → 290k（中英文都看得懂） */
+function formatTokens(tokens: number): string {
+  return tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : String(tokens);
+}
 
 const MAX_ATTEMPTS = 3;
 /** 换任务目录时最多收起几段会话（每个目录一段），多了丢掉最早收起的 */
@@ -1559,6 +1568,10 @@ export class AgentBridge {
         // 思考强度同理；都没有就不传，沿用 CLI 自己的配置
         const turnEffort = pickedEffort ?? settings.effort;
         if (turnEffort) turn.effort = turnEffort;
+        // Claude 的自动压缩阈值：没设过按默认 40 万（老 Agent、命令行直接起的也一样），"auto" 不传交给 Claude Code
+        const compactWindow = settings.compactWindow ?? CLAUDE_COMPACT_WINDOW_DEFAULT;
+        if (compactWindow !== "auto" && this.options.provider === "claude")
+          turn.compactWindow = compactWindow;
         active.workspace = this.options.cwd;
         active.accepting = true;
         reply = await this.responder.reply({
@@ -1569,6 +1582,23 @@ export class AgentBridge {
           prompt: prompt.text,
           refreshInstructions: prompt.full,
           ...(turnModel ? { model: turnModel } : {}),
+          ...(compactWindow !== "auto" ? { compactWindow } : {}),
+          ...(settings.cacheTtl ? { cacheTtl: settings.cacheTtl } : {}),
+          onCompacted: (compaction) => {
+            (turn.compactions ??= []).push(compaction);
+            if (this.active !== active || active.controller.signal.aborted) return;
+            const note = bridgeText("bridge.compacted", {
+              before: formatTokens(compaction.preTokens),
+              after:
+                compaction.postTokens !== undefined ? formatTokens(compaction.postTokens) : "?",
+            });
+            this.log(`[hive] ${bridgeTextZh(note)}`);
+            this.reportAll(active.messages, {
+              status: "running",
+              ...said(note),
+              progress: bridgeTextZh(note).slice(0, 200),
+            });
+          },
           ...(turnEffort
             ? {
                 effort: turnEffort,
@@ -2004,6 +2034,8 @@ export class AgentBridge {
         ? { firstOutputMs: Math.max(0, turn.firstOutputAt - active.startedAt) }
         : {}),
       turnMs: Math.max(0, now - active.startedAt),
+      ...(turn.compactions?.length ? { compactions: turn.compactions.slice(-20) } : {}),
+      ...(turn.compactWindow ? { compactWindow: turn.compactWindow } : {}),
       session: turn.session,
       ...idle,
       ...(turn.session === "resumed" && this.state.lastCacheTtlMs
@@ -2019,6 +2051,9 @@ export class AgentBridge {
         this.state.lastCacheTtlMs = raw.cacheWrite1hTokens > 0 ? 3_600_000 : 300_000;
       } else delete this.state.lastCacheTtlMs;
     }
+    // 缓存还能活多久：这一轮写了缓存就按写入的类型，只读了缓存（读也会续期）就沿用上一轮的；不知道就不填
+    if (raw.requests > 0 && raw.lastRequestAt && this.state.lastCacheTtlMs)
+      usage.cacheTtlMs = this.state.lastCacheTtlMs;
     turn.usage = usage;
     return usage;
   }

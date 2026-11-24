@@ -1,5 +1,9 @@
 import {
   agentUsageSchema,
+  claudeCacheTtlSchema,
+  claudeCompactWindowSchema,
+  type ClaudeCacheTtl,
+  type ClaudeCompactWindow,
   failureKindSchema,
   runtimeObservationSchema,
   type FailureKind,
@@ -94,6 +98,8 @@ type LocalAgentRow = {
   pid_started_at?: string | null;
   mcp_disabled?: string | null;
   effort?: string | null;
+  compact_window?: string | null;
+  cache_ttl?: string | null;
 };
 
 export type LocalAgentConfig = {
@@ -112,7 +118,23 @@ export type LocalAgentConfig = {
   mcpDisabled?: string[];
   /** 思考强度；null 表示不传参数，沿用 CLI 自己的配置 */
   effort?: string | null;
+  /** Claude 自动压缩阈值；null 表示没设过（按默认 20 万），"auto" 表示交给 Claude Code 自己定 */
+  compactWindow?: ClaudeCompactWindow | null;
+  /** Claude 缓存时长；null 表示不传，由 Claude Code 自动选 */
+  cacheTtl?: ClaudeCacheTtl | null;
 };
+
+/** 库里存的是文本："auto" 或 token 数；认不出的当没设过 */
+function parseCompactWindow(value: string | null | undefined): ClaudeCompactWindow | null {
+  if (!value) return null;
+  const parsed = claudeCompactWindowSchema.safeParse(value === "auto" ? value : Number(value));
+  return parsed.success ? parsed.data : null;
+}
+
+function parseCacheTtl(value: string | null | undefined): ClaudeCacheTtl | null {
+  const parsed = claudeCacheTtlSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
 
 function parseNameList(value: string | null | undefined): string[] {
   try {
@@ -137,6 +159,8 @@ function mapLocalAgent(row: LocalAgentRow): LocalAgentConfig {
     pidStartedAt: row.pid_started_at ?? null,
     mcpDisabled: parseNameList(row.mcp_disabled),
     effort: row.effort ?? null,
+    compactWindow: parseCompactWindow(row.compact_window),
+    cacheTtl: parseCacheTtl(row.cache_ttl),
   };
 }
 
@@ -793,6 +817,12 @@ export class HiveDatabase {
     }
     if (!localAgentColumns.some((column) => column.name === "effort")) {
       this.db.exec("ALTER TABLE local_agents ADD COLUMN effort TEXT");
+    }
+    if (!localAgentColumns.some((column) => column.name === "compact_window")) {
+      this.db.exec("ALTER TABLE local_agents ADD COLUMN compact_window TEXT");
+    }
+    if (!localAgentColumns.some((column) => column.name === "cache_ttl")) {
+      this.db.exec("ALTER TABLE local_agents ADD COLUMN cache_ttl TEXT");
     }
     const participantColumns = this.db.pragma("table_info(participants)") as Array<{
       name: string;
@@ -2586,6 +2616,17 @@ export class HiveDatabase {
   setLocalAgentEffort(id: string, effort: string | null): string | null {
     this.db.prepare("UPDATE local_agents SET effort = ? WHERE id = ?").run(effort, id);
     return effort;
+  }
+
+  /** Claude 的自动压缩阈值和缓存时长；null 表示恢复默认 */
+  setLocalAgentContext(
+    id: string,
+    compactWindow: ClaudeCompactWindow | null,
+    cacheTtl: ClaudeCacheTtl | null,
+  ): void {
+    this.db
+      .prepare("UPDATE local_agents SET compact_window = ?, cache_ttl = ? WHERE id = ?")
+      .run(compactWindow === null ? null : String(compactWindow), cacheTtl, id);
   }
 
   setLocalAgentMcpDisabled(id: string, names: string[]): string[] {

@@ -13,6 +13,8 @@ const base: LocalAgent = {
   cwd: "/repo",
   model: null,
   effort: null,
+  compactWindow: null,
+  cacheTtl: null,
   status: "running",
   pid: 100,
   startedAt: null,

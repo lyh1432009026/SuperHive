@@ -23,8 +23,31 @@ export type DiscoveredMcpServer = {
  * Agent 设置文件：由本机 Hive Server 写入，Agent 每一轮读取，改动下一轮生效。
  * - mcpDisabled：关掉的本机 MCP；
  * - model：这个 Agent 用的模型（不填用启动时的 --model 或运行时自己的默认）。
+ * - compactWindow、cacheTtl：Claude 的自动压缩阈值（token 数或 "auto"）、缓存时长（"5m" / "1h"）。
  */
-export type AgentSettings = { mcpDisabled: string[]; model?: string; effort?: string };
+export type AgentSettings = {
+  mcpDisabled: string[];
+  model?: string;
+  effort?: string;
+  compactWindow?: number | "auto";
+  cacheTtl?: "5m" | "1h";
+};
+
+/** 和 @superhive/protocol 的 claude-context.ts 一致（这个包不依赖 protocol） */
+export const CLAUDE_COMPACT_WINDOW_DEFAULT = 400_000;
+const CLAUDE_COMPACT_WINDOW_MIN = 100_000;
+const CLAUDE_COMPACT_WINDOW_MAX = 2_000_000;
+
+/** 压缩阈值：认 "auto" 和 10 万～200 万的整数，别的当没设置（按默认） */
+export function compactWindowValue(value: unknown): number | "auto" | undefined {
+  if (value === "auto") return value;
+  return typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= CLAUDE_COMPACT_WINDOW_MIN &&
+    value <= CLAUDE_COMPACT_WINDOW_MAX
+    ? value
+    : undefined;
+}
 
 /** 思考强度：只认小写的档位名（low、high、xhigh…），别的一律当没设置 */
 export function effortName(value: unknown): string | undefined {
@@ -44,16 +67,23 @@ export function readAgentSettings(file: string | undefined): AgentSettings {
       mcpDisabled?: unknown;
       model?: unknown;
       effort?: unknown;
+      compactWindow?: unknown;
+      cacheTtl?: unknown;
     };
     const disabled = Array.isArray(parsed.mcpDisabled)
       ? parsed.mcpDisabled.filter((name): name is string => typeof name === "string")
       : [];
     const model = modelName(parsed.model);
     const effort = effortName(parsed.effort);
+    const compactWindow = compactWindowValue(parsed.compactWindow);
+    const cacheTtl =
+      parsed.cacheTtl === "5m" || parsed.cacheTtl === "1h" ? parsed.cacheTtl : undefined;
     return {
       mcpDisabled: [...new Set(disabled)].sort(),
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
+      ...(compactWindow ? { compactWindow } : {}),
+      ...(cacheTtl ? { cacheTtl } : {}),
     };
   } catch {
     // 文件还没写或写坏了：按"全部启用"处理，与没有设置时的行为一致

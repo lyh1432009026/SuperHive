@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { claudeHiveMcpConfig, type HiveMcpConnection } from "./hive-mcp-config.js";
+import type { ClaudeWarmRegistry, WarmTicket } from "./claude-warm-registry.js";
 import { enabledClaudeMcpServers, readAgentSettings, type AgentSettings } from "./mcp-servers.js";
 import {
   AgentCancelledError,
@@ -49,7 +50,26 @@ type WarmClaude = {
   exited: boolean;
   kill: AbortController;
   idleTimer?: NodeJS.Timeout | undefined;
+  /** 停着时在机器级登记表里的登记；被别的 Bridge 淘汰（登记被删）就结束进程 */
+  ticket?: WarmTicket | undefined;
+  pollTimer?: NodeJS.Timeout | undefined;
 };
+
+/** 缓存是 1 小时的：进程也留到接近 1 小时（缓存从最后一次请求算起，留 5 分钟余量） */
+const CACHE_1H_KEEPALIVE_MS = 55 * 60_000;
+
+/** 停着的进程多久查一次自己有没有被淘汰 */
+const WARM_POLL_MS = 5_000;
+
+/** 不再停着（复用、结束）：撤掉登记和定时器 */
+function unpark(warm: WarmClaude): void {
+  if (warm.idleTimer) clearTimeout(warm.idleTimer);
+  if (warm.pollTimer) clearInterval(warm.pollTimer);
+  warm.idleTimer = undefined;
+  warm.pollTimer = undefined;
+  warm.ticket?.release();
+  warm.ticket = undefined;
+}
 
 /** 正在跑的这一轮：标准输入保持打开，引导写进去，Claude 在工具间隙读到 */
 type ClaudeTurn = {
@@ -108,6 +128,8 @@ export function claudeWorkspaceSandboxSettings(
 export class ClaudeCodeResponder implements AgentResponder {
   private turn: ClaudeTurn | undefined;
   private warm: WarmClaude | undefined;
+  /** 最近一次写缓存是不是 1 小时的（缓存时长跟随 Claude Code 时，按实际写入判断常驻多久） */
+  private cache1h = false;
 
   /** 结束常驻进程（Bridge 停止、换任务目录时调用） */
   async close(): Promise<void> {
@@ -121,7 +143,7 @@ export class ClaudeCodeResponder implements AgentResponder {
   /** 关掉常驻进程的标准输入，让它自己退出；临时 MCP 配置在进程退出后删除 */
   private retire(warm: WarmClaude): void {
     if (this.warm === warm) this.warm = undefined;
-    if (warm.idleTimer) clearTimeout(warm.idleTimer);
+    unpark(warm);
     warm.route = () => undefined;
     if (warm.exited) return;
     if (warm.stdin) warm.stdin.end();
@@ -161,6 +183,12 @@ export class ClaudeCodeResponder implements AgentResponder {
        * 只在 runner 支持流式输入时生效。
        */
       keepAliveMs?: number;
+      /** 缓存是 1 小时时进程保留多久（默认 55 分钟；keepAliveMs 为 0 时不常驻） */
+      cacheKeepAliveMs?: number;
+      /** 机器级登记表：所有 Agent 合起来最多留几个空闲的 Claude 进程 */
+      warmRegistry?: ClaudeWarmRegistry;
+      /** 停着时多久查一次有没有被淘汰（默认 5 秒） */
+      warmPollMs?: number;
       /** 停止时请 Claude 自己中断，等多久没确认停下就改为结束进程（默认 5 秒） */
       interruptTimeoutMs?: number;
       /** 测试注入：按 cwd 和设置列出要加载的 MCP（不含 hive） */
@@ -248,19 +276,18 @@ export class ClaudeCodeResponder implements AgentResponder {
       "--disallowedTools",
       "CronCreate,CronDelete,CronList,ScheduleWakeup",
     ];
-    if (access === "workspace") {
-      args.push(
-        "--settings",
-        JSON.stringify({ sandbox: claudeWorkspaceSandboxSettings(this.options.platform) }),
-      );
-    }
+    // 一个 --settings 带上这一轮要覆盖的 Claude Code 设置：沙箱（按权限档）、自动压缩阈值、缓存时长。
+    // 实测 2.1.330 在 --print、stream-json 下都生效；改了任一项参数就变了，常驻进程按规则换新进程
+    const settings: Record<string, unknown> = {};
+    if (access === "workspace")
+      settings.sandbox = claudeWorkspaceSandboxSettings(this.options.platform);
     if (access === "full") {
-      args.push(
-        "--dangerously-skip-permissions",
-        "--settings",
-        JSON.stringify({ sandbox: { enabled: false } }),
-      );
+      args.push("--dangerously-skip-permissions");
+      settings.sandbox = { enabled: false };
     }
+    if (input.compactWindow) settings.autoCompactWindow = input.compactWindow;
+    if (input.cacheTtl) settings.promptCacheTtl = input.cacheTtl;
+    if (Object.keys(settings).length > 0) args.push("--settings", JSON.stringify(settings));
     // 每轮都是新进程：Agent 设置里改的模型、「换个模型重试」下一轮就生效
     const model = input.model ?? this.options.model;
     if (model) args.push("--model", model);
@@ -278,10 +305,7 @@ export class ClaudeCodeResponder implements AgentResponder {
       previous.sessionId === input.threadId &&
       !input.signal?.aborted;
     if (previous && !reuse) this.retire(previous);
-    if (previous && reuse && previous.idleTimer) {
-      clearTimeout(previous.idleTimer);
-      previous.idleTimer = undefined;
-    }
+    if (previous && reuse) unpark(previous);
 
     const stream = new ClaudeStream(
       (event) => input.onRuntimeEvent?.(event),
@@ -315,6 +339,8 @@ export class ClaudeCodeResponder implements AgentResponder {
       turn.stdin?.end();
     };
     if (input.onHiveTools) stream.onHiveTools = input.onHiveTools;
+    stream.onCompacting = () => input.onProgress?.("正在自动压缩上下文");
+    if (input.onCompacted) stream.onCompacted = input.onCompacted;
     stream.onUserAck = (uuid) => {
       const resolve = turn.unacked.get(uuid);
       if (!resolve) return;
@@ -431,7 +457,7 @@ export class ClaudeCodeResponder implements AgentResponder {
       });
       const ended = () => {
         created.exited = true;
-        if (created.idleTimer) clearTimeout(created.idleTimer);
+        unpark(created);
         if (this.warm === created) this.warm = undefined;
         mcp.cleanup();
       };
@@ -496,8 +522,23 @@ export class ClaudeCodeResponder implements AgentResponder {
       // 进程留着给下一轮：记下它停在哪个会话，空闲太久就关掉
       warm.sessionId = payload?.session_id;
       if (this.warm === warm && !warm.exited) {
-        warm.idleTimer = setTimeout(() => this.retire(warm), keepAliveMs);
+        // 缓存 1 小时（设置里选的，或跟随 Claude Code 时这一轮实际写的是 1 小时）：进程也留到接近 1 小时，否则缓存白留
+        const written = stream.usage();
+        if (written.cacheWriteTokens > 0 && written.cacheWrite1hTokens !== undefined)
+          this.cache1h = written.cacheWrite1hTokens > 0;
+        const cache1h = input.cacheTtl === "1h" || (input.cacheTtl === undefined && this.cache1h);
+        const keep = cache1h
+          ? Math.max(keepAliveMs, this.options.cacheKeepAliveMs ?? CACHE_1H_KEEPALIVE_MS)
+          : keepAliveMs;
+        warm.idleTimer = setTimeout(() => this.retire(warm), keep);
         warm.idleTimer.unref?.();
+        warm.ticket = this.options.warmRegistry?.park();
+        if (warm.ticket) {
+          warm.pollTimer = setInterval(() => {
+            if (!warm.ticket?.held()) this.retire(warm);
+          }, this.options.warmPollMs ?? WARM_POLL_MS);
+          warm.pollTimer.unref?.();
+        }
       }
     }
     reportUsage();

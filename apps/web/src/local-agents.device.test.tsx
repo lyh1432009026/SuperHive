@@ -20,6 +20,8 @@ const agent: LocalAgent = {
   cwd: "/Users/rd/work",
   model: null,
   effort: null,
+  compactWindow: null,
+  cacheTtl: null,
   status: "stopped",
   pid: null,
   startedAt: null,

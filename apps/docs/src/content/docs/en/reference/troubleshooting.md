@@ -131,8 +131,9 @@ For identity and security boundaries, see the [Security reference](/en/reference
 **What you can do**:
 
 - Click "New topic" when the subject changes; the agent starts a new session with an empty context.
-- Tune Claude Code's own `settings.json`: `autoCompactWindow` (for example `200000`, compacting automatically at that size) and `promptCacheTtl: "1h"` (keeps the cache for an hour; cache writes cost more per token, but it is usually cheaper when messages arrive minutes apart). SuperHive doesn't change these for you.
-- The bridge keeps the Claude process for 10 minutes after a turn and reuses it for the next one, skipping process start, MCP loading and reading the session file. A change of rules, model, reasoning effort or MCP servers, or a new topic, starts a fresh process. To start a new process every turn, set `HIVE_CLAUDE_KEEPALIVE_MS=0` for the agent.
+- Adjust "Context and cache" in the agent's settings: auto-compact defaults to 400k tokens, summarizing the session once it gets that big; the cache duration can be pinned to 1 hour (cache writes cost more per token, but it is usually cheaper when messages arrive minutes apart). Both are passed to Claude Code with `--settings` and override `autoCompactWindow` and `promptCacheTtl` in its own `settings.json`.
+- The bridge keeps the Claude process for 10 minutes after a turn and reuses it for the next one, skipping process start, MCP loading and reading the session file. A change of rules, model, reasoning effort, compaction threshold, cache duration or MCP servers, or a new topic, starts a fresh process. To start a new process every turn, set `HIVE_CLAUDE_KEEPALIVE_MS=0` for the agent. When the cache lasts an hour the process stays 55 minutes; all agents on one computer keep at most 8 idle Claude processes in total (`HIVE_CLAUDE_MAX_WARM`, `0` for no limit), closing the least recently used one past that.
+- In the member list, `121k/400k · cache 46m` next to a Claude agent is its context at the end of the last turn, the compaction threshold that applies, and the cache time left: if you're about to continue, sending before the cache expires is cheapest.
 
 **Safe action**: Check session size and cache hits first, then decide between a new topic and Claude Code settings; don't raise the permission level to make it faster.
 

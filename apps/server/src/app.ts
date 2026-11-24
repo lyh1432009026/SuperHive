@@ -7,6 +7,8 @@ import {
   type AgentCodeVersion,
   type AgentWorkspace,
   type AgentHiveTools,
+  type AgentContextStatus,
+  type AgentUsage,
 } from "@superhive/protocol";
 import { errorText, hiveErrorBody, wsText } from "./texts.js";
 import { resolveRoom, roomsNamedLike } from "./room-lookup.js";
@@ -1109,15 +1111,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       workspace ??= connection.workspace;
       hiveTools ??= connection.hiveTools;
     }
+    const context = agentContexts.get(participant.id);
     const outdated =
       localAgents?.outdatedByName(participant.username) ??
       isAgentOutdated(version, localAgents?.currentCodeVersion(), false);
-    if (!version && !outdated && !workspace && !hiveTools) return participant;
+    if (!version && !outdated && !workspace && !hiveTools && !context) return participant;
     return {
       ...participant,
       ...(version ? { version } : {}),
       ...(workspace ? { workspace } : {}),
       ...(hiveTools ? { hiveTools } : {}),
+      ...(context ? { context } : {}),
       ...(outdated ? { outdated: true } : {}),
     };
   }
@@ -1353,6 +1357,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   /** Agent 在各房间当前的 Provider 会话（按房间里的成员 ID）：本机房主可以在终端里接着它 */
   const agentSessions = new Map<string, { sessionId: string; cwd: string }>();
 
+  /** Agent 在各房间最近一轮结束时的上下文和缓存（按成员 ID），从用量上报算出，成员列表显示 */
+  const agentContexts = new Map<string, AgentContextStatus>();
+
   /** 开新话题或清空房间后，Agent 下一轮从新会话开始：旧会话不再能在终端里接着 */
   function forgetAgentSessions(roomId: string): void {
     for (const participantId of [...agentSessions.keys()]) {
@@ -1360,6 +1367,28 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         agentSessions.delete(participantId);
       }
     }
+    // 旧会话的上下文和缓存也不再适用
+    for (const participantId of [...agentContexts.keys()]) {
+      const participant = database.getParticipant(participantId);
+      if (participant?.roomId !== roomId) continue;
+      agentContexts.delete(participantId);
+      broadcast(roomId, { type: "presence.changed", participant: withAccess(participant) });
+    }
+  }
+
+  /** 这一轮用量里的上下文和缓存：最后一次请求的上下文、阈值、缓存过期时间；没有最后一次请求就不算 */
+  function contextFromUsage(usage: AgentUsage): AgentContextStatus | undefined {
+    const at = usage.lastRequestAt ? Date.parse(usage.lastRequestAt) : NaN;
+    if (usage.lastContextTokens === undefined || !Number.isFinite(at)) return undefined;
+    return {
+      contextTokens: usage.lastContextTokens,
+      ...(usage.compactWindow ? { compactWindow: usage.compactWindow } : {}),
+      ...(usage.contextWindow ? { contextWindow: usage.contextWindow } : {}),
+      ...(usage.cacheTtlMs
+        ? { cacheExpiresAt: new Date(at + usage.cacheTtlMs).toISOString() }
+        : {}),
+      at: new Date(at).toISOString(),
+    };
   }
 
   /** 等人批的权限申请（见 requestApproval） */
@@ -3514,6 +3543,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     if (report.usage) {
       invocation = database.recordUsage(invocation, report.usage);
       emitInvocation(invocation);
+      // 成员列表里的上下文和缓存：只认更新的一轮（迟到的旧用量不覆盖）
+      const context = contextFromUsage(report.usage);
+      const known = agentContexts.get(agent.id);
+      if (context && (!known || Date.parse(context.at) >= Date.parse(known.at))) {
+        agentContexts.set(agent.id, context);
+        broadcast(agent.roomId, { type: "presence.changed", participant: withAccess(agent) });
+      }
     }
     const now = new Date().toISOString();
     if (report.status === "received") {

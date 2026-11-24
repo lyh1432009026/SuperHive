@@ -678,6 +678,10 @@ export const imTexts = {
     zh: "把本机 Agent {name} 的思考强度改回跟随 CLI 配置",
     en: "set local agent {name} back to its CLI's configured reasoning effort",
   },
+  "im.audit.contextChanged": {
+    zh: "把本机 Agent {name} 的上下文设置改成了：自动压缩 {window}，缓存 {ttl}",
+    en: "set the context settings of local agent {name} to: auto-compact {window}, cache {ttl}",
+  },
   "im.audit.modelDefault": {
     zh: "把本机 Agent {name} 的模型改回运行时默认",
     en: "set local agent {name} back to its runtime's default model",

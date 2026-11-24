@@ -16,7 +16,10 @@ import path from "node:path";
 import {
   isAgentOutdated,
   runtimeReasoningEfforts,
+  supportsClaudeContextSettings,
   supportsReasoningEffort,
+  type ClaudeCacheTtl,
+  type ClaudeCompactWindow,
 } from "@superhive/protocol";
 import type {
   AgentCodeVersion,
@@ -672,6 +675,9 @@ export class LocalAgentSupervisor {
         mcpDisabled: config.mcpDisabled ?? [],
         ...(config.model ? { model: config.model } : {}),
         ...(config.effort ? { effort: config.effort } : {}),
+        // 只写 Claude 的：没设过就不写，Bridge 按默认 20 万压缩、缓存时长交给 Claude Code
+        ...(config.compactWindow ? { compactWindow: config.compactWindow } : {}),
+        ...(config.cacheTtl ? { cacheTtl: config.cacheTtl } : {}),
       }),
       { mode: 0o600 },
     );
@@ -688,9 +694,30 @@ export class LocalAgentSupervisor {
       autoSteer?: boolean | undefined;
       model?: string | null | undefined;
       effort?: string | null | undefined;
+      compactWindow?: ClaudeCompactWindow | null | undefined;
+      cacheTtl?: ClaudeCacheTtl | null | undefined;
     },
   ): LocalAgent {
     const runtime = this.require(id);
+    // 自动压缩阈值、缓存时长：只有 Claude Code 有，写进设置文件，下一轮生效
+    if (settings.compactWindow !== undefined || settings.cacheTtl !== undefined) {
+      if (!supportsClaudeContextSettings(runtime.config.provider)) {
+        throw new HiveError(
+          "LOCAL_AGENT_CONTEXT_UNSUPPORTED",
+          serverText("error.localAgent.contextUnsupported"),
+        );
+      }
+      const compactWindow =
+        settings.compactWindow !== undefined
+          ? settings.compactWindow
+          : (runtime.config.compactWindow ?? null);
+      const cacheTtl =
+        settings.cacheTtl !== undefined ? settings.cacheTtl : (runtime.config.cacheTtl ?? null);
+      this.options.database.setLocalAgentContext(id, compactWindow, cacheTtl);
+      runtime.config.compactWindow = compactWindow;
+      runtime.config.cacheTtl = cacheTtl;
+      this.writeSettings(runtime.config);
+    }
     // 思考强度同样写进设置文件，下一轮生效；运行时不支持的不让设（网页上也不显示）
     if (settings.effort !== undefined) {
       const effort = settings.effort?.trim() || null;
@@ -1179,6 +1206,8 @@ export class LocalAgentSupervisor {
       cwd: config.cwd,
       model: config.model,
       effort: config.effort ?? null,
+      compactWindow: config.compactWindow ?? null,
+      cacheTtl: config.cacheTtl ?? null,
       status,
       pid: runtime.child ? runtime.pid : null,
       startedAt: runtime.startedAt ? new Date(runtime.startedAt).toISOString() : null,

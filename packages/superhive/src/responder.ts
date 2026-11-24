@@ -67,6 +67,19 @@ export type AgentReplyInput = {
    * ACP 运行时（omp 等）切会话 configOptions 里 category 为 thought_level 的选项；其余运行时忽略。
    */
   effort?: string;
+  /**
+   * Claude Code 的自动压缩阈值（token 数）：经 --settings 的 autoCompactWindow 传入；不给就不传，由 Claude Code 自己定。
+   * 其余运行时忽略。
+   */
+  compactWindow?: number;
+  /** Claude Code 的缓存时长：经 --settings 的 promptCacheTtl 传入；不给就由 Claude Code 自动选。其余运行时忽略 */
+  cacheTtl?: "5m" | "1h";
+  /** 运行时这一轮自动压缩了上下文（Claude Code 的 compact_boundary） */
+  onCompacted?: (compaction: {
+    preTokens: number;
+    postTokens?: number;
+    durationMs?: number;
+  }) => void;
   /** 运行时这一轮没法用指定的思考强度（当前模型不支持这一档）时调用，options 是它能用的档位 */
   onEffortIgnored?: (effort: string, options: string[]) => void;
 };

@@ -147,6 +147,14 @@ export type AgentUsage = UsageBuckets & {
   model?: string;
   /** 这一轮实际传给运行时的思考强度；没传（沿用 CLI 配置）时不填 */
   effort?: string;
+  /** 这一轮里 Claude Code 自动压缩了上下文（一轮里可能不止一次） */
+  compactions?: Array<{ preTokens: number; postTokens?: number; durationMs?: number }>;
+  /** 这一轮传给 Claude Code 的自动压缩阈值；模型上下文比它小时实际按模型上限压缩 */
+  compactWindow?: number;
+  /** 这一轮最后一次请求的上下文大小（会话现在有多大） */
+  lastContextTokens?: number;
+  /** 缓存有效期：这一轮观测到的写入类型，没写入时沿用上一轮的；不知道就不填 */
+  cacheTtlMs?: number;
   requests: number;
   firstRequest?: Omit<UsageBuckets, "outputTokens">;
   peakContextTokens: number;

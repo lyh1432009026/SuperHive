@@ -216,6 +216,8 @@ describe("AgentBridge", () => {
   /** 本机 Hive Server 写给 Agent 的设置文件（模型、备用模型） */
   let settingsFile: string | undefined;
   let taskWorkspace: ConstructorParameters<typeof AgentBridge>[0]["taskWorkspace"];
+  /** startBridge 用的运行时，默认 codex */
+  let bridgeProvider: string | undefined;
   let extraTuning: ConstructorParameters<typeof AgentBridge>[0]["tuning"];
 
   async function startBridge(
@@ -228,7 +230,7 @@ describe("AgentBridge", () => {
       {
         ...identity,
         persona: "p",
-        provider: "codex",
+        provider: bridgeProvider ?? "codex",
         token: "t",
         ...(settingsFile ? { settingsFile } : {}),
         ...(taskWorkspace ? { taskWorkspace, cwd: directory, access: "workspace" as const } : {}),
@@ -302,6 +304,7 @@ describe("AgentBridge", () => {
     responder = new ControlledResponder();
     settingsFile = undefined;
     taskWorkspace = undefined;
+    bridgeProvider = undefined;
     extraTuning = undefined;
   });
 
@@ -1408,6 +1411,8 @@ describe("AgentBridge", () => {
       outcome: "completed",
       // 没有任何输出事件就结束：只有整轮耗时，没有首个输出时间
       turnMs: expect.any(Number),
+      // 写的是 5 分钟缓存
+      cacheTtlMs: 300_000,
     });
 
     const third = chat({ content: "@agent-a 再来" });
@@ -2423,7 +2428,12 @@ describe("AgentBridge", () => {
     expect(responder.calls).toHaveLength(2);
   });
 
-  async function writeSettings(settings: { model?: string; effort?: string }) {
+  async function writeSettings(settings: {
+    model?: string;
+    effort?: string;
+    compactWindow?: number | "auto";
+    cacheTtl?: string;
+  }) {
     settingsFile = path.join(directory, "agent-settings.json");
     await writeFile(settingsFile, JSON.stringify({ mcpDisabled: [], ...settings }));
   }
@@ -2583,6 +2593,69 @@ describe("AgentBridge", () => {
     await waitUntil(() => room.statuses(second.id).includes("completed"));
     const latest = room.reports.filter((report) => report.messageId === second.id && report.usage);
     expect(latest[0]?.usage?.effort).toBeUndefined();
+  });
+
+  it("compacts at 400k by default, follows the settings file, and reports auto-compaction", async () => {
+    // 设置文件里没有这两项（老 Agent）：按默认 40 万，缓存时长不传
+    await writeSettings({});
+    bridgeProvider = "claude";
+    await startBridge(baseState());
+    const usage = {
+      inputTokens: 10,
+      cacheWriteTokens: 0,
+      cacheReadTokens: 0,
+      outputTokens: 5,
+      requests: 1,
+      peakContextTokens: 10,
+      peakCacheWriteTokens: 0,
+    };
+    const first = chat();
+    room.messages.push(first);
+    room.handlers.onMention(first, first.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    expect(responder.calls[0]!.compactWindow).toBe(400_000);
+    expect(responder.calls[0]!.cacheTtl).toBeUndefined();
+    responder.calls[0]!.onCompacted?.({
+      preTokens: 289_737,
+      postTokens: 10_079,
+      durationMs: 12_835,
+    });
+    const note = room.reports.find((report) => report.detailText?.key === "bridge.compacted");
+    expect(note?.progress).toBe("上下文已自动压缩（290k → 10k token）");
+    responder.finish("好", "thread-1", usage);
+    await waitUntil(() => room.statuses(first.id).includes("completed"));
+    expect(room.reports.find((report) => report.usage)?.usage?.compactWindow).toBe(400_000);
+    expect(room.reports.find((report) => report.usage)?.usage?.compactions).toEqual([
+      { preTokens: 289_737, postTokens: 10_079, durationMs: 12_835 },
+    ]);
+    // 网页上选了 40 万、1 小时：下一轮就按新的传
+    await writeSettings({ compactWindow: 400_000, cacheTtl: "1h" });
+    const second = chat({ content: "@agent-a 再来" });
+    room.messages.push(second);
+    room.handlers.onMention(second, second.seq, false);
+    await waitUntil(() => responder.calls.length === 2);
+    expect(responder.calls[1]).toMatchObject({ compactWindow: 400_000, cacheTtl: "1h" });
+    // 写了 1 小时缓存：用量里记下缓存有效期，网页据此算还剩几分钟
+    responder.finish("好", "thread-1", {
+      ...usage,
+      cacheWriteTokens: 100,
+      cacheWrite1hTokens: 100,
+      lastContextTokens: 110,
+      lastRequestAt: new Date().toISOString(),
+    });
+    await waitUntil(() => room.statuses(second.id).includes("completed"));
+    const latest = room.reports.filter((report) => report.messageId === second.id && report.usage);
+    expect(latest[0]?.usage?.compactions).toBeUndefined();
+    expect(latest[0]?.usage).toMatchObject({ cacheTtlMs: 3_600_000, lastContextTokens: 110 });
+    // 「不限制」：不传阈值，交给 Claude Code
+    await writeSettings({ compactWindow: "auto" });
+    const third = chat({ content: "@agent-a 第三条" });
+    room.messages.push(third);
+    room.handlers.onMention(third, third.seq, false);
+    await waitUntil(() => responder.calls.length === 3);
+    expect(responder.calls[2]!.compactWindow).toBeUndefined();
+    responder.finish();
+    await waitUntil(() => room.statuses(third.id).includes("completed"));
   });
 
   it("retries once with the effort a person picked, then goes back to the settings", async () => {

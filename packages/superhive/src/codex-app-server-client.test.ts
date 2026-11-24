@@ -230,6 +230,7 @@ describe("CodexAppServerResponder", () => {
       requests: 2,
       firstRequest: { inputTokens: 50_000, cacheWriteTokens: 0, cacheReadTokens: 0 },
       peakContextTokens: 51_000,
+      lastContextTokens: 51_000,
       peakCacheWriteTokens: 0,
       contextWindow: 400_000,
       firstRequestAt: expect.any(String),

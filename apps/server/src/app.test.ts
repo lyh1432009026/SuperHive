@@ -976,6 +976,53 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
     ]);
   });
 
+  it("shows an agent's context size and cache expiry from its latest usage, until a new topic", async () => {
+    const { join } = await startRoom();
+    const { peer: alice } = await join("Alice", "human");
+    const { peer: agent } = await join("helper", "agent");
+    alice.send({ type: "message.send", clientMessageId: "c1", content: "@helper 看一下" });
+    const mention = await agent.next((event) => event.type === "agent.mentioned");
+    const message = mention.type === "agent.mentioned" ? mention.message : undefined;
+    const usage = {
+      model: "claude-opus-5-5",
+      inputTokens: 10,
+      cacheWriteTokens: 1_000,
+      cacheReadTokens: 120_000,
+      outputTokens: 50,
+      requests: 2,
+      peakContextTokens: 121_010,
+      peakCacheWriteTokens: 1_000,
+      lastContextTokens: 121_010,
+      compactWindow: 400_000,
+      contextWindow: 1_000_000,
+      cacheTtlMs: 3_600_000,
+      lastRequestAt: "2026-11-24T11:00:00.000Z",
+    };
+    agent.send({ type: "invocation.report", messageId: message!.id, status: "completed", usage });
+    const changed = await alice.next(
+      (event) =>
+        event.type === "presence.changed" &&
+        event.participant.username === "helper" &&
+        event.participant.context !== undefined,
+    );
+    expect(changed.type === "presence.changed" && changed.participant.context).toEqual({
+      contextTokens: 121_010,
+      compactWindow: 400_000,
+      contextWindow: 1_000_000,
+      cacheExpiresAt: "2026-11-24T12:00:00.000Z",
+      at: "2026-11-24T11:00:00.000Z",
+    });
+    // 开新话题：旧会话的上下文不再适用
+    alice.send({ type: "topic.start" });
+    const cleared = await alice.next(
+      (event) =>
+        event.type === "presence.changed" &&
+        event.participant.username === "helper" &&
+        event.participant.context === undefined,
+    );
+    expect(cleared.type).toBe("presence.changed");
+  });
+
   it("records a turn's usage even after the invocation finished and summarizes it per agent and day", async () => {
     const { app, join } = await startRoom();
     const { peer: alice } = await join("Alice", "human");

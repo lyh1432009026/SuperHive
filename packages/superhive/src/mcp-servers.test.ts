@@ -116,4 +116,21 @@ describe("readAgentSettings", () => {
     writeFileSync(file, JSON.stringify({ mcpDisabled: ["rea", "figma", "rea", 3] }));
     expect(readAgentSettings(file)).toEqual({ mcpDisabled: ["figma", "rea"] });
   });
+
+  it("reads Claude's compaction window and cache TTL, ignoring values Claude Code would reject", () => {
+    const file = path.join(scratch(), "settings.json");
+    writeFileSync(file, JSON.stringify({ compactWindow: 400_000, cacheTtl: "1h" }));
+    expect(readAgentSettings(file)).toEqual({
+      mcpDisabled: [],
+      compactWindow: 400_000,
+      cacheTtl: "1h",
+    });
+    writeFileSync(file, JSON.stringify({ compactWindow: "auto", cacheTtl: "5m" }));
+    expect(readAgentSettings(file)).toMatchObject({ compactWindow: "auto", cacheTtl: "5m" });
+    // 小于 10 万、不是整数、写错的：当没设置，Bridge 按默认 40 万
+    for (const compactWindow of [50_000, 150_000.5, "200k", null]) {
+      writeFileSync(file, JSON.stringify({ compactWindow, cacheTtl: "10m" }));
+      expect(readAgentSettings(file)).toEqual({ mcpDisabled: [] });
+    }
+  });
 });

@@ -752,6 +752,10 @@ export const serverTexts = {
     zh: "当前模型不支持 {effort} 思考强度（可选：{options}），这一轮按 CLI 配置的强度跑",
     en: "The current model doesn't support {effort} reasoning effort (available: {options}); this turn uses the CLI's configured effort",
   },
+  "bridge.compacted": {
+    zh: "上下文已自动压缩（{before} → {after} token）",
+    en: "Context was auto-compacted ({before} → {after} tokens)",
+  },
   "bridge.worktreeHandoff": {
     zh: "已切到独立目录 {path}，开新会话继续；旧会话不迁移",
     en: "Continuing in a new session in isolated workspace {path}; the old session is not moved",
@@ -1210,6 +1214,10 @@ export const serverTexts = {
   "error.localAgent.effortUnsupported": {
     zh: "这个 Agent 类型暂不支持在 Hive 里切换思考强度。",
     en: "Hive can't change the reasoning effort for this kind of agent yet.",
+  },
+  "error.localAgent.contextUnsupported": {
+    zh: "只有 Claude Code 能在 Hive 里设置自动压缩和缓存时长。",
+    en: "Only Claude Code agents have auto-compact and cache duration settings in Hive.",
   },
   "error.localAgent.nameExists": {
     zh: "本机已有名为 {name} 的 Agent。",

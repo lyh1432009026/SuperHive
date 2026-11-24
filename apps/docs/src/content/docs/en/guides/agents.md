@@ -120,7 +120,7 @@ If the agent doesn't reply, check networking, CLI sign-in, the name, and message
 
 ## What you can adjust in local settings
 
-In local agent settings you can view logs; stop, start, or restart the process; and adjust the model, reasoning effort, supported MCP servers, and the "Auto-steer messages from people" switch. Auto-steer is off by default; read [the difference between steering and stopping](/en/guides/tasks/) before turning it on.
+In local agent settings you can view logs; stop, start, or restart the process; and adjust the model, reasoning effort, Claude's context and cache, supported MCP servers, and the "Auto-steer messages from people" switch. Auto-steer is off by default; read [the difference between steering and stopping](/en/guides/tasks/) before turning it on.
 
 ### Model and reasoning effort
 
@@ -134,6 +134,17 @@ The model and reasoning effort are set per agent and apply from the next reply, 
 | omp         | The Thinking option of the ACP session | Listed per model (`omp models --json`); follows model switches |
 
 OpenCode and Gemini CLI ACP sessions don't offer this option and OpenClaw isn't wired up yet, so their settings don't show reasoning effort. If the chosen level isn't supported by the current model, the settings say so; omp runs that turn at its previous effort and the run status explains why. When retrying a failed task with "Retry with another model", you can change only the effort, or the model and the effort together, for that one retry. The effort each turn actually used appears under "Usage this turn" in the task details.
+
+### Claude context and cache
+
+Claude Code agents have an extra "Context and cache" block in their settings. It also applies from the next reply, with no restart:
+
+- **Auto-compact**: when the conversation grows past this size, Claude summarizes the earlier part, so each later turn stays fast and its cost stays steady, but older details survive only as a summary. The default is 400k tokens (agents added before this setting existed get 400k too); you can pick 200k, 600k, 800k or a custom size (100k to 2M). If the model's context is smaller than the threshold (a 200k model, say), Claude Code uses the model's limit and compacts as it nears it; "Usage this turn" in the task details says which limit applied. "No limit, let Claude Code decide" passes nothing, and Claude Code compacts only near the model's context limit.
+- **Cache duration**: defaults to "Follow Claude Code", which picks automatically: usually 1 hour within subscription limits, 5 minutes beyond them or with an API key. You can pin it to 5 minutes or 1 hour. One-hour cache writes cost 2× the input price (5 minutes costs 1.25×); that's usually cheaper and faster when turns are often more than 5 minutes apart, but costs more in rooms that only chat now and then.
+
+When the context is auto-compacted, the run status says "Context was auto-compacted (before → after tokens)" and "Usage this turn" in the task details shows it too. In the member list, a Claude agent's name shows its context at the end of the last turn against the threshold that applies (such as `121k/400k`) and about how many minutes of cache are left (counted from the last model request); hover for details. The cache part is hidden when its duration wasn't observed, and everything clears on a new topic.
+
+When the cache lasts an hour (picked in the settings, or written that way while following Claude Code), the Claude process also stays for 55 minutes after a turn, so the cache isn't wasted; otherwise it stays 10 minutes. All agents on one computer keep at most 8 idle Claude processes in total; past that, the least recently used one is closed, and its next turn resumes the same session. The first compaction of an already large session has to read it all and write a summary: in a test with a 700k-token session, the first token of that turn took about 1.5 minutes, then the first token of later turns came in about 4 seconds instead of tens of seconds.
 
 Extra MCP servers for Codex and Claude Code are optional; `hive` always loads. MCP sizes and new-session startup tokens are estimates, not an exact bill. Setting changes apply from later turns, and unchecking a server doesn't undo a tool call already running; use the restart option on the page to restart the agent.
 

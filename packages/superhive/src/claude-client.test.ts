@@ -477,6 +477,94 @@ describe("ClaudeCodeResponder", () => {
     expect(second).not.toContain("--effort");
   });
 
+  it("passes the compaction window and cache TTL in the same --settings as the sandbox", async () => {
+    const runner = vi.fn<CommandRunner>(async () => ({
+      stdout: JSON.stringify({ type: "result", is_error: false, result: "ok", session_id: "s" }),
+      stderr: "",
+    }));
+    const responder = new ClaudeCodeResponder({
+      command: "claude",
+      cwd: "/workspace",
+      hive,
+      access: "full",
+      runner,
+    });
+    await responder.reply({
+      instructions: "r",
+      prompt: "p",
+      compactWindow: 200_000,
+      cacheTtl: "1h",
+    });
+    await responder.reply({ instructions: "r", prompt: "p" });
+    const [first, second] = runner.mock.calls.map((call) => call[1]);
+    // 只有一个 --settings：实测多个也会合并，但一个更好核对
+    expect(first!.filter((arg) => arg === "--settings")).toHaveLength(1);
+    expect(JSON.parse(first![first!.indexOf("--settings") + 1]!)).toEqual({
+      sandbox: { enabled: false },
+      autoCompactWindow: 200_000,
+      promptCacheTtl: "1h",
+    });
+    // 没给就不传，由 Claude Code 自己定
+    expect(JSON.parse(second![second!.indexOf("--settings") + 1]!)).toEqual({
+      sandbox: { enabled: false },
+    });
+  });
+
+  it("read-only access passes --settings only when there is something to set", async () => {
+    const runner = vi.fn<CommandRunner>(async () => ({
+      stdout: JSON.stringify({ type: "result", is_error: false, result: "ok", session_id: "s" }),
+      stderr: "",
+    }));
+    const responder = new ClaudeCodeResponder({ command: "claude", cwd: "/w", hive, runner });
+    await responder.reply({ instructions: "r", prompt: "p" });
+    await responder.reply({ instructions: "r", prompt: "p", cacheTtl: "5m" });
+    const [first, second] = runner.mock.calls.map((call) => call[1]);
+    expect(first).not.toContain("--settings");
+    expect(JSON.parse(second![second!.indexOf("--settings") + 1]!)).toEqual({
+      promptCacheTtl: "5m",
+    });
+  });
+
+  it("reports Claude Code's auto-compaction to the caller", async () => {
+    // 实测 2.1.330 压缩时的输出（截掉了无关字段）
+    const stdout = [
+      { type: "system", subtype: "init", session_id: "s" },
+      { type: "system", subtype: "status", status: "compacting", session_id: "s" },
+      { type: "system", subtype: "status", status: null, compact_result: "success" },
+      {
+        type: "system",
+        subtype: "compact_boundary",
+        compact_metadata: {
+          trigger: "auto",
+          pre_tokens: 289_737,
+          post_tokens: 10_079,
+          duration_ms: 12_835,
+        },
+      },
+      // 手动 /compact 不算
+      {
+        type: "system",
+        subtype: "compact_boundary",
+        compact_metadata: { trigger: "manual", pre_tokens: 5 },
+      },
+      { type: "result", is_error: false, result: "ok", session_id: "s" },
+    ]
+      .map((event) => JSON.stringify(event))
+      .join("\n");
+    const runner = vi.fn<CommandRunner>(async () => ({ stdout, stderr: "" }));
+    const responder = new ClaudeCodeResponder({ command: "claude", cwd: "/w", hive, runner });
+    const onCompacted = vi.fn();
+    const onProgress = vi.fn();
+    await responder.reply({ instructions: "r", prompt: "p", onCompacted, onProgress });
+    expect(onProgress).toHaveBeenCalledWith("正在自动压缩上下文");
+    expect(onCompacted).toHaveBeenCalledTimes(1);
+    expect(onCompacted).toHaveBeenCalledWith({
+      preTokens: 289_737,
+      postTokens: 10_079,
+      durationMs: 12_835,
+    });
+  });
+
   it("reports a resume that finds no conversation as a broken session", async () => {
     // 真实情况（已实测）：--resume 一个不存在的会话，Claude Code 写出这样的结果后以退出码 1 结束
     const result = `${JSON.stringify({

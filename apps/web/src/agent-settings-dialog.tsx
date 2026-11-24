@@ -8,6 +8,7 @@ import type {
 import { localized, t } from "./i18n";
 import { LogViewer, localAgentStatusLabels, type LocalAgentsState } from "./local-agents";
 import { RestartNowButton, agentUpdateNotes } from "./local-agent-updates";
+import { ClaudeContextSettings } from "./claude-context-settings";
 import { EffortPicker, ModelPicker } from "./model-picker";
 
 function CloseGlyph() {
@@ -495,6 +496,13 @@ export function AgentSettingsDialog({
               </button>
             </div>
           </section>
+          {agent.provider === "claude" && (
+            <ClaudeContextSettings
+              agent={agent}
+              disabled={!local.canManage}
+              onSave={(settings) => local.updateSettings(agent.id, settings)}
+            />
+          )}
           <label className="agent-auto-steer">
             <input
               type="checkbox"

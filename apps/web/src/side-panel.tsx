@@ -16,6 +16,7 @@ import { avatarHueStyle, AvatarGlyph } from "./avatar";
 import { OutdatedBadge } from "./local-agent-updates";
 import { MemberWorkspaceBadge } from "./member-workspace";
 import { MemberHiveToolsBadge } from "./member-hive-tools";
+import { MemberContextBadge } from "./member-context";
 import { MemberSandboxBadge } from "./member-sandbox";
 import { GuestMemberActions, GuestAccessBadge } from "./invite-dialog";
 import { agentProviderLabel, participantStatusLabel } from "./agent-setup";
@@ -389,7 +390,17 @@ export function SidePanel({
                                   <GuestAccessBadge participant={participant} now={accessNow} />
                                 </>
                               ) : participant.type === "agent" ? (
-                                `${agentProviderLabel(participant.provider)} · ${participant.persona || t("通用协作 Agent")}`
+                                <>
+                                  {`${agentProviderLabel(participant.provider)} · `}
+                                  {/* 名字那一行放不下：上下文和缓存放在第二行，排在角色描述前面 */}
+                                  {participant.context && (
+                                    <>
+                                      <MemberContextBadge participant={participant} />
+                                      {" · "}
+                                    </>
+                                  )}
+                                  {participant.persona || t("通用协作 Agent")}
+                                </>
                               ) : (
                                 "Human"
                               )}

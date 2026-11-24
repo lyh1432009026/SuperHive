@@ -792,6 +792,73 @@ describe("local agent routes", () => {
     rmSync(settingsDir, { recursive: true, force: true });
   });
 
+  it("keeps Claude's compaction window and cache TTL in the settings file", async () => {
+    const settingsDir = mkdtempSync(path.join(tmpdir(), "hive-agent-settings-"));
+    const { app, owner, spawner } = await setup({ settingsDir });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/local/agents",
+      headers: owner,
+      payload: { provider: "claude", name: "rd-claude", access: "read-only" },
+    });
+    const id = created.json().agent.id as string;
+    // 没设过：null（Bridge 按默认 40 万），设置文件里也不写
+    expect(created.json().agent).toMatchObject({ compactWindow: null, cacheTtl: null });
+    const file = spawner.children[0]!.args.find((arg) =>
+      arg.startsWith("--agent-settings="),
+    )!.slice("--agent-settings=".length);
+    const put = (payload: object) =>
+      app.inject({
+        method: "PUT",
+        url: `/api/local/agents/${id}/settings`,
+        headers: owner,
+        payload,
+      });
+    const changed = await put({ compactWindow: 400_000, cacheTtl: "1h" });
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json().agent).toMatchObject({ compactWindow: 400_000, cacheTtl: "1h" });
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({
+      mcpDisabled: [],
+      compactWindow: 400_000,
+      cacheTtl: "1h",
+    });
+    // 只改一项，另一项保留；不重启进程
+    expect((await put({ compactWindow: "auto" })).json().agent).toMatchObject({
+      compactWindow: "auto",
+      cacheTtl: "1h",
+    });
+    expect(spawner.children).toHaveLength(1);
+    // Claude Code 不接受的值一律拒绝
+    for (const payload of [
+      { compactWindow: 50_000 },
+      { compactWindow: "200k" },
+      { cacheTtl: "10m" },
+    ]) {
+      expect((await put(payload)).statusCode).toBe(400);
+    }
+    const cleared = await put({ compactWindow: null, cacheTtl: null });
+    expect(cleared.json().agent).toMatchObject({ compactWindow: null, cacheTtl: null });
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ mcpDisabled: [] });
+    const listed = await app.inject({ method: "GET", url: "/api/local/agents", headers: owner });
+    expect(listed.json().agents[0]).toMatchObject({ compactWindow: null, cacheTtl: null });
+    // 别的运行时没有这两项
+    const codex = await app.inject({
+      method: "POST",
+      url: "/api/local/agents",
+      headers: owner,
+      payload: { provider: "codex", name: "rd-codex", access: "read-only" },
+    });
+    const rejected = await app.inject({
+      method: "PUT",
+      url: `/api/local/agents/${codex.json().agent.id as string}/settings`,
+      headers: owner,
+      payload: { cacheTtl: "1h" },
+    });
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json().code).toBe("LOCAL_AGENT_CONTEXT_UNSUPPORTED");
+    rmSync(settingsDir, { recursive: true, force: true });
+  });
+
   it("keeps the reasoning effort in the settings file and applies it on the next turn", async () => {
     const settingsDir = mkdtempSync(path.join(tmpdir(), "hive-agent-settings-"));
     const { app, owner, spawner } = await setup({ settingsDir });
@@ -1066,6 +1133,18 @@ describe("LocalAgentSupervisor", () => {
     });
     return { supervisor, spawner, timers, advance: (ms: number) => (now += ms) };
   }
+
+  it("stores Claude's context settings so they survive a server restart", () => {
+    const database = new HiveDatabase(":memory:");
+    const { supervisor } = supervisorWith(database);
+    const agent = supervisor.create({ provider: "claude", name: "rd-claude", access: "read-only" });
+    supervisor.updateSettings(agent.id, { compactWindow: 600_000, cacheTtl: "5m" });
+    expect(database.listLocalAgents()[0]).toMatchObject({ compactWindow: 600_000, cacheTtl: "5m" });
+    supervisor.updateSettings(agent.id, { compactWindow: "auto" });
+    expect(database.listLocalAgents()[0]).toMatchObject({ compactWindow: "auto", cacheTtl: "5m" });
+    supervisor.updateSettings(agent.id, { compactWindow: null, cacheTtl: null });
+    expect(database.listLocalAgents()[0]).toMatchObject({ compactWindow: null, cacheTtl: null });
+  });
 
   it("records the pid once a Windows background launch reports it", async () => {
     const database = new HiveDatabase(":memory:");

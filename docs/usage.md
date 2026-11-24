@@ -250,7 +250,11 @@ output/result.png
 
 本机 Agent 设置里可以按 Agent 选模型和思考强度，写进这个 Agent 的设置文件，下一轮生效、不用重启，也不改 CLI 的全局配置。思考强度默认「跟随 CLI 配置」（不传参数）。Claude Code 每轮传 `--effort`，Copilot 传 `--reasoning-effort`，Codex 在 `turn/start` 里带 `effort`（会沿用到后续回合，所以「换个模型重试」只换一次时，下一轮会显式改回会话原来的强度），omp 切 ACP 会话里 category 为 `thought_level` 的选项。档位由 `hive models --provider X --json` 给出：Codex、omp 按模型列出，其余按 CLI 接受的全部档位。OpenCode、Gemini CLI、OpenClaw 不支持，设置里不显示。失败任务的「换个模型重试」可以只换思考强度，访客不能指定（花的是房主的额度）。
 
-Claude Code 的进程在一轮结束后保留 10 分钟，下一轮直接把消息写进去，不再拉起进程、加载 MCP、读取会话记录（`--resume`），Mac 上每轮省 1 秒左右，会话记录大时省得更多；规则、模型、思考强度、MCP、权限档变了，或要接的不是这个会话（开了新话题），就结束它另起；出错、被停止、空闲超时也会结束。环境变量 `HIVE_CLAUDE_KEEPALIVE_MS` 调保留时长，`0` 表示每轮新起进程。
+Claude 还有「上下文与缓存」两项，只对 Claude Code 显示：自动压缩阈值默认 40 万 token（没设过的老 Agent 也按 40 万；可选 20 万、60 万、80 万、自定义 10 万～200 万，或「不限制」不传；模型上下文比阈值小时 Claude Code 按模型上限压缩，本轮用量里记下传的阈值并按 contextWindow 写明实际生效的值），缓存时长默认跟随 Claude Code（不传，它自己选：订阅额度内一般 1 小时，超出额度或 API key 时 5 分钟），可固定 5 分钟或 1 小时。两项和沙箱设置合在一个 `--settings` 里传（`autoCompactWindow`、`promptCacheTtl`），本机实测 Claude Code 2.1.330 在 `--print`、stream-json、常驻进程里都生效，压缩后照常 `--resume`。Claude Code 自动压缩时（`system/compact_boundary`，`trigger: auto`）Bridge 在执行状态里写「上下文已自动压缩（压缩前 → 压缩后 token）」，并把压缩前后大小、用时记进本轮用量。
+
+Claude Code 的进程在一轮结束后保留 10 分钟，下一轮直接把消息写进去，不再拉起进程、加载 MCP、读取会话记录（`--resume`），Mac 上每轮省 1 秒左右，会话记录大时省得更多；规则、模型、思考强度、MCP、权限档变了，或要接的不是这个会话（开了新话题），就结束它另起（压缩阈值、缓存时长变了也算）；出错、被停止、空闲超时也会结束。环境变量 `HIVE_CLAUDE_KEEPALIVE_MS` 调保留时长，`0` 表示每轮新起进程。缓存是 1 小时的（设置里固定 1 小时，或跟随 Claude Code 时这一轮实际写的是 1 小时）进程留 55 分钟（不短于 `HIVE_CLAUDE_KEEPALIVE_MS`）。同一台机器上所有 Bridge 合起来最多留 `HIVE_CLAUDE_MAX_WARM`（默认 8，`0` 不限）个空闲 Claude 进程：停下时在 `$TMPDIR/superhive-claude-warm-<uid>/` 登记，超出就删掉最久没用的登记，它的 Bridge 每 5 秒查一次，发现登记没了就结束进程（下一轮照旧 `--resume`）；Bridge 已退出的登记顺手清掉。
+
+用量里还记这一轮最后一次请求的上下文（`lastContextTokens`）、传的压缩阈值（`compactWindow`）和缓存有效期（`cacheTtlMs`：这一轮写了缓存按写入类型，只读了按上一轮的）。Server 据此给成员信息加 `context`（上下文、阈值、模型窗口、`cacheExpiresAt` = 最后一次请求 + 有效期），成员列表显示 `121k/400k · 缓存 46 分`，开新话题或清空房间时清掉。
 
 ## 用量和费用
 

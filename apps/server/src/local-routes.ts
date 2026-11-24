@@ -1,4 +1,10 @@
-import { canOpenWithDefaultApp, serverText, zhText, type ServerText } from "@superhive/protocol";
+import {
+  CLAUDE_COMPACT_WINDOW_DEFAULT,
+  canOpenWithDefaultApp,
+  serverText,
+  zhText,
+  type ServerText,
+} from "@superhive/protocol";
 import { errorText, hiveErrorBody } from "./texts.js";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { hostname } from "node:os";
@@ -84,6 +90,7 @@ const ERROR_STATUS: Record<string, number> = {
   WHITEBOARD_PROTECTED: 409,
   LOCAL_AGENT_MCP_UNSUPPORTED: 400,
   LOCAL_AGENT_EFFORT_UNSUPPORTED: 400,
+  LOCAL_AGENT_CONTEXT_UNSUPPORTED: 400,
   LOCAL_AGENT_MCP_LIST_FAILED: 502,
   LOCAL_AGENT_BUSY: 409,
   LOCAL_AGENT_CONFIG_CHANGED: 409,
@@ -107,6 +114,8 @@ function configFingerprint(agent: LocalAgent): string {
     cwd: agent.cwd,
     model: agent.model,
     effort: agent.effort,
+    compactWindow: agent.compactWindow,
+    cacheTtl: agent.cacheTtl,
     mcpDisabled: [...agent.mcpDisabled].sort(),
   });
 }
@@ -1333,6 +1342,31 @@ export function registerLocalAgentRoutes(
       return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
     try {
       const agent = supervisor!.updateSettings(request.params.id, parsed.data);
+      const contextChanged =
+        parsed.data.compactWindow !== undefined || parsed.data.cacheTtl !== undefined;
+      if (contextChanged)
+        audit(
+          request,
+          caller,
+          {
+            key: "im.audit.contextChanged",
+            params: {
+              name: agent.name,
+              window: String(agent.compactWindow ?? CLAUDE_COMPACT_WINDOW_DEFAULT),
+              ttl: agent.cacheTtl ?? "auto",
+            },
+          },
+          true,
+        );
+      // 只改了上下文设置：上面已经记过
+      if (
+        contextChanged &&
+        parsed.data.model === undefined &&
+        parsed.data.effort === undefined &&
+        parsed.data.mcpDisabled === undefined &&
+        parsed.data.autoSteer === undefined
+      )
+        return { agent };
       // 模型和思考强度常在一次保存里一起改：各记一笔
       if (parsed.data.effort !== undefined && parsed.data.model !== undefined)
         audit(

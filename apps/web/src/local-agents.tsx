@@ -17,6 +17,8 @@ import type {
   LocalAgentMcpResponse,
   LocalAgentModelsResponse,
   LocalAgentProvider,
+  ClaudeCacheTtl,
+  ClaudeCompactWindow,
   LocalDirectoryListing,
   LocalProviderInfo,
   LocalSessionResponse,
@@ -157,6 +159,8 @@ export type LocalAgentsState = {
       autoSteer?: boolean;
       model?: string | null;
       effort?: string | null;
+      compactWindow?: ClaudeCompactWindow | null;
+      cacheTtl?: ClaudeCacheTtl | null;
     },
   ): Promise<LocalAgent>;
   /** 这个 Agent 的运行时能用的模型；refresh 时让 Server 重新拉 */
@@ -660,6 +664,8 @@ export function useLocalAgents(
         autoSteer?: boolean;
         model?: string | null;
         effort?: string | null;
+        compactWindow?: ClaudeCompactWindow | null;
+        cacheTtl?: ClaudeCacheTtl | null;
       },
     ) => {
       const response = await request(`/api/local/agents/${id}/settings`, {

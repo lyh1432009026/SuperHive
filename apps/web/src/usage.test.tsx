@@ -145,6 +145,56 @@ describe("usage views", () => {
     expect(screen.getByText("整轮 8 秒")).toBeTruthy();
   });
 
+  it("says when the context was auto-compacted during the turn", () => {
+    render(
+      <InvocationUsage
+        usage={{
+          ...usage,
+          compactions: [{ preTokens: 289_737, postTokens: 10_079, durationMs: 12_835 }],
+        }}
+      />,
+    );
+    expect(
+      screen.getByText("上下文已自动压缩：290k → 10.1k token。 压缩用了 13 秒。"),
+    ).toBeTruthy();
+  });
+
+  it("shows the context at the end of the turn and when its cache expires", () => {
+    render(
+      <InvocationUsage
+        usage={{
+          ...usage,
+          compactWindow: 400_000,
+          lastContextTokens: 121_010,
+          cacheTtlMs: 3_600_000,
+          lastRequestAt: "2026-11-24T03:00:00.000Z",
+        }}
+      />,
+    );
+    expect(
+      screen.getByText(
+        "自动压缩阈值 400k token：会话接近这个大小时自动压缩。 本轮结束时上下文 121k token。",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/缓存按这一轮最后一次模型请求算，约在 .+ 过期（有效期 60 分钟）。/),
+    ).toBeTruthy();
+  });
+
+  it("shows the compaction threshold that actually applied for this model", () => {
+    const { rerender } = render(<InvocationUsage usage={{ ...usage, compactWindow: 400_000 }} />);
+    expect(screen.getByText("自动压缩阈值 400k token：会话接近这个大小时自动压缩。")).toBeTruthy();
+    // 模型上下文比阈值小：Claude Code 按模型上限压缩
+    rerender(
+      <InvocationUsage usage={{ ...usage, compactWindow: 400_000, contextWindow: 200_000 }} />,
+    );
+    expect(
+      screen.getByText(
+        "自动压缩阈值 400k token，但这个模型的上下文只有 200k：实际按模型上限，接近 200k 时压缩。",
+      ),
+    ).toBeTruthy();
+  });
+
   it("shows per-agent usage and lists large cache writes with their reason", async () => {
     const load = vi.fn().mockResolvedValue(summary);
     const onStartTopic = vi.fn();

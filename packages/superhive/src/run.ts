@@ -22,6 +22,11 @@ import {
 } from "./task-workspace.js";
 import { AgentManager, SingleRoomStack, type StackHooks } from "./agent-manager.js";
 import { ClaudeCodeResponder, claudeWorkspaceSandboxed } from "./claude-client.js";
+import {
+  ClaudeWarmRegistry,
+  claudeMaxWarm,
+  defaultWarmRegistryDir,
+} from "./claude-warm-registry.js";
 import { CODEX_MIN_VERSION, CodexResponder } from "./codex-responder.js";
 import { CopilotResponder } from "./copilot-client.js";
 import { createOmpResponder } from "./omp-client.js";
@@ -341,6 +346,11 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
           hive,
           access,
           keepAliveMs: claudeKeepAliveMs(process.env.HIVE_CLAUDE_KEEPALIVE_MS),
+          // 同一台机器上所有 Agent 合起来最多留几个空闲的 Claude 进程，超出就淘汰最久没用的
+          warmRegistry: new ClaudeWarmRegistry({
+            dir: defaultWarmRegistryDir(),
+            max: claudeMaxWarm(process.env.HIVE_CLAUDE_MAX_WARM),
+          }),
           ...(settingsFile ? { settingsFile } : {}),
           ...(parsed.values.model ? { model: parsed.values.model } : {}),
         });

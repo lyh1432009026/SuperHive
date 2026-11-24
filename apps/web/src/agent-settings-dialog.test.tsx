@@ -17,6 +17,8 @@ const agent = {
   cwd: "/repo",
   model: null,
   effort: null,
+  compactWindow: null,
+  cacheTtl: null,
   status: "running",
   pid: 1,
   startedAt: null,
@@ -285,6 +287,93 @@ describe("AgentSettingsDialog", () => {
     await screen.findByRole("combobox", { name: "模型" });
     await waitFor(() => expect(screen.getByRole("button", { name: "保存模型" })).toBeTruthy());
     expect(screen.queryByRole("combobox", { name: "思考强度" })).toBeNull();
+  });
+
+  it("sets Claude's auto-compact threshold and cache duration, defaulting to 400k", async () => {
+    const updateSettings = vi.fn(
+      async (
+        _id: string,
+        settings: { compactWindow?: number | "auto" | null; cacheTtl?: "5m" | "1h" | null },
+      ) => ({
+        ...agent,
+        compactWindow: settings.compactWindow ?? null,
+        cacheTtl: settings.cacheTtl ?? null,
+      }),
+    );
+    render(
+      <AgentSettingsDialog
+        agent={agent}
+        local={{
+          mcpServers: async () => listed,
+          updateSettings,
+          act: async () => undefined,
+          canManage: true,
+          logs: async () => [],
+          remove: async () => undefined,
+          models: async () => modelList,
+        }}
+        onClose={() => undefined}
+      />,
+    );
+    const compact = await screen.findByRole("combobox", { name: "自动压缩" });
+    // 没设过：显示默认 40 万；缓存时长跟随 Claude Code
+    expect(compact.textContent).toContain("40 万 token（默认）");
+    const ttl = screen.getByRole("combobox", { name: "缓存时长" });
+    expect(ttl.textContent).toContain("跟随 Claude Code（默认）");
+    const save = screen.getByRole("button", { name: "保存上下文设置" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+
+    fireEvent.click(ttl);
+    fireEvent.click(screen.getByRole("option", { name: /^1 小时/ }));
+    // 选 1 小时：注明写缓存更贵
+    expect(screen.getByRole("note").textContent).toContain("1.25 倍变成 2 倍");
+    fireEvent.click(compact);
+    fireEvent.click(screen.getByRole("option", { name: /^自定义/ }));
+    const custom = screen.getByRole("spinbutton", { name: "自定义压缩阈值（token）" });
+    fireEvent.change(custom, { target: { value: "50000" } });
+    expect(save.disabled).toBe(true);
+    expect(screen.getByText(/填 100,000～2,000,000 之间的整数/)).toBeTruthy();
+    fireEvent.change(custom, { target: { value: "300000" } });
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(updateSettings).toHaveBeenLastCalledWith(agent.id, {
+        compactWindow: 300_000,
+        cacheTtl: "1h",
+      }),
+    );
+    expect(await screen.findByText("已保存。")).toBeTruthy();
+
+    // 改回默认档：存成「没设过」
+    fireEvent.click(screen.getByRole("combobox", { name: "自动压缩" }));
+    fireEvent.click(screen.getByRole("option", { name: /40 万 token（默认）/ }));
+    fireEvent.click(screen.getByRole("button", { name: "保存上下文设置" }));
+    await waitFor(() =>
+      expect(updateSettings).toHaveBeenLastCalledWith(agent.id, {
+        compactWindow: null,
+        cacheTtl: "1h",
+      }),
+    );
+  });
+
+  it("only shows the context settings for Claude", async () => {
+    render(
+      <AgentSettingsDialog
+        agent={{ ...agent, provider: "codex" }}
+        local={{
+          mcpServers: async () => listed,
+          updateSettings: async () => agent,
+          act: async () => undefined,
+          canManage: true,
+          logs: async () => [],
+          remove: async () => undefined,
+          models: async () => modelList,
+        }}
+        onClose={() => undefined}
+      />,
+    );
+    await screen.findByRole("combobox", { name: "模型" });
+    expect(screen.queryByRole("combobox", { name: "自动压缩" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "缓存时长" })).toBeNull();
   });
 
   it("shows why the model list could not be fetched and still allows typing one", async () => {

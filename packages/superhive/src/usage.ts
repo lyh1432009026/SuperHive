@@ -109,6 +109,10 @@ export class UsageAccumulator {
           }
         : {}),
       peakContextTokens: Math.max(0, ...requests.map(context)),
+      // 最后一次请求的上下文：这一轮结束时会话有多大（压缩过的话是压缩后的）
+      ...(requests.length > 0
+        ? { lastContextTokens: context(requests[requests.length - 1]!) }
+        : {}),
       peakCacheWriteTokens: Math.max(0, ...requests.map((item) => item.cacheWriteTokens)),
       ...(this.ttlKnown
         ? {

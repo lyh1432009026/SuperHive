@@ -246,6 +246,9 @@ export function InvocationUsage({ usage }: { usage: AgentUsage }) {
   const options = useUsageSettings();
   const cost = estimateCost(usage, usage.model ? table[usage.model] : undefined);
   const large = usage.peakCacheWriteTokens >= options.cacheWriteAlertTokens;
+  const lastRequest = usage.lastRequestAt ? Date.parse(usage.lastRequestAt) : NaN;
+  const cacheExpiresAt =
+    usage.cacheTtlMs && Number.isFinite(lastRequest) ? lastRequest + usage.cacheTtlMs : undefined;
   const bigSession = usage.peakContextTokens >= options.sessionAlertTokens;
   const first = usage.firstRequest;
   const write = describeCacheWrite(usage, options);
@@ -294,6 +297,46 @@ export function InvocationUsage({ usage }: { usage: AgentUsage }) {
           )}
         </p>
       )}
+      {usage.compactWindow !== undefined && (
+        <p className="invocation-details-description">
+          {usage.contextWindow !== undefined && usage.contextWindow < usage.compactWindow
+            ? t(
+                "自动压缩阈值 {0} token，但这个模型的上下文只有 {1}：实际按模型上限，接近 {1} 时压缩。",
+                { 0: formatTokens(usage.compactWindow), 1: formatTokens(usage.contextWindow) },
+              )
+            : t("自动压缩阈值 {0} token：会话接近这个大小时自动压缩。", {
+                0: formatTokens(usage.compactWindow),
+              })}
+          {usage.lastContextTokens !== undefined &&
+            ` ${t("本轮结束时上下文 {0} token。", { 0: formatTokens(usage.lastContextTokens) })}`}
+        </p>
+      )}
+      {cacheExpiresAt !== undefined && (
+        <p className="invocation-details-description">
+          {t("缓存按这一轮最后一次模型请求算，约在 {0} 过期（有效期 {1} 分钟）。", {
+            0: new Date(cacheExpiresAt).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            1: Math.round((usage.cacheTtlMs ?? 0) / 60_000),
+          })}
+        </p>
+      )}
+      {usage.compactions?.map((compaction, index) => (
+        <p key={index} className="invocation-details-notice">
+          {compaction.postTokens !== undefined
+            ? t("上下文已自动压缩：{0} → {1} token。", {
+                0: formatTokens(compaction.preTokens),
+                1: formatTokens(compaction.postTokens),
+              })
+            : t("上下文已自动压缩：压缩前 {0} token。", {
+                0: formatTokens(compaction.preTokens),
+              })}
+          {compaction.durationMs !== undefined
+            ? ` ${t("压缩用了 {0} 秒。", { 0: Math.round(compaction.durationMs / 1000) })}`
+            : ""}
+        </p>
+      ))}
       <dl className="invocation-details-metrics usage-metrics">
         <div>
           <dt>{t("缓存命中率")}</dt>

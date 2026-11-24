@@ -55,6 +55,14 @@ export class ClaudeStream {
   onUserAck?: (uuid: string) => void;
   /** 启动信息里 hive MCP 的状态：connected 或连不上（failed、needs-auth） */
   onHiveTools?: (status: "connected" | "unavailable", detail?: string) => void;
+  /** Claude Code 开始自动压缩上下文（system/status compacting） */
+  onCompacting?: () => void;
+  /** 自动压缩完成（system/compact_boundary），带压缩前后的上下文大小 */
+  onCompacted?: (compaction: {
+    preTokens: number;
+    postTokens?: number;
+    durationMs?: number;
+  }) => void;
   /** 控制请求（例如 interrupt）的答复 */
   onControlResponse?: (requestId: string, ok: boolean) => void;
   /** Claude 要求宿主批准一次工具调用（--permission-prompt-tool stdio 时的 can_use_tool） */
@@ -293,8 +301,24 @@ export class ClaudeStream {
       if (typeof event.session_id === "string") this.session(event.session_id);
       return;
     }
+    if (event.type === "system" && event.subtype === "status") {
+      if (event.status === "compacting") this.onCompacting?.();
+      return;
+    }
     if (event.type === "system" && event.subtype === "compact_boundary") {
       this.compactedInTurn = true;
+      const meta = object(event.compact_metadata);
+      // 只报自动压缩：人手动 /compact 不会经过 Bridge
+      const preTokens = integer(meta?.pre_tokens, 0, 100_000_000);
+      if (meta?.trigger === "auto" && preTokens !== undefined) {
+        const postTokens = integer(meta.post_tokens, 0, 100_000_000);
+        const durationMs = integer(meta.duration_ms, 0, 86_400_000);
+        this.onCompacted?.({
+          preTokens,
+          ...(postTokens !== undefined ? { postTokens } : {}),
+          ...(durationMs !== undefined ? { durationMs } : {}),
+        });
+      }
       return;
     }
     if (event.type === "system" && event.subtype === "api_retry") {

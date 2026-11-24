@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { reasoningEffortSchema } from "./reasoning-effort.js";
+import {
+  claudeCacheTtlSchema,
+  claudeCompactWindowSchema,
+  contextCompactionSchema,
+} from "./claude-context.js";
 import { agentCodeVersionSchema } from "./agent-version.js";
 import { failureKindSchema } from "./failure-kind.js";
 import { serverTextSchema } from "./server-text.js";
@@ -120,6 +125,24 @@ export const agentHiveToolsSchema = z.object({
 });
 export type AgentHiveTools = z.infer<typeof agentHiveToolsSchema>;
 
+/**
+ * Agent 最近一轮结束时的上下文和缓存，由 Server 从这一轮的用量算出：会话现在多大、离自动压缩还有多远、
+ * 缓存大约什么时候过期。只放拿得准的数：Runtime 没报缓存有效期就没有 cacheExpiresAt。
+ */
+export const agentContextStatusSchema = z.object({
+  /** 最后一次请求的上下文 token（压缩过的话是压缩后的） */
+  contextTokens: z.number().int().min(0).max(100_000_000),
+  /** 这一轮传给 Claude Code 的自动压缩阈值 */
+  compactWindow: z.number().int().min(0).max(100_000_000).optional(),
+  /** 模型的上下文窗口 */
+  contextWindow: z.number().int().min(0).max(100_000_000).optional(),
+  /** 最后一次请求 + 缓存有效期：缓存大约在这时过期 */
+  cacheExpiresAt: z.string().datetime().optional(),
+  /** 最后一次模型请求的时间 */
+  at: z.string().datetime(),
+});
+export type AgentContextStatus = z.infer<typeof agentContextStatusSchema>;
+
 export const participantSchema = z.object({
   id: z.string().uuid(),
   roomId: z.string().min(1).max(64),
@@ -139,6 +162,8 @@ export const participantSchema = z.object({
   workspace: agentWorkspaceSchema.optional(),
   /** 在线的 Agent 的 Hive 工具连不上（连得上、旧版 Bridge 不上报时没有） */
   hiveTools: agentHiveToolsSchema.optional(),
+  /** 在线的 Agent 最近一轮结束时的上下文和缓存（从用量算；Runtime 不报时没有） */
+  context: agentContextStatusSchema.optional(),
 });
 
 /** 外部 IM 渠道：飞书（含 Lark）与个人微信 */
@@ -403,6 +428,14 @@ export const agentUsageSchema = usageBucketsSchema.extend({
   model: z.string().max(120).optional(),
   /** 这一轮实际传给运行时的思考强度；没传（沿用 CLI 配置）时不填 */
   effort: z.string().max(32).optional(),
+  /** 这一轮里 Claude Code 自动压缩了上下文（一轮里可能不止一次） */
+  compactions: z.array(contextCompactionSchema).max(20).optional(),
+  /** 这一轮传给 Claude Code 的自动压缩阈值；模型上下文比它小时实际按模型上限压缩 */
+  compactWindow: z.number().int().min(0).max(100_000_000).optional(),
+  /** 这一轮最后一次请求的上下文大小（会话现在有多大；压缩过的话是压缩后的） */
+  lastContextTokens: tokenCount.optional(),
+  /** 缓存有效期（毫秒）：这一轮观测到的写入类型，没写入时沿用上一轮的；不知道就不填 */
+  cacheTtlMs: z.number().int().min(0).max(86_400_000).optional(),
   /** 本轮向模型发出的请求数（工具往返越多越大） */
   requests: z.number().int().min(0).max(100_000),
   /** 本轮第一次请求：决定这一轮是续上缓存还是整段重写 */
@@ -1356,6 +1389,10 @@ export const localAgentSchema = z.object({
   model: z.string().nullable(),
   /** 这个 Agent 的思考强度；null 表示不传参数，沿用 CLI 自己的配置 */
   effort: z.string().nullable().default(null),
+  /** Claude：自动压缩阈值；null 表示没设过，按默认 20 万；"auto" 表示交给 Claude Code 自己定 */
+  compactWindow: claudeCompactWindowSchema.nullable().default(null),
+  /** Claude：缓存时长；null 表示不传，由 Claude Code 自动选 */
+  cacheTtl: claudeCacheTtlSchema.nullable().default(null),
   status: localAgentStatusSchema,
   pid: z.number().int().nullable(),
   startedAt: z.string().datetime().nullable(),
@@ -1403,13 +1440,19 @@ export const updateLocalAgentSettingsRequestSchema = z
     model: z.string().trim().max(200).nullable().optional(),
     /** 这个 Agent 的思考强度；null 表示沿用 CLI 自己的配置。下一轮生效，不用重启 */
     effort: reasoningEffortSchema.nullable().optional(),
+    /** Claude：自动压缩阈值；null 表示恢复默认（20 万）。下一轮生效，不用重启 */
+    compactWindow: claudeCompactWindowSchema.nullable().optional(),
+    /** Claude：缓存时长；null 表示不传，由 Claude Code 自动选。下一轮生效 */
+    cacheTtl: claudeCacheTtlSchema.nullable().optional(),
   })
   .refine(
     (value) =>
       value.mcpDisabled !== undefined ||
       value.autoSteer !== undefined ||
       value.model !== undefined ||
-      value.effort !== undefined,
+      value.effort !== undefined ||
+      value.compactWindow !== undefined ||
+      value.cacheTtl !== undefined,
   );
 
 /** Agent CLI 在本机会加载的一个 MCP（hive 自己不在其中，始终加载） */
@@ -1949,6 +1992,7 @@ export * from "./invocation-decision.js";
 export * from "./failure-kind.js";
 export * from "./agent-clis.js";
 export * from "./reasoning-effort.js";
+export * from "./claude-context.js";
 export * from "./workspace-files.js";
 export * from "./attachment-open.js";
 export * from "./server-text.js";
