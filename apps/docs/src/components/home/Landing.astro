@@ -156,17 +156,9 @@ const hiveCells = Array.from({ length: 14 }, (_, index) => ({
           <span aria-hidden="true">→</span>
         </a>
         <a class="hl-btn hl-btn-ghost" href={to("start/overview/")}>{t.hero.secondary}</a>
-        <div class="hl-cmd hl-cmd-pill">
-          <code><span aria-hidden="true">$</span> npm i -g superhive</code>
-          <button
-            type="button"
-            class="hl-copy"
-            data-copy="npm i -g superhive"
-            data-copied={t.hero.copied}
-          >
-            {t.hero.copy}
-          </button>
-        </div>
+        <a class="hl-cli-link" href={to(t.hero.cliHref)}
+          >{t.hero.cli} <span aria-hidden="true">→</span></a
+        >
       </div>
     </div>
 

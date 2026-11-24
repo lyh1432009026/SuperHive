@@ -7,19 +7,12 @@ description: 从打开 Hive 网页到创建演示房间、手动完成接入向�
 
 先用一个房间、一个只读 Agent，确认「你发消息 → Agent 接到任务 → 回复出现在房间」这条链路。这里不需要真实项目、私人文件或写入权限，也不需要一次启动多个 Agent。
 
-尚未启动服务？在终端先安装、再运行（需要 Node.js 22.12+），详细说明见 [安装与启动](/start/installation/)：
+有两种方式都可以使用 SuperHive，装法任选一种：
 
-1. **安装**（每台电脑只需一次，装好后就有了 `hive` 命令）：
+- **[安装客户端](/start/installation/#安装客户端)**：下载桌面应用，双击打开就在本机启动 Hive，自带终端，不用敲命令。
+- **[安装 CLI](/start/installation/#安装-cli)**：用 npm 装命令行工具 `hive`，适合服务器、Linux、局域网共享或习惯终端的人。
 
-   ```bash
-   npm i -g superhive
-   ```
-
-2. **运行**（启动 Hive Server 并打开网页，以后每次启动都用这一条）：
-
-   ```bash
-   hive
-   ```
+两种装法用的是同一份数据目录 `~/.superhive/`，可以随时换着用。
 
 本教程假设你在 Hive Server 所在电脑上，且已经安装、登录准备使用的 Agent CLI。
 

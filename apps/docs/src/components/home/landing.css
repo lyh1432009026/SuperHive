@@ -449,13 +449,16 @@
   user-select: none;
 }
 
-.hl-cmd-pill {
-  border-radius: 999px;
+.hl-cli-link {
+  align-self: center;
+  color: var(--hl-dim) !important;
+  font-size: 0.9rem;
+  text-decoration: none !important;
 }
 
-.hl-cmd-pill code {
-  padding: 0.6rem 0.4rem 0.6rem 1.1rem;
-  font-size: 0.85rem;
+.hl-cli-link:hover {
+  color: var(--hl-text) !important;
+  text-decoration: underline !important;
 }
 
 .hl-copy {
@@ -2024,8 +2027,9 @@ html .hl .cm.cm.cm {
     justify-content: center;
   }
 
-  .hl-cmd-pill {
+  .hl-cli-link {
     flex-basis: 100%;
+    text-align: center;
   }
 
   /* 手机上窗口里的截图保持桌面比例放大，可以左右滑动查看，亮点跟着图走 */
