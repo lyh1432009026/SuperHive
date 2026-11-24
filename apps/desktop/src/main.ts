@@ -552,10 +552,11 @@ function runApp(): void {
   }
 
   // ---------- 连接本机 Hive ----------
-  const fork: ForkServer = (entry, env) =>
+  const fork: ForkServer = (entry, env, cwd) =>
     new Promise((resolve, reject) => {
       const child = utilityProcess.fork(entry, [], {
         env,
+        cwd,
         stdio: "pipe",
         serviceName: "SuperHive Server",
       });
@@ -590,6 +591,7 @@ function runApp(): void {
       env: process.env,
       agentCli: agentCliCommand(),
       launcher: `SuperHive Desktop ${app.getVersion()}`,
+      home: homedir(),
     });
     const server = owned;
     void server.exited.then((code) => {

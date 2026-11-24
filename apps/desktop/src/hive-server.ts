@@ -170,7 +170,12 @@ export type ServerChild = {
 };
 
 /** 拉起 Server 进程；等进程真正起来（拿到 pid）再返回 */
-export type ForkServer = (entry: string, env: Record<string, string>) => Promise<ServerChild>;
+/** cwd：Server 进程的工作目录，桌面端统一用主目录（见 serverEnv） */
+export type ForkServer = (
+  entry: string,
+  env: Record<string, string>,
+  cwd: string,
+) => Promise<ServerChild>;
 
 export type OwnedServer = {
   origin: string;
@@ -179,6 +184,26 @@ export type OwnedServer = {
   exited: Promise<number>;
   stop(): Promise<void>;
 };
+
+/**
+ * 桌面端起 Server 用的环境变量：继承当前环境（去掉 ELECTRON_*），再盖上 overrides。
+ * HIVE_LAUNCH_DIR 是新建 Agent、选目录时的默认工作目录；不设的话 Server 拿 process.cwd()，
+ * 而桌面端的 cwd 是安装目录（Windows：%LOCALAPPDATA%\SuperHive\app-<版本>，升级后会被删掉）
+ * 或 /（Mac 上双击打开 .app），都不能当工作目录，所以统一设成主目录。
+ * 用户自己在环境里设了 HIVE_LAUNCH_DIR 时尊重它。
+ */
+export function serverEnv(
+  base: NodeJS.ProcessEnv,
+  home: string,
+  overrides: Record<string, string> = {},
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(base)) {
+    if (value !== undefined && !key.startsWith("ELECTRON_")) env[key] = value;
+  }
+  env.HIVE_LAUNCH_DIR = base.HIVE_LAUNCH_DIR?.trim() || home;
+  return Object.assign(env, overrides);
+}
 
 /** 起桌面端自己的 Server（utilityProcess），等健康检查通过 */
 export async function startServer(options: {
@@ -191,6 +216,8 @@ export async function startServer(options: {
   env: NodeJS.ProcessEnv;
   agentCli: string[];
   launcher: string;
+  /** 用户主目录：Server 的 cwd 和新建 Agent、房间工作区的默认目录 */
+  home: string;
   readyTimeoutMs?: number;
 }): Promise<OwnedServer> {
   const dataDir = options.dataDir;
@@ -200,11 +227,7 @@ export async function startServer(options: {
   const shutdownToken = randomUUID();
   const healthUrl = `http://127.0.0.1:${options.port}/health`;
   const logPath = path.join(dataDir, "server.log");
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(options.env)) {
-    if (value !== undefined && !key.startsWith("ELECTRON_")) env[key] = value;
-  }
-  Object.assign(env, {
+  const env = serverEnv(options.env, options.home, {
     HIVE_HOST: host,
     HIVE_PORT: String(options.port),
     HIVE_DATABASE: path.join(dataDir, "hive.sqlite"),
@@ -216,7 +239,7 @@ export async function startServer(options: {
     HIVE_NO_OPEN: "1",
   });
 
-  const child = await options.fork(options.serverEntry, env);
+  const child = await options.fork(options.serverEntry, env, options.home);
   const logFd = openSync(logPath, "a", 0o600);
   const write = (chunk: Buffer | string) => {
     try {

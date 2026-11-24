@@ -1,6 +1,8 @@
 /** 冒烟测试里开发版和打包版共用的操作步骤 */
 import { expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
+import { realpathSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -97,6 +99,20 @@ export async function launchLocalAgent(page: Page, name = "smoke-agent"): Promis
     expect(line, "agent process").toBeTruthy();
     expect(line).toContain("join");
   }
+}
+
+/**
+ * 新建本机 Agent 时工作目录的默认值（网页取 /api/local/directories 的 defaults.launch 填进表单）是主目录：
+ * 桌面端自己的 cwd 是安装目录或 /，不能拿来当默认值。
+ */
+export async function expectDefaultCwdIsHome(page: Page): Promise<void> {
+  const home = realpathSync(os.homedir());
+  const { status, body } = await ownerFetch(page, "/api/local/directories");
+  expect(status, JSON.stringify(body)).toBe(200);
+  const listing = body as { path: string; defaults: { launch: string; home: string } };
+  expect(listing.defaults.launch).toBe(home);
+  expect(listing.defaults.home).toBe(home);
+  expect(listing.path).toBe(home);
 }
 
 export async function serverAlive(port: number): Promise<boolean> {

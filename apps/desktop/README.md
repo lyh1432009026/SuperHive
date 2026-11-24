@@ -6,7 +6,7 @@
 
 ## 它做了什么
 
-- **本机 Hive**：读 `~/.superhive/server.json`，`hive start` 起的 Server 还在跑就直接连上，不再起第二个；没有就用 `utilityProcess` 起一个，写同样格式的 `server.json`，`hive stop` / `hive start` 都认得它。8787 被别的程序占了就往后找空端口。退出应用时只停自己起的那个，先请它正常退出（本机 Agent 下线、IM 断开），等不到再结束。数据目录、数据库和 CLI 是同一份，不迁移也不改写用户数据。
+- **本机 Hive**：读 `~/.superhive/server.json`，`hive start` 起的 Server 还在跑就直接连上，不再起第二个；没有就用 `utilityProcess` 起一个，写同样格式的 `server.json`，`hive stop` / `hive start` 都认得它。8787 被别的程序占了就往后找空端口。退出应用时只停自己起的那个，先请它正常退出（本机 Agent 下线、IM 断开），等不到再结束。数据目录、数据库和 CLI 是同一份，不迁移也不改写用户数据。Server 的 cwd 和 `HIVE_LAUNCH_DIR` 都设成用户主目录（`serverEnv`）：应用自己的 cwd 是安装目录（Windows `%LOCALAPPDATA%\SuperHive\app-<版本>`，升级后旧目录会被删）或 `/`（Mac 双击 .app），都不能当新建 Agent、房间工作区的默认目录。早先建的本机 Agent 工作目录指向安装目录时，Server 启动它前改成主目录并在 Agent 设置里提示（`checkCwd`）。
 - **本机 Agent**：打包后的应用关了 RunAsNode，Electron 不能当 Node 用。Server 改由环境变量 `HIVE_LOCAL_AGENT_CLI` 得知怎么拉起 Agent：桌面端让它运行 `SuperHive --superhive-cli join …`，主进程看到这个参数就只运行包里自带的 superhive CLI，不开窗口、不占单实例锁。
 - **PATH**：从访达、Dock 启动的程序拿不到 shell 配置里的 PATH，启动时用登录 shell 读一次再合并，本机 Agent 和终端才能找到 `claude`、`codex`、`node`。
 - **窗口**：加载 `http://127.0.0.1:<端口>` 的现有网页（在本机打开才是房主身份）；记住大小和位置（换了显示器会放回可见区域）；只允许一个实例；macOS 上关窗口不退出，点 Dock 图标再打开，⌘Q 才退出。
@@ -56,7 +56,7 @@ Windows 上打包（Windows 11 x64 实测过）：
 - 在 Windows 本机打，`node scripts\forge.mjs make --arch x64 --targets @electron-forge/maker-squirrel`（只要 zip 就换成 `maker-zip`）。
 - 连不上 GitHub 时设 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` 下载 Electron。
 - 打包时重命名临时目录报 `EPERM`，多半是 Defender 正在扫刚解压的文件，重试或把构建目录加进排除项。
-- Squirrel 最后用 rcedit 给 `Setup.exe` 写版本信息时可能报 `Unable to commit changes`，Forge 会把这当失败；这时 `out/make/squirrel.windows/x64/Setup.exe` 已经生成、可以正常安装，只是没有版本信息、也没改名成 `SuperHive-Setup.exe`。
+- Squirrel 最后用 rcedit 给 `Setup.exe` 写版本信息时可能报 `Unable to commit changes`，Forge 会把这当失败；这时 `out/make/squirrel.windows/x64/Setup.exe` 已经生成、可以正常安装，只是没有版本信息、也没改名成 `SuperHive-<版本>-win-x64-Setup.exe`（正常完成时 Forge 直接产出这个名字，和 Release 上的一致，不用手动改名）。
 - 安装包装到 `%LOCALAPPDATA%\SuperHive`，安装时建开始菜单和桌面快捷方式，卸载时删掉（主进程处理 `--squirrel-*` 事件，见 `src/squirrel.ts`）；Electron 自己的数据在 `%APPDATA%\SuperHive`，Hive 数据仍是 `%USERPROFILE%\.superhive`。
 
 打包版的冒烟测试（fuses 开着，用 Chromium 远程调试端口连上窗口）：

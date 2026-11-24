@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { HiveDatabase } from "./database.js";
 import {
+  checkCwd,
   cliOption,
   joinArgumentName,
   LocalAgentSupervisor,
@@ -1152,6 +1153,83 @@ describe("LocalAgentSupervisor", () => {
     expect(second.supervisor.get(stopped.id).status).toBe("stopped");
     expect(second.supervisor.get(running.id).status).toBe("starting");
     database.close();
+  });
+
+  it("moves an agent off a desktop install directory to home, and only borrows home for a missing one", () => {
+    const database = new HiveDatabase(":memory:");
+    const home = mkdtempSync(path.join(tmpdir(), "hive-home-"));
+    try {
+      // 早先桌面端把安装目录当默认工作目录：升级后旧的 app-<版本> 被删，路径还在配置里
+      const installed = database.createLocalAgent({
+        provider: "omp",
+        name: "old-install",
+        access: "workspace",
+        cwd: path.join(home, "AppData", "Local", "SuperHive", "app-0.4.4"),
+        model: null,
+      });
+      const missing = database.createLocalAgent({
+        provider: "omp",
+        name: "unplugged",
+        access: "workspace",
+        cwd: path.join(home, "external-drive", "project"),
+        model: null,
+      });
+      const fine = database.createLocalAgent({
+        provider: "omp",
+        name: "fine",
+        access: "workspace",
+        cwd: home,
+        model: null,
+      });
+      const log = vi.fn();
+      const { supervisor, spawner, timers } = supervisorWith(database, { home: () => home, log });
+      supervisor.start();
+      while (spawner.children.length < 3) timers.fireNext();
+
+      const cwdOf = (name: string) =>
+        spawner.children
+          .find((child) => joinArgumentName(child.args) === name)
+          ?.args.find((arg) => arg.startsWith("--cwd="));
+      expect(cwdOf("old-install")).toBe(`--cwd=${home}`);
+      expect(cwdOf("unplugged")).toBe(`--cwd=${home}`);
+      expect(cwdOf("fine")).toBe(`--cwd=${home}`);
+
+      const stored = new Map(database.listLocalAgents().map((agent) => [agent.name, agent.cwd]));
+      // 安装目录本来就不该是工作目录：配置一并改掉；不存在的目录可能只是外接盘没插上：配置保留
+      expect(stored.get("old-install")).toBe(home);
+      expect(stored.get("unplugged")).toBe(path.join(home, "external-drive", "project"));
+
+      expect(supervisor.get(installed.id)).toMatchObject({
+        cwd: home,
+        cwdFallback: { reason: "installDir", to: home },
+      });
+      expect(supervisor.get(missing.id)).toMatchObject({
+        cwd: path.join(home, "external-drive", "project"),
+        cwdFallback: { reason: "missing", to: home },
+      });
+      expect(supervisor.get(fine.id).cwdFallback).toBeUndefined();
+      expect(supervisor.logs(installed.id).join("\n")).toContain("桌面端的安装目录");
+      expect(supervisor.logs(missing.id).join("\n")).toContain("不存在");
+      expect(log).toHaveBeenCalledWith(expect.stringContaining("old-install"));
+    } finally {
+      database.close();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("checks working directories by shape for install folders and by existence otherwise", () => {
+    const home = "/Users/someone";
+    expect(checkCwd(null, home)).toBeUndefined();
+    expect(checkCwd(tmpdir(), home)).toBeUndefined();
+    expect(checkCwd("C:\\Users\\zphz\\AppData\\Local\\SuperHive\\app-0.4.4", home)).toEqual({
+      reason: "installDir",
+      from: "C:\\Users\\zphz\\AppData\\Local\\SuperHive\\app-0.4.4",
+      to: home,
+    });
+    expect(checkCwd("/Applications/SuperHive.app/Contents/Resources", home)?.reason).toBe(
+      "installDir",
+    );
+    expect(checkCwd(path.join(tmpdir(), "definitely-not-here-0f3a"), home)?.reason).toBe("missing");
   });
 
   it("staggers restored launches, and stopping or starting cancels the queued one", async () => {

@@ -26,7 +26,7 @@ import type {
 } from "@superhive/protocol";
 import { codeVersionAt, packageRootOfCli } from "./code-version.js";
 import { HiveError, type HiveDatabase, type LocalAgentConfig } from "./database.js";
-import { expandHome } from "./local-directories.js";
+import { expandHome, homeDirectory, isDesktopInstallDirectory } from "./local-directories.js";
 import { slowOps } from "./slow-ops.js";
 import { commandFor } from "./windows-command.js";
 
@@ -103,6 +103,8 @@ export type LocalAgentSupervisorOptions = {
   probe?: ProviderProbe;
   now?: () => number;
   setTimer?: (callback: () => void, ms: number) => { cancel(): void };
+  /** 工作目录用不了时退回的主目录（测试注入） */
+  home?: () => string;
 };
 
 const LOG_LINES = 500;
@@ -178,7 +180,32 @@ type Runtime = {
   /** 上次自动更新重启时的目标版本：同一个目标只自动重启一次，重启后仍判为旧就不再重试 */
   autoRestartedFor?: string | undefined;
   lastAutoRestartAt?: number | undefined;
+  /** 这次启动没能用配置里的工作目录、退回了主目录（见 checkCwd） */
+  cwdFallback?: CwdFallback | undefined;
 };
+
+export type CwdFallback = NonNullable<LocalAgent["cwdFallback"]>;
+
+/**
+ * 配置里的工作目录还能不能用。桌面端早先把安装目录当成默认工作目录，Squirrel 升级后旧的 app-<版本>
+ * 会被删掉，Agent 就起不来了，所以：
+ * - 指向桌面端安装目录（不管还在不在）：换成主目录，并改掉配置——那里本来就不该是工作目录；
+ * - 目录不在了（外接盘没插、网络盘没挂上也是这样）：这次先在主目录启动，不改配置，目录回来后重启即恢复。
+ * 只读档没有工作目录，不检查。
+ */
+export function checkCwd(
+  cwd: string | null,
+  home: string = homeDirectory(),
+): CwdFallback | undefined {
+  if (!cwd) return undefined;
+  if (isDesktopInstallDirectory(cwd)) return { reason: "installDir", from: cwd, to: home };
+  try {
+    if (statSync(cwd).isDirectory()) return undefined;
+  } catch {
+    /* 不存在或没权限：都当作用不了 */
+  }
+  return { reason: "missing", from: cwd, to: home };
+}
 
 /** 用来判断「同一个目标版本」的键 */
 function versionKey(version: AgentCodeVersion): string {
@@ -713,7 +740,9 @@ export class LocalAgentSupervisor {
   /** 这个 Agent 会加载的本机 MCP 及启用状态；measure 时逐个连上估算开局 token（结果缓存 10 分钟） */
   async mcpServers(id: string, measure: boolean): Promise<LocalAgentMcpResponse> {
     const { config } = this.require(id);
-    return this.listMcpFor(id, config.provider, config.cwd, this.writeSettings(config), measure);
+    // 和启动时一样：工作目录用不了就按主目录列，免得设置里的 MCP 列表直接报错
+    const cwd = checkCwd(config.cwd, this.options.home?.())?.to ?? config.cwd;
+    return this.listMcpFor(id, config.provider, cwd, this.writeSettings(config), measure);
   }
 
   /** 接入新 Agent 前预览：这个 provider 在该目录下会加载哪些本机 MCP（默认全部启用） */
@@ -1141,6 +1170,7 @@ export class LocalAgentSupervisor {
         : {}),
       busy: runtime.child ? this.isBusy(runtime, busy) : false,
       ...(running ? { version: running } : {}),
+      ...(runtime.cwdFallback ? { cwdFallback: runtime.cwdFallback } : {}),
       ...(outdated ? { outdated: true } : {}),
       // 点过「重启」在等它忙完，或自动更新会在它空闲后重启它
       ...(runtime.pendingRestart ||
@@ -1158,7 +1188,22 @@ export class LocalAgentSupervisor {
     const { config } = runtime;
     // 新进程跑的就是现在的代码：之前等着的重启不用再做了
     runtime.pendingRestart = undefined;
-    const settingsFile = this.writeSettings(config);
+    const fallback = checkCwd(config.cwd, this.options.home?.());
+    runtime.cwdFallback = fallback;
+    if (fallback) {
+      const message =
+        fallback.reason === "installDir"
+          ? `工作目录 ${fallback.from} 是桌面端的安装目录，升级后会被删掉，已改成 ${fallback.to}`
+          : `工作目录 ${fallback.from} 不存在，这次先在 ${fallback.to} 启动；目录恢复后重启这个 Agent 即回到原目录`;
+      this.appendLog(runtime, `[hive] ${message}\n`);
+      this.options.log?.(`[local-agents] ${config.name}：${message}`);
+      if (fallback.reason === "installDir") {
+        this.options.database.setLocalAgentCwd(config.id, fallback.to);
+        runtime.config = { ...config, cwd: fallback.to };
+      }
+    }
+    const cwd = fallback ? fallback.to : config.cwd;
+    const settingsFile = this.writeSettings(runtime.config);
     runtime.settingsApplied = settingsFile !== undefined;
     const args = [
       ...this.options.cli.args,
@@ -1167,7 +1212,7 @@ export class LocalAgentSupervisor {
       cliOption("name", config.name),
       cliOption("provider", config.provider),
       cliOption("access", config.access),
-      ...(config.cwd ? [cliOption("cwd", config.cwd)] : []),
+      ...(cwd ? [cliOption("cwd", cwd)] : []),
       // 有设置文件时模型只从设置文件读（每一轮生效），不再作为启动参数：改回默认才能真的回到默认
       ...(config.model && !settingsFile ? [cliOption("model", config.model)] : []),
       ...(settingsFile ? [cliOption("agent-settings", settingsFile)] : []),

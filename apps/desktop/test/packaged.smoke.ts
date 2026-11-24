@@ -14,6 +14,7 @@ import path from "node:path";
 import {
   desktopDir,
   enterRoom,
+  expectDefaultCwdIsHome,
   launchLocalAgent,
   runTerminalCommand,
   serverAlive,
@@ -26,14 +27,20 @@ let child: ChildProcess;
 let browser: Browser;
 let page: Page;
 let dataDir: string;
+/** 应用自己的 cwd：不是主目录，用来确认新建 Agent 的默认目录不会落在这里（打包版里是安装目录或 /） */
+let launchCwd: string;
 const port = 18_900 + Math.floor(Math.random() * 90);
 const debugPort = 19_300 + Math.floor(Math.random() * 90);
 
 test.beforeAll(async () => {
   dataDir = mkdtempSync(path.join(os.tmpdir(), "superhive-desktop-packaged-"));
+  launchCwd = mkdtempSync(path.join(os.tmpdir(), "superhive-desktop-cwd-"));
+  const inherited = { ...process.env };
+  delete inherited.HIVE_LAUNCH_DIR;
   child = spawn(path.resolve(desktopDir, executable!), [`--remote-debugging-port=${debugPort}`], {
+    cwd: launchCwd,
     env: {
-      ...process.env,
+      ...inherited,
       SUPERHIVE_DESKTOP_DATA_DIR: dataDir,
       SUPERHIVE_DESKTOP_PORT: String(port),
       HIVE_NO_OPEN: "1",
@@ -74,6 +81,7 @@ test.afterAll(async () => {
   child?.kill("SIGTERM");
   await expect.poll(() => serverAlive(port), { timeout: 20_000 }).toBe(false);
   rmSync(dataDir, { recursive: true, force: true });
+  rmSync(launchCwd, { recursive: true, force: true });
 });
 
 test("packaged app: terminal and local agents work with fuses on", async () => {
@@ -97,6 +105,7 @@ test("packaged app: terminal and local agents work with fuses on", async () => {
       .locator(".chat-header")
       .evaluate((el) => getComputedStyle(el).getPropertyValue("-webkit-app-region")),
   ).toBe("drag");
+  await expectDefaultCwdIsHome(page);
   await runTerminalCommand(page, "packaged-terminal.png");
   await launchLocalAgent(page, "packaged-agent");
 });

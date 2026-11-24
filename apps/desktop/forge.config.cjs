@@ -12,6 +12,12 @@ const { prune: pruneNatives } = require("./prune-natives.cjs");
 
 // scripts/forge.mjs 传进来；Forge 加载配置时 __dirname 不一定是 .stage/app
 const desktopDir = process.env.SUPERHIVE_DESKTOP_DIR ?? path.resolve(__dirname, "../..");
+const { version } = require(path.join(desktopDir, "package.json"));
+
+/** Windows 安装包文件名带版本和架构，和 Release 上的文件名一致，不用再手动改名 */
+function setupExeName(arch) {
+  return `SuperHive-${version}-win-${arch}-Setup.exe`;
+}
 
 module.exports = {
   outDir: path.join(desktopDir, "out"),
@@ -43,7 +49,8 @@ module.exports = {
     {
       name: "@electron-forge/maker-squirrel",
       platforms: ["win32"],
-      config: { name: "SuperHive", setupExe: "SuperHive-Setup.exe" },
+      // config 写成函数：Forge 按目标架构调用（maker-base 的 prepareConfig）
+      config: (arch) => ({ name: "SuperHive", setupExe: setupExeName(arch) }),
     },
     {
       name: "@electron-forge/maker-deb",

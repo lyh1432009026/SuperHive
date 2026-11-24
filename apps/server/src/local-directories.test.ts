@@ -2,7 +2,12 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { expandHome, launchDirectory, listDirectories } from "./local-directories.js";
+import {
+  expandHome,
+  isDesktopInstallDirectory,
+  launchDirectory,
+  listDirectories,
+} from "./local-directories.js";
 
 describe("local directory browsing", () => {
   let root: string | undefined;
@@ -55,6 +60,37 @@ describe("local directory browsing", () => {
       if (original === undefined) delete process.env.HIVE_LAUNCH_DIR;
       else process.env.HIVE_LAUNCH_DIR = original;
     }
+  });
+
+  it("never defaults to the filesystem root or a desktop install directory", () => {
+    const original = process.env.HIVE_LAUNCH_DIR;
+    const home = realpathSync(homedir());
+    try {
+      // Mac 上双击打开 .app，cwd 是 /
+      process.env.HIVE_LAUNCH_DIR = "/";
+      expect(launchDirectory()).toBe(home);
+      expect(listDirectories().defaults.launch).toBe(home);
+      process.env.HIVE_LAUNCH_DIR = "/Applications/SuperHive.app/Contents/Resources";
+      expect(launchDirectory()).toBe(home);
+    } finally {
+      if (original === undefined) delete process.env.HIVE_LAUNCH_DIR;
+      else process.env.HIVE_LAUNCH_DIR = original;
+    }
+  });
+
+  it("recognizes desktop install directories by path shape, even after they are gone", () => {
+    expect(isDesktopInstallDirectory("C:\\Users\\zphz\\AppData\\Local\\SuperHive\\app-0.4.4")).toBe(
+      true,
+    );
+    expect(
+      isDesktopInstallDirectory("C:\\Users\\zphz\\AppData\\Local\\SuperHive\\app-0.4.5\\resources"),
+    ).toBe(true);
+    expect(isDesktopInstallDirectory("/Applications/SuperHive.app/Contents/Resources")).toBe(true);
+    expect(isDesktopInstallDirectory("/Applications/SuperHive.app/Contents")).toBe(true);
+    expect(isDesktopInstallDirectory("/Users/rd/Coding/my.app")).toBe(false);
+    expect(isDesktopInstallDirectory("/Users/rd/Coding/superhive/apps")).toBe(false);
+    expect(isDesktopInstallDirectory("C:\\Users\\zphz\\SuperHive\\application")).toBe(false);
+    expect(isDesktopInstallDirectory("/Users/rd/Coding/ai-hive")).toBe(false);
   });
 
   it("reports missing, relative and non-directory paths", () => {

@@ -118,6 +118,17 @@
   white-space: pre-wrap;
 }
 
+/* 工作目录用不了、退回了主目录 */
+.local-agent-notice {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: var(--text-xs);
+  word-break: break-all;
+}
+
 /* ---------- 第 3 步：在本机启动 ---------- */
 .local-launch {
   display: grid;

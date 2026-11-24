@@ -2564,6 +2564,11 @@ export class HiveDatabase {
       .run(pid, startedAt, id);
   }
 
+  /** 工作目录用不了时由 Supervisor 改成主目录（见 local-agents.ts checkCwd） */
+  setLocalAgentCwd(id: string, cwd: string | null): void {
+    this.db.prepare("UPDATE local_agents SET cwd = ? WHERE id = ?").run(cwd, id);
+  }
+
   /** 网页上勾掉的本机 MCP；名称排序去重后保存 */
   setLocalAgentModel(id: string, model: string | null): string | null {
     this.db.prepare("UPDATE local_agents SET model = ? WHERE id = ?").run(model, id);

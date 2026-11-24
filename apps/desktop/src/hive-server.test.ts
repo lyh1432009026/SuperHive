@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   discover,
   loopbackOrigin,
+  serverEnv,
+  startServer,
   statePathFor,
   superhiveHome,
   type ServiceState,
@@ -110,5 +112,51 @@ describe("paths and origins", () => {
     expect(loopbackOrigin("http://0.0.0.0:8787/health")).toBe("http://127.0.0.1:8787");
     expect(loopbackOrigin("http://localhost:8787/health")).toBe("http://127.0.0.1:8787");
     expect(loopbackOrigin("http://192.168.1.2:8787/health")).toBe("http://127.0.0.1:8787");
+  });
+});
+
+describe("server environment", () => {
+  it("defaults new agents and workspaces to the home directory, not the install directory", () => {
+    const env = serverEnv(
+      {
+        PATH: "/usr/bin",
+        ELECTRON_RUN_AS_NODE: "1",
+        UNSET: undefined,
+      },
+      "/Users/rd",
+      { HIVE_PORT: "8787" },
+    );
+    expect(env).toEqual({ PATH: "/usr/bin", HIVE_LAUNCH_DIR: "/Users/rd", HIVE_PORT: "8787" });
+  });
+
+  it("keeps a HIVE_LAUNCH_DIR the user set, and ignores a blank one", () => {
+    expect(serverEnv({ HIVE_LAUNCH_DIR: "/srv/work" }, "/Users/rd").HIVE_LAUNCH_DIR).toBe(
+      "/srv/work",
+    );
+    expect(serverEnv({ HIVE_LAUNCH_DIR: "  " }, "/Users/rd").HIVE_LAUNCH_DIR).toBe("/Users/rd");
+  });
+
+  it("forks the server in the home directory with HIVE_LAUNCH_DIR set", async () => {
+    dir = mkdtempSync(path.join(os.tmpdir(), "superhive-desktop-env-"));
+    const forked: Array<{ env: Record<string, string>; cwd: string }> = [];
+    await expect(
+      startServer({
+        fork: async (_entry, env, cwd) => {
+          forked.push({ env, cwd });
+          throw new Error("stop here");
+        },
+        serverEntry: "/app/server/index.js",
+        staticDir: "/app/web",
+        dataDir: dir,
+        port: 1,
+        env: { PATH: "/usr/bin" },
+        agentCli: ["/app/SuperHive", "--superhive-cli"],
+        launcher: "test",
+        home: "/Users/rd",
+      }),
+    ).rejects.toThrow("stop here");
+    expect(forked).toHaveLength(1);
+    expect(forked[0]!.cwd).toBe("/Users/rd");
+    expect(forked[0]!.env.HIVE_LAUNCH_DIR).toBe("/Users/rd");
   });
 });

@@ -408,6 +408,11 @@ export function AgentSettingsDialog({
           {agent.status === "crashed" && agent.lastError && (
             <p className="local-agent-error">{agent.lastError}</p>
           )}
+          {agent.cwdFallback && (
+            <p className="local-agent-notice" role="status">
+              {cwdFallbackText(agent.cwdFallback)}
+            </p>
+          )}
           {confirmRemove && (
             <div className="agent-remove-confirm" role="alert">
               <span>
@@ -519,4 +524,17 @@ export function AgentSettingsDialog({
       </div>
     </div>
   );
+}
+
+/** 工作目录用不了、退回主目录时给人看的说明 */
+export function cwdFallbackText(fallback: NonNullable<LocalAgent["cwdFallback"]>): string {
+  return fallback.reason === "installDir"
+    ? t("原来的工作目录 {0} 是桌面端的安装目录，升级后会被删掉，已自动改成 {1}。", {
+        0: fallback.from,
+        1: fallback.to,
+      })
+    : t("工作目录 {0} 不存在，这次先在 {1} 启动；目录恢复后重启这个 Agent 即回到原目录。", {
+        0: fallback.from,
+        1: fallback.to,
+      });
 }

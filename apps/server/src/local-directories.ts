@@ -24,12 +24,40 @@ export function expandHome(input: string): string {
 }
 
 /**
+ * 是不是桌面端的安装目录（或在它里面）。这种目录不能拿来当工作目录：
+ * - Windows（Squirrel）：%LOCALAPPDATA%\SuperHive\app-<版本>，每次升级换一个新目录，旧的过一两个版本被删掉；
+ * - Mac：*.app/Contents/...，应用包里的东西，升级时整个替换。
+ * 只看路径形状，不看目录在不在：升级后旧版本目录已经没了也要认得出来。
+ */
+export function isDesktopInstallDirectory(target: string): boolean {
+  const segments = target.split(/[\\/]+/).filter(Boolean);
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    const segment = segments[index]!;
+    const next = segments[index + 1]!;
+    if (/\.app$/i.test(segment) && next.toLowerCase() === "contents") return true;
+    if (segment.toLowerCase() === "superhive" && /^app-\d/i.test(next)) return true;
+  }
+  return false;
+}
+
+/** 当不了默认工作目录的：文件系统根（Mac 上双击打开的 .app，cwd 就是 /）和桌面端安装目录 */
+export function isUnfitWorkingDirectory(target: string): boolean {
+  return path.parse(target).root === target || isDesktopInstallDirectory(target);
+}
+
+/**
  * 启动 Hive 服务时所在的目录：工作目录的默认值。
- * 开发模式下 pnpm 会把 cwd 设到 apps/server，由 index.ts 用 HIVE_LAUNCH_DIR 指回仓库根目录。
+ * 开发模式下 pnpm 会把 cwd 设到 apps/server，由 index.ts 用 HIVE_LAUNCH_DIR 指回仓库根目录；
+ * 桌面端把 HIVE_LAUNCH_DIR 设成主目录。万一还是落在根目录或安装目录（老桌面端、被别的程序拉起），退回主目录。
  */
 export function launchDirectory(): string {
-  const launch = process.env.HIVE_LAUNCH_DIR?.trim() || process.cwd();
-  return realpathSyncSafe(launch);
+  const launch = realpathSyncSafe(process.env.HIVE_LAUNCH_DIR?.trim() || process.cwd());
+  return isUnfitWorkingDirectory(launch) ? homeDirectory() : launch;
+}
+
+/** 主目录（解析软链后的真实路径） */
+export function homeDirectory(): string {
+  return realpathSyncSafe(homedir());
 }
 
 export function listDirectories(target?: string): LocalDirectoryListing {
@@ -78,7 +106,7 @@ export function listDirectories(target?: string): LocalDirectoryListing {
     parent: parent === resolved ? null : parent,
     entries,
     truncated,
-    defaults: { launch, home: realpathSyncSafe(homedir()) },
+    defaults: { launch, home: homeDirectory() },
   };
 }
 

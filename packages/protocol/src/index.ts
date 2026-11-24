@@ -1310,6 +1310,13 @@ export const localAgentSchema = z.object({
   outdated: z.boolean().optional(),
   /** 已安排在空闲后重启（手动点了「重启」，或自动更新在等它忙完） */
   restartWhenIdle: z.boolean().optional(),
+  /**
+   * 这次启动没用配置里的工作目录，退回了主目录：installDir=指向桌面端安装目录（配置已改成 to），
+   * missing=目录不存在（配置没改，目录回来后重启即恢复）
+   */
+  cwdFallback: z
+    .object({ reason: z.enum(["installDir", "missing"]), from: z.string(), to: z.string() })
+    .optional(),
 });
 
 /** 重启本机 Agent：默认等它手上的任务做完再重启；now 立即重启，正在做的任务会中断 */
