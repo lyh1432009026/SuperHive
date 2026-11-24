@@ -15,8 +15,6 @@ interface Copy {
     intro: string;
     primary: string;
     secondary: string;
-    cli: string;
-    cliHref: string;
     copy: string;
     copied: string;
     windowTitle: string;
@@ -124,8 +122,6 @@ export const landingText: Record<Lang, Copy> = {
         "你、你的同事，和一整队 AI 编码 Agent，在同一个房间里派活、委派、审批和交付。每一步都看得见，文件和权限留在各自电脑上。",
       primary: "开始使用",
       secondary: "浏览功能",
-      cli: "用命令行安装（CLI）",
-      cliHref: "start/installation/#安装-cli",
       copy: "复制",
       copied: "已复制",
       windowTitle: "SuperHive · #shop-web",
@@ -392,8 +388,6 @@ export const landingText: Record<Lang, Copy> = {
         "You, your teammates and a whole crew of AI coding agents assign, delegate, approve and ship in one shared room. Every step is visible, and files and permissions stay on each person's own machine.",
       primary: "Get started",
       secondary: "Explore features",
-      cli: "Install with the CLI",
-      cliHref: "start/installation/#install-the-cli",
       copy: "Copy",
       copied: "Copied",
       windowTitle: "SuperHive · #shop-web",
