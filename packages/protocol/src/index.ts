@@ -419,6 +419,13 @@ export const agentUsageSchema = usageBucketsSchema.extend({
   /** 本轮第一次、最后一次模型请求的时间（Bridge 本机观测） */
   firstRequestAt: z.string().datetime().optional(),
   lastRequestAt: z.string().datetime().optional(),
+  /**
+   * Bridge 本机计时，都从 Bridge 开始处理这一轮算起（含选任务目录、拼提示、拉起运行时）：
+   * firstOutputMs 到运行时交出第一段输出（思考、文字或工具调用），turnMs 到这一轮结束。
+   * 没有任何输出就结束的回合不填 firstOutputMs。
+   */
+  firstOutputMs: z.number().int().min(0).max(604_800_000).optional(),
+  turnMs: z.number().int().min(0).max(604_800_000).optional(),
   /** Bridge 补充：这一轮开始时是新会话还是续接旧会话 */
   session: z.enum(["new", "resumed"]).optional(),
   /**

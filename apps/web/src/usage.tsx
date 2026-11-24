@@ -198,6 +198,11 @@ function durationLabel(ms: number): string {
     : t("{0} 秒", { 0: Math.round(ms / 1000) });
 }
 
+/** 本轮耗时用：10 秒内保留一位小数，首字时间差一两秒也看得出来 */
+function elapsedLabel(ms: number): string {
+  return ms < 10_000 ? t("{0} 秒", { 0: Math.round(ms / 100) / 10 }) : durationLabel(ms);
+}
+
 /**
  * 大额缓存写入的说明：先列观测到的事实（会话、间隔、上一轮的缓存有效期），再给可能原因。
  * 原因只是推测——网关的实际有效期和路由都看不到。
@@ -305,6 +310,19 @@ export function InvocationUsage({ usage }: { usage: AgentUsage }) {
             {usage.contextWindow ? ` / ${formatTokens(usage.contextWindow)}` : ""}
           </dd>
         </div>
+        {usage.turnMs !== undefined && (
+          <div>
+            <dt>{t("耗时")}</dt>
+            <dd>
+              {usage.firstOutputMs !== undefined
+                ? t("首个输出 {0} · 整轮 {1}", {
+                    0: elapsedLabel(usage.firstOutputMs),
+                    1: elapsedLabel(usage.turnMs),
+                  })
+                : t("整轮 {0}", { 0: elapsedLabel(usage.turnMs) })}
+            </dd>
+          </div>
+        )}
         <div>
           <dt>{t("开局请求")}</dt>
           <dd>

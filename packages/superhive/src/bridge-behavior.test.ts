@@ -1332,6 +1332,8 @@ describe("AgentBridge", () => {
       reportedCostUsd: 2.2,
       session: "new",
       outcome: "completed",
+      // 没有任何输出事件就结束：只有整轮耗时，没有首个输出时间
+      turnMs: expect.any(Number),
     });
 
     const third = chat({ content: "@agent-a 再来" });
@@ -1360,6 +1362,33 @@ describe("AgentBridge", () => {
       previousCacheTtlMs: 300_000,
     });
     expect(resumed?.usage?.reportedCostUsd).toBeCloseTo(0.2);
+  });
+
+  it("times the first runtime output and the whole turn from when the Bridge picked it up", async () => {
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const call = responder.calls[0]!;
+    call.onTrace?.({ id: "t1", kind: "thinking", status: "running" });
+    // 之后的输出不改变首个输出时间
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    call.onProgress?.("还在做");
+    responder.finish("好", "thread-1", {
+      inputTokens: 1,
+      cacheWriteTokens: 0,
+      cacheReadTokens: 0,
+      outputTokens: 1,
+      requests: 1,
+      peakContextTokens: 1,
+      peakCacheWriteTokens: 0,
+    });
+    await waitUntil(() => room.statuses(mention.id).includes("completed"));
+    const usage = room.reports.find((report) => report.usage)?.usage;
+    expect(usage?.firstOutputMs).toBeGreaterThanOrEqual(25);
+    expect(usage?.turnMs).toBeGreaterThanOrEqual((usage?.firstOutputMs ?? 0) + 25);
   });
 
   it("still records usage observed before a turn failed, once", async () => {

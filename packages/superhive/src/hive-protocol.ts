@@ -156,6 +156,9 @@ export type AgentUsage = UsageBuckets & {
   cacheWrite1hTokens?: number;
   firstRequestAt?: string;
   lastRequestAt?: string;
+  /** 从 Bridge 开始处理这一轮到运行时第一段输出、到这一轮结束（毫秒，Bridge 本机计时） */
+  firstOutputMs?: number;
+  turnMs?: number;
   session?: "new" | "resumed";
   idleMs?: number;
   idleBasis?: "request" | "turn";

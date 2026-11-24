@@ -197,6 +197,8 @@ type ActiveBatch = {
   steps?: Map<string, { summary: string; done: boolean; irreversible?: boolean }>;
   /** 这一轮调用过任何工具（只读的也算）：会话失效时不自动重跑 */
   toolUsed?: boolean;
+  /** Bridge 开始处理这一轮的时间（选任务目录、拼提示之前），本轮计时都从这里算 */
+  startedAt: number;
   /** 本轮用量：Provider 交出的原始观测、补全后的结果，以及是否已经随某次上报发出 */
   turn?: {
     startedAt: number;
@@ -206,6 +208,8 @@ type ActiveBatch = {
     reported?: boolean;
     /** 这一轮传给运行时的思考强度；运行时说当前模型不支持时清掉 */
     effort?: string;
+    /** 运行时第一次交出输出（思考、文字、工具调用或进度）的时间 */
+    firstOutputAt?: number;
   };
 };
 
@@ -1272,6 +1276,7 @@ export class AgentBridge {
       cancelled: new Set(),
       accepting: false,
       workspace: this.options.cwd,
+      startedAt: Date.now(),
     };
     this.active = active;
     let heartbeat: NodeJS.Timeout | undefined;
@@ -1506,6 +1511,7 @@ export class AgentBridge {
             : {}),
           signal: active.controller.signal,
           onProgress: (progress) => {
+            turn.firstOutputAt ??= Date.now();
             if (this.active !== active || active.controller.signal.aborted) return;
             lastRuntimeProgressAt = Date.now();
             lastProgress = progress.slice(0, 200);
@@ -1543,6 +1549,7 @@ export class AgentBridge {
             this.room.reportHiveTools(status, clean);
           },
           onTrace: (step) => {
+            turn.firstOutputAt ??= Date.now();
             if (this.active !== active || active.controller.signal.aborted) return;
             const clean = sanitizeTraceStep(step);
             if (isMutatingStep(step)) {
@@ -1909,6 +1916,10 @@ export class AgentBridge {
         ? { reportedCostUsd: Math.round(turnCostUsd * 1e6) / 1e6 }
         : {}),
       ...(turn.effort ? { effort: turn.effort } : {}),
+      ...(turn.firstOutputAt !== undefined
+        ? { firstOutputMs: Math.max(0, turn.firstOutputAt - active.startedAt) }
+        : {}),
+      turnMs: Math.max(0, now - active.startedAt),
       session: turn.session,
       ...idle,
       ...(turn.session === "resumed" && this.state.lastCacheTtlMs

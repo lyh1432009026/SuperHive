@@ -135,6 +135,16 @@ describe("usage views", () => {
     expect(screen.getByText("$2.20")).toBeTruthy();
   });
 
+  it("shows the time to first output and the whole turn when the Bridge measured them", () => {
+    const { unmount } = render(
+      <InvocationUsage usage={{ ...usage, firstOutputMs: 3_240, turnMs: 95_000 }} />,
+    );
+    expect(screen.getByText("首个输出 3.2 秒 · 整轮 2 分钟")).toBeTruthy();
+    unmount();
+    render(<InvocationUsage usage={{ ...usage, turnMs: 8_000 }} />);
+    expect(screen.getByText("整轮 8 秒")).toBeTruthy();
+  });
+
   it("shows per-agent usage and lists large cache writes with their reason", async () => {
     const load = vi.fn().mockResolvedValue(summary);
     const onStartTopic = vi.fn();
