@@ -18,6 +18,7 @@ import type {
 } from "@superhive/protocol";
 import {
   InvocationChips,
+  canCancelInvocation,
   groupInvocationsByMessage,
   waitingInvocationForQuestion,
 } from "./invocations";
@@ -345,6 +346,26 @@ export function MessageList({
                     .filter((seq): seq is number => seq !== undefined)
                     .sort((a, b) => a - b)}
                   traceAllowed={!guest || guest.showTrace !== false}
+                  // 只停这一轮：和触发消息下面的「停止」同一个操作。合在一轮里处理的几条一起停；
+                  // 访客只能停自己发起的（服务端同样这么判），停不了的不给按钮
+                  {...(() => {
+                    const stoppable = batch.filter(
+                      (item) =>
+                        (canCancelInvocation(item) || item.status === "cancelling") &&
+                        (!guest ||
+                          (item.requesterType === "human" &&
+                            item.requesterName.toLocaleLowerCase() ===
+                              username.toLocaleLowerCase())),
+                    );
+                    if (!stoppable.length) return {};
+                    return {
+                      onStop: () => {
+                        for (const item of stoppable) {
+                          if (canCancelInvocation(item)) actions.cancelInvocation(item);
+                        }
+                      },
+                    };
+                  })()}
                   onAvatarContextMenu={(event) =>
                     openSenderMenu(event, {
                       id: invocation.agentId,

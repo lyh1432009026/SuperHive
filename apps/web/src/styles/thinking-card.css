@@ -254,6 +254,30 @@
   background: var(--bg-main);
 }
 
+/* 停止：平时和计时一样低调，悬停才变红；停止中时点不了 */
+.thinking-card-stop {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.thinking-card-stop:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.thinking-card-stop:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 /* 完整时间线：说的话和步骤按顺序排，最多约 40% 屏高，在卡片里滚动 */
 .thinking-card-narrative.full {
   max-height: 40vh;

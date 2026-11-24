@@ -307,7 +307,13 @@ export function ThinkingCard({
   trigger,
   onJumpToTrigger,
   onAvatarContextMenu,
+  onStop,
 }: {
+  /**
+   * 「停止」：只停这一轮，和触发消息下面的「停止」是同一个操作。
+   * 没权限停的人（访客停别人发起的）不传，按钮就不出现
+   */
+  onStop?: () => void;
   /** 右击头像：和成员列表同一套菜单 */
   onAvatarContextMenu?: (event: ReactMouseEvent<HTMLElement>) => void;
   /** 这一轮合在一起处理的几条消息的序号（两条以上才显示） */
@@ -403,6 +409,20 @@ export function ThinkingCard({
           </span>
           {/* 等人处理时不再计时：这一轮已经停下 */}
           {live && <span className="thinking-card-elapsed">{elapsed}</span>}
+          {live && onStop && (
+            // 停止中时按钮还在但点不了，停完卡片照常收起
+            <Tooltip content={t("只停这一轮，不停 Agent")}>
+              <button
+                type="button"
+                className="thinking-card-stop"
+                aria-label={t("停止 @{0} 这一轮", { 0: invocation.agentName })}
+                disabled={invocation.status === "cancelling"}
+                onClick={onStop}
+              >
+                {invocation.status === "cancelling" ? t("停止中…") : t("停止")}
+              </button>
+            </Tooltip>
+          )}
           {attention === "decide" && onJumpToTrigger && (
             <button type="button" className="thinking-card-act" onClick={onJumpToTrigger}>
               {t("去处理")}

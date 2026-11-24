@@ -1869,5 +1869,7 @@
   "还原终端面板": "Restore terminal panel",
   "没能接回刷新前的终端：{0}": "Couldn't reconnect the terminals from before the reload: {0}",
   "原来的工作目录 {0} 是桌面端的安装目录，升级后会被删掉，已自动改成 {1}。": "The previous working directory {0} was the desktop app's install folder, which gets removed on upgrade. It was switched to {1} automatically.",
-  "工作目录 {0} 不存在，这次先在 {1} 启动；目录恢复后重启这个 Agent 即回到原目录。": "Working directory {0} doesn't exist, so it started in {1} this time. Restart this agent once the folder is back to use it again."
+  "工作目录 {0} 不存在，这次先在 {1} 启动；目录恢复后重启这个 Agent 即回到原目录。": "Working directory {0} doesn't exist, so it started in {1} this time. Restart this agent once the folder is back to use it again.",
+  "停止 @{0} 这一轮": "Stop @{0}'s current run",
+  "只停这一轮，不停 Agent": "Stops only this run, not the Agent"
 }

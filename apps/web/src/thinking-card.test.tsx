@@ -209,6 +209,50 @@ describe("thinking card", () => {
     expect(jumps).toEqual([42, 42]);
   });
 
+  it("执行中的卡片上能停这一轮：一行时也在，停止中点不了，等人处理和没权限时没有", () => {
+    const stops: string[] = [];
+    const { rerender } = render(
+      <ThinkingCard
+        invocation={invocation()}
+        steps={[step("a", { kind: "text", text: "先看看" })]}
+        avatar="AI"
+        defaultCollapsed
+        onStop={() => stops.push("stop")}
+      />,
+    );
+    const stop = screen.getByRole("button", { name: "停止 @helper 这一轮" });
+    expect(stop.textContent).toBe("停止");
+    fireEvent.click(stop);
+    expect(stops).toEqual(["stop"]);
+
+    rerender(
+      <ThinkingCard
+        invocation={invocation({ status: "cancelling" })}
+        steps={[step("a", { kind: "text", text: "先看看" })]}
+        avatar="AI"
+        onStop={() => stops.push("stop")}
+      />,
+    );
+    const stopping = screen.getByRole("button", { name: "停止 @helper 这一轮" });
+    expect(stopping.textContent).toBe("停止中…");
+    expect((stopping as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getAllByText("停止中").length).toBeGreaterThan(0);
+
+    rerender(
+      <ThinkingCard
+        invocation={invocation({ status: "waiting_human" })}
+        steps={undefined}
+        avatar="AI"
+        onStop={() => stops.push("stop")}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "停止 @helper 这一轮" })).toBeNull();
+
+    rerender(<ThinkingCard invocation={invocation()} steps={undefined} avatar="AI" />);
+    expect(screen.queryByRole("button", { name: "停止 @helper 这一轮" })).toBeNull();
+    expect(stops).toEqual(["stop"]);
+  });
+
   it("回顾去掉和回复重复的最后一段，并标出没正常完成的结果", () => {
     const steps = [
       step("a", { kind: "text", text: "先看看" }),
