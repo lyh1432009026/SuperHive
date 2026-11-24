@@ -412,6 +412,71 @@ describe("AcpResponder", () => {
     );
   });
 
+  it("switches the thought_level config option for the per-turn effort", async () => {
+    const thinking = (values: string[], current: string) => ({
+      id: "thinking",
+      category: "thought_level",
+      currentValue: current,
+      options: values.map((value) => ({ value, name: value })),
+    });
+    const model = {
+      id: "model",
+      category: "model",
+      currentValue: "glm/a",
+      options: [{ value: "glm/a" }, { value: "glm/b" }],
+    };
+    const { responder, agents } = setup(
+      defaultHandlers({
+        "session/new": ok({
+          sessionId: "ses-new",
+          configOptions: [model, thinking(["off", "low", "high", "max"], "high")],
+        }),
+        // 换到 glm/b 后能选的强度变了（没有 max）
+        "session/set_config_option": (message, agent) =>
+          agent.emit({
+            id: message.id,
+            result:
+              message.params.configId === "model" && message.params.value === "glm/b"
+                ? { configOptions: [model, thinking(["off", "low"], "low")] }
+                : {},
+          }),
+      }),
+    );
+    const switches = () =>
+      agents[0]!
+        .requests("session/set_config_option")
+        .map((message: any) => `${message.params.configId}=${message.params.value}`);
+    await responder.reply({ instructions: "rules", prompt: "a", effort: "max" });
+    expect(switches()).toEqual(["thinking=max"]);
+    // 没指定的回合切回会话原来的强度
+    await responder.reply({ instructions: "rules", prompt: "b", threadId: "ses-new" });
+    expect(switches()).toEqual(["thinking=max", "thinking=high"]);
+    // 当前模型不支持的档位：不切，告诉 Bridge 这一轮按原强度跑，不让整轮失败
+    const ignored = vi.fn();
+    await responder.reply({
+      instructions: "rules",
+      prompt: "c",
+      threadId: "ses-new",
+      model: "glm/b",
+      effort: "max",
+      onEffortIgnored: ignored,
+    });
+    expect(ignored).toHaveBeenCalledWith("max", ["off", "low"]);
+    expect(switches()).toEqual(["thinking=max", "thinking=high", "model=glm/b"]);
+  });
+
+  it("tells the bridge an effort was ignored when the session has no thought_level option", async () => {
+    const { responder } = setup(defaultHandlers());
+    const ignored = vi.fn();
+    await responder.reply({
+      instructions: "r",
+      prompt: "a",
+      effort: "high",
+      onEffortIgnored: ignored,
+    });
+    expect(ignored).toHaveBeenCalledWith("high", []);
+  });
+
   it("ends an idle agent process and restores the session in a fresh one next time", async () => {
     const { responder, agents, createTransport, log } = setup(
       defaultHandlers(),

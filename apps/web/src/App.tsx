@@ -2517,8 +2517,8 @@ export function App({
           load={
             retryModelAgent ? (refresh) => local.models(retryModelAgent.id, refresh) : undefined
           }
-          onRetry={(model) => {
-            retryInvocation(retryModelFor, model);
+          onRetry={(model, effort) => {
+            retryInvocation(retryModelFor, model || undefined, effort || undefined);
             setRetryModelFor(undefined);
           }}
           onClose={() => setRetryModelFor(undefined)}

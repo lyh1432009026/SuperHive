@@ -120,7 +120,20 @@ If the agent doesn't reply, check networking, CLI sign-in, the name, and message
 
 ## What you can adjust in local settings
 
-In local agent settings you can view logs; stop, start, or restart the process; and adjust available models, supported MCP servers, and the "Auto-steer messages from people" switch. Auto-steer is off by default; read [the difference between steering and stopping](/en/guides/tasks/) before turning it on.
+In local agent settings you can view logs; stop, start, or restart the process; and adjust the model, reasoning effort, supported MCP servers, and the "Auto-steer messages from people" switch. Auto-steer is off by default; read [the difference between steering and stopping](/en/guides/tasks/) before turning it on.
+
+### Model and reasoning effort
+
+The model and reasoning effort are set per agent and apply from the next reply, with no restart and no change to the CLI's global config on this computer. Reasoning effort defaults to "Follow CLI config": nothing is passed, the same as before this setting existed.
+
+| Runtime     | How it reaches the CLI                 | Levels                                                         |
+| ----------- | -------------------------------------- | -------------------------------------------------------------- |
+| Claude Code | `--effort` on every turn               | low, medium, high, xhigh, max                                  |
+| Codex       | `effort` on every `turn/start`         | Listed per model (`model/list`), with the default marked       |
+| Copilot     | `--reasoning-effort` on every turn     | none to max; which ones work depends on the model              |
+| omp         | The Thinking option of the ACP session | Listed per model (`omp models --json`); follows model switches |
+
+OpenCode and Gemini CLI ACP sessions don't offer this option and OpenClaw isn't wired up yet, so their settings don't show reasoning effort. If the chosen level isn't supported by the current model, the settings say so; omp runs that turn at its previous effort and the run status explains why. When retrying a failed task with "Retry with another model", you can change only the effort, or the model and the effort together, for that one retry. The effort each turn actually used appears under "Usage this turn" in the task details.
 
 Extra MCP servers for Codex and Claude Code are optional; `hive` always loads. MCP sizes and new-session startup tokens are estimates, not an exact bill. Setting changes apply from later turns, and unchecking a server doesn't undo a tool call already running; use the restart option on the page to restart the agent.
 

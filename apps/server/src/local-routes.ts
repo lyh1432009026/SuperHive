@@ -83,6 +83,7 @@ const ERROR_STATUS: Record<string, number> = {
   WHITEBOARD_CONFLICT: 409,
   WHITEBOARD_PROTECTED: 409,
   LOCAL_AGENT_MCP_UNSUPPORTED: 400,
+  LOCAL_AGENT_EFFORT_UNSUPPORTED: 400,
   LOCAL_AGENT_MCP_LIST_FAILED: 502,
   LOCAL_AGENT_BUSY: 409,
   LOCAL_AGENT_CONFIG_CHANGED: 409,
@@ -105,6 +106,7 @@ function configFingerprint(agent: LocalAgent): string {
     access: agent.access,
     cwd: agent.cwd,
     model: agent.model,
+    effort: agent.effort,
     mcpDisabled: [...agent.mcpDisabled].sort(),
   });
 }
@@ -1330,6 +1332,16 @@ export function registerLocalAgentRoutes(
       return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
     try {
       const agent = supervisor!.updateSettings(request.params.id, parsed.data);
+      // 模型和思考强度常在一次保存里一起改：各记一笔
+      if (parsed.data.effort !== undefined && parsed.data.model !== undefined)
+        audit(
+          request,
+          caller,
+          agent.effort
+            ? { key: "im.audit.effortChanged", params: { name: agent.name, effort: agent.effort } }
+            : { key: "im.audit.effortDefault", params: { name: agent.name } },
+          true,
+        );
       audit(
         request,
         caller,
@@ -1337,15 +1349,22 @@ export function registerLocalAgentRoutes(
           ? agent.model
             ? { key: "im.audit.modelChanged", params: { name: agent.name, model: agent.model } }
             : { key: "im.audit.modelDefault", params: { name: agent.name } }
-          : {
-              key:
-                parsed.data.mcpDisabled !== undefined
-                  ? "im.audit.mcpChanged"
-                  : parsed.data.autoSteer
-                    ? "im.audit.autoSteerOn"
-                    : "im.audit.autoSteerOff",
-              params: { name: agent.name },
-            },
+          : parsed.data.effort !== undefined
+            ? agent.effort
+              ? {
+                  key: "im.audit.effortChanged",
+                  params: { name: agent.name, effort: agent.effort },
+                }
+              : { key: "im.audit.effortDefault", params: { name: agent.name } }
+            : {
+                key:
+                  parsed.data.mcpDisabled !== undefined
+                    ? "im.audit.mcpChanged"
+                    : parsed.data.autoSteer
+                      ? "im.audit.autoSteerOn"
+                      : "im.audit.autoSteerOff",
+                params: { name: agent.name },
+              },
         true,
       );
       return { agent };

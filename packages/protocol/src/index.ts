@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { reasoningEffortSchema } from "./reasoning-effort.js";
 import { agentCodeVersionSchema } from "./agent-version.js";
 import { failureKindSchema } from "./failure-kind.js";
 import { serverTextSchema } from "./server-text.js";
@@ -381,6 +382,8 @@ export const usageBucketsSchema = z.object({
 });
 export const agentUsageSchema = usageBucketsSchema.extend({
   model: z.string().max(120).optional(),
+  /** 这一轮实际传给运行时的思考强度；没传（沿用 CLI 配置）时不填 */
+  effort: z.string().max(32).optional(),
   /** 本轮向模型发出的请求数（工具往返越多越大） */
   requests: z.number().int().min(0).max(100_000),
   /** 本轮第一次请求：决定这一轮是续上缓存还是整段重写 */
@@ -731,6 +734,8 @@ export const invocationRetryEventSchema = z.object({
   invocationId: z.string().uuid(),
   /** 「换个模型重试」：这次重试用的模型，只对这一次生效（只有房主能指定） */
   model: z.string().trim().min(1).max(200).optional(),
+  /** 「换个模型重试」时一起选的思考强度，只对这一次生效（只有房主能指定） */
+  effort: reasoningEffortSchema.optional(),
 });
 /** 人把不再需要处理的失败、被拦、结果未知的调用标为已处理（可一次多条） */
 export const invocationDismissEventSchema = z.object({
@@ -854,6 +859,8 @@ export const agentMentionedEventSchema = z.object({
   lead: z.boolean().optional(),
   /** 人点「换个模型重试」选的模型：只对这一次生效 */
   model: z.string().trim().min(1).max(200).optional(),
+  /** 人点「换个模型重试」选的思考强度：只对这一次生效 */
+  effort: reasoningEffortSchema.optional(),
   /** 人对一次中途中断（结果未知、上游出错）点了「继续」：接着原会话核对现状再往下做，不从头重做 */
   resume: z.boolean().optional(),
 });
@@ -1313,6 +1320,8 @@ export const localAgentSchema = z.object({
   access: localAgentAccessSchema,
   cwd: z.string().nullable(),
   model: z.string().nullable(),
+  /** 这个 Agent 的思考强度；null 表示不传参数，沿用 CLI 自己的配置 */
+  effort: z.string().nullable().default(null),
   status: localAgentStatusSchema,
   pid: z.number().int().nullable(),
   startedAt: z.string().datetime().nullable(),
@@ -1358,10 +1367,15 @@ export const updateLocalAgentSettingsRequestSchema = z
     autoSteer: z.boolean().optional(),
     /** 这个 Agent 用的模型；null 或空串表示用运行时自己的默认。下一轮生效，不用重启 */
     model: z.string().trim().max(200).nullable().optional(),
+    /** 这个 Agent 的思考强度；null 表示沿用 CLI 自己的配置。下一轮生效，不用重启 */
+    effort: reasoningEffortSchema.nullable().optional(),
   })
   .refine(
     (value) =>
-      value.mcpDisabled !== undefined || value.autoSteer !== undefined || value.model !== undefined,
+      value.mcpDisabled !== undefined ||
+      value.autoSteer !== undefined ||
+      value.model !== undefined ||
+      value.effort !== undefined,
   );
 
 /** Agent CLI 在本机会加载的一个 MCP（hive 自己不在其中，始终加载） */
@@ -1389,11 +1403,17 @@ export const localModelSchema = z.object({
   label: z.string().optional(),
   /** 运行时自己的默认模型 */
   isDefault: z.boolean().optional(),
+  /** 这个模型支持的思考强度（运行时按模型列出时才有，如 Codex、omp） */
+  efforts: z.array(z.string()).optional(),
+  /** 这个模型默认用的思考强度 */
+  defaultEffort: z.string().optional(),
 });
 export const localAgentModelsResponseSchema = z.object({
   /** runtime：从运行时拉到的；preset：运行时没有列模型的命令，给的常用选项（都可以手填） */
   source: z.enum(["runtime", "preset"]),
   models: z.array(localModelSchema),
+  /** 运行时接受的全部思考强度；空数组表示不支持按 Agent 切换 */
+  efforts: z.array(z.string()).default([]),
   /** 拉取失败的原因 */
   error: z.string().optional(),
 });
@@ -1891,6 +1911,7 @@ export * from "./participant-order.js";
 export * from "./invocation-decision.js";
 export * from "./failure-kind.js";
 export * from "./agent-clis.js";
+export * from "./reasoning-effort.js";
 export * from "./workspace-files.js";
 export * from "./attachment-open.js";
 export * from "./server-text.js";

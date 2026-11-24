@@ -859,6 +859,21 @@
   font-weight: var(--weight-medium);
 }
 
+/* 思考强度：Agent 设置、「换个模型重试」共用 */
+.effort-picker,
+.retry-effort {
+  display: grid;
+  gap: 6px;
+}
+
+.agent-model h4,
+.retry-effort-label {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
 .agent-model-actions {
   display: flex;
   align-items: center;

@@ -2205,7 +2205,7 @@ describe("AgentBridge", () => {
     expect(responder.calls).toHaveLength(2);
   });
 
-  async function writeSettings(settings: { model?: string }) {
+  async function writeSettings(settings: { model?: string; effort?: string }) {
     settingsFile = path.join(directory, "agent-settings.json");
     await writeFile(settingsFile, JSON.stringify({ mcpDisabled: [], ...settings }));
   }
@@ -2332,6 +2332,112 @@ describe("AgentBridge", () => {
     expect(responder.calls[2]!.model).toBe("gpt-main");
     responder.finish();
     await waitUntil(() => room.statuses(mention.id).includes("completed"));
+  });
+
+  it("passes the reasoning effort from the agent settings and records it in the usage", async () => {
+    await writeSettings({ model: "gpt-main", effort: "high" });
+    await startBridge(baseState());
+    const usage = {
+      inputTokens: 10,
+      cacheWriteTokens: 0,
+      cacheReadTokens: 0,
+      outputTokens: 5,
+      requests: 1,
+      peakContextTokens: 10,
+      peakCacheWriteTokens: 0,
+    };
+    const first = chat();
+    room.messages.push(first);
+    room.handlers.onMention(first, first.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    expect(responder.calls[0]!.effort).toBe("high");
+    responder.finish("好", "thread-1", usage);
+    await waitUntil(() => room.statuses(first.id).includes("completed"));
+    expect(room.reports.find((report) => report.usage)?.usage?.effort).toBe("high");
+    // 网页上改回「跟随 CLI 配置」：下一轮就不传，用量里也不写
+    await writeSettings({ model: "gpt-main" });
+    const second = chat({ content: "@agent-a 再来" });
+    room.messages.push(second);
+    room.handlers.onMention(second, second.seq, false);
+    await waitUntil(() => responder.calls.length === 2);
+    expect(responder.calls[1]!.effort).toBeUndefined();
+    responder.finish("好", "thread-1", usage);
+    await waitUntil(() => room.statuses(second.id).includes("completed"));
+    const latest = room.reports.filter((report) => report.messageId === second.id && report.usage);
+    expect(latest[0]?.usage?.effort).toBeUndefined();
+  });
+
+  it("retries once with the effort a person picked, then goes back to the settings", async () => {
+    await writeSettings({ effort: "low" });
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    responder.fail(new AgentNonRetryableError("boom"));
+    await waitUntil(() => room.statuses(mention.id).includes("failed"));
+    // 只换思考强度、不换模型
+    room.handlers.onMention(
+      mention,
+      mention.seq,
+      true,
+      false,
+      false,
+      false,
+      undefined,
+      false,
+      "xhigh",
+    );
+    await waitUntil(() => responder.calls.length === 2);
+    expect(responder.calls[1]!.effort).toBe("xhigh");
+    expect(responder.calls[1]!.model).toBeUndefined();
+    const using = room.reports.find((report) => report.detailText?.key === "bridge.usingEffort");
+    expect(using?.progress).toBe("这次用 xhigh 思考强度重试");
+    responder.fail(new AgentNonRetryableError("boom again"));
+    await waitUntil(() => room.statuses(mention.id).filter((s) => s === "failed").length === 2);
+    room.handlers.onMention(mention, mention.seq, true, false, false, false, "gpt-b", false, "max");
+    await waitUntil(() => responder.calls.length === 3);
+    expect(responder.calls[2]).toMatchObject({ model: "gpt-b", effort: "max" });
+    expect(
+      room.reports.find((report) => report.detailText?.key === "bridge.usingModelEffort")?.progress,
+    ).toBe("这次用 gpt-b（思考强度 max）重试");
+    responder.fail(new AgentNonRetryableError("boom 3"));
+    await waitUntil(() => room.statuses(mention.id).filter((s) => s === "failed").length === 3);
+    // 普通「重试」回到设置里的强度
+    room.handlers.onMention(mention, mention.seq, true);
+    await waitUntil(() => responder.calls.length === 4);
+    expect(responder.calls[3]!.effort).toBe("low");
+    responder.finish();
+    await waitUntil(() => room.statuses(mention.id).includes("completed"));
+  });
+
+  it("says so when the runtime cannot use the effort, and leaves it out of the usage", async () => {
+    await writeSettings({ effort: "max" });
+    await startBridge(baseState());
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    responder.calls[0]!.onEffortIgnored?.("max", ["off", "low"]);
+    const note = room.reports.find(
+      (report) => report.detailText?.key === "bridge.effortUnsupported",
+    );
+    expect(note?.progress).toBe(
+      "当前模型不支持 max 思考强度（可选：off / low），这一轮按 CLI 配置的强度跑",
+    );
+    responder.finish("好", "thread-1", {
+      inputTokens: 1,
+      cacheWriteTokens: 0,
+      cacheReadTokens: 0,
+      outputTokens: 1,
+      requests: 1,
+      peakContextTokens: 1,
+      peakCacheWriteTokens: 0,
+    });
+    await waitUntil(() => room.statuses(mention.id).includes("completed"));
+    const report = room.reports.find((item) => item.usage);
+    expect(report?.usage).toBeDefined();
+    expect(report?.usage?.effort).toBeUndefined();
   });
 
   it("continues automatically on the same session after an upstream failure when nothing was changed", async () => {

@@ -150,7 +150,12 @@ export type LocalAgentsState = {
   ): Promise<LocalAgentMcpResponse>;
   updateSettings(
     id: string,
-    settings: { mcpDisabled?: string[]; autoSteer?: boolean; model?: string | null },
+    settings: {
+      mcpDisabled?: string[];
+      autoSteer?: boolean;
+      model?: string | null;
+      effort?: string | null;
+    },
   ): Promise<LocalAgent>;
   /** 这个 Agent 的运行时能用的模型；refresh 时让 Server 重新拉 */
   models(id: string, refresh?: boolean): Promise<LocalAgentModelsResponse>;
@@ -633,7 +638,14 @@ export function useLocalAgents(
       const response = await request(
         `/api/local/agents/${id}/models${refresh ? "?refresh=1" : ""}`,
       );
-      return (await response.json()) as LocalAgentModelsResponse;
+      const data = (await response.json()) as Partial<LocalAgentModelsResponse>;
+      // 旧版 Server 不报思考强度：当作不支持
+      return {
+        ...data,
+        source: data.source === "runtime" ? "runtime" : "preset",
+        models: Array.isArray(data.models) ? data.models : [],
+        efforts: Array.isArray(data.efforts) ? data.efforts : [],
+      } satisfies LocalAgentModelsResponse;
     },
     [request],
   );
@@ -641,7 +653,12 @@ export function useLocalAgents(
   const updateSettings = useCallback(
     async (
       id: string,
-      settings: { mcpDisabled?: string[]; autoSteer?: boolean; model?: string | null },
+      settings: {
+        mcpDisabled?: string[];
+        autoSteer?: boolean;
+        model?: string | null;
+        effort?: string | null;
+      },
     ) => {
       const response = await request(`/api/local/agents/${id}/settings`, {
         method: "PUT",

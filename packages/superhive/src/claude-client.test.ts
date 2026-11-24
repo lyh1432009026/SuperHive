@@ -416,6 +416,25 @@ describe("ClaudeCodeResponder", () => {
     expect(args.filter((arg) => arg === "--model")).toHaveLength(1);
   });
 
+  it("passes the per-turn reasoning effort with --effort only when one is set", async () => {
+    const runner = vi.fn<CommandRunner>(async () => ({
+      stdout: JSON.stringify({ type: "result", is_error: false, result: "ok", session_id: "s" }),
+      stderr: "",
+    }));
+    const responder = new ClaudeCodeResponder({
+      command: "claude",
+      cwd: "/workspace",
+      hive,
+      runner,
+    });
+    await responder.reply({ instructions: "r", prompt: "p", effort: "xhigh" });
+    await responder.reply({ instructions: "r", prompt: "p" });
+    const [first, second] = runner.mock.calls.map((call) => call[1]);
+    expect(first![first!.indexOf("--effort") + 1]).toBe("xhigh");
+    // 没设置就不传，沿用 Claude Code 自己的配置
+    expect(second).not.toContain("--effort");
+  });
+
   it("reports a resume that finds no conversation as a broken session", async () => {
     // 真实情况（已实测）：--resume 一个不存在的会话，Claude Code 写出这样的结果后以退出码 1 结束
     const result = `${JSON.stringify({

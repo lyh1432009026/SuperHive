@@ -13,7 +13,11 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import { isAgentOutdated } from "@superhive/protocol";
+import {
+  isAgentOutdated,
+  runtimeReasoningEfforts,
+  supportsReasoningEffort,
+} from "@superhive/protocol";
 import type {
   AgentCodeVersion,
   CreateLocalAgentRequest,
@@ -578,6 +582,10 @@ export class LocalAgentSupervisor {
         return {
           source: parsed.source === "runtime" ? "runtime" : "preset",
           models: Array.isArray(parsed.models) ? parsed.models : [],
+          // 旧版 hive 不报思考强度：按 provider 用协议里的档位
+          efforts: Array.isArray(parsed.efforts)
+            ? parsed.efforts
+            : [...runtimeReasoningEfforts(provider)],
           ...(parsed.error ? { error: parsed.error } : {}),
         };
       });
@@ -663,6 +671,7 @@ export class LocalAgentSupervisor {
       JSON.stringify({
         mcpDisabled: config.mcpDisabled ?? [],
         ...(config.model ? { model: config.model } : {}),
+        ...(config.effort ? { effort: config.effort } : {}),
       }),
       { mode: 0o600 },
     );
@@ -678,9 +687,22 @@ export class LocalAgentSupervisor {
       mcpDisabled?: string[] | undefined;
       autoSteer?: boolean | undefined;
       model?: string | null | undefined;
+      effort?: string | null | undefined;
     },
   ): LocalAgent {
     const runtime = this.require(id);
+    // 思考强度同样写进设置文件，下一轮生效；运行时不支持的不让设（网页上也不显示）
+    if (settings.effort !== undefined) {
+      const effort = settings.effort?.trim() || null;
+      if (effort && !supportsReasoningEffort(runtime.config.provider)) {
+        throw new HiveError(
+          "LOCAL_AGENT_EFFORT_UNSUPPORTED",
+          serverText("error.localAgent.effortUnsupported"),
+        );
+      }
+      runtime.config.effort = this.options.database.setLocalAgentEffort(id, effort);
+      this.writeSettings(runtime.config);
+    }
     // 模型写进设置文件，Agent 下一轮就按新模型跑，不用重启
     if (settings.model !== undefined) {
       runtime.config.model = this.options.database.setLocalAgentModel(
@@ -725,6 +747,7 @@ export class LocalAgentSupervisor {
     const result = this.listModels(provider).catch((error: unknown): LocalAgentModelsResponse => ({
       source: "preset",
       models: [],
+      efforts: [...runtimeReasoningEfforts(provider)],
       error: (error instanceof Error ? error.message : String(error)).slice(0, 300),
     }));
     this.modelsCache.set(provider, { at: this.now(), result });
@@ -1155,6 +1178,7 @@ export class LocalAgentSupervisor {
       access: config.access,
       cwd: config.cwd,
       model: config.model,
+      effort: config.effort ?? null,
       status,
       pid: runtime.child ? runtime.pid : null,
       startedAt: runtime.startedAt ? new Date(runtime.startedAt).toISOString() : null,

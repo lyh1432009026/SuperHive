@@ -405,6 +405,12 @@ export class CodexAppServerResponder implements AgentResponder {
   private idleTimer: NodeJS.Timeout | undefined;
   /** thread/start、thread/resume 返回的实际模型，用于用量归属 */
   private readonly threadModels = new Map<string, string>();
+  /** thread/start、thread/resume 返回的思考强度（null：配置里没设，按模型默认） */
+  private readonly threadEfforts = new Map<string, string | null>();
+  /** 这一轮之前用 turn/start 改过思考强度、还没改回去的会话 */
+  private readonly effortChanged = new Set<string>();
+  /** model/list 里各模型的默认思考强度（会话原值为 null 时改回去用） */
+  private modelDefaultEfforts: Map<string, string> | undefined;
   private active: ActiveTurn | undefined;
   private executionUncertain = false;
   private readonly log: (message: string) => void;
@@ -439,6 +445,7 @@ export class CodexAppServerResponder implements AgentResponder {
     this.active = placeholder;
     let threadId: string;
     let session: Session;
+    let effort: string | undefined;
     try {
       this.cancelIdleRetire();
       this.retireSessionIfMcpChanged();
@@ -446,6 +453,8 @@ export class CodexAppServerResponder implements AgentResponder {
       this.throwIfAborted(input.signal);
       threadId = await this.openThread(session, input);
       input.onSession?.(threadId);
+      this.throwIfAborted(input.signal);
+      effort = await this.turnEffort(session, threadId, input.effort);
       this.throwIfAborted(input.signal);
     } catch (error) {
       if (this.active === placeholder) {
@@ -519,6 +528,7 @@ export class CodexAppServerResponder implements AgentResponder {
       const model = input.model ?? this.options.model ?? this.threadModels.get(threadId);
       if (model) params.model = model;
       if (model) turn.usage.setModel(model);
+      if (effort) params.effort = effort;
       const onResult = (result: any) => {
         const turnId = result?.turn?.id;
         if (typeof turnId !== "string" || !turnId) {
@@ -639,6 +649,7 @@ export class CodexAppServerResponder implements AgentResponder {
         const threadId = typeof result?.thread?.id === "string" ? result.thread.id : input.threadId;
         session.loadedThreads.add(threadId);
         if (typeof result?.model === "string") this.threadModels.set(threadId, result.model);
+        this.rememberThreadEffort(threadId, result);
         return threadId;
       } catch (error) {
         // 旧会话不存在、或恢复时文件坏了：还没发执行请求，直接开新会话
@@ -660,7 +671,62 @@ export class CodexAppServerResponder implements AgentResponder {
     }
     session.loadedThreads.add(threadId);
     if (typeof result?.model === "string") this.threadModels.set(threadId, result.model);
+    this.rememberThreadEffort(threadId, result);
     return threadId;
+  }
+
+  private rememberThreadEffort(threadId: string, result: any): void {
+    const effort = result?.reasoningEffort;
+    this.threadEfforts.set(threadId, typeof effort === "string" && effort ? effort : null);
+    this.effortChanged.delete(threadId);
+  }
+
+  /**
+   * 这一轮传给 turn/start 的思考强度。turn/start 的 effort 会沿用到这个会话的后续回合，
+   * 所以没指定的回合要显式改回会话原来的强度（「换个模型重试」才只管这一次）；
+   * 原来没设（null，按模型默认）时用 model/list 里这个模型的默认强度，查不到就不传。
+   */
+  private async turnEffort(
+    session: Session,
+    threadId: string,
+    wanted: string | undefined,
+  ): Promise<string | undefined> {
+    const original = this.threadEfforts.get(threadId);
+    if (wanted) {
+      if (wanted === original) this.effortChanged.delete(threadId);
+      else this.effortChanged.add(threadId);
+      return wanted;
+    }
+    if (!this.effortChanged.has(threadId)) return undefined;
+    let restore = original ?? undefined;
+    if (!restore) {
+      const model = this.threadModels.get(threadId) ?? this.options.model;
+      restore = model ? (await this.defaultEfforts(session)).get(model) : undefined;
+    }
+    if (!restore) {
+      this.log("[hive] Codex 会话原来的思考强度未知，这一轮沿用上一轮的强度。");
+      return undefined;
+    }
+    this.effortChanged.delete(threadId);
+    return restore;
+  }
+
+  private async defaultEfforts(session: Session): Promise<Map<string, string>> {
+    if (this.modelDefaultEfforts) return this.modelDefaultEfforts;
+    const defaults = new Map<string, string>();
+    try {
+      const result = await this.request(session, "model/list", {}, true);
+      for (const item of Array.isArray(result?.data) ? result.data : []) {
+        const effort = item?.defaultReasoningEffort;
+        if (typeof effort !== "string" || !effort) continue;
+        for (const name of [item?.model, item?.id])
+          if (typeof name === "string" && name) defaults.set(name, effort);
+      }
+      this.modelDefaultEfforts = defaults;
+    } catch {
+      // 查不到就不传，沿用上一轮的强度；下次再查
+    }
+    return defaults;
   }
 
   private mcpDisabled(): string[] {

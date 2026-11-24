@@ -88,6 +88,7 @@ describe("换个模型重试", () => {
     const load = vi.fn(async () => ({
       source: "runtime" as const,
       models: [{ id: "gpt-a", isDefault: true }, { id: "gpt-b" }],
+      efforts: [],
     }));
     render(
       <RetryModelDialog
@@ -108,7 +109,31 @@ describe("换个模型重试", () => {
     expect(screen.queryByRole("option", { name: /运行时默认/ })).toBeNull();
     fireEvent.click(screen.getByRole("option", { name: /^gpt-b/ }));
     fireEvent.click(screen.getByRole("button", { name: "用 gpt-b 重试" }));
-    expect(onRetry).toHaveBeenCalledWith("gpt-b");
+    expect(onRetry).toHaveBeenCalledWith("gpt-b", "");
+  });
+
+  it("retries once with only a different reasoning effort", async () => {
+    const onRetry = vi.fn();
+    const load = vi.fn(async () => ({
+      source: "preset" as const,
+      models: [{ id: "opus" }],
+      efforts: ["low", "medium", "high", "xhigh", "max"],
+    }));
+    render(
+      <RetryModelDialog
+        agentName="rd-claude"
+        currentModel="opus"
+        load={load}
+        onRetry={onRetry}
+        onClose={() => undefined}
+      />,
+    );
+    const effort = await screen.findByRole("combobox", { name: "思考强度" });
+    expect(effort.textContent).toContain("不换");
+    fireEvent.click(effort);
+    fireEvent.click(screen.getByRole("option", { name: /^最高 · max/ }));
+    fireEvent.click(screen.getByRole("button", { name: "用 最高 · max 思考强度重试" }));
+    expect(onRetry).toHaveBeenCalledWith("", "max");
   });
 
   it("asks for a typed model name when the agent is not on this computer", () => {
@@ -121,6 +146,6 @@ describe("换个模型重试", () => {
       target: { value: "claude-opus-5-5" },
     });
     fireEvent.submit(screen.getByRole("dialog"));
-    expect(onRetry).toHaveBeenCalledWith("claude-opus-5-5");
+    expect(onRetry).toHaveBeenCalledWith("claude-opus-5-5", "");
   });
 });

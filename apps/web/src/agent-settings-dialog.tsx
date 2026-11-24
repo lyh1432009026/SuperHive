@@ -8,7 +8,7 @@ import type {
 import { localized, t } from "./i18n";
 import { LogViewer, localAgentStatusLabels, type LocalAgentsState } from "./local-agents";
 import { RestartNowButton, agentUpdateNotes } from "./local-agent-updates";
-import { ModelPicker } from "./model-picker";
+import { EffortPicker, ModelPicker } from "./model-picker";
 
 function CloseGlyph() {
   return (
@@ -172,6 +172,8 @@ export function AgentSettingsDialog({
   const [models, setModels] = useState<LocalAgentModelsResponse | undefined>();
   const [model, setModel] = useState(agent.model ?? "");
   const [savedModel, setSavedModel] = useState(agent.model ?? "");
+  const [effort, setEffort] = useState(agent.effort ?? "");
+  const [savedEffort, setSavedEffort] = useState(agent.effort ?? "");
   const [savingModel, setSavingModel] = useState(false);
   const [modelSaved, setModelSaved] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
@@ -205,6 +207,7 @@ export function AgentSettingsDialog({
         setModels({
           source: "preset",
           models: [],
+          efforts: [],
           error: cause instanceof Error ? cause.message : String(cause),
         });
       }
@@ -216,14 +219,23 @@ export function AgentSettingsDialog({
     void loadModels(false);
   }, [loadModels]);
 
-  /** 模型写进设置文件，下一次回复就按新模型跑，不用重启 */
+  // 运行时能切思考强度才显示、才保存（不支持的运行时 Server 也会拒绝）
+  const effortSupported = (models?.efforts.length ?? 0) > 0;
+  const modelDirty = model.trim() !== savedModel || (effortSupported && effort !== savedEffort);
+
+  /** 模型和思考强度写进设置文件，下一次回复就按新的跑，不用重启 */
   async function saveModel() {
     setSavingModel(true);
     setError(undefined);
     try {
-      const updated = await local.updateSettings(agent.id, { model: model.trim() || null });
+      const updated = await local.updateSettings(agent.id, {
+        model: model.trim() || null,
+        ...(effortSupported ? { effort: effort || null } : {}),
+      });
       setModel(updated.model ?? "");
       setSavedModel(updated.model ?? "");
+      setEffort(updated.effort ?? "");
+      setSavedEffort(updated.effort ?? "");
       setModelSaved(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -433,7 +445,7 @@ export function AgentSettingsDialog({
           )}
           {logsOpen && <LogViewer load={local.logs} agentId={agent.id} />}
           <section className="agent-model" aria-labelledby="agent-model-title">
-            <h3 id="agent-model-title">{t("模型")}</h3>
+            <h3 id="agent-model-title">{effortSupported ? t("模型与思考强度") : t("模型")}</h3>
             <ModelPicker
               aria-label={t("模型")}
               data={models}
@@ -446,6 +458,21 @@ export function AgentSettingsDialog({
               }}
               onRefresh={() => void loadModels(true)}
             />
+            {effortSupported && (
+              <>
+                <h4>{t("思考强度")}</h4>
+                <EffortPicker
+                  data={models}
+                  model={model}
+                  value={effort}
+                  disabled={savingModel || !local.canManage}
+                  onChange={(next) => {
+                    setEffort(next);
+                    setModelSaved(false);
+                  }}
+                />
+              </>
+            )}
             <div className="agent-model-actions">
               <small>
                 {agent.settingsPendingRestart
@@ -461,10 +488,10 @@ export function AgentSettingsDialog({
               )}
               <button
                 type="button"
-                disabled={savingModel || model.trim() === savedModel || !local.canManage}
+                disabled={savingModel || !modelDirty || !local.canManage}
                 onClick={() => void saveModel()}
               >
-                {savingModel ? t("保存中…") : t("保存模型")}
+                {savingModel ? t("保存中…") : effortSupported ? t("保存模型和强度") : t("保存模型")}
               </button>
             </div>
           </section>

@@ -704,6 +704,7 @@ describe("local agent routes", () => {
     const listModels = vi.fn(async () => ({
       source: "runtime" as const,
       models: [{ id: "zhipu/glm-5", label: "GLM-5" }, { id: "opencode/big-pickle" }],
+      efforts: [],
     }));
     const { app, owner, spawner } = await setup({ settingsDir, listModels });
     const created = await app.inject({
@@ -764,7 +765,17 @@ describe("local agent routes", () => {
     expect(models.json()).toEqual({
       source: "runtime",
       models: [{ id: "zhipu/glm-5", label: "GLM-5" }, { id: "opencode/big-pickle" }],
+      efforts: [],
     });
+    // opencode 不支持切换思考强度：不让设
+    const effort = await app.inject({
+      method: "PUT",
+      url: `/api/local/agents/${id}/settings`,
+      headers: owner,
+      payload: { effort: "high" },
+    });
+    expect(effort.statusCode).toBe(400);
+    expect(effort.json().code).toBe("LOCAL_AGENT_EFFORT_UNSUPPORTED");
     // 10 分钟内用缓存，refresh=1 重新拉
     await app.inject({ method: "GET", url: `/api/local/agents/${id}/models`, headers: owner });
     expect(listModels).toHaveBeenCalledTimes(1);
@@ -778,6 +789,56 @@ describe("local agent routes", () => {
     // 不带房主凭证拿不到
     const anonymous = await app.inject({ method: "GET", url: `/api/local/agents/${id}/models` });
     expect(anonymous.statusCode).toBeGreaterThanOrEqual(400);
+    rmSync(settingsDir, { recursive: true, force: true });
+  });
+
+  it("keeps the reasoning effort in the settings file and applies it on the next turn", async () => {
+    const settingsDir = mkdtempSync(path.join(tmpdir(), "hive-agent-settings-"));
+    const { app, owner, spawner } = await setup({ settingsDir });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/local/agents",
+      headers: owner,
+      payload: { provider: "claude", name: "rd-claude", access: "read-only" },
+    });
+    const id = created.json().agent.id as string;
+    expect(created.json().agent.effort).toBeNull();
+    const file = spawner.children[0]!.args.find((arg) =>
+      arg.startsWith("--agent-settings="),
+    )!.slice("--agent-settings=".length);
+    const changed = await app.inject({
+      method: "PUT",
+      url: `/api/local/agents/${id}/settings`,
+      headers: owner,
+      payload: { model: "opus", effort: "xhigh" },
+    });
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json().agent).toMatchObject({ model: "opus", effort: "xhigh" });
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({
+      mcpDisabled: [],
+      model: "opus",
+      effort: "xhigh",
+    });
+    // 改强度不重启进程
+    expect(spawner.children).toHaveLength(1);
+    // 不是档位名的一律拒绝（防止写进命令行参数）
+    const bad = await app.inject({
+      method: "PUT",
+      url: `/api/local/agents/${id}/settings`,
+      headers: owner,
+      payload: { effort: "--dangerously-skip-permissions" },
+    });
+    expect(bad.statusCode).toBe(400);
+    const cleared = await app.inject({
+      method: "PUT",
+      url: `/api/local/agents/${id}/settings`,
+      headers: owner,
+      payload: { effort: null },
+    });
+    expect(cleared.json().agent.effort).toBeNull();
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ mcpDisabled: [], model: "opus" });
+    const listed = await app.inject({ method: "GET", url: "/api/local/agents", headers: owner });
+    expect(listed.json().agents[0].effort).toBeNull();
     rmSync(settingsDir, { recursive: true, force: true });
   });
 
@@ -799,7 +860,13 @@ describe("local agent routes", () => {
       headers: owner,
     });
     expect(models.statusCode).toBe(200);
-    expect(models.json()).toEqual({ source: "preset", models: [], error: "spawn hive ENOENT" });
+    // 拉不到模型也照样给出 Codex 能选的思考强度
+    expect(models.json()).toEqual({
+      source: "preset",
+      models: [],
+      efforts: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+      error: "spawn hive ENOENT",
+    });
   });
 
   it("previews MCP servers before launch and starts the agent with the unchecked ones off", async () => {

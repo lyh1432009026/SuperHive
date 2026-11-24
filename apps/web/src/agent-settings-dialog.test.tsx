@@ -16,6 +16,7 @@ const agent = {
   access: "full",
   cwd: "/repo",
   model: null,
+  effort: null,
   status: "running",
   pid: 1,
   startedAt: null,
@@ -54,6 +55,7 @@ const listed: LocalAgentMcpResponse = {
 const modelList: LocalAgentModelsResponse = {
   source: "runtime",
   models: [{ id: "gpt-a", label: "GPT A", isDefault: true }, { id: "gpt-b" }],
+  efforts: [],
 };
 
 describe("AgentSettingsDialog", () => {
@@ -203,6 +205,88 @@ describe("AgentSettingsDialog", () => {
     await waitFor(() => expect(models).toHaveBeenLastCalledWith(agent.id, true));
   });
 
+  it("picks a reasoning effort that follows the chosen model and saves it with the model", async () => {
+    const codexModels: LocalAgentModelsResponse = {
+      source: "runtime",
+      models: [
+        { id: "gpt-a", isDefault: true, efforts: ["low", "high"], defaultEffort: "high" },
+        { id: "gpt-b", efforts: ["xhigh"], defaultEffort: "xhigh" },
+      ],
+      efforts: ["none", "minimal", "low", "medium", "high", "xhigh"],
+    };
+    const updateSettings = vi.fn(
+      async (_id: string, settings: { model?: string | null; effort?: string | null }) => ({
+        ...agent,
+        model: settings.model ?? null,
+        effort: settings.effort ?? null,
+      }),
+    );
+    render(
+      <AgentSettingsDialog
+        agent={{ ...agent, provider: "codex" }}
+        local={{
+          mcpServers: async () => listed,
+          updateSettings,
+          act: async () => undefined,
+          canManage: true,
+          logs: async () => [],
+          remove: async () => undefined,
+          models: async () => codexModels,
+        }}
+        onClose={() => undefined}
+      />,
+    );
+    const effort = await screen.findByRole("combobox", { name: "思考强度" });
+    expect(effort.textContent).toContain("跟随 CLI 配置");
+    fireEvent.click(effort);
+    // 运行时默认模型 gpt-a 只有 low、high 两档，并写明默认档
+    expect(
+      screen.getByRole("option", { name: /跟随 CLI 配置.*这个模型默认是 高 · high/ }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /xhigh/ })).toBeNull();
+    fireEvent.click(screen.getByRole("option", { name: /^低 · low/ }));
+    fireEvent.click(screen.getByRole("button", { name: "保存模型和强度" }));
+    await waitFor(() =>
+      expect(updateSettings).toHaveBeenLastCalledWith(agent.id, { model: null, effort: "low" }),
+    );
+
+    // 换到 gpt-b：low 它不支持，仍列出并提示
+    fireEvent.click(screen.getByRole("combobox", { name: "模型" }));
+    fireEvent.click(screen.getByRole("option", { name: /^gpt-b/ }));
+    expect(screen.getByText(/当前模型不支持 low/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("combobox", { name: "思考强度" }));
+    fireEvent.click(screen.getByRole("option", { name: /^很高 · xhigh/ }));
+    expect(screen.queryByText(/当前模型不支持/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "保存模型和强度" }));
+    await waitFor(() =>
+      expect(updateSettings).toHaveBeenLastCalledWith(agent.id, {
+        model: "gpt-b",
+        effort: "xhigh",
+      }),
+    );
+  });
+
+  it("hides the reasoning effort for runtimes that cannot switch it", async () => {
+    render(
+      <AgentSettingsDialog
+        agent={{ ...agent, provider: "opencode" }}
+        local={{
+          mcpServers: async () => listed,
+          updateSettings: async () => agent,
+          act: async () => undefined,
+          canManage: true,
+          logs: async () => [],
+          remove: async () => undefined,
+          models: async () => modelList,
+        }}
+        onClose={() => undefined}
+      />,
+    );
+    await screen.findByRole("combobox", { name: "模型" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "保存模型" })).toBeTruthy());
+    expect(screen.queryByRole("combobox", { name: "思考强度" })).toBeNull();
+  });
+
   it("shows why the model list could not be fetched and still allows typing one", async () => {
     render(
       <AgentSettingsDialog
@@ -214,7 +298,12 @@ describe("AgentSettingsDialog", () => {
           canManage: true,
           logs: async () => [],
           remove: async () => undefined,
-          models: async () => ({ source: "preset", models: [], error: "spawn codex ENOENT" }),
+          models: async () => ({
+            source: "preset",
+            models: [],
+            efforts: [],
+            error: "spawn codex ENOENT",
+          }),
         }}
         onClose={() => undefined}
       />,

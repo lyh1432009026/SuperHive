@@ -203,6 +203,8 @@ type ActiveBatch = {
     observed?: AgentUsage;
     usage?: AgentUsage;
     reported?: boolean;
+    /** 这一轮传给运行时的思考强度；运行时说当前模型不支持时清掉 */
+    effort?: string;
   };
 };
 
@@ -236,8 +238,8 @@ export class AgentBridge {
   private readonly upstreamRetries = new Map<string, number>();
   /** 暂时性失败后已自动重试的次数 */
   private readonly transientRetries = new Map<string, number>();
-  /** 这条消息下一轮用的模型：人点了「换个模型重试」，只对这一次生效 */
-  private readonly modelOverrides = new Map<string, string>();
+  /** 这条消息下一轮用的模型和思考强度：人点了「换个模型重试」，只对这一次生效 */
+  private readonly modelOverrides = new Map<string, { model?: string; effort?: string }>();
   /** 已经因为会话失效自动开新会话重跑过一次的消息：再失败就交给人 */
   private readonly sessionRetried = new Set<string>();
   /** 上游出错后正在等待自动继续的消息（及其计时器） */
@@ -370,7 +372,7 @@ export class AgentBridge {
       },
       {
         onSnapshot: (snapshot) => this.onSnapshot(snapshot),
-        onMention: (message, _latestSeq, retry, steer, first, lead, model, resume) => {
+        onMention: (message, _latestSeq, retry, steer, first, lead, model, resume, effort) => {
           if (lead) this.leadMessages.add(message.id);
           else this.leadMessages.delete(message.id);
           // 人对一次中途中断点了「继续」：提示 Agent 接着原会话核对现状再往下做，不从头重做
@@ -385,8 +387,12 @@ export class AgentBridge {
             delete this.state.interruptedSteps[message.id];
             void this.store.save(this.state).catch(() => undefined);
           }
-          // 人点「换个模型重试」：只对这一次生效
-          if (model) this.modelOverrides.set(message.id, model);
+          // 人点「换个模型重试」（可以只换思考强度）：只对这一次生效
+          if (model || effort)
+            this.modelOverrides.set(message.id, {
+              ...(model ? { model } : {}),
+              ...(effort ? { effort } : {}),
+            });
           else if (retry) this.modelOverrides.delete(message.id);
           this.enqueue(message, {
             retry,
@@ -1284,16 +1290,24 @@ export class AgentBridge {
         ...messages.map((message) => this.state.crashResumes?.[message.id] ?? 0),
       );
 
-      // 人点「换个模型重试」选的模型：只对这一次生效，状态里写明用的是哪个
-      const picked = messages.map((message) => this.modelOverrides.get(message.id)).find(Boolean);
+      // 人点「换个模型重试」选的模型和思考强度：只对这一次生效，状态里写明用的是哪个
+      const override = messages
+        .map((message) => this.modelOverrides.get(message.id))
+        .find((item) => item?.model || item?.effort);
+      const picked = override?.model;
+      const pickedEffort = override?.effort;
       const using = picked
-        ? bridgeText("bridge.usingModel", { model: picked })
-        : resumedCount > 0
-          ? bridgeText("bridge.crashResumed", {
-              count: resumedCount,
-              limit: this.tuning.crashResumeLimit,
-            })
-          : undefined;
+        ? pickedEffort
+          ? bridgeText("bridge.usingModelEffort", { model: picked, effort: pickedEffort })
+          : bridgeText("bridge.usingModel", { model: picked })
+        : pickedEffort
+          ? bridgeText("bridge.usingEffort", { effort: pickedEffort })
+          : resumedCount > 0
+            ? bridgeText("bridge.crashResumed", {
+                count: resumedCount,
+                limit: this.tuning.crashResumeLimit,
+              })
+            : undefined;
       this.reportAll(active.messages, {
         status: "running",
         contextSeq: context.latestSeq,
@@ -1443,7 +1457,11 @@ export class AgentBridge {
         };
         active.turn = turn;
         // 这一轮的模型：「换个模型重试」选的优先，其次是网页上设置的；都没有就不传，用启动时的 --model
-        const turnModel = picked ?? this.settings().model;
+        const settings = this.settings();
+        const turnModel = picked ?? settings.model;
+        // 思考强度同理；都没有就不传，沿用 CLI 自己的配置
+        const turnEffort = pickedEffort ?? settings.effort;
+        if (turnEffort) turn.effort = turnEffort;
         active.workspace = this.options.cwd;
         active.accepting = true;
         reply = await this.responder.reply({
@@ -1454,6 +1472,25 @@ export class AgentBridge {
           prompt: prompt.text,
           refreshInstructions: prompt.full,
           ...(turnModel ? { model: turnModel } : {}),
+          ...(turnEffort
+            ? {
+                effort: turnEffort,
+                onEffortIgnored: (effort: string, options: string[]) => {
+                  delete turn.effort;
+                  if (this.active !== active || active.controller.signal.aborted) return;
+                  const note = bridgeText("bridge.effortUnsupported", {
+                    effort,
+                    options: options.join(" / ") || "-",
+                  });
+                  this.log(`[hive] ${bridgeTextZh(note)}`);
+                  this.reportAll(active.messages, {
+                    status: "running",
+                    ...said(note),
+                    progress: bridgeTextZh(note).slice(0, 200),
+                  });
+                },
+              }
+            : {}),
           signal: active.controller.signal,
           onProgress: (progress) => {
             if (this.active !== active || active.controller.signal.aborted) return;
@@ -1850,6 +1887,7 @@ export class AgentBridge {
       ...(turnCostUsd !== undefined
         ? { reportedCostUsd: Math.round(turnCostUsd * 1e6) / 1e6 }
         : {}),
+      ...(turn.effort ? { effort: turn.effort } : {}),
       session: turn.session,
       ...idle,
       ...(turn.session === "resumed" && this.state.lastCacheTtlMs

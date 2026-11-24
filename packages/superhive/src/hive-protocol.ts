@@ -145,6 +145,8 @@ export type UsageBuckets = {
 };
 export type AgentUsage = UsageBuckets & {
   model?: string;
+  /** 这一轮实际传给运行时的思考强度；没传（沿用 CLI 配置）时不填 */
+  effort?: string;
   requests: number;
   firstRequest?: Omit<UsageBuckets, "outputTokens">;
   peakContextTokens: number;
@@ -207,6 +209,8 @@ export type ServerEvent =
       lead?: boolean;
       /** 人点「换个模型重试」选的模型：只对这一次生效 */
       model?: string;
+      /** 人点「换个模型重试」选的思考强度：只对这一次生效 */
+      effort?: string;
       /** 人对一次中途中断点了「继续」：接着原会话核对现状再往下做 */
       resume?: boolean;
     }

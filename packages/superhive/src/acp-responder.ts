@@ -303,6 +303,25 @@ const acpToolCategories: Record<string, NonNullable<TraceStep["tool"]>> = {
   fetch: "search",
 };
 
+/**
+ * 会话的思考强度选项：configOptions 里 category 为 thought_level 的那项（omp 的 thinking）。
+ * opencode、Gemini CLI 目前没有这一项，返回 undefined
+ */
+export function sessionEffortChoices(
+  result: any,
+): { configId: string; current?: string; options: string[] } | undefined {
+  const configOptions = Array.isArray(result?.configOptions) ? result.configOptions : [];
+  const option = configOptions.find((item: any) => item?.category === "thought_level");
+  if (!option || typeof option.id !== "string" || !option.id) return undefined;
+  const options = Array.isArray(option.options)
+    ? option.options
+        .map((item: any) => item?.value)
+        .filter((value: unknown): value is string => typeof value === "string")
+    : [];
+  const current = typeof option.currentValue === "string" ? option.currentValue : undefined;
+  return { configId: option.id, ...(current ? { current } : {}), options };
+}
+
 /** 会话打开时返回的可选模型：configOptions 里的 model 优先，没有再看 models（Gemini CLI 只给这个） */
 export function sessionModelChoices(
   result: any,
@@ -354,6 +373,14 @@ type AgentProcess = {
   sessionModels: Map<
     string,
     { initial?: string; current?: string; options: string[]; via: "config" | "model" }
+  >;
+  /**
+   * 会话的思考强度选项（configOptions 里 category 为 thought_level 的那项）：initial 是会话打开时的值，
+   * 没指定强度的回合切回它；options 随模型变，切模型后按返回的 configOptions 更新
+   */
+  sessionEfforts: Map<
+    string,
+    { configId: string; initial?: string; current?: string; options: string[] }
   >;
   /** 这个进程已用 API key 登录过（authenticate） */
   authenticated: boolean;
@@ -435,6 +462,7 @@ export class AcpResponder implements AgentResponder {
       input.onSession?.(session.sessionId);
       this.throwIfAborted(input.signal);
       await this.useModel(agent, session.sessionId, input.model ?? this.options.defaultModel);
+      await this.useEffort(agent, session.sessionId, input.effort, input.onEffortIgnored);
       this.throwIfAborted(input.signal);
     } catch (error) {
       if (this.active === placeholder) {
@@ -663,12 +691,14 @@ export class AcpResponder implements AgentResponder {
       if (known.via === "model") {
         await this.request(agent, "session/set_model", { sessionId, modelId: model }, true);
       } else {
-        await this.request(
+        const result = await this.request(
           agent,
           "session/set_config_option",
           { sessionId, configId: "model", value: model },
           true,
         );
+        // 换了模型，能选的思考强度可能跟着变：按返回的 configOptions 更新
+        this.rememberEfforts(agent, sessionId, result);
       }
     } catch (error) {
       if (requested) throw error;
@@ -679,7 +709,56 @@ export class AcpResponder implements AgentResponder {
     agent.sessionModels.set(sessionId, { ...known, current: model });
   }
 
+  /**
+   * 按轮切思考强度：会话 configOptions 里有 thought_level（omp 的 thinking）才能切，用 session/set_config_option。
+   * 没指定的回合切回会话打开时的强度；指定的档位当前模型没有就不切，告诉 Bridge 这一轮按原强度跑（不让整轮失败，
+   * 设置是长期的，换了模型可能就不支持了）。
+   */
+  private async useEffort(
+    agent: AgentProcess,
+    sessionId: string,
+    requested: string | undefined,
+    onIgnored: ((effort: string, options: string[]) => void) | undefined,
+  ): Promise<void> {
+    const known = agent.sessionEfforts.get(sessionId);
+    let effort = requested ?? known?.initial;
+    if (requested && (!known || !known.options.includes(requested))) {
+      onIgnored?.(requested, known?.options ?? []);
+      effort = known?.initial;
+    }
+    if (!known || !effort || known.current === effort || !known.options.includes(effort)) return;
+    try {
+      await this.request(
+        agent,
+        "session/set_config_option",
+        { sessionId, configId: known.configId, value: effort },
+        true,
+      );
+    } catch (error) {
+      // 切不了强度不影响这一轮：记一笔照常跑
+      this.log(
+        `[hive] ${this.options.label} 切换思考强度 ${effort} 失败：${(error as Error).message}`,
+      );
+      if (requested === effort) onIgnored?.(requested, known.options);
+      return;
+    }
+    agent.sessionEfforts.set(sessionId, { ...known, current: effort });
+  }
+
+  private rememberEfforts(agent: AgentProcess, sessionId: string, result: any): void {
+    const found = sessionEffortChoices(result);
+    if (!found) return;
+    const initial = agent.sessionEfforts.get(sessionId)?.initial ?? found.current;
+    agent.sessionEfforts.set(sessionId, {
+      configId: found.configId,
+      ...(initial ? { initial } : {}),
+      ...(found.current ? { current: found.current } : {}),
+      options: found.options,
+    });
+  }
+
   private rememberModels(agent: AgentProcess, sessionId: string, result: any): void {
+    this.rememberEfforts(agent, sessionId, result);
     const found = sessionModelChoices(result);
     if (!found) return;
     const initial = agent.sessionModels.get(sessionId)?.initial ?? found.current;
@@ -767,6 +846,7 @@ export class AcpResponder implements AgentResponder {
       pending: new Map(),
       loadedSessions: new Set(),
       sessionModels: new Map(),
+      sessionEfforts: new Map(),
       authenticated: false,
       authMethods: [],
       capabilities: undefined,

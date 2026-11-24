@@ -18,6 +18,16 @@ function lastRun(runner: { mock: { calls: Parameters<CommandRunner>[] } }) {
 const reply = JSON.stringify({ type: "assistant.message", data: { content: "ok" } });
 
 describe("CopilotResponder", () => {
+  it("passes the per-turn reasoning effort with --reasoning-effort only when one is set", async () => {
+    const runner = vi.fn<CommandRunner>(async () => ({ stdout: reply, stderr: "" }));
+    const responder = new CopilotResponder({ command: "copilot", cwd: "/workspace", hive, runner });
+    await responder.reply({ instructions: "r", prompt: "p", effort: "high" });
+    const args = lastRun(runner)?.[1] ?? [];
+    expect(args[args.indexOf("--reasoning-effort") + 1]).toBe("high");
+    await responder.reply({ instructions: "r", prompt: "p" });
+    expect(lastRun(runner)?.[1]).not.toContain("--reasoning-effort");
+  });
+
   it("uses a restricted plan session and parses Copilot JSONL", async () => {
     let mcpConfig: { content: string; mode: number } | undefined;
     const runner = vi.fn<CommandRunner>(async (_command, args) => {

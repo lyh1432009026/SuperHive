@@ -90,9 +90,14 @@ export function useMessageActions({
     socket.send(JSON.stringify(payload));
   }
 
-  function retryInvocation(invocation: Invocation, model?: string) {
+  function retryInvocation(invocation: Invocation, model?: string, effort?: string) {
     sendClientEvent(
-      { type: "invocation.retry", invocationId: invocation.id, ...(model ? { model } : {}) },
+      {
+        type: "invocation.retry",
+        invocationId: invocation.id,
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
+      },
       t("无法重试。"),
     );
   }

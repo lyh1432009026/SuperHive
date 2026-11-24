@@ -150,6 +150,8 @@ export class CopilotResponder implements AgentResponder {
     // 每轮都是新进程：设置里改的模型、「换个模型重试」都按轮生效
     const model = input.model ?? this.options.model;
     if (model) args.push("--model", model);
+    // 思考强度：Agent 设置或「换个模型重试」选的才传，否则沿用 CLI 自己的配置
+    if (input.effort) args.push("--reasoning-effort", input.effort);
 
     let result;
     try {

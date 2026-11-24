@@ -382,6 +382,14 @@ export const serverTexts = {
     zh: "{name} 请求换成 {model} 重试",
     en: "{name} asked to retry with {model}",
   },
+  "invocation.retryWithEffort": {
+    zh: "{name} 请求用 {effort} 思考强度重试",
+    en: "{name} asked to retry with {effort} reasoning effort",
+  },
+  "invocation.retryWithModelEffort": {
+    zh: "{name} 请求换成 {model}（思考强度 {effort}）重试",
+    en: "{name} asked to retry with {model} ({effort} reasoning effort)",
+  },
   "error.guest.retryModel": {
     zh: "只有房主能换模型重试",
     en: "Only the room owner can retry with another model",
@@ -731,6 +739,18 @@ export const serverTexts = {
   "bridge.usingModel": {
     zh: "这次用 {model} 重试",
     en: "Retrying with {model}",
+  },
+  "bridge.usingEffort": {
+    zh: "这次用 {effort} 思考强度重试",
+    en: "Retrying with {effort} reasoning effort",
+  },
+  "bridge.usingModelEffort": {
+    zh: "这次用 {model}（思考强度 {effort}）重试",
+    en: "Retrying with {model} ({effort} reasoning effort)",
+  },
+  "bridge.effortUnsupported": {
+    zh: "当前模型不支持 {effort} 思考强度（可选：{options}），这一轮按 CLI 配置的强度跑",
+    en: "The current model doesn't support {effort} reasoning effort (available: {options}); this turn uses the CLI's configured effort",
   },
   "bridge.worktreeHandoff": {
     zh: "已切到独立目录 {path}，开新会话继续；旧会话不迁移",
@@ -1186,6 +1206,10 @@ export const serverTexts = {
   "error.localAgent.mcpUnsupported": {
     zh: "这个 Agent 类型暂不支持在 Hive 里开关 MCP。",
     en: "Hive can't turn MCP servers on or off for this kind of agent yet.",
+  },
+  "error.localAgent.effortUnsupported": {
+    zh: "这个 Agent 类型暂不支持在 Hive 里切换思考强度。",
+    en: "Hive can't change the reasoning effort for this kind of agent yet.",
   },
   "error.localAgent.nameExists": {
     zh: "本机已有名为 {name} 的 Agent。",

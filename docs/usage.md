@@ -244,9 +244,13 @@ output/result.png
 
 已实测：Claude Code（只读与 workspace）能经 MCP 工具看图、读文本，workspace 也能用 Read 打开本地路径；Codex workspace 经 MCP 工具只拿到图片元数据，改用 `view_image` 打开本地路径后能看图。其它 Provider 尚未实测，能否看图以实际回复为准。
 
+## 模型与思考强度
+
+本机 Agent 设置里可以按 Agent 选模型和思考强度，写进这个 Agent 的设置文件，下一轮生效、不用重启，也不改 CLI 的全局配置。思考强度默认「跟随 CLI 配置」（不传参数）。Claude Code 每轮传 `--effort`，Copilot 传 `--reasoning-effort`，Codex 在 `turn/start` 里带 `effort`（会沿用到后续回合，所以「换个模型重试」只换一次时，下一轮会显式改回会话原来的强度），omp 切 ACP 会话里 category 为 `thought_level` 的选项。档位由 `hive models --provider X --json` 给出：Codex、omp 按模型列出，其余按 CLI 接受的全部档位。OpenCode、Gemini CLI、OpenClaw 不支持，设置里不显示。失败任务的「换个模型重试」可以只换思考强度，访客不能指定（花的是房主的额度）。
+
 ## 用量和费用
 
-Bridge 记录 Agent 每轮的真实用量（Claude Code 的 stream usage、Codex 的 tokenUsage），失败、被停止和结果未知的轮次也照常记账。「Agent 任务」面板和用量统计里能看到每轮的 token、缓存命中率、会话大小、估算费用和大额缓存写入；缓存没命中时区分观测到的原因和推测的原因，会话偏大时提醒开新话题。token 数取自 Runtime 返回的真实用量，费用为估算，以模型服务的账单为准；尚未接入用量采集的 Runtime 会显示没有记录。
+Bridge 记录 Agent 每轮的真实用量（这一轮传了思考强度时一并记下，任务详情「本轮用量」里显示）（Claude Code 的 stream usage、Codex 的 tokenUsage），失败、被停止和结果未知的轮次也照常记账。「Agent 任务」面板和用量统计里能看到每轮的 token、缓存命中率、会话大小、估算费用和大额缓存写入；缓存没命中时区分观测到的原因和推测的原因，会话偏大时提醒开新话题。token 数取自 Runtime 返回的真实用量，费用为估算，以模型服务的账单为准；尚未接入用量采集的 Runtime 会显示没有记录。
 
 ## 故障单和慢操作
 

@@ -335,10 +335,18 @@ describe("限时邀请与访客会话", () => {
     // 访客能重试自己发起的，但不能换模型（花的是房主的钱）
     alice.send({ type: "invocation.retry", invocationId: invocation.id, model: "gpt-pricey" });
     expect(errorCode(await alice.next((event) => event.type === "error"))).toBe("OWNER_ONLY");
+    // 调高思考强度同样花房主的钱：访客也不能指定
+    alice.send({ type: "invocation.retry", invocationId: invocation.id, effort: "xhigh" });
+    expect(errorCode(await alice.next((event) => event.type === "error"))).toBe("OWNER_ONLY");
 
-    owner.send({ type: "invocation.retry", invocationId: invocation.id, model: "gpt-other" });
+    owner.send({
+      type: "invocation.retry",
+      invocationId: invocation.id,
+      model: "gpt-other",
+      effort: "high",
+    });
     const retried = await worker.next((event) => event.type === "agent.mentioned");
-    expect(retried).toMatchObject({ retry: true, model: "gpt-other" });
+    expect(retried).toMatchObject({ retry: true, model: "gpt-other", effort: "high" });
     const queued = await owner.next(
       (event) =>
         event.type === "invocation.updated" &&
@@ -348,7 +356,7 @@ describe("限时邀请与访客会话", () => {
     expect(
       ((queued as Extract<ServerEvent, { type: "invocation.updated" }>).invocation as Invocation)
         .detail,
-    ).toBe("rd 请求换成 gpt-other 重试");
+    ).toBe("rd 请求换成 gpt-other（思考强度 high）重试");
   });
 
   it("允许调度 Agent 的邀请不需要逐次批准", async () => {

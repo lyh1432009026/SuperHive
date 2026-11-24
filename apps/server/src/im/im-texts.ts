@@ -670,6 +670,14 @@ export const imTexts = {
     zh: "把本机 Agent {name} 的模型改成了 {model}",
     en: "set the model of local agent {name} to {model}",
   },
+  "im.audit.effortChanged": {
+    zh: "把本机 Agent {name} 的思考强度改成了 {effort}",
+    en: "set the reasoning effort of local agent {name} to {effort}",
+  },
+  "im.audit.effortDefault": {
+    zh: "把本机 Agent {name} 的思考强度改回跟随 CLI 配置",
+    en: "set local agent {name} back to its CLI's configured reasoning effort",
+  },
   "im.audit.modelDefault": {
     zh: "把本机 Agent {name} 的模型改回运行时默认",
     en: "set local agent {name} back to its runtime's default model",

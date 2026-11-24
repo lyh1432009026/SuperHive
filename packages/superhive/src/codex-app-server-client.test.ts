@@ -927,6 +927,49 @@ describe("CodexAppServerResponder", () => {
     ]);
   });
 
+  it("passes the per-turn effort and restores the thread's own effort afterwards", async () => {
+    const { responder, servers } = setup(
+      defaultHandlers({
+        "thread/start": ok({
+          thread: { id: "thread-new" },
+          model: "gpt-x",
+          reasoningEffort: "high",
+        }),
+      }),
+    );
+    await responder.reply({ instructions: "r", prompt: "a", effort: "low" });
+    await responder.reply({ instructions: "r", prompt: "b", threadId: "thread-new" });
+    await responder.reply({ instructions: "r", prompt: "c", threadId: "thread-new" });
+    const turns = servers[0]!.sent.filter((message: any) => message.method === "turn/start");
+    // turn/start 的 effort 会沿用：改过之后没指定的回合显式改回会话原值，之后就不再传
+    expect(turns.map((message: any) => message.params.effort)).toEqual(["low", "high", undefined]);
+  });
+
+  it("restores the model's default effort when the thread had none configured", async () => {
+    const { responder, servers } = setup(
+      defaultHandlers({
+        "thread/start": ok({ thread: { id: "thread-new" }, model: "gpt-x", reasoningEffort: null }),
+        "model/list": ok({
+          data: [{ id: "gpt-x", model: "gpt-x", defaultReasoningEffort: "medium" }],
+        }),
+      }),
+    );
+    await responder.reply({ instructions: "r", prompt: "a" });
+    await responder.reply({
+      instructions: "r",
+      prompt: "b",
+      threadId: "thread-new",
+      effort: "xhigh",
+    });
+    await responder.reply({ instructions: "r", prompt: "c", threadId: "thread-new" });
+    const turns = servers[0]!.sent.filter((message: any) => message.method === "turn/start");
+    expect(turns.map((message: any) => message.params.effort)).toEqual([
+      undefined,
+      "xhigh",
+      "medium",
+    ]);
+  });
+
   it("reports a retired model as a model failure a person can switch away from", async () => {
     const { responder } = setup(
       defaultHandlers({

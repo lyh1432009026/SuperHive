@@ -24,7 +24,14 @@ export type DiscoveredMcpServer = {
  * - mcpDisabled：关掉的本机 MCP；
  * - model：这个 Agent 用的模型（不填用启动时的 --model 或运行时自己的默认）。
  */
-export type AgentSettings = { mcpDisabled: string[]; model?: string };
+export type AgentSettings = { mcpDisabled: string[]; model?: string; effort?: string };
+
+/** 思考强度：只认小写的档位名（low、high、xhigh…），别的一律当没设置 */
+export function effortName(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const effort = value.trim();
+  return /^[a-z][a-z0-9_-]{0,31}$/.test(effort) ? effort : undefined;
+}
 
 function modelName(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim().slice(0, 200) : undefined;
@@ -36,14 +43,17 @@ export function readAgentSettings(file: string | undefined): AgentSettings {
     const parsed = JSON.parse(readFileSync(file, "utf8")) as {
       mcpDisabled?: unknown;
       model?: unknown;
+      effort?: unknown;
     };
     const disabled = Array.isArray(parsed.mcpDisabled)
       ? parsed.mcpDisabled.filter((name): name is string => typeof name === "string")
       : [];
     const model = modelName(parsed.model);
+    const effort = effortName(parsed.effort);
     return {
       mcpDisabled: [...new Set(disabled)].sort(),
       ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
     };
   } catch {
     // 文件还没写或写坏了：按"全部启用"处理，与没有设置时的行为一致

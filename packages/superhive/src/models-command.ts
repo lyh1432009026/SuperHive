@@ -16,6 +16,7 @@ const usage = `
 codex 用 app-server 的 model/list，opencode 用 opencode models，omp 用 omp models --json，
 openclaw 用 openclaw models list --json，gemini、agy 经 ACP 开一个空会话读它给的模型；
 claude、copilot 没有列模型的命令，给出常用选项，网页上也能手填。
+同时列出能选的思考强度（claude、codex、copilot、omp 支持；codex、omp 按模型列出）。
 `;
 
 export type ModelProvider =
@@ -28,6 +29,10 @@ export type ModelEntry = {
   label?: string;
   /** 运行时自己的默认模型 */
   isDefault?: boolean;
+  /** 这个模型支持的思考强度（运行时按模型列出时才有：Codex、omp） */
+  efforts?: string[];
+  /** 这个模型默认的思考强度 */
+  defaultEffort?: string;
 };
 
 export type ModelList = {
@@ -35,6 +40,8 @@ export type ModelList = {
   /** runtime：从运行时拉到的；preset：运行时没有列模型的能力，给的常用选项 */
   source: "runtime" | "preset";
   models: ModelEntry[];
+  /** 运行时接受的全部思考强度；空数组表示不支持按 Agent 切换（与 @superhive/protocol 的 RUNTIME_REASONING_EFFORTS 一致） */
+  efforts: string[];
   /** 拉取失败的原因（这时 models 是常用选项） */
   error?: string;
 };
@@ -58,6 +65,17 @@ const PRESETS: Partial<Record<ModelProvider, ModelEntry[]>> = {
     { id: "opusplan", label: "Opus Plan（计划用 Opus、执行用 Sonnet）" },
   ],
   copilot: [{ id: "auto", label: "Auto（Copilot 自动选）" }],
+};
+
+/**
+ * 各运行时 CLI 接受的思考强度（由低到高），与 @superhive/protocol 的 RUNTIME_REASONING_EFFORTS 一致：
+ * claude --effort、copilot --reasoning-effort、codex turn/start 的 effort、omp ACP 的 thinking
+ */
+export const RUNTIME_EFFORTS: Partial<Record<ModelProvider, string[]>> = {
+  claude: ["low", "medium", "high", "xhigh", "max"],
+  codex: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+  copilot: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+  omp: ["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"],
 };
 
 const defaultRunner: ModelRunner = (command, args) =>
@@ -272,6 +290,15 @@ function entry(id: string, label?: string, isDefault?: boolean): ModelEntry {
   };
 }
 
+function withEfforts(model: ModelEntry, efforts: string[], defaultEffort?: string): ModelEntry {
+  const list = [...new Set(efforts)];
+  return {
+    ...model,
+    ...(list.length ? { efforts: list } : {}),
+    ...(defaultEffort ? { defaultEffort } : {}),
+  };
+}
+
 function unique(models: ModelEntry[]): ModelEntry[] {
   const seen = new Set<string>();
   return models.filter((model) => !seen.has(model.id) && seen.add(model.id)).slice(0, MAX_MODELS);
@@ -284,7 +311,19 @@ function parseCodex(result: unknown): ModelEntry[] {
   return data.flatMap((item) => {
     const id = text(item?.model) ?? text(item?.id);
     if (!id || item.hidden === true) return [];
-    return [entry(id, text(item.displayName), item.isDefault === true)];
+    const efforts = (
+      Array.isArray(item.supportedReasoningEfforts) ? item.supportedReasoningEfforts : []
+    ).flatMap((option: { reasoningEffort?: unknown } | null) => {
+      const effort = text(option?.reasoningEffort);
+      return effort ? [effort] : [];
+    });
+    return [
+      withEfforts(
+        entry(id, text(item.displayName), item.isDefault === true),
+        efforts,
+        text(item.defaultReasoningEffort),
+      ),
+    ];
   });
 }
 
@@ -303,7 +342,12 @@ function parseOmp(stdout: string): ModelEntry[] {
   return models.flatMap((item) => {
     const id = text(item?.selector) ?? text(item?.id);
     if (!id || (item.kind !== undefined && item.kind !== "chat")) return [];
-    return [entry(id, text(item.name))];
+    // omp 的会话里这一项是 off、auto 加上模型自己的档位；不能推理的模型只能 off
+    const thinking = Array.isArray(item.thinking)
+      ? item.thinking.filter((level): level is string => typeof level === "string")
+      : [];
+    const efforts = item.reasoning === false ? [] : ["off", ...thinking, "auto"];
+    return [withEfforts(entry(id, text(item.name)), efforts)];
   });
 }
 
@@ -334,8 +378,9 @@ export async function listModels(options: {
   const { provider } = options;
   const command = options.command ?? provider;
   const run = options.run ?? defaultRunner;
+  const efforts = RUNTIME_EFFORTS[provider] ?? [];
   const preset = PRESETS[provider];
-  if (preset) return { provider, source: "preset", models: preset };
+  if (preset) return { provider, source: "preset", models: preset, efforts };
   try {
     let models: ModelEntry[];
     if (provider === "codex")
@@ -345,13 +390,14 @@ export async function listModels(options: {
     else if (provider === "gemini" || provider === "agy")
       models = parseAcpSession(await (options.listAcp ?? defaultAcpLister)(provider, command));
     else models = parseOpenClaw(await run(command, ["models", "list", "--json"]));
-    return { provider, source: "runtime", models: unique(models) };
+    return { provider, source: "runtime", models: unique(models), efforts };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     return {
       provider,
       source: "preset",
       models: [],
+      efforts,
       error: reason.replace(/\s+/g, " ").slice(0, 300),
     };
   }
@@ -399,7 +445,10 @@ export async function modelsCommand(argv: string[]): Promise<void> {
     console.log("（运行时没有列模型的命令，以下是常用选项，也可以手填）");
   for (const model of result.models) {
     console.log(
-      `${model.id}${model.label ? `  ${model.label}` : ""}${model.isDefault ? "  （默认）" : ""}`,
+      `${model.id}${model.label ? `  ${model.label}` : ""}${model.isDefault ? "  （默认）" : ""}${
+        model.efforts ? `  思考强度：${model.efforts.join("/")}` : ""
+      }`,
     );
   }
+  if (result.efforts.length) console.log(`思考强度：${result.efforts.join("、")}`);
 }

@@ -56,6 +56,14 @@ export type AgentReplyInput = {
    * opencode、omp、agy 通过 ACP 的 session/set_config_option、Gemini CLI 通过 session/set_model 切换当前会话的模型。
    */
   model?: string;
+  /**
+   * 这一轮的思考强度（Agent 设置里的「思考强度」，或「换个模型重试」时选的）。不给就不传，沿用 CLI 自己的配置。
+   * Claude Code 每轮 --effort，Copilot 每轮 --reasoning-effort，Codex 用 turn/start 的 effort，
+   * ACP 运行时（omp 等）切会话 configOptions 里 category 为 thought_level 的选项；其余运行时忽略。
+   */
+  effort?: string;
+  /** 运行时这一轮没法用指定的思考强度（当前模型不支持这一档）时调用，options 是它能用的档位 */
+  onEffortIgnored?: (effort: string, options: string[]) => void;
 };
 
 export type AgentReply = {

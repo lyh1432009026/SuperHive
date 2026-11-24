@@ -260,7 +260,13 @@ export function InvocationUsage({ usage }: { usage: AgentUsage }) {
       <h3>
         {t("本轮用量")}{" "}
         <span className="invocation-details-caption">
-          {[usage.model, t("{0} 次模型请求", { 0: usage.requests })].filter(Boolean).join(" · ")}
+          {[
+            usage.model,
+            usage.effort ? t("思考强度 {0}", { 0: usage.effort }) : undefined,
+            t("{0} 次模型请求", { 0: usage.requests }),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         </span>
       </h3>
       {usage.outcome && usage.outcome !== "completed" && (

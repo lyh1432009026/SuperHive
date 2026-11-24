@@ -19,6 +19,7 @@ const agent: LocalAgent = {
   access: "full",
   cwd: "/Users/rd/work",
   model: null,
+  effort: null,
   status: "stopped",
   pid: null,
   startedAt: null,

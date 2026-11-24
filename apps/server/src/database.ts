@@ -93,6 +93,7 @@ type LocalAgentRow = {
   pid?: number | null;
   pid_started_at?: string | null;
   mcp_disabled?: string | null;
+  effort?: string | null;
 };
 
 export type LocalAgentConfig = {
@@ -109,6 +110,8 @@ export type LocalAgentConfig = {
   pidStartedAt?: string | null;
   /** 网页上关掉的本机 MCP 名称 */
   mcpDisabled?: string[];
+  /** 思考强度；null 表示不传参数，沿用 CLI 自己的配置 */
+  effort?: string | null;
 };
 
 function parseNameList(value: string | null | undefined): string[] {
@@ -133,6 +136,7 @@ function mapLocalAgent(row: LocalAgentRow): LocalAgentConfig {
     pid: row.pid ?? null,
     pidStartedAt: row.pid_started_at ?? null,
     mcpDisabled: parseNameList(row.mcp_disabled),
+    effort: row.effort ?? null,
   };
 }
 
@@ -786,6 +790,9 @@ export class HiveDatabase {
     }
     if (!localAgentColumns.some((column) => column.name === "mcp_disabled")) {
       this.db.exec("ALTER TABLE local_agents ADD COLUMN mcp_disabled TEXT");
+    }
+    if (!localAgentColumns.some((column) => column.name === "effort")) {
+      this.db.exec("ALTER TABLE local_agents ADD COLUMN effort TEXT");
     }
     const participantColumns = this.db.pragma("table_info(participants)") as Array<{
       name: string;
@@ -2573,6 +2580,12 @@ export class HiveDatabase {
   setLocalAgentModel(id: string, model: string | null): string | null {
     this.db.prepare("UPDATE local_agents SET model = ? WHERE id = ?").run(model, id);
     return model;
+  }
+
+  /** 网页上选的思考强度；null 表示沿用 CLI 自己的配置 */
+  setLocalAgentEffort(id: string, effort: string | null): string | null {
+    this.db.prepare("UPDATE local_agents SET effort = ? WHERE id = ?").run(effort, id);
+    return effort;
   }
 
   setLocalAgentMcpDisabled(id: string, names: string[]): string[] {

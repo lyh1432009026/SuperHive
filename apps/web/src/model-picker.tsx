@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { LocalAgentModelsResponse } from "@superhive/protocol";
+import { sortReasoningEfforts, type LocalAgentModelsResponse } from "@superhive/protocol";
 import { t } from "./i18n";
 import { Select, type SelectOption } from "./select";
 
@@ -112,6 +112,109 @@ export function ModelPicker({
   );
 }
 
+/** 档位的显示名；运行时报出不认识的档位就原样显示 */
+export function effortLabel(effort: string): string {
+  const names: Record<string, string> = {
+    off: t("关闭思考"),
+    none: t("不思考"),
+    minimal: t("极低"),
+    low: t("低"),
+    medium: t("中"),
+    high: t("高"),
+    xhigh: t("很高"),
+    max: t("最高"),
+    auto: t("自动"),
+  };
+  const name = names[effort];
+  return name ? `${name} · ${effort}` : effort;
+}
+
+/**
+ * 这个模型能选的思考强度：运行时按模型列出的（Codex、omp）优先；没列出就用运行时接受的全部档位。
+ * model 为空串表示运行时默认模型。
+ */
+export function effortChoices(
+  data: LocalAgentModelsResponse | undefined,
+  model: string,
+): { efforts: string[]; defaultEffort?: string; perModel: boolean } {
+  if (!data || data.efforts.length === 0) return { efforts: [], perModel: false };
+  const entry = model
+    ? data.models.find((item) => item.id === model)
+    : data.models.find((item) => item.isDefault);
+  if (entry?.efforts?.length)
+    return {
+      efforts: sortReasoningEfforts(entry.efforts),
+      ...(entry.defaultEffort ? { defaultEffort: entry.defaultEffort } : {}),
+      perModel: true,
+    };
+  return { efforts: [...data.efforts], perModel: false };
+}
+
+/**
+ * 选思考强度：空串表示不传参数、沿用 CLI 自己的配置。运行时不支持（data.efforts 为空）时什么都不显示。
+ * 档位跟着所选模型变；已选的档位当前模型不支持时仍列出并标明，让人自己决定改不改。
+ */
+export function EffortPicker({
+  data,
+  model,
+  value,
+  onChange,
+  defaultLabel,
+  disabled = false,
+  id,
+}: {
+  data: LocalAgentModelsResponse | undefined;
+  /** 当前选的模型（空串为运行时默认），决定能选哪几档 */
+  model: string;
+  value: string;
+  onChange: (value: string) => void;
+  /** 「不指定」那一项的名字 */
+  defaultLabel?: string;
+  disabled?: boolean;
+  id?: string;
+}) {
+  const { efforts, defaultEffort, perModel } = effortChoices(data, model.trim());
+  if (!data || efforts.length === 0) return null;
+  const unsupported = value !== "" && !efforts.includes(value);
+  const options: SelectOption[] = [
+    {
+      value: "",
+      label: defaultLabel ?? t("跟随 CLI 配置"),
+      description: defaultEffort
+        ? t("这个模型默认是 {0}", { 0: effortLabel(defaultEffort) })
+        : t("不传参数，用这个 Agent CLI 自己配置的强度"),
+    },
+    ...efforts.map((effort) => ({
+      value: effort,
+      label: effortLabel(effort),
+      ...(effort === defaultEffort ? { description: t("这个模型的默认档") } : {}),
+    })),
+    ...(unsupported
+      ? [{ value, label: effortLabel(value), description: t("当前模型不支持这一档") }]
+      : []),
+  ];
+  return (
+    <div className="effort-picker">
+      <Select
+        {...(id ? { id } : {})}
+        aria-label={t("思考强度")}
+        value={value}
+        options={options}
+        disabled={disabled}
+        onChange={onChange}
+      />
+      {unsupported && (
+        <p className="agent-mcp-hint" role="status">
+          {t("当前模型不支持 {0}，运行时会按 CLI 配置的强度跑；建议换一档。", { 0: value })}
+        </p>
+      )}
+      {!unsupported && !perModel && (
+        <p className="agent-mcp-hint">{t("能用哪几档取决于模型，以 CLI 实际接受的为准。")}</p>
+      )}
+    </div>
+  );
+}
+
 function CloseGlyph() {
   return (
     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
@@ -136,13 +239,15 @@ export function RetryModelDialog({
   currentModel?: string | null | undefined;
   /** 拉模型列表；不是本机 Agent 时不给，只能手填 */
   load?: ((refresh: boolean) => Promise<LocalAgentModelsResponse>) | undefined;
-  onRetry: (model: string) => void;
+  /** model、effort 至少给一个；空串表示不换 */
+  onRetry: (model: string, effort: string) => void;
   onClose: () => void;
 }) {
   const [data, setData] = useState<LocalAgentModelsResponse | undefined>(
-    load ? undefined : { source: "preset", models: [] },
+    load ? undefined : { source: "preset", models: [], efforts: [] },
   );
   const [model, setModel] = useState("");
+  const [effort, setEffort] = useState("");
 
   const fetchModels = useCallback(
     async (refresh: boolean) => {
@@ -154,6 +259,7 @@ export function RetryModelDialog({
         setData({
           source: "preset",
           models: [],
+          efforts: [],
           error: cause instanceof Error ? cause.message : String(cause),
         });
       }
@@ -174,6 +280,17 @@ export function RetryModelDialog({
   }, [onClose]);
 
   const picked = model.trim();
+  // 能只换思考强度：模型不选时按它设置里的模型列档位
+  const effortModel = picked || currentModel || "";
+  const ready = Boolean(picked || effort);
+  const submitLabel =
+    picked && effort
+      ? t("用 {0}（{1}）重试", { 0: picked, 1: effortLabel(effort) })
+      : picked
+        ? t("用 {0} 重试", { 0: picked })
+        : effort
+          ? t("用 {0} 思考强度重试", { 0: effortLabel(effort) })
+          : t("重试");
   return (
     <div className="room-dialog-layer">
       <button
@@ -189,7 +306,7 @@ export function RetryModelDialog({
         aria-labelledby="retry-model-title"
         onSubmit={(event) => {
           event.preventDefault();
-          if (picked) onRetry(picked);
+          if (ready) onRetry(picked, effort);
         }}
       >
         <header className="invite-dialog-header">
@@ -218,8 +335,20 @@ export function RetryModelDialog({
               {t("这个 Agent 不在这台电脑上，拿不到它的模型列表，请手动输入模型名。")}
             </p>
           )}
-          <button type="submit" className="invite-submit" disabled={!picked}>
-            {picked ? t("用 {0} 重试", { 0: picked }) : t("重试")}
+          {data && data.efforts.length > 0 && (
+            <div className="retry-effort">
+              <span className="retry-effort-label">{t("思考强度")}</span>
+              <EffortPicker
+                data={data}
+                model={effortModel}
+                value={effort}
+                onChange={setEffort}
+                defaultLabel={t("不换")}
+              />
+            </div>
+          )}
+          <button type="submit" className="invite-submit" disabled={!ready}>
+            {submitLabel}
           </button>
         </div>
       </form>

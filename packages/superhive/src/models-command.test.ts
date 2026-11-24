@@ -5,7 +5,18 @@ describe("listModels", () => {
   it("reads Codex models from app-server model/list, skipping hidden ones", async () => {
     const listCodex = vi.fn(async () => ({
       data: [
-        { id: "gpt-a", model: "gpt-a", displayName: "GPT A", isDefault: true, hidden: false },
+        {
+          id: "gpt-a",
+          model: "gpt-a",
+          displayName: "GPT A",
+          isDefault: true,
+          hidden: false,
+          supportedReasoningEfforts: [
+            { reasoningEffort: "low", description: "Fast" },
+            { reasoningEffort: "xhigh", description: "Deep" },
+          ],
+          defaultReasoningEffort: "xhigh",
+        },
         { id: "gpt-b", model: "gpt-b", displayName: "gpt-b", hidden: false },
         { id: "gpt-secret", model: "gpt-secret", hidden: true },
       ],
@@ -13,7 +24,17 @@ describe("listModels", () => {
     await expect(listModels({ provider: "codex", listCodex })).resolves.toEqual({
       provider: "codex",
       source: "runtime",
-      models: [{ id: "gpt-a", label: "GPT A", isDefault: true }, { id: "gpt-b" }],
+      models: [
+        {
+          id: "gpt-a",
+          label: "GPT A",
+          isDefault: true,
+          efforts: ["low", "xhigh"],
+          defaultEffort: "xhigh",
+        },
+        { id: "gpt-b" },
+      ],
+      efforts: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
     });
     expect(listCodex).toHaveBeenCalledWith("codex");
   });
@@ -25,7 +46,14 @@ describe("listModels", () => {
       if (args.join(" ") === "models --json")
         return JSON.stringify({
           models: [
-            { kind: "chat", selector: "zhipu/glm-5", name: "GLM-5" },
+            {
+              kind: "chat",
+              selector: "zhipu/glm-5",
+              name: "GLM-5",
+              reasoning: true,
+              thinking: ["low", "high", "max"],
+            },
+            { kind: "chat", selector: "zhipu/flat", reasoning: false, thinking: [] },
             { kind: "embedding", selector: "zhipu/embed", name: "Embed" },
           ],
         });
@@ -41,8 +69,10 @@ describe("listModels", () => {
       { id: "zhipu-coding/glm-5.3" },
     ]);
     expect((await listModels({ provider: "omp", run })).models).toEqual([
-      { id: "zhipu/glm-5", label: "GLM-5" },
+      { id: "zhipu/glm-5", label: "GLM-5", efforts: ["off", "low", "high", "max", "auto"] },
+      { id: "zhipu/flat" },
     ]);
+    expect((await listModels({ provider: "opencode", run })).efforts).toEqual([]);
     expect((await listModels({ provider: "openclaw", run })).models).toEqual([
       { id: "codex/gpt-5.5", label: "gpt-5.5", isDefault: true },
     ]);
@@ -83,6 +113,7 @@ describe("listModels", () => {
         { id: "auto", label: "Auto" },
         { id: "gemini-2.5-pro", isDefault: true },
       ],
+      efforts: [],
     });
     expect((await listModels({ provider: "agy", listAcp, command: "/bin/agy" })).models).toEqual([
       { id: "gemini-4-neon", label: "Gemini 4 Neon" },
@@ -108,7 +139,10 @@ describe("listModels", () => {
     const claude = await listModels({ provider: "claude", run });
     expect(claude.source).toBe("preset");
     expect(claude.models.map((model) => model.id)).toEqual(["opus", "sonnet", "haiku", "opusplan"]);
-    expect((await listModels({ provider: "copilot", run })).models[0]!.id).toBe("auto");
+    expect(claude.efforts).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    const copilot = await listModels({ provider: "copilot", run });
+    expect(copilot.models[0]!.id).toBe("auto");
+    expect(copilot.efforts).toContain("none");
     expect(run).not.toHaveBeenCalled();
   });
 
@@ -123,6 +157,7 @@ describe("listModels", () => {
       provider: "opencode",
       source: "preset",
       models: [],
+      efforts: [],
       error: "spawn opencode ENOENT",
     });
   });
