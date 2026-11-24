@@ -214,6 +214,8 @@ type ActiveBatch = {
 };
 
 const MAX_ATTEMPTS = 3;
+/** 换任务目录时最多收起几段会话（每个目录一段），多了丢掉最早收起的 */
+const MAX_PARKED_SESSIONS = 8;
 /** 这些 Provider 续接会话时不会换上新的系统 / 开发者规则（ACP 等由 refreshInstructions 重新注入） */
 const RESUMED_SYSTEM_PROMPT_PROVIDERS = new Set(["claude", "codex"]);
 
@@ -259,6 +261,8 @@ export class AgentBridge {
    */
   private readonly crashResumable = new Map<string, number>();
   /** 中断前改过东西、接着原会话继续的提及：交给下一轮的步骤清单 */
+  /** 刚接回的会话没看到的消息范围（见 switchSession） */
+  private sessionGap: { threadId: string; afterSeq: number; untilSeq: number } | undefined;
   private readonly crashNotes = new Map<
     string,
     {
@@ -901,14 +905,7 @@ export class AgentBridge {
         access: this.options.access ?? "read-only",
       });
     }
-    if (selected !== this.state.workspace) {
-      delete this.state.threadId;
-      delete this.state.promptContext;
-      delete this.state.instructionsDigest;
-      delete this.state.lastFullPromptAt;
-      this.state.briefTurns = 0;
-      this.state.workspace = selected;
-    }
+    if (selected !== this.state.workspace) this.switchSession(selected);
     this.instructions = buildDeveloperInstructions({
       agentName: this.options.username,
       persona: this.options.persona,
@@ -918,6 +915,79 @@ export class AgentBridge {
     });
     await this.store.save(this.state);
     return changed;
+  }
+
+  /**
+   * 换任务目录时换会话：原目录的会话先收起来，要去的目录以前有会话就接回，没有才从新会话开始。
+   * 这样进任务目录做完、再回房间工作区时，原来那段对话还在（以前会整段丢掉）。
+   */
+  private switchSession(workspace: string): void {
+    const state = this.state;
+    const parked = (state.parkedSessions ?? []).filter(
+      (item) => item.workspace !== workspace && item.workspace !== state.workspace,
+    );
+    if (state.threadId && state.workspace) {
+      parked.push({
+        workspace: state.workspace,
+        threadId: state.threadId,
+        seenSeq: state.lastProcessedSeq,
+        ...(state.topicSeq !== undefined ? { topicSeq: state.topicSeq } : {}),
+        parkedAt: new Date().toISOString(),
+        ...(state.promptContext?.threadId === state.threadId
+          ? { promptContext: state.promptContext }
+          : {}),
+        ...(state.instructionsDigest ? { instructionsDigest: state.instructionsDigest } : {}),
+        ...(state.briefTurns !== undefined ? { briefTurns: state.briefTurns } : {}),
+        ...(state.lastFullPromptAt ? { lastFullPromptAt: state.lastFullPromptAt } : {}),
+        ...(state.lastTurnEndedAt ? { lastTurnEndedAt: state.lastTurnEndedAt } : {}),
+        ...(state.lastRequestAt ? { lastRequestAt: state.lastRequestAt } : {}),
+        ...(state.lastCacheTtlMs !== undefined ? { lastCacheTtlMs: state.lastCacheTtlMs } : {}),
+        ...(state.sessionCost?.threadId === state.threadId
+          ? { sessionCost: state.sessionCost }
+          : {}),
+      });
+    }
+    const restore = (state.parkedSessions ?? []).find(
+      (item) => item.workspace === workspace && item.topicSeq === state.topicSeq,
+    );
+    state.parkedSessions = parked.slice(-MAX_PARKED_SESSIONS);
+    if (state.parkedSessions.length === 0) delete state.parkedSessions;
+    delete state.threadId;
+    delete state.promptContext;
+    delete state.instructionsDigest;
+    delete state.lastFullPromptAt;
+    delete state.lastTurnEndedAt;
+    delete state.lastRequestAt;
+    delete state.lastCacheTtlMs;
+    state.briefTurns = 0;
+    state.workspace = workspace;
+    this.sessionGap = undefined;
+    if (!restore) return;
+    state.threadId = restore.threadId;
+    if (restore.promptContext) state.promptContext = restore.promptContext;
+    if (restore.instructionsDigest) state.instructionsDigest = restore.instructionsDigest;
+    if (restore.briefTurns !== undefined) state.briefTurns = restore.briefTurns;
+    if (restore.lastFullPromptAt) state.lastFullPromptAt = restore.lastFullPromptAt;
+    if (restore.lastTurnEndedAt) state.lastTurnEndedAt = restore.lastTurnEndedAt;
+    if (restore.lastRequestAt) state.lastRequestAt = restore.lastRequestAt;
+    if (restore.lastCacheTtlMs !== undefined) state.lastCacheTtlMs = restore.lastCacheTtlMs;
+    if (restore.sessionCost) state.sessionCost = restore.sessionCost;
+    this.log(`[hive] 回到 ${workspace}，接回之前在这里的会话`);
+    if (restore.seenSeq < state.lastProcessedSeq)
+      this.sessionGap = {
+        threadId: restore.threadId,
+        afterSeq: restore.seenSeq,
+        untilSeq: state.lastProcessedSeq,
+      };
+  }
+
+  /** 接回的会话没看到的那段消息（在别的任务目录里处理的），这一轮开头告诉 Agent，只说一次 */
+  private takeSessionGapNote(): string | undefined {
+    const gap = this.sessionGap;
+    this.sessionGap = undefined;
+    if (!gap || gap.threadId !== this.state.threadId) return undefined;
+    const args = JSON.stringify({ afterSeq: gap.afterSeq });
+    return `（系统提示）这是你之前在当前工作目录里的那段对话，已接回。之后你在别的任务目录里处理过一些消息（#${gap.afterSeq + 1}～#${gap.untilSeq} 之间），那些对话不在这里；下面只附上新消息。需要了解当时做了什么时，用 hive_room_read(${args}) 补读。`;
   }
 
   private reportNotSteered(message: ChatMessage): void {
@@ -1461,10 +1531,12 @@ export class AgentBridge {
         // 只在第一次开工时说：切到新任务目录之后，新会话里就不需要了
         const workspaceNote = handoff ? undefined : this.takeWorkspaceNote(messages);
         if (workspaceNote) prompt = { ...prompt, text: `${workspaceNote}\n\n${prompt.text}` };
+        const gapNote = this.takeSessionGapNote();
+        if (gapNote) prompt = { ...prompt, text: `${gapNote}\n\n${prompt.text}` };
         if (handoff)
           prompt = {
             ...prompt,
-            text: `（系统提示）上一轮已正常结束；现在已在 ${this.options.cwd} 建立独立的新会话和写权限。不要重放原任务或重复已完成的操作；先核对工作区及上一轮摘要，再继续尚未完成的工作。旧会话没有搬到这里。${stepsNote(handoffSteps, handoffFrom)}\n<previous_turn_summary untrusted="true">\n${handoff.slice(-12_000)}\n</previous_turn_summary>\n\n${prompt.text}`,
+            text: `（系统提示）上一轮已正常结束；现在已在 ${this.options.cwd} ${this.state.threadId ? "接回你之前在这个目录里的会话，并有写权限" : "建立独立的新会话和写权限"}。不要重放原任务或重复已完成的操作；先核对工作区及上一轮摘要，再继续尚未完成的工作。${this.state.threadId ? "上一轮（准备回合）的会话没有搬到这里。" : "旧会话没有搬到这里。"}${stepsNote(handoffSteps, handoffFrom)}\n<previous_turn_summary untrusted="true">\n${handoff.slice(-12_000)}\n</previous_turn_summary>\n\n${prompt.text}`,
           };
         this.log(
           `[hive] 正在处理 ${messages.map((message) => `#${message.seq}`).join("、")}（来自 ${[...new Set(messages.map((message) => message.senderName))].join("、")}）`,
@@ -2360,6 +2432,9 @@ export class AgentBridge {
     if (!boundary) return context;
     if (boundary.seq > (this.state.topicSeq ?? 0)) {
       this.state.topicSeq = boundary.seq;
+      // 收起来的会话都属于旧话题，不再接回
+      delete this.state.parkedSessions;
+      this.sessionGap = undefined;
       if (this.state.threadId) {
         this.log(`[hive] #${boundary.seq} 开启了新话题，丢弃之前的会话，从新会话开始`);
         delete this.state.threadId;

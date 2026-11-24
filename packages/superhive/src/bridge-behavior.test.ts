@@ -522,6 +522,75 @@ describe("AgentBridge", () => {
     await waitUntil(() => room.statuses(followup.id).includes("completed"));
   });
 
+  it("parks the session when moving to another task directory and picks it up again on return", async () => {
+    const checkout = path.join(directory, "checkout");
+    let selected: string | undefined = checkout;
+    taskWorkspace = { resolve: async () => selected, responder: () => responder };
+    await startBridge({ ...baseState(), workspace: directory, threadId: "room-thread" });
+
+    // 进任务目录：开新会话，原来房间工作区那段先收起来
+    const first = chat({ content: "@agent-a fix the bug" });
+    room.messages.push(first);
+    room.handlers.onMention(first, first.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    expect(responder.calls[0]?.threadId).toBeUndefined();
+    responder.finish("fixed", "task-thread");
+    await waitUntil(() => room.statuses(first.id).includes("completed"));
+    expect((await store.load())?.parkedSessions).toMatchObject([
+      { workspace: directory, threadId: "room-thread" },
+    ]);
+
+    // 回到房间工作区：接回原来那段，并说明中间在别的目录处理过哪些消息
+    selected = undefined;
+    const second = chat({ content: "@agent-a what next?" });
+    room.messages.push(second);
+    room.handlers.onMention(second, second.seq, false);
+    await waitUntil(() => responder.calls.length === 2);
+    expect(responder.calls[1]?.threadId).toBe("room-thread");
+    expect(responder.calls[1]?.prompt).toContain("已接回");
+    expect(responder.calls[1]?.prompt).toMatch(/hive_room_read\(\{"afterSeq":\d+\}\)/);
+    responder.finish("next", "room-thread");
+    await waitUntil(() => room.statuses(second.id).includes("completed"));
+
+    // 返修回到同一个任务目录：接着那件活的会话
+    selected = checkout;
+    const third = chat({ content: "@agent-a one more fix" });
+    room.messages.push(third);
+    room.handlers.onMention(third, third.seq, false);
+    await waitUntil(() => responder.calls.length === 3);
+    expect(responder.calls[2]?.threadId).toBe("task-thread");
+    responder.finish("done", "task-thread");
+    await waitUntil(() => room.statuses(third.id).includes("completed"));
+    const state = await store.load();
+    expect(state).toMatchObject({ workspace: checkout, threadId: "task-thread" });
+    expect(state?.parkedSessions?.map((item) => item.threadId)).toEqual(["room-thread"]);
+  });
+
+  it("does not pick up a parked session after a new topic started", async () => {
+    const checkout = path.join(directory, "checkout");
+    let selected: string | undefined = checkout;
+    taskWorkspace = { resolve: async () => selected, responder: () => responder };
+    await startBridge({ ...baseState(), workspace: directory, threadId: "room-thread" });
+    const first = chat({ content: "@agent-a fix the bug" });
+    room.messages.push(first);
+    room.handlers.onMention(first, first.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    responder.finish("fixed", "task-thread");
+    await waitUntil(() => room.statuses(first.id).includes("completed"));
+
+    room.messages.push(chat({ kind: "topic", content: "新话题", mentions: [] }));
+    selected = undefined;
+    const second = chat({ content: "@agent-a fresh start" });
+    room.messages.push(second);
+    room.handlers.onMention(second, second.seq, false);
+    await waitUntil(() => responder.calls.length === 2);
+    expect(responder.calls[1]?.threadId).toBeUndefined();
+    expect(responder.calls[1]?.prompt).not.toContain("已接回");
+    responder.finish("ok", "fresh-thread");
+    await waitUntil(() => room.statuses(second.id).includes("completed"));
+    expect((await store.load())?.parkedSessions).toBeUndefined();
+  });
+
   it.each([
     ["write", "write"],
     ["collaboration", "hive.hive_message_send"],

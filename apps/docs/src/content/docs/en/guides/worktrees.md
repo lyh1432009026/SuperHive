@@ -64,7 +64,7 @@ A task explicitly bound to a worktree keeps its task line. Even if the room's or
 
 Unbound follow-up messages use the current focus, so register a slug explicitly when there are several development tasks. Messages for different directories aren't casually merged into one turn; a message bound to another directory stays queued and can't be pushed into the current cwd by steering.
 
-Switching checkouts discards old threads that don't match; a saved session can only be resumed when the recorded working directory matches. If the directory doesn't exist, the registered identity doesn't match, or a safety check fails, keep things as they are and investigate. Don't take a single 403/404 as proof that you can create anew or force-delete.
+When switching checkouts, the session of the directory you leave is parked (one per directory, up to 8), and the directory you switch to picks up its earlier session if it has one; otherwise a new session starts. A session is only picked up again in the working directory it was recorded in. So after finishing in a task directory and returning to the room workspace, the earlier conversation is still there, and a follow-up fix in the same task directory continues that task's session. When a session is picked up again, the agent is told which messages were handled in other directories meanwhile and how to read them. Starting a new topic discards all parked sessions. If the directory doesn't exist, the registered identity doesn't match, or a safety check fails, keep things as they are and investigate. Don't take a single 403/404 as proof that you can create anew or force-delete.
 
 ## Delivered is not merged
 

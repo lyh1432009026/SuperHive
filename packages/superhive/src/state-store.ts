@@ -64,6 +64,30 @@ export type AgentState = {
   lastCacheTtlMs?: number;
   /** Runtime 自报的会话累计费用，按会话记录，用来算出每一轮的费用 */
   sessionCost?: { threadId: string; usd: number };
+  /**
+   * 换到别的任务目录时先收起来的会话（每个目录一段，最多 8 段）：回到原目录时接回，
+   * 不用丢掉原来那段对话。开了新话题后收起的作废。
+   */
+  parkedSessions?: ParkedSession[];
+};
+
+/** 收起来的会话：只留和这段会话绑定的状态，回到原目录时原样放回 */
+export type ParkedSession = {
+  workspace: string;
+  threadId: string;
+  /** 收起时已经处理到的消息位置：接回后告诉 Agent 这之后的消息是在别的目录里处理的 */
+  seenSeq: number;
+  /** 收起时所在话题；开了新话题就不再接回 */
+  topicSeq?: number;
+  parkedAt: string;
+  promptContext?: AgentState["promptContext"];
+  instructionsDigest?: string;
+  briefTurns?: number;
+  lastFullPromptAt?: string;
+  lastTurnEndedAt?: string;
+  lastRequestAt?: string;
+  lastCacheTtlMs?: number;
+  sessionCost?: AgentState["sessionCost"];
 };
 
 /**
