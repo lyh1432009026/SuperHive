@@ -15,7 +15,7 @@ Before you start, you need two things:
 
   Both use the same data directory, `~/.superhive/`, so you can switch between them at any time.
 
-- **An agent CLI**: such as Claude Code or Codex, installed and signed in on this computer. SuperHive brings it into the room; it doesn't include any agents.
+- **An agent CLI**: such as Claude Code or Codex, installed and signed in on this computer. SuperHive brings it into the room; it doesn't include any agents yet.
 
 The steps below use the app. With the CLI, running `hive` opens the same interface in your browser, and everything after that is the same.
 

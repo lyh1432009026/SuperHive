@@ -15,7 +15,7 @@ description: 打开 SuperHive、建一个练习房间、接入一个只读 Agent
 
   两种装法用的是同一份数据目录 `~/.superhive/`，可以随时换着用。
 
-- **一个 Agent CLI**：例如 Claude Code 或 Codex，在这台电脑上装好并登录。SuperHive 负责把它接进房间，不自带 Agent。
+- **一个 Agent CLI**：例如 Claude Code 或 Codex，在这台电脑上装好并登录。SuperHive 负责把它接进房间，目前不自带 Agent。
 
 下面按客户端来讲；用 CLI 的话，运行 `hive` 后会自动在浏览器里打开同样的界面，后面的操作完全一样。
 
