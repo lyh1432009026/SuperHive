@@ -1,0 +1,229 @@
+/*
+ * 按钮规范：全项目的操作按钮都用 button.tsx 的 <Button> / <IconButton>（或下面这组 class），不再各写一套。
+ *
+ * 种类：
+ *   btn-primary    主要：一个区域最多一个，放在最右（弹窗底部、表单提交）
+ *   btn-secondary  次要：描边，取消、返回、并列的普通操作
+ *   btn-ghost      幽灵：无底无框，卡片行内、工具栏里的轻操作
+ *   btn-danger     危险：红底，只用于「确认删除 / 断开」这类最后一步
+ *   btn-link       文字链接：像链接一样的行内操作
+ *   btn-tone-danger 危险语气：配 secondary / ghost / link，表示会删东西但还有下一步确认
+ *   btn-icon       纯图标：正方形，必须有 aria-label 和 Tooltip
+ * 尺寸：默认中号 32px；btn-sm 小号 28px（卡片、列表行里）；btn-lg 大号 40px（只给登录这类整页表单）
+ * 状态：:disabled / aria-disabled="true" 半透明且不响应悬停；aria-busy="true" 显示转圈；
+ *       键盘聚焦沿用 base.css 的 focus-visible 外框
+ *
+ * 组件样式只能改按钮的位置（margin、flex、width、position），不改颜色、高度、圆角，否则 button-usage 测试会报错。
+ * 个别密集的地方（调用 chip、思考卡片标题行）可以改 --btn-height / --btn-pad 压矮，别的外观一律不动。
+ *
+ * 这个文件在 styles.css 里最后引入，外观选择器都写成 .btn.btn-xxx（两个 class）：
+ * 老样式里还有「.某容器 button { … }」这种按标签选的规则（0,1,1），规范按钮不能被它们盖掉。
+ * 位置类的默认值放在 :where(.btn)（优先级 0），组件写一个 class 就能改。
+ */
+:where(.btn) {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: var(--btn-height);
+}
+
+.btn.btn {
+  --btn-height: 32px;
+  --btn-pad: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--btn-height);
+  padding: 0 var(--btn-pad);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+  transition:
+    background var(--duration-fast),
+    border-color var(--duration-fast),
+    color var(--duration-fast),
+    opacity var(--duration-fast);
+}
+
+.btn.btn-sm {
+  --btn-height: 28px;
+  --btn-pad: 10px;
+  gap: 4px;
+  font-size: var(--text-xs);
+}
+
+.btn.btn-lg {
+  --btn-height: 40px;
+  --btn-pad: 18px;
+  font-size: var(--text-base);
+}
+
+.btn > svg,
+.btn > .icon {
+  flex: 0 0 auto;
+}
+
+/* 主要 */
+.btn.btn-primary {
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
+  font-weight: var(--weight-semibold);
+}
+
+.btn.btn-primary:hover:not(:disabled, [aria-busy="true"], [aria-disabled="true"]) {
+  background: var(--button-primary-hover);
+}
+
+/* 次要 */
+.btn.btn-secondary {
+  border-color: var(--border-heavy);
+  background: var(--bg-elevated);
+}
+
+.btn.btn-secondary:hover:not(:disabled, [aria-busy="true"], [aria-disabled="true"]) {
+  border-color: var(--text-tertiary);
+  background: var(--bg-hover);
+}
+
+/* 幽灵 */
+.btn.btn-ghost {
+  color: var(--text-secondary);
+}
+
+.btn.btn-ghost:hover:not(:disabled, [aria-busy="true"], [aria-disabled="true"]),
+.btn.btn-ghost[aria-expanded="true"],
+.btn.btn-ghost[aria-pressed="true"] {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* 危险（实心） */
+.btn.btn-danger {
+  background: var(--danger);
+  color: #fff;
+  font-weight: var(--weight-semibold);
+}
+
+.btn.btn-danger:hover:not(:disabled, [aria-busy="true"], [aria-disabled="true"]) {
+  background: color-mix(in srgb, var(--danger) 86%, #000);
+}
+
+/* 危险语气：描边 / 幽灵 / 链接按钮的红字版本 */
+.btn.btn-tone-danger {
+  color: var(--danger);
+}
+
+.btn.btn-secondary.btn-tone-danger:hover:not(:disabled, [aria-busy="true"], [aria-disabled="true"]),
+.btn.btn-ghost.btn-tone-danger:hover:not(:disabled, [aria-busy="true"], [aria-disabled="true"]) {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.btn.btn-ghost.btn-tone-danger:hover:not(:disabled, [aria-busy="true"], [aria-disabled="true"]) {
+  border-color: transparent;
+}
+
+/* 文字链接：不占按钮高度，和正文同一行 */
+.btn.btn-link {
+  --btn-pad: 0;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  /* 链接文字可能很长（「升级或调整 … 的配置 →」），允许换行，左对齐 */
+  white-space: normal;
+  text-align: left;
+  border: 0;
+  border-radius: var(--radius-xs);
+  color: var(--accent);
+  font-weight: var(--weight-medium);
+}
+
+.btn.btn-link:hover:not(:disabled, [aria-busy="true"], [aria-disabled="true"]) {
+  color: var(--accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* 纯图标：正方形，圆角和输入框一致 */
+.btn.btn-icon {
+  --btn-pad: 0;
+  width: var(--btn-height);
+  border-radius: var(--radius-md);
+}
+
+/* 撑满容器宽度：只给窄屏表单、引导页的单个按钮用 */
+.btn.btn-block {
+  width: 100%;
+}
+
+.btn.btn:disabled,
+.btn.btn[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* 加载中：文字留位置不跳动，中间转圈 */
+.btn.btn[aria-busy="true"] {
+  cursor: progress;
+}
+
+.btn[aria-busy="true"] > :not(.btn-spinner) {
+  visibility: hidden;
+}
+
+.btn-spinner {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/*
+ * 操作区（弹窗底部、表单末尾、确认框）：
+ * - 靠右对齐，主要按钮在最右，往左依次是次要（取消）；
+ * - 删除、断开这类和主流程无关的操作放 .dialog-actions-start，靠左；
+ * - 窄屏（≤ 520px）竖排撑满，主要按钮在最上面。
+ */
+.dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dialog-actions-start {
+  margin-right: auto;
+}
+
+.dialog-actions.center {
+  justify-content: center;
+}
+
+@media (max-width: 520px) {
+  .dialog-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .dialog-actions > .btn {
+    width: 100%;
+  }
+
+  .dialog-actions-start {
+    margin-right: 0;
+  }
+}

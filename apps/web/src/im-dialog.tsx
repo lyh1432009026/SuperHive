@@ -20,6 +20,7 @@ import {
 import { LOCALE_OPTIONS, getLocale, localized, t } from "./i18n";
 import { Select } from "./select";
 import { DocsLink } from "./docs-link";
+import { Button, IconButton } from "./button";
 
 function CloseGlyph() {
   return (
@@ -308,14 +309,14 @@ export function ImDialog({
         <header className="invite-dialog-header im-dialog-header">
           <div className="im-dialog-heading">
             {view === "add" && (
-              <button
-                type="button"
+              <IconButton
                 className="im-back"
-                aria-label={t("返回连接列表")}
+                variant="secondary"
+                label={t("返回连接列表")}
                 onClick={() => void backToList()}
               >
                 <BackGlyph />
-              </button>
+              </IconButton>
             )}
             <div>
               <h2 id="im-dialog-title">{title}</h2>
@@ -331,13 +332,13 @@ export function ImDialog({
           </div>
           <div className="im-dialog-tools">
             {view === "list" && list.length > 0 && (
-              <button type="button" className="im-add" onClick={() => openAdd()}>
+              <Button variant="primary" onClick={() => openAdd()}>
                 {t("新增连接")}
-              </button>
+              </Button>
             )}
-            <button type="button" className="invite-close" aria-label={t("关闭")} onClick={onClose}>
+            <IconButton label={t("关闭")} onClick={onClose}>
               <CloseGlyph />
-            </button>
+            </IconButton>
           </div>
         </header>
 
@@ -410,6 +411,7 @@ export function ImDialog({
                 void submitImLoginCode(base, adminToken, login.id, code).then(setLogin, fail)
               }
               onDone={() => void backToList()}
+              onBack={() => void backToList()}
             />
           )}
         </div>
@@ -437,15 +439,11 @@ function EmptyState({
           "连上之后，不开网页也能在手机上派活、回答 Agent 的提问；你所在的所有房间里和你有关的结果都会推过来。",
         )}
       </p>
-      <div className="im-empty-actions">
-        <button type="button" className="invite-submit" onClick={() => onAdd("feishu")}>
+      <div className="dialog-actions center im-empty-actions">
+        {wechatEnabled && <Button onClick={() => onAdd("wechat")}>{t("连接个人微信")}</Button>}
+        <Button variant="primary" onClick={() => onAdd("feishu")}>
           {t("连接飞书")}
-        </button>
-        {wechatEnabled && (
-          <button type="button" className="invite-submit secondary" onClick={() => onAdd("wechat")}>
-            {t("连接个人微信")}
-          </button>
-        )}
+        </Button>
       </div>
     </div>
   );
@@ -508,26 +506,23 @@ function ConnectionCard({
         </span>
         {/* 常用操作放在标题栏右侧，不再单独占一行 */}
         <div className="im-card-actions">
+          {/* 要你处理的那一步用主要按钮，其余是描边小按钮；断开放最后、红字 */}
           {connection.attention === "relogin" && (
-            <button type="button" className="ghost" onClick={onRescan}>
+            <Button variant="primary" size="sm" onClick={onRescan}>
               {t("重新扫码")}
-            </button>
+            </Button>
           )}
           {connection.status === "error" && connection.attention !== "relogin" && (
-            <button type="button" className="ghost" onClick={() => onPause(false)}>
+            <Button variant="primary" size="sm" onClick={() => onPause(false)}>
               {t("重新连接")}
-            </button>
+            </Button>
           )}
-          <button
-            type="button"
-            className="ghost"
-            onClick={() => onPause(connection.status !== "paused")}
-          >
+          <Button size="sm" onClick={() => onPause(connection.status !== "paused")}>
             {connection.status === "paused" ? t("继续") : t("暂停")}
-          </button>
-          <button type="button" className="ghost danger" onClick={onRemove}>
+          </Button>
+          <Button size="sm" tone="danger" onClick={onRemove}>
             {t("断开")}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -648,6 +643,7 @@ function AddConnection({
   onCancel,
   onSubmitCode,
   onDone,
+  onBack,
 }: {
   channel: ImChannel;
   wechatEnabled: boolean;
@@ -662,6 +658,7 @@ function AddConnection({
   onCancel: () => void;
   onSubmitCode: () => void;
   onDone: () => void;
+  onBack: () => void;
 }) {
   const channels = (["feishu", "wechat"] as const).filter(
     (item) => item === "feishu" || wechatEnabled,
@@ -676,9 +673,11 @@ function AddConnection({
             ? t("先在微信里给机器人发一条消息（比如 /help），之后才收得到推送。")
             : t("在飞书里私聊机器人发 /help 看看能做什么。")}
         </p>
-        <button type="button" className="invite-submit" onClick={onDone}>
-          {t("完成")}
-        </button>
+        <div className="dialog-actions center">
+          <Button variant="primary" onClick={onDone}>
+            {t("完成")}
+          </Button>
+        </div>
       </div>
     );
   }
@@ -776,31 +775,34 @@ function AddConnection({
                   aria-label={t("配对码")}
                   onChange={(event) => onCode(event.target.value.replace(/\D/g, ""))}
                 />
-                <button type="submit" className="primary" disabled={code.length < 4}>
+                <Button type="submit" variant="primary" disabled={code.length < 4}>
                   {t("提交")}
-                </button>
+                </Button>
               </form>
             )}
           </div>
         </div>
       )}
 
-      {scanning ? (
-        <button type="button" className="invite-submit secondary" onClick={onCancel}>
-          {t("取消扫码")}
-        </button>
-      ) : (
-        <button
-          type="button"
-          className="invite-submit"
-          disabled={channel === "wechat" && !acceptRisk}
-          onClick={onBegin}
-        >
-          {login?.status === "failed"
-            ? t("重新扫码")
-            : t("扫码连接{0}", { 0: IM_CHANNEL_LABELS[channel] })}
-        </button>
-      )}
+      {/* 底部操作区：主要按钮在最右；扫码进行中只剩「取消扫码」 */}
+      <div className="dialog-actions">
+        {scanning ? (
+          <Button onClick={onCancel}>{t("取消扫码")}</Button>
+        ) : (
+          <>
+            <Button onClick={onBack}>{t("返回")}</Button>
+            <Button
+              variant="primary"
+              disabled={channel === "wechat" && !acceptRisk}
+              onClick={onBegin}
+            >
+              {login?.status === "failed"
+                ? t("重新扫码")
+                : t("扫码连接{0}", { 0: IM_CHANNEL_LABELS[channel] })}
+            </Button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

@@ -87,7 +87,7 @@
 
 .im-code input {
   width: 120px;
-  height: 36px;
+  height: 32px;
   border: 1px solid var(--border-heavy);
   border-radius: var(--radius-md, 8px);
   padding: 0 10px;
@@ -95,16 +95,6 @@
   color: var(--text);
   font-size: var(--text-base);
   letter-spacing: 0.2em;
-}
-
-.invite-submit.secondary {
-  border: 1px solid var(--border-heavy);
-  background: transparent;
-  color: var(--text);
-}
-
-.invite-submit.secondary:hover:not(:disabled) {
-  background: var(--bg-hover);
 }
 
 .im-usage {
@@ -159,38 +149,9 @@
   flex: 0 0 auto;
 }
 
+/* 返回按钮和标题第一行对齐 */
 .im-back {
-  display: inline-grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
   margin-top: 2px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md, 8px);
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.im-back:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.im-add {
-  height: 32px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: var(--radius-md, 8px);
-  background: var(--text);
-  color: var(--bg-main);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  cursor: pointer;
-}
-
-.im-add:hover {
-  opacity: 0.88;
 }
 
 .im-dialog-body {
@@ -387,25 +348,6 @@
   gap: 6px;
 }
 
-.im-card-actions .ghost {
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md, 8px);
-  background: transparent;
-  color: var(--text);
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-
-.im-card-actions .ghost:hover {
-  background: var(--bg-hover);
-}
-
-.im-card-actions .ghost.danger {
-  color: var(--danger);
-}
-
 .im-empty {
   display: grid;
   justify-items: center;
@@ -436,18 +378,21 @@
   line-height: 1.6;
 }
 
-.im-empty-actions,
-.im-added {
-  display: flex;
-  gap: 8px;
+.im-empty-actions {
   margin-top: 6px;
 }
 
 .im-added {
+  display: flex;
+  gap: 8px;
   flex-direction: column;
   align-items: center;
   padding: 32px 16px;
   text-align: center;
+}
+
+.im-added .dialog-actions {
+  margin-top: 8px;
 }
 
 .im-added strong {
@@ -528,10 +473,5 @@
 
   .im-card-facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .im-empty-actions {
-    flex-direction: column;
-    width: 100%;
   }
 }
