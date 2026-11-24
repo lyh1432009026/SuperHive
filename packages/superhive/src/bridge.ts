@@ -383,7 +383,7 @@ export class AgentBridge {
             ...(first ? { first } : {}),
           });
         },
-        onCancel: (messageId) => this.cancel(messageId),
+        onCancel: (messageId, turn) => this.cancel(messageId, turn),
         onApprovalDecision: (requestId, allow, reason) =>
           this.approvals.get(requestId)?.(allow, reason),
         onMessageDeleted: (message) => this.onRecalled(message.id),
@@ -1085,7 +1085,11 @@ export class AgentBridge {
     this.room.setTyping(Boolean(this.active) || this.waitingResume.size > 0);
   }
 
-  private cancel(messageId: string): void {
+  /**
+   * 停止一条消息的处理。turn 是服务端一起停的同轮消息（人停的是整轮）：在跑的这一轮里有它们就一并
+   * 标为停止，不等几条停止请求逐条到达，免得中间误判成「同轮还有没停的」而上报停止被推迟。
+   */
+  private cancel(messageId: string, turn?: string[]): void {
     // 正在等待自动继续：直接取消，不用等计时器
     const waiting = this.waitingResume.get(messageId);
     if (waiting) {
@@ -1141,11 +1145,28 @@ export class AgentBridge {
     }
     const active = this.active;
     if (active?.messages.some((message) => message.id === messageId)) {
-      active.cancelled.add(messageId);
+      const together = new Set([messageId, ...(Array.isArray(turn) ? turn : [])]);
+      const stopping = active.messages.filter(
+        (message) => together.has(message.id) && !active.cancelled.has(message.id),
+      );
+      for (const message of stopping) active.cancelled.add(message.id);
       // 合批中只要还有未被停止的消息，就继续这一轮
       if (active.messages.every((message) => active.cancelled.has(message.id))) {
         this.log("[hive] 收到停止请求，正在中断当前回合");
         active.controller.abort();
+        return;
+      }
+      // 这一轮不会马上停：如实告诉服务端，别让这几条一直显示「停止中」。
+      // 重复的停止请求（已标过的）也再说一次，服务端可能刚又把它改成了停止中
+      const deferred = stopping.length > 0 ? stopping : [{ id: messageId }];
+      this.log(`[hive] 收到停止请求，但同一轮还有没停的消息，这一轮继续`);
+      for (const message of deferred) {
+        this.room.report({
+          messageId: message.id,
+          status: "running",
+          stopDeferred: true,
+          ...said(bridgeText("bridge.stopDeferred")),
+        });
       }
       return;
     }

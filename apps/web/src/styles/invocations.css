@@ -149,6 +149,15 @@ button.invocation-summary:focus-visible {
   color: var(--text);
 }
 
+/* 点不了但要能悬停看说明（访客停不了有别人消息的这一轮） */
+.invocation-action[aria-disabled="true"],
+.invocation-action[aria-disabled="true"]:hover {
+  background: transparent;
+  color: var(--text-tertiary);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .invocation-action.primary {
   background: var(--bg-elevated);
   color: var(--text);

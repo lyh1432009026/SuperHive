@@ -1663,7 +1663,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const { invocation, message, agent, running } = steerableInvocation(actor, invocationId);
     // 先让 Agent 把这条排到队首、下一轮单独做，再停当前任务
     deliverMention(message, agent, false, false, true);
-    for (const item of running) cancelInvocation(actor, item.id);
+    // 停的是整轮：同一轮一起处理的几条一并停下
+    if (running[0]) cancelInvocation(actor, running[0].id);
     emitInvocation(
       database.updateInvocation(invocation.id, {
         detail: serverText("invocation.preemptRequested", { name: actor.username }),
@@ -3349,14 +3350,46 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       if (target) send(target.socket, { type: "agent.cancel", messageId: message.id });
       return;
     }
-    cancelInvocation(actor, invocation.id, serverText("invocation.reasonRecalled"));
+    // 撤回只停这一条：同一轮里别的消息照常做（Bridge 会如实回报这一轮没停，不会一直挂着「停止中」）
+    cancelInvocation(actor, invocation.id, serverText("invocation.reasonRecalled"), "single");
+  }
+
+  /** 是否在 Agent 正跑着的这一轮里：执行中、停止中，或提问后这一轮还没结束 */
+  function inRunningTurn(invocation: Invocation): boolean {
+    return (
+      invocation.status === "running" ||
+      invocation.status === "cancelling" ||
+      (invocation.status === "waiting_human" && !invocation.finishedAt)
+    );
+  }
+
+  /**
+   * 和这条在同一轮里一起处理的调用（含它自己）。Agent 在一个房间里同一时间只跑一轮，
+   * 把排队的几条合在一轮里做时每条各有一条调用，所以这个 Agent 在这个房间里正在跑的就是这一轮。
+   * 不在跑的（排队中等）只有它自己。
+   */
+  function turnOf(invocation: Invocation): Invocation[] {
+    if (!inRunningTurn(invocation)) return [invocation];
+    const turn = database
+      .listExecutingInvocations(invocation.agentId)
+      .filter((item) => item.roomId === invocation.roomId);
+    return turn.some((item) => item.id === invocation.id) ? turn : [invocation, ...turn];
   }
 
   /**
    * 停止调用。尚未开始执行的直接给出终态；已开始的进入 cancelling，等 Agent 回报结束才算停下，
    * 期间不允许重试。状态落库，服务端重启或 Agent 断线后仍保持，Agent 重连时会再次收到停止请求。
    */
-  function cancelInvocation(actor: Participant, invocationId: string, reason?: ServerText): void {
+  function cancelInvocation(
+    actor: Participant,
+    invocationId: string,
+    reason?: ServerText,
+    /**
+     * turn：停整轮。几条消息合在一轮里处理时，在其中任意一条下面点「停止」都停掉这一轮，
+     * 否则 Bridge 会因为同轮还有没停的接着跑。single：只停这一条（撤回时用）
+     */
+    scope: "turn" | "single" = "turn",
+  ): void {
     const invocation = invocationInRoom(actor, invocationId);
     if (isTerminal(invocation)) return;
     // 等人回答且这一轮已结束：没有在跑的执行需要确认，直接停下
@@ -3371,6 +3404,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       );
       return;
     }
+    const turn = scope === "turn" ? turnOf(invocation) : [invocation];
+    const together = turn.length > 1 ? turn.map((item) => item.messageId) : undefined;
+    for (const item of turn) requestStop(actor, item, reason, together);
+  }
+
+  /** 把一条调用标为停止中并请 Agent 停下；together 是同一轮一起停的消息，Bridge 据此一次全部标上 */
+  function requestStop(
+    actor: Participant,
+    invocation: Invocation,
+    reason: ServerText | undefined,
+    together: string[] | undefined,
+  ): void {
     const target = onlineAgent(invocation.roomId, invocation.agentName);
     if (invocation.status !== "cancelling") {
       emitInvocation(
@@ -3391,7 +3436,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       );
     }
     // 重复点击停止时只重发请求，不改动状态
-    if (target) send(target.socket, { type: "agent.cancel", messageId: invocation.messageId });
+    if (target) {
+      send(target.socket, {
+        type: "agent.cancel",
+        messageId: invocation.messageId,
+        ...(together ? { turn: together } : {}),
+      });
+    }
   }
 
   function extendBudget(actor: Participant, turns: number): void {
@@ -3486,6 +3537,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       if (isTerminal(invocation)) return;
       // 人已收起的结果未知：不让迟到的进度、或 Agent 中断后自动恢复把它冲回执行中（最终结果照常落定）
       if (invocation.status === "timed_out" && invocation.resolution) return;
+      // Agent 收到停止，但这一轮还在处理同轮其它没停的消息（比如只撤回了其中一条）：这一轮没停下，
+      // 不能一直显示「停止中」，如实改回执行中并写明原因；这一轮结束时 Agent 再把这条报成已停止
+      if (invocation.status === "cancelling" && report.stopDeferred) {
+        emitInvocation(
+          database.updateInvocation(invocation.id, {
+            status: "running",
+            detail: reportDetail(report) ?? serverText("bridge.stopDeferred"),
+            runtime: observeRuntime(invocation.runtime, report.runtimeEvent, now),
+          }),
+        );
+        return;
+      }
       // 停止未确认前、或提问后等人回答期间的进度和心跳只更新运行观测，不把调用冲回 running
       if (invocation.status === "cancelling" || invocation.status === "waiting_human") {
         emitInvocation(
@@ -6106,6 +6169,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             type: "error",
             code: "OWNER_ONLY",
             ...wsText(serverText("error.guest.manageOwn")),
+          });
+          return;
+        }
+        // 停的是整轮：同一轮里还在处理别人发起的消息时访客无权停，说清楚，不显示成停住了
+        if (
+          event.type === "invocation.cancel" &&
+          !isTerminal(invocation) &&
+          turnOf(invocation).some((item) => item.requesterId !== participant.id)
+        ) {
+          send(socket, {
+            type: "error",
+            code: "OWNER_ONLY",
+            ...wsText(serverText("error.guest.stopSharedTurn", { agent: invocation.agentName })),
           });
           return;
         }

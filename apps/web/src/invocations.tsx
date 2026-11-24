@@ -119,6 +119,47 @@ export function hasRunningTask(invocation: Invocation, all: Iterable<Invocation>
   return false;
 }
 
+/** 是否在 Agent 正跑着的这一轮里：执行中、停止中，或提问后这一轮还没结束（与服务端同一判定） */
+function inRunningTurn(invocation: Invocation): boolean {
+  return (
+    invocation.status === "running" ||
+    invocation.status === "cancelling" ||
+    (invocation.status === "waiting_human" && !invocation.finishedAt)
+  );
+}
+
+/**
+ * 和这条合在同一轮里处理的其它调用：Agent 在一个房间里同一时间只跑一轮，所以它在跑的都在这一轮里。
+ * 在其中任意一条下面点「停止」，服务端会把整轮一起停下
+ */
+export function turnSiblings(invocation: Invocation, all: Iterable<Invocation>): Invocation[] {
+  if (!inRunningTurn(invocation)) return [];
+  const siblings: Invocation[] = [];
+  for (const other of all) {
+    if (
+      other.id !== invocation.id &&
+      other.agentId === invocation.agentId &&
+      other.roomId === invocation.roomId &&
+      inRunningTurn(other)
+    ) {
+      siblings.push(other);
+    }
+  }
+  return siblings;
+}
+
+/** 访客能不能停下这一轮：同一轮里有别人发起的消息时不能（服务端同样这么判） */
+export function guestCanStopTurn(
+  invocation: Invocation,
+  all: Iterable<Invocation>,
+  selfName: string,
+): boolean {
+  const self = selfName.toLocaleLowerCase();
+  return [invocation, ...turnSiblings(invocation, all)].every(
+    (item) => item.requesterType === "human" && item.requesterName.toLocaleLowerCase() === self,
+  );
+}
+
 export function canCancelInvocation(invocation: Invocation): boolean {
   if (invocation.resolution) return false;
   return (
@@ -424,6 +465,7 @@ export function InvocationChips({
   connectionState,
   allInvocations,
   isOwner = true,
+  selfName,
   onLocate,
   onDismiss,
   traces,
@@ -451,6 +493,8 @@ export function InvocationChips({
   onLocate?: (messageId: string) => void;
   /** 访客看不到「批准」：访客的请求只能由房主放行 */
   isOwner?: boolean;
+  /** 自己的名字：访客停止时据此判断同一轮里有没有别人发起的消息 */
+  selfName?: string;
   invocations: Invocation[];
   /** 房间里全部调用，用来展示委派关系；省略时只看本条消息的调用 */
   allInvocations?: ReadonlyMap<string, Invocation>;
@@ -698,16 +742,61 @@ export function InvocationChips({
                     </button>
                   </Tooltip>
                 )}
-              {canCancelInvocation(invocation) && (
-                <button
-                  type="button"
-                  className="invocation-action subtle"
-                  aria-label={t("停止 @{0}", { 0: invocation.agentName })}
-                  onClick={() => onCancel(invocation)}
-                >
-                  {t("停止")}
-                </button>
-              )}
+              {canCancelInvocation(invocation) &&
+                (() => {
+                  const all = allInvocations?.values() ?? invocations;
+                  const siblings = turnSiblings(invocation, all);
+                  if (siblings.length === 0) {
+                    return (
+                      <button
+                        type="button"
+                        className="invocation-action subtle"
+                        aria-label={t("停止 @{0}", { 0: invocation.agentName })}
+                        onClick={() => onCancel(invocation)}
+                      >
+                        {t("停止")}
+                      </button>
+                    );
+                  }
+                  // 几条合在一轮里处理：停的是整轮。访客停不了有别人消息的这一轮，按钮点不了并说清楚
+                  const blocked =
+                    !isOwner &&
+                    selfName !== undefined &&
+                    !guestCanStopTurn(
+                      invocation,
+                      allInvocations?.values() ?? invocations,
+                      selfName,
+                    );
+                  return (
+                    <Tooltip
+                      content={
+                        blocked
+                          ? t("@{0} 这一轮还在一起处理别人发起的消息，访客没法停下这一轮", {
+                              0: invocation.agentName,
+                            })
+                          : t("这一轮一起处理了 {0} 条消息，停止会把它们一起停下", {
+                              0: siblings.length + 1,
+                            })
+                      }
+                    >
+                      <button
+                        type="button"
+                        className="invocation-action subtle"
+                        aria-label={t("停止 @{0} 这一轮的 {1} 条消息", {
+                          0: invocation.agentName,
+                          1: siblings.length + 1,
+                        })}
+                        // 不用 disabled：禁用的按钮收不到悬停，说明就看不到了
+                        aria-disabled={blocked || undefined}
+                        onClick={() => {
+                          if (!blocked) onCancel(invocation);
+                        }}
+                      >
+                        {t("停止这一轮")}
+                      </button>
+                    </Tooltip>
+                  );
+                })()}
               {consequence && (
                 <span id={consequenceId} className="invocation-consequence">
                   {consequence}

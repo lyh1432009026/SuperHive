@@ -2977,9 +2977,55 @@ describe("AgentBridge", () => {
     room.handlers.onCancel!(first.id);
     expect(room.statuses(first.id)).not.toContain("cancelled");
     expect(responder.calls[0]!.signal?.aborted).toBe(false);
+    // 这一轮没停下：如实告诉服务端，不让这条一直显示「停止中」
+    const deferred = room.reports.filter((report) => report.messageId === first.id).at(-1);
+    expect(deferred).toMatchObject({ status: "running", stopDeferred: true });
+    expect(deferred?.detail).toContain("这一轮会继续");
+    expect(
+      room.reports.some((report) => report.messageId === second.id && report.stopDeferred),
+    ).toBe(false);
     responder.finish();
     await waitUntil(() => room.statuses(first.id).includes("cancelled"));
     expect(room.statuses(second.id)).toContain("completed");
+  });
+
+  it("stops the whole turn at once when the server stops every message of it together", async () => {
+    await startBridge(baseState());
+    const first = chat();
+    const second = chat();
+    room.messages.push(first, second);
+    room.handlers.onMention(first, first.seq, false);
+    room.handlers.onMention(second, second.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    // 服务端停整轮：第一条停止请求就带上同轮的全部消息，不等第二条到达
+    room.handlers.onCancel!(first.id, [first.id, second.id]);
+    expect(responder.calls[0]!.signal?.aborted).toBe(true);
+    expect(room.reports.some((report) => report.stopDeferred)).toBe(false);
+    // 随后到达的第二条停止请求不会被当成「同轮还有没停的」
+    room.handlers.onCancel!(second.id, [first.id, second.id]);
+    expect(room.reports.some((report) => report.stopDeferred)).toBe(false);
+    await waitUntil(
+      () =>
+        room.statuses(first.id).includes("cancelled") &&
+        room.statuses(second.id).includes("cancelled"),
+    );
+  });
+
+  it("ignores turn members that aren't part of the running turn", async () => {
+    await startBridge(baseState());
+    const first = chat();
+    const second = chat();
+    room.messages.push(first, second);
+    room.handlers.onMention(first, first.seq, false);
+    room.handlers.onMention(second, second.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    room.handlers.onCancel!(first.id, [first.id, "00000000-0000-4000-8000-ffffffffffff"]);
+    expect(responder.calls[0]!.signal?.aborted).toBe(false);
+    expect(room.reports.filter((report) => report.stopDeferred).map((r) => r.messageId)).toEqual([
+      first.id,
+    ]);
+    responder.finish();
+    await waitUntil(() => room.statuses(second.id).includes("completed"));
   });
 
   it("picks the deepest trigger as the reply parent", () => {

@@ -65,7 +65,7 @@ export type RoomClientHandlers = {
     /** 人对一次中途中断点了「继续」 */
     resume?: boolean,
   ) => void;
-  onCancel?: (messageId: string) => void;
+  onCancel?: (messageId: string, turn?: string[]) => void;
   /** 人批了 / 拒了执行中申请的权限 */
   onApprovalDecision?: (requestId: string, allow: boolean, reason?: string) => void;
   /** 本机 Hive Server 请本进程退出（Windows 上停止本机 Agent 时用） */
@@ -350,7 +350,7 @@ export class RoomClient {
       return;
     }
     if (event.type === "agent.cancel") {
-      this.handlers.onCancel?.(event.messageId);
+      this.handlers.onCancel?.(event.messageId, event.turn);
       return;
     }
     if (event.type === "approval.decision") {

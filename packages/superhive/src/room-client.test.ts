@@ -247,14 +247,14 @@ describe("RoomClient reports", () => {
       connection.on("message", (raw) => received.push(JSON.parse(raw.toString())));
     });
     let resolveSnapshot!: () => void;
-    let resolveCancel!: (id: string) => void;
+    let resolveCancel!: (cancel: { id: string; turn?: string[] }) => void;
     let resolveRetry!: (retry: boolean) => void;
     client = new RoomClient(
       { serverUrl: `http://127.0.0.1:${port}`, roomId: "general", username: "a", token: "t" },
       {
         onSnapshot: () => resolveSnapshot(),
         onMention: (_message, _latest, retry) => resolveRetry(retry),
-        onCancel: (id) => resolveCancel(id),
+        onCancel: (id, turn) => resolveCancel({ id, ...(turn ? { turn } : {}) }),
         onError: () => undefined,
       },
     );
@@ -289,9 +289,16 @@ describe("RoomClient reports", () => {
       { type: "invocation.report", messageId, status: "failed", detail: "crash" },
     ]);
 
-    const cancel = waitFor<string>((resolve) => (resolveCancel = resolve));
+    const cancel = waitFor<{ id: string; turn?: string[] }>((resolve) => (resolveCancel = resolve));
     socket!.send(JSON.stringify({ type: "agent.cancel", messageId }));
-    expect(await cancel).toBe(messageId);
+    expect(await cancel).toEqual({ id: messageId });
+    // 服务端停整轮时带上同轮的消息，原样交给 Bridge
+    const sibling = "00000000-0000-4000-8000-000000000002";
+    const turnCancel = waitFor<{ id: string; turn?: string[] }>(
+      (resolve) => (resolveCancel = resolve),
+    );
+    socket!.send(JSON.stringify({ type: "agent.cancel", messageId, turn: [messageId, sibling] }));
+    expect(await turnCancel).toEqual({ id: messageId, turn: [messageId, sibling] });
     const retry = waitFor<boolean>((resolve) => (resolveRetry = resolve));
     socket!.send(
       JSON.stringify({

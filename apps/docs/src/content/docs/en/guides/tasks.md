@@ -51,13 +51,15 @@ The stop button ends **this one task**. It does not undo files, commits, network
 | Claude Code              | First asks the runtime to interrupt the current turn and tools; if not confirmed within about 5 seconds, ends the process and marks the outcome unknown |
 | GitHub Copilot, OpenClaw | Ends the corresponding child process; you still need to check whether an external operation completed                                                   |
 
+When an agent batches several messages into one turn, stopping applies to **the turn**: click "Stop this turn" under any of them and they all stop together. Guests can only stop tasks they started; if the turn also includes messages other people sent, the button is unavailable and hovering it explains why, so the owner has to stop it.
+
 If the Server goes a long time without a stop confirmation, it also moves the task to Outcome unknown rather than showing Stopping forever. A late result may update the record afterward; until then, don't assume there were no side effects.
 
 ### What unsending covers
 
 When you unsend a message whose task hasn't finished, the confirmation defaults to "Unsend and stop": queued or blocked tasks are cancelled, and running or waiting-for-answer tasks are stopped. You can also choose "Unsend only" to let the current work continue without replying to that message.
 
-This only stops tasks dispatched directly by that message. It **does not also stop every subtask delegated with `hive_invoke`**. If several messages were batched into one turn, the others may still be processed. To stop subtasks, open each corresponding task and handle it explicitly.
+This only stops tasks dispatched directly by that message. It **does not also stop every subtask delegated with `hive_invoke`**. If several messages were batched into one turn, the others keep being processed: this one goes back to Running with a note that the turn continues, and is marked Stopped when the turn ends. To stop subtasks, open each corresponding task and handle it explicitly.
 
 ## What retry, continue, restart, and reset each do
 

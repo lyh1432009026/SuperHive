@@ -175,6 +175,8 @@ export type InvocationReport = {
   contextSeq?: number;
   runtimeEvent?: RuntimeEvent;
   usage?: AgentUsage;
+  /** 收到停止但同轮还有没停的消息、这一轮继续（status 为 running） */
+  stopDeferred?: boolean;
 };
 
 export type ServerEvent =
@@ -208,7 +210,8 @@ export type ServerEvent =
       /** 人对一次中途中断点了「继续」：接着原会话核对现状再往下做 */
       resume?: boolean;
     }
-  | { type: "agent.cancel"; messageId: string }
+  /** turn：同一轮一起停的几条消息（含 messageId），旧版服务端不带 */
+  | { type: "agent.cancel"; messageId: string; turn?: string[] }
   /** 人对 Agent 执行中申请的权限做了决定（或过时） */
   | { type: "approval.decision"; requestId: string; allow: boolean; reason?: string }
   | { type: "agent.shutdown" }

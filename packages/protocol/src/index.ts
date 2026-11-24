@@ -705,6 +705,11 @@ export const invocationReportEventSchema = z.object({
   replyMessageId: z.string().uuid().optional(),
   /** Agent 本轮已读到的公共消息 seq，Hive MCP 据此只附带之后的新消息 */
   contextSeq: z.number().int().nonnegative().optional(),
+  /**
+   * 收到停止，但这一轮还在处理同轮其它没停的消息、不会马上停下（status 为 running）：
+   * 服务端据此把「停止中」改回执行中并写明原因，这一轮结束时这条再落定为已停止
+   */
+  stopDeferred: z.boolean().optional(),
 });
 export const invocationRetryEventSchema = z.object({
   type: z.literal("invocation.retry"),
@@ -845,6 +850,11 @@ export const agentShutdownEventSchema = z.object({
 export const agentCancelEventSchema = z.object({
   type: z.literal("agent.cancel"),
   messageId: z.string().uuid(),
+  /**
+   * 同一轮一起停的几条消息（含 messageId 本身）：人停的是整轮，Bridge 收到第一条就把它们一起标为停止，
+   * 不会因为几条停止请求先后到达而误以为「同轮还有没停的」。旧版 Bridge 忽略它，逐条处理也能停下
+   */
+  turn: z.array(z.string().uuid()).max(100).optional(),
 });
 export const invocationUpdatedEventSchema = z.object({
   type: z.literal("invocation.updated"),

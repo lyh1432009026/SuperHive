@@ -794,6 +794,7 @@ function MessageItem({
                 : undefined
             }
             isOwner={isOwner}
+            selfName={username}
             traces={traces}
           />
         )}

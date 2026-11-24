@@ -37,6 +37,8 @@ export const BRIDGE_TEXTS = {
   "bridge.alreadyEnded":
     "这一轮在 Agent 这边早已结束，没有在跑的回合；当初的结果仍未知，请先核对再决定是否重试。",
   "bridge.stoppedNoReply": "本轮已结束，已停止的触发消息未发送回复",
+  "bridge.stopDeferred":
+    "已请求停止，但同一轮还在处理其它没停的消息，这一轮会继续；这条不再回复，这一轮结束后标为已停止",
   "bridge.noReply": "无需回复",
   "bridge.uncertain":
     "这一轮没做完就停了：{reason} 停下前可能已经执行过工具（改文件、跑命令等），所以没有自动重跑。点「继续」会接着原会话，先核对已做的再往下做；不需要了点「忽略」。",

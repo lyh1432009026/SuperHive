@@ -613,6 +613,10 @@ export const serverTexts = {
     zh: "本轮已结束，已停止的触发消息未发送回复",
     en: "The turn ended; no reply was sent for the stopped message",
   },
+  "bridge.stopDeferred": {
+    zh: "已请求停止，但同一轮还在处理其它没停的消息，这一轮会继续；这条不再回复，这一轮结束后标为已停止",
+    en: "Stop requested, but this turn is still handling other messages that weren't stopped, so it keeps running; this one won't get a reply and will be marked stopped when the turn ends",
+  },
   "bridge.noReply": { zh: "无需回复", en: "No reply needed" },
   "bridge.uncertain": {
     zh: "这一轮没做完就停了：{reason} 停下前可能已经执行过工具（改文件、跑命令等），所以没有自动重跑。点「继续」会接着原会话，先核对已做的再往下做；不需要了点「忽略」。",
@@ -983,6 +987,10 @@ export const serverTexts = {
   "error.guest.manageOwn": {
     zh: "访客只能重试或停止自己发起、且无需房主批准的调用。",
     en: "Guests can only retry or stop tasks they started that don't need the owner's approval.",
+  },
+  "error.guest.stopSharedTurn": {
+    zh: "@{agent} 这一轮还在一起处理别人发起的消息，访客没法停下这一轮；需要的话请房主来停。",
+    en: "@{agent} is handling messages other people started in this same turn, so guests can't stop it; ask the owner if it needs stopping.",
   },
   "error.guest.notFound": { zh: "找不到这个访客。", en: "Guest not found." },
   "error.guest.ownerActions": {
