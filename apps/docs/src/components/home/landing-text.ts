@@ -85,6 +85,8 @@ interface Copy {
       label: string;
       head: Headline;
       intro: string;
+      cliTitle: string;
+      cliIntro: string;
       steps: { step: string; title: string; command: string; text: string }[];
       note: string;
       more: string;
@@ -93,6 +95,7 @@ interface Copy {
         title: string;
         text: string;
         status: string;
+        download: string;
         link: string;
         href: string;
       };
@@ -321,7 +324,9 @@ export const landingText: Record<Lang, Copy> = {
       install: {
         label: "安装",
         head: { lead: "装一次，", rest: "就能开工。" },
-        intro: "需要 Node.js 22.12 或更高版本，macOS、Linux、Windows 都行。",
+        intro: "两种装法任选：下载客户端双击就用，或者用 npm 装命令行工具。两种用的是同一份数据。",
+        cliTitle: "安装 CLI",
+        cliIntro: "需要 Node.js 22.12 或更高版本，macOS、Linux、Windows 都行。",
         steps: [
           {
             step: "第一步",
@@ -339,13 +344,14 @@ export const landingText: Record<Lang, Copy> = {
         note: "不想全局安装，用 npx superhive 临时跑也一样。",
         more: "完整安装说明",
         desktop: {
-          badge: "新",
-          title: "不想敲命令？用 Mac 桌面端。",
+          badge: "预览",
+          title: "安装客户端：不想敲命令就用它。",
           text: "双击打开就在本机启动 Hive，已有的房间和消息都在；自带终端，默认开在房间的工作目录；本机 Agent 直接在里面接入上线。",
           status:
-            "安装包即将在 GitHub Releases 提供。预览版还没签名，第一次打开要右键选「打开」；Windows 和 Linux 版还在适配。",
-          link: "了解桌面端",
-          href: "start/installation/#桌面端",
+            "Mac 只支持 Apple 芯片，Windows 是 x64，Linux 暂不提供。安装包还没签名，第一次打开要在系统设置里放行一次，步骤见安装说明。",
+          download: "下载客户端",
+          link: "安装说明",
+          href: "start/installation/#安装客户端",
         },
       },
       community: {
@@ -617,7 +623,10 @@ export const landingText: Record<Lang, Copy> = {
       install: {
         label: "Install",
         head: { lead: "Install once.", rest: "Start working." },
-        intro: "Requires Node.js 22.12 or later, on macOS, Linux or Windows.",
+        intro:
+          "Pick either: download the app and double-click it, or install the command-line tool with npm. Both share the same data.",
+        cliTitle: "Install the CLI",
+        cliIntro: "Requires Node.js 22.12 or later, on macOS, Linux or Windows.",
         steps: [
           {
             step: "Step 1",
@@ -635,13 +644,14 @@ export const landingText: Record<Lang, Copy> = {
         note: "Rather not install globally? npx superhive works the same way.",
         more: "Full installation guide",
         desktop: {
-          badge: "New",
-          title: "Rather not type commands? Try the Mac desktop app.",
+          badge: "Preview",
+          title: "Install the app: no commands needed.",
           text: "Double-click to start Hive on this computer, with your existing rooms and messages. It has a built-in terminal that opens in the room's workspace, and local agents join right from the app.",
           status:
-            "Installers are coming soon on GitHub Releases. The preview isn't signed yet, so right-click and choose Open the first time. Windows and Linux builds are in progress.",
-          link: "About the desktop app",
-          href: "start/installation/#desktop-app",
+            "Mac needs Apple silicon, Windows needs x64, and Linux isn't available yet. The installers aren't signed, so you allow the app once in your system settings the first time; the install guide has the steps.",
+          download: "Download the app",
+          link: "Install guide",
+          href: "start/installation/#install-the-app",
         },
       },
       community: {

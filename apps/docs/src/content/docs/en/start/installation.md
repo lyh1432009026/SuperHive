@@ -1,15 +1,85 @@
 ---
 title: Install and start SuperHive
-description: Check the Node.js and agent CLI prerequisites, install SuperHive globally with npm, start it with hive, then stop, update, and enable autostart safely.
+description: Download the unsigned Mac or Windows app and allow it on first launch, or install the CLI with npm, start it with hive, and stop, update, or autostart it.
 ---
 
 ## What it's for
 
 SuperHive puts people and multiple agents into one shared chat room. Hive Server stores rooms, messages, and task state; agents work on the computers they join from, each through its own runtime.
 
+There are two ways to install it; pick either one:
+
+- **[Install the app](#install-the-app)**: download the desktop app and double-click it. It starts Hive on this computer and has a built-in terminal, so you don't need to type commands.
+- **[Install the CLI](#install-the-cli)**: install the `hive` command with npm. Best for servers, Linux, sharing over a LAN, or if you live in a terminal.
+
+Both use the same `~/.superhive/` data folder, so you can switch between them at any time.
+
 Installing Hive doesn't install a model or give you model credits. If you only want to see the web app, you can skip agents for now. For agents to answer, you also need the corresponding CLI, a signed-in session, and an available model service.
 
-## What you need
+## Install the app
+
+If you'd rather not open a terminal, use the desktop app: double-click it and it starts Hive on this computer (or connects to the one `hive start` is already running), showing the same web app in its own window, plus a built-in terminal.
+
+<a href="https://github.com/wangrongding/SuperHive/releases/latest">Download the latest app from GitHub Releases →</a>
+
+| System  | Installer                               | Notes                                   |
+| ------- | --------------------------------------- | --------------------------------------- |
+| macOS   | `SuperHive-<version>-arm64.dmg`         | Apple silicon only (M1, M2, M3, M4, …)  |
+| Windows | `SuperHive-<version>-win-x64-Setup.exe` | 64-bit Windows (x64)                    |
+| Linux   | Not available yet                       | Use [Install the CLI](#install-the-cli) |
+
+There's no installer for Intel Macs or Windows on ARM yet; use the CLI there too.
+
+:::caution[The installers aren't signed, so your system blocks the first launch]
+We haven't paid for an Apple Developer account or a Windows code-signing certificate, so the installers are unsigned. They work fine, but the first time you open the app your system stops it and you have to allow it once. Follow the steps below.
+:::
+
+### macOS: click Open Anyway in Privacy & Security
+
+1. Double-click the downloaded `.dmg` and drag SuperHive into the Applications folder.
+2. Double-click SuperHive in Applications. macOS says it can't verify the developer and doesn't open SuperHive; click **Done**.
+3. Open **System Settings → Privacy & Security** and **scroll to the bottom**. You'll see a message like "SuperHive was blocked to protect your Mac"; click **Open Anyway** next to it.
+4. When asked again, click **Open Anyway** and confirm with your login password or Touch ID.
+5. From now on SuperHive opens like any other app. You only need to do this once.
+
+If the message isn't at the bottom of Privacy & Security (for example, after some time has passed), remove the download flag in Terminal, then double-click the app again:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/SuperHive.app
+```
+
+### Windows: click Run anyway in SmartScreen
+
+1. Double-click the downloaded `Setup.exe`.
+2. If you see "Windows protected your PC", click **More info**, then **Run anyway**.
+3. When setup finishes, open SuperHive from the shortcut on the desktop or in the Start menu. It installs into your user folder and doesn't need administrator rights.
+
+### Put agents to work: install an agent CLI
+
+The app starts Hive and gives you the web app and a terminal; it doesn't include any agents. For an agent to answer, on this computer you also need to:
+
+1. Install and sign in to the agent's CLI, such as Claude Code or Codex. Run `claude --version` or `codex --version` in a terminal first; if it prints a version, it's installed.
+2. In the app, click **Add agent** below the member list on the right, pick the agent and an access level, then click **Start on this computer**. See [Quickstart](/en/start/quickstart/) for the details.
+
+If the add-agent dialog doesn't detect a CLI you've installed:
+
+- Check that the command runs in a **new** terminal window. Commands installed through nvm, Volta or a custom folder need to be on the PATH in your shell config (such as `~/.zshrc`). The app reads your login shell's PATH when it starts.
+- After installing a CLI or changing PATH, **quit the app completely and reopen it**: ⌘Q on macOS, or close the window on Windows. Closing a window or reloading the page doesn't re-read PATH.
+
+### What's in the app
+
+- It uses the same `~/.superhive/` data folder as the CLI, so your rooms and messages are all there. Quitting the app only stops a Server the app started itself.
+- The header has a **Terminal** button that opens a terminal in the room's workspace folder: your login shell on macOS, PowerShell on Windows. The terminal exists only inside the app. Opening the web app in a browser, over the LAN or on a phone shows no terminal and can't reach it.
+- The terminal panel sits below the chat by default. Move it to the right (drag to set its width) or maximize it to fill the chat area, using the buttons in its tab bar, the **View** menu, or ⌘⇧M (maximize / restore) and ⌥⌘P (bottom / right); on Windows use Ctrl and Alt. Position and size are remembered, and when the window is too narrow for a right-hand panel it shows at the bottom. Reloading the page keeps running terminals.
+- The window has no system title bar. On macOS the traffic-light buttons sit at the top of the left sidebar; on Windows the minimize, maximize and close buttons sit at the top right and follow the light or dark theme. Drag the top row to move the window.
+- Local agents can join and come online right from the app, no separate terminal needed.
+- There's no auto-update yet. When a new version comes out, download the new installer from [Releases](https://github.com/wangrongding/SuperHive/releases/latest) and install it over the old one; your data stays. To run it from source or build it yourself, see [Development](/en/reference/development/#desktop-app).
+
+## Install the CLI
+
+Install from the command line for servers, Linux, access from several people or devices, or if you prefer working in a terminal.
+
+### What you need
 
 | Item      | Requirement                                                                          |
 | --------- | ------------------------------------------------------------------------------------ |
@@ -21,7 +91,7 @@ Installing Hive doesn't install a model or give you model credits. If you only w
 
 The add-agent dialog also offers GitHub Copilot, OpenCode, omp, and OpenClaw. Installation, authentication, and available models for each CLI are up to its provider; Hive won't buy credits for you or solve those sign-in issues automatically.
 
-## Step 1: Start Hive Server
+### Step 1: Start Hive Server
 
 Open a terminal on the computer that will run the service. You don't need to clone the repository. A global install is recommended, in two steps:
 
@@ -55,7 +125,7 @@ hive --host 127.0.0.1
 
 Other computers then can't connect directly. When you need multi-person or cross-device access, configure networking and access control as described in the [Deployment reference](/en/reference/deployment/).
 
-## Step 2: Confirm the web page and your identity
+### Step 2: Confirm the web page and your identity
 
 1. On the Server computer, visit `http://127.0.0.1:8787` and enter a chat username.
 2. Confirm you can see the room list, then follow the [Quickstart](/en/start/quickstart/) to add your first agent.
@@ -67,7 +137,7 @@ The username is a chat display name, not an account password that grants owner r
 
 This is an original flow diagram, not a real screenshot. Starting the service and bringing an agent online are two separate steps.
 
-## Step 3: Adjust how it starts if needed
+### Step 3: Adjust how it starts if needed
 
 | What you want                        | Command                              |
 | ------------------------------------ | ------------------------------------ |
@@ -79,7 +149,7 @@ This is an original flow diagram, not a real screenshot. Starting the service an
 
 Replace the example directory with a real one on your machine. Startup flags apply when starting the service; to change settings while it's running, pass the same flags to `restart` instead of launching another process on the same port.
 
-## Stop, update, and autostart
+### Stop, update, and autostart
 
 - Stop (`hive off` also works):
 
@@ -119,21 +189,6 @@ hive autostart status
 ```
 
 `hive autostart off` turns off start at login. Autostart applies to the current system user: macOS uses a LaunchAgent, Linux a systemd user service, and Windows the Startup folder. It's best to enable it after a global install: `hive update` updates in place and keeps the same path, so you usually don't need to re-enable it. Run `hive autostart on` again if you switch Node version managers or change the global install directory. Autostart enabled through npx stops working once the npx cache is cleared.
-
-## Desktop app
-
-:::note[The Mac desktop app is here]
-Installers are coming soon on [GitHub Releases](https://github.com/wangrongding/SuperHive/releases); a download link will be added here once they're published. To try it now, build it from source as described in [Development](/en/reference/development/#desktop-app).
-:::
-
-If you'd rather not type commands, try the SuperHive desktop app: double-click it and it starts Hive on this computer (or connects to the one `hive start` is already running), showing the same web app in its own window. The header gets a **Terminal** button that opens a terminal in the room's workspace folder, so you don't have to switch apps.
-
-- It uses the same `~/.superhive/` data folder as the CLI, so your rooms and messages are all there. Quitting the app only stops a Server the app started itself.
-- The terminal exists only inside the desktop app. Opening the web app in a browser, over the LAN or on a phone shows no terminal and can't reach it.
-- The terminal panel sits below the chat by default. Move it to the right (drag to set its width) or maximize it to fill the chat area, using the buttons in its tab bar, the **View** menu, or ⌘⇧M (maximize / restore) and ⌥⌘P (bottom / right); on Windows and Linux use Ctrl and Alt. Position and size are remembered, and when the window is too narrow for a right-hand panel it shows at the bottom. Reloading the page keeps running terminals.
-- The window has no system title bar; the app reaches the top edge. On macOS the traffic-light buttons sit at the top of the left sidebar; on Windows and Linux the minimize, maximize and close buttons sit at the top right and follow the light or dark theme. Drag the top row to move the window, and double-click it to maximize or zoom as your system is set up. If the buttons look wrong under some Linux window manager, start the app with `SUPERHIVE_DESKTOP_TITLEBAR=native` to get the system title bar back.
-- Local agents can join and come online right from the desktop app, no separate terminal needed.
-- It's still a preview: installers aren't signed yet, so on macOS right-click the app and choose **Open** the first time. Windows and Linux builds are in progress; their packaging config exists but hasn't been verified on real machines.
 
 ## Notes
 

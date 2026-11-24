@@ -574,6 +574,25 @@ const hiveCells = Array.from({ length: 14 }, (_, index) => ({
         <span class="hl-rest">{s.install.head.rest}</span>
       </h2>
       <p class="hl-body">{s.install.intro}</p>
+      <div class="hl-desktop">
+        <p class="hl-desktop-title">
+          <span class="hl-desktop-badge">{s.install.desktop.badge}</span>{s.install.desktop.title}
+        </p>
+        <p>{s.install.desktop.text}</p>
+        <p class="hl-desktop-status">{s.install.desktop.status}</p>
+        <div class="hl-desktop-actions">
+          <a
+            class="hl-btn hl-btn-primary hl-desktop-download"
+            href={`${repoUrl}/releases/latest`}
+            rel="noopener">{s.install.desktop.download}</a
+          >
+          <a class="hl-desktop-link" href={to(s.install.desktop.href)}
+            >{s.install.desktop.link} <span aria-hidden="true">→</span></a
+          >
+        </div>
+      </div>
+      <h3 class="hl-install-sub">{s.install.cliTitle}</h3>
+      <p class="hl-body">{s.install.cliIntro}</p>
       <ol class="hl-steps">
         {
           s.install.steps.map((step) => (
@@ -599,16 +618,6 @@ const hiveCells = Array.from({ length: 14 }, (_, index) => ({
         }
       </ol>
       <p class="hl-note">{s.install.note}</p>
-      <div class="hl-desktop">
-        <p class="hl-desktop-title">
-          <span class="hl-desktop-badge">{s.install.desktop.badge}</span>{s.install.desktop.title}
-        </p>
-        <p>{s.install.desktop.text}</p>
-        <p class="hl-desktop-status">{s.install.desktop.status}</p>
-        <a class="hl-desktop-link" href={to(s.install.desktop.href)}
-          >{s.install.desktop.link} <span aria-hidden="true">→</span></a
-        >
-      </div>
       <a class="hl-more" href={to("start/installation/")}
         >{s.install.more} <span aria-hidden="true">→</span></a
       >

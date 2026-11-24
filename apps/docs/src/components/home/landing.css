@@ -2154,7 +2154,7 @@ html .hl .cm.cm.cm {
   }
 }
 
-/* 安装段：桌面端预告 */
+/* 安装段：先客户端卡片，再 CLI 两步 */
 .hl-desktop {
   display: grid;
   gap: 0.6rem;
@@ -2195,8 +2195,30 @@ html .hl .cm.cm.cm {
   font-size: 0.9rem;
 }
 
+.hl-desktop-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+  margin-top: 0.4rem;
+}
+
+.hl-desktop-download {
+  text-decoration: none !important;
+}
+
+.hl-install-sub {
+  margin-top: 3.5rem;
+  font-size: 1.5rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.hl-install-sub + .hl-body {
+  margin-top: 0.75rem;
+}
+
 .hl-desktop-link {
-  justify-self: start;
   color: var(--hl-c1) !important;
   font-weight: 600;
   text-decoration: none !important;

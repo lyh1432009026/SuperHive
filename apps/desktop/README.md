@@ -2,7 +2,7 @@
 
 用 Electron 45 把 SuperHive 包成一个双击就能用的应用：打开后自动在本机起 Hive（或连上已经在跑的那个），窗口里就是现有的网页界面，另外多一个内置终端。
 
-> 预览阶段：还没有签名、公证和自动更新，也没有发布安装包，需要从源码打包。
+> 预览阶段：安装包作为未签名预览版发布在 [GitHub Releases](https://github.com/wangrongding/SuperHive/releases/latest)，还没有签名、公证和自动更新。
 
 ## 它做了什么
 
@@ -80,7 +80,7 @@ SUPERHIVE_DESKTOP_APP=out/SuperHive-darwin-arm64/SuperHive.app/Contents/MacOS/Su
 
 ## 已知限制
 
-- 未签名的 macOS 应用第一次打开会被 Gatekeeper 拦下，需要右键「打开」，或在「系统设置 → 隐私与安全性」里允许。
+- 未签名的 macOS 应用第一次打开会被 Gatekeeper 拦下，要到「系统设置 → 隐私与安全性」底部点「仍要打开」（macOS 15 起右键「打开」已经不能放行），或者 `xattr -dr com.apple.quarantine /Applications/SuperHive.app`。
 - 每个本机 Agent 是一个不带窗口的 Electron 主进程，比直接用 Node 多占几十 MB 内存。
 - 安装 Agent CLI（`npm i -g @anthropic-ai/claude-code` 之类）仍然需要系统里有 Node.js；桌面端本身不需要。
 - Windows 上 Electron 遇到「像网址的参数后面还跟着 `--` 开关」会直接退出（防协议处理器注入），所以 Server 拉起 CLI 时字符串选项一律写成 `--key=value`（`apps/server/src/local-agents.ts` 的 `cliOption`）。

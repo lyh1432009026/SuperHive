@@ -70,7 +70,7 @@ pnpm --filter @superhive/desktop test:smoke   # launch the app, run a command in
 pnpm --filter @superhive/desktop make         # build installers into apps/desktop/out/
 ```
 
-The app is assembled in `apps/desktop/.stage/app` with its own npm-installed runtime dependencies, so the Electron build never touches the workspace's pnpm `node_modules`. Packaged builds turn off the `RunAsNode` fuse; the Server learns how to start local agents from `HIVE_LOCAL_AGENT_CLI`, and the app runs its bundled CLI when started with `--superhive-cli`. Code signing, notarization, auto-update and publishing are not set up yet. See `apps/desktop/README.md` for details and what's needed before a release.
+The app is assembled in `apps/desktop/.stage/app` with its own npm-installed runtime dependencies, so the Electron build never touches the workspace's pnpm `node_modules`. Packaged builds turn off the `RunAsNode` fuse; the Server learns how to start local agents from `HIVE_LOCAL_AGENT_CLI`, and the app runs its bundled CLI when started with `--superhive-cli`. Installers are published as unsigned previews on [GitHub Releases](https://github.com/wangrongding/SuperHive/releases/latest); code signing, notarization and auto-update are not set up yet. See `apps/desktop/README.md` for details and what they need.
 
 ## MCP and HTTP extension points
 

@@ -41,14 +41,40 @@
 
 ## 先用起来
 
-### 需要什么
+有两种装法，任选一种，用的是同一份数据目录 `~/.superhive/`：
 
-- Node.js 22.12 或更高版本，macOS、Linux、Windows 均可。
-- 如果要接入 Agent，还需要在 Agent 所在电脑安装并登录对应的 CLI（Codex、Claude Code、Copilot、OpenCode、omp、OpenClaw、Gemini CLI 或 agy）。
+- **安装客户端**：下载桌面应用，双击就用，不用敲命令。
+- **安装 CLI**：用 npm 装命令行工具 `hive`，适合服务器、Linux、局域网共享。
 
-### 1. 启动 Hive
+不管哪种，要接入 Agent，都还需要在 Agent 所在电脑安装并登录对应的 CLI（Codex、Claude Code、Copilot、OpenCode、omp、OpenClaw、Gemini CLI 或 agy）。
 
-不需要克隆仓库。推荐全局安装，分两步：
+### 安装客户端
+
+到 **[GitHub Releases](https://github.com/wangrongding/SuperHive/releases/latest)** 下载最新版：
+
+| 系统    | 安装包                               | 说明                                   |
+| ------- | ------------------------------------ | -------------------------------------- |
+| macOS   | `SuperHive-<版本>-arm64.dmg`         | 只支持 Apple 芯片（M1、M2、M3、M4 等） |
+| Windows | `SuperHive-<版本>-win-x64-Setup.exe` | 64 位 Windows（x64）                   |
+| Linux   | 暂不提供                             | 请用下面的「安装 CLI」                 |
+
+我们还没有付费办理苹果开发者账号和 Windows 代码签名证书，安装包没有签名，第一次打开会被系统拦下，需要手动放行一次：
+
+- **macOS**：
+  1. 打开 dmg，把 SuperHive 拖进「应用程序」；
+  2. 双击打开，被拦下时点「完成」；
+  3. 打开「系统设置 → 隐私与安全性」，**滑到底部**，找到 SuperHive 被拦下的提示，点「仍要打开」，输入密码确认；
+  4. 之后就能正常打开了。
+
+  找不到那条提示时，在终端执行 `xattr -dr com.apple.quarantine /Applications/SuperHive.app` 再打开。
+
+- **Windows**：弹出「Windows 已保护你的电脑」时，点「更多信息 → 仍要运行」。装好后从桌面或开始菜单打开。
+
+客户端会在本机自动启动 Hive，自带终端（默认开在房间的工作区目录）。要让 Agent 干活，先装好对应的 CLI 并登录，再在界面里点「接入 Agent」。接入界面检测不到已安装的 CLI 时，先确认它在新开的终端里能直接运行（在 PATH 里），然后完全退出客户端（macOS 按 ⌘Q）再打开。详见 [安装说明](https://wangrongding.github.io/SuperHive/start/installation/#安装客户端)。
+
+### 安装 CLI
+
+需要 Node.js 22.12 或更高版本，macOS、Linux、Windows 均可。不需要克隆仓库。推荐全局安装，分两步：
 
 1. **安装**（每台电脑只需一次，装好后就有了 `hive` 命令）：
 
@@ -74,7 +100,9 @@
 
 想在当前终端运行并直接看到日志，加 `--foreground`。
 
-### 2. 在浏览器里加入
+### 在浏览器里加入
+
+用客户端的话，窗口里就是这个网页，从第 2 步开始。
 
 1. 打开终端显示的 Web UI 地址。
 2. 输入房间内使用的用户名。
@@ -83,7 +111,7 @@
 
 用户名会保存在当前浏览器中，刷新页面后会自动恢复。多个浏览器标签页可以同时使用同一个人类身份；同名 Agent 仍必须保持唯一。
 
-### 3. 接入第一个 Agent
+### 接入第一个 Agent
 
 在右侧成员列表下方点「接入 Agent」，选择要接入的 Agent 后手动点「下一步」，选择权限档位（默认工作区档）后再点「下一步」。最后核对名称、工作目录和接入方式：
 
@@ -101,7 +129,7 @@ npx --yes superhive@latest join \
 
 那台电脑如果已经全局安装了 `superhive`，可以把开头的 `npx --yes superhive@latest join` 换成 `hive join`。然后在房间里发 `@my-agent 你好`。没有回复时看 [常见问题](https://wangrongding.github.io/SuperHive/reference/troubleshooting/)。
 
-### 4. 停止、重启和更新
+### 停止、重启和更新（CLI）
 
 - 停止，也可以写 `hive off`：
 
@@ -133,11 +161,9 @@ npx --yes superhive@latest join \
 
 `hive autostart on` 让 Server 在登录这台电脑后自动启动，电脑重启后本机 Agent 也会跟着回来。
 
-## 桌面端
+## 从源码运行桌面端
 
-Mac 桌面端已经可以用了，安装包即将在 [GitHub Releases](https://github.com/wangrongding/SuperHive/releases) 提供。预览版还没签名，第一次打开要在应用上右键选「打开」；Windows 和 Linux 版还在适配。
-
-`apps/desktop` 是 Electron 桌面端：双击打开就在本机起 Hive（`hive start` 已经在跑就直接连上），窗口里是同一个网页，另外多一个内置终端，默认在当前房间的工作区目录打开。终端只在桌面端里有，浏览器和局域网里打开的网页碰不到。安装包发布前，可以先从源码运行或打包：
+`apps/desktop` 是 Electron 桌面端：双击打开就在本机起 Hive（`hive start` 已经在跑就直接连上），窗口里是同一个网页，另外多一个内置终端，默认在当前房间的工作区目录打开。终端只在桌面端里有，浏览器和局域网里打开的网页碰不到。想从源码运行或自己打包：
 
 ```bash
 pnpm install

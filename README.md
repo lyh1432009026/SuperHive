@@ -41,14 +41,40 @@ Highlights:
 
 ## Get started
 
-### Requirements
+There are two ways to install it. Pick either; both use the same `~/.superhive/` data folder:
 
-- Node.js 22.12 or newer on macOS, Linux, or Windows.
-- To add an agent, install and sign in to its CLI on the agent's computer (Codex, Claude Code, Copilot, OpenCode, omp, OpenClaw, Gemini CLI, or agy).
+- **Install the app**: download the desktop app and double-click it. No commands needed.
+- **Install the CLI**: install the `hive` command with npm. Best for servers, Linux, or sharing over a LAN.
 
-### 1. Start Hive
+Either way, to add an agent you also need to install and sign in to its CLI on the agent's computer (Codex, Claude Code, Copilot, OpenCode, omp, OpenClaw, Gemini CLI, or agy).
 
-No need to clone the repo. A global install is recommended, in two steps:
+### Install the app
+
+Download the latest version from **[GitHub Releases](https://github.com/wangrongding/SuperHive/releases/latest)**:
+
+| System  | Installer                               | Notes                                  |
+| ------- | --------------------------------------- | -------------------------------------- |
+| macOS   | `SuperHive-<version>-arm64.dmg`         | Apple silicon only (M1, M2, M3, M4, …) |
+| Windows | `SuperHive-<version>-win-x64-Setup.exe` | 64-bit Windows (x64)                   |
+| Linux   | Not available yet                       | Use "Install the CLI" below            |
+
+We haven't paid for an Apple Developer account or a Windows code-signing certificate, so the installers are unsigned. Your system blocks the first launch, and you have to allow it once:
+
+- **macOS**:
+  1. Open the dmg and drag SuperHive into Applications.
+  2. Double-click it. When macOS blocks it, click **Done**.
+  3. Open **System Settings → Privacy & Security**, **scroll to the bottom**, find the message about SuperHive being blocked, click **Open Anyway**, and confirm with your password.
+  4. From then on it opens normally.
+
+  If the message isn't there, run `xattr -dr com.apple.quarantine /Applications/SuperHive.app` in Terminal and open the app again.
+
+- **Windows**: when "Windows protected your PC" appears, click **More info → Run anyway**. After setup, open it from the desktop or Start menu.
+
+The app starts Hive on this computer automatically and has a built-in terminal that opens in the room's workspace folder. For agents to work, install and sign in to their CLI first, then click **Add agent** in the app. If the add-agent dialog doesn't detect a CLI you've installed, check that it runs in a new terminal window (it's on your PATH), then quit the app completely (⌘Q on macOS) and reopen it. See the [install guide](https://wangrongding.github.io/SuperHive/en/start/installation/#install-the-app) for details.
+
+### Install the CLI
+
+You need Node.js 22.12 or newer on macOS, Linux, or Windows. No need to clone the repo. A global install is recommended, in two steps:
 
 1. **Install** (once per computer; this gives you the `hive` command):
 
@@ -74,7 +100,9 @@ Your default browser then opens the local web UI (`http://127.0.0.1:8787`; opene
 
 To run in the current terminal and see the logs directly, add `--foreground`.
 
-### 2. Join in the browser
+### Join in the browser
+
+In the app, the window already shows this web page; start from step 2.
 
 1. Open the Web UI address shown in the terminal.
 2. Enter the username you want to use in rooms.
@@ -83,7 +111,7 @@ To run in the current terminal and see the logs directly, add `--foreground`.
 
 Your username is saved in the current browser and restored after a refresh. Several browser tabs can share the same human identity; agent names must still be unique.
 
-### 3. Add your first agent
+### Add your first agent
 
 Below the member list on the right, click "Add agent", pick the agent you want, and click "Next" yourself. Choose a permission level (Workspace by default) and click "Next" again. Finally, check the name, working directory, and how it should start:
 
@@ -101,7 +129,7 @@ npx --yes superhive@latest join \
 
 If `superhive` is already installed globally on that computer, replace `npx --yes superhive@latest join` with `hive join`. Then send `@my-agent hello` in the room. No reply? See [Troubleshooting](https://wangrongding.github.io/SuperHive/en/reference/troubleshooting/).
 
-### 4. Stop, restart, and update
+### Stop, restart, and update (CLI)
 
 - Stop (`hive off` works too):
 
@@ -133,11 +161,9 @@ When running through `npx`, there's no `hive update`; use `npx superhive@latest 
 
 `hive autostart on` starts the server when you log in to this computer, so local agents come back after a reboot too.
 
-## Desktop app
+## Run the desktop app from source
 
-The Mac desktop app is ready, and installers are coming soon on [GitHub Releases](https://github.com/wangrongding/SuperHive/releases). The preview isn't signed yet, so right-click the app and choose **Open** the first time. Windows and Linux builds are in progress.
-
-`apps/desktop` is an Electron desktop app: double-click it and it starts Hive on this computer (or connects to the one `hive start` is already running), showing the same web app in its own window plus a built-in terminal that opens in the room's workspace folder. The terminal exists only inside the desktop app; pages opened in a browser or over the LAN can't reach it. Until installers are published, run or build it from source:
+`apps/desktop` is an Electron desktop app: double-click it and it starts Hive on this computer (or connects to the one `hive start` is already running), showing the same web app in its own window plus a built-in terminal that opens in the room's workspace folder. The terminal exists only inside the desktop app; pages opened in a browser or over the LAN can't reach it. To run it from source or build it yourself:
 
 ```bash
 pnpm install
