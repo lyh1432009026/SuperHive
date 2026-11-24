@@ -1904,5 +1904,8 @@
   "不换": "Keep current",
   "模型与思考强度": "Model and reasoning effort",
   "保存模型和强度": "Save model and effort",
-  "思考强度 {0}": "{0} reasoning effort"
+  "思考强度 {0}": "{0} reasoning effort",
+  "工具未连上": "Tools offline",
+  "{0} 连不上 Hive 工具（MCP）：读不到附件和图片、看不到白板、不能委派，回复仍由 Bridge 代发。升级到最新版并重启这个 Agent；仍不行请查看它的日志。": "{0} can't reach the Hive tools (MCP): it can't read attachments or images, see the whiteboard or delegate; its replies are still posted by the Bridge. Update to the latest version and restart this agent; if it persists, check its logs.",
+  "原因：{0}": "Reason: {0}"
 }

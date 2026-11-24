@@ -47,6 +47,27 @@ describe("AttachmentCache", () => {
     expect(calls).toEqual([`/api/attachments/${item.id}/local-path`]);
   });
 
+  it("serverPath=false 时不用同机 Server 那份，一律下载到缓存目录（只放行这个目录的运行时）", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "att-cache-"));
+    const serverCopy = path.join(dir, "server-copy.png");
+    writeFileSync(serverCopy, "img");
+    const item = attachmentOf("img", "shot.png");
+    const { fetch, calls } = fakeFetch({
+      [`/api/attachments/${item.id}/local-path`]: () =>
+        Response.json({ path: serverCopy, sha256: item.sha256 }),
+      [`/api/attachments/${item.id}`]: () => new Response("img"),
+    });
+    const cache = new AttachmentCache({
+      serverUrl: "http://hive",
+      token: "t",
+      dir,
+      serverPath: false,
+      fetch,
+    });
+    expect(await cache.locate(item)).toEqual({ path: path.join(dir, item.sha256, "shot.png") });
+    expect(calls).toEqual([`/api/attachments/${item.id}`]);
+  });
+
   it("远程时下载到缓存并校验摘要；已缓存不重复下载；摘要不符则丢弃", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "att-cache-"));
     const item = attachmentOf("remote body", "../../evil name.md");
@@ -59,6 +80,11 @@ describe("AttachmentCache", () => {
     expect(readFileSync((located as { path: string }).path, "utf8")).toBe("remote body");
     await cache.locate(item);
     expect(calls.filter((call) => call === `/api/attachments/${item.id}`)).toHaveLength(1);
+    // 缓存里的副本被改过（大小不变）：不复用，重新下载
+    writeFileSync((located as { path: string }).path, "REMOTE BODY");
+    expect(await cache.locate(item)).toEqual(located);
+    expect(readFileSync((located as { path: string }).path, "utf8")).toBe("remote body");
+    expect(calls.filter((call) => call === `/api/attachments/${item.id}`)).toHaveLength(2);
 
     const tampered = { ...attachmentOf("expected"), id: "6f1d2c3b-1111-4222-8333-444455557777" };
     const bad = new AttachmentCache({

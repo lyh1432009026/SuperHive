@@ -102,6 +102,9 @@ export class RoomClient {
   /** 服务端能把执行中的权限申请转给人批（旧版服务端没有，这时直接拒绝） */
   private serverAcceptsApproval = false;
   private serverAcceptsSession = false;
+  private serverAcceptsTools = false;
+  /** 上次知道的 Hive 工具状态：状态变了才发，重连后补发连不上的情况 */
+  private hiveTools: { hive: "connected" | "unavailable"; detail?: string } | undefined;
   /** 这个房间当前的 Provider 会话：重连后再报一次 */
   private session?: { sessionId: string; cwd: string };
   /** 正在干活：重连后服务端会把状态重置成在线，要再报一次，否则成员列表显示空闲、对话流里却还在执行 */
@@ -170,6 +173,20 @@ export class RoomClient {
     if (this.session?.sessionId === sessionId && this.session.cwd === cwd) return;
     this.session = { sessionId, cwd };
     if (this.serverAcceptsSession) this.sendRaw({ type: "agent.session", sessionId, cwd });
+  }
+
+  /**
+   * 报告这个 Agent 的 Hive 工具（MCP）连上了没有：连不上时网页成员列表里会标出来，
+   * 不能悄无声息地少了 hive_* 工具。状态没变不重发；服务端不支持就只记下。
+   */
+  reportHiveTools(hive: "connected" | "unavailable", detail?: string): void {
+    const next = {
+      hive,
+      ...(hive === "unavailable" && detail ? { detail: detail.slice(0, 500) } : {}),
+    };
+    if (this.hiveTools?.hive === next.hive && this.hiveTools.detail === next.detail) return;
+    this.hiveTools = next;
+    if (this.serverAcceptsTools) this.sendRaw({ type: "agent.tools", ...next });
   }
 
   trace(messageId: string, steps: TraceStep[]): void {
@@ -316,6 +333,11 @@ export class RoomClient {
       this.serverAcceptsSession = event.features?.includes("session") === true;
       if (this.serverAcceptsSession && this.session) {
         this.sendRaw({ type: "agent.session", ...this.session });
+      }
+      this.serverAcceptsTools = event.features?.includes("tools") === true;
+      // 服务端重启后成员信息里没有这一项了：连不上的情况要重新报
+      if (this.serverAcceptsTools && this.hiveTools?.hive === "unavailable") {
+        this.sendRaw({ type: "agent.tools", ...this.hiveTools });
       }
       if (this.typing) this.sendRaw({ type: "agent.typing", active: true });
       if (this.serverTracksInvocations) {

@@ -1,5 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
+import {
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -33,6 +41,11 @@ export class AttachmentCache {
       serverUrl: string;
       token: string;
       dir: string;
+      /**
+       * 同机时直接交出 Server 存的那份（默认）。文件工具只能碰指定目录的运行时（Copilot、Gemini、OpenCode、agy）
+       * 关掉它：一律下载到缓存目录，只给它们放行这一个目录，不放行 Server 的数据目录
+       */
+      serverPath?: boolean;
       fetch?: typeof fetch;
     },
   ) {}
@@ -55,7 +68,8 @@ export class AttachmentCache {
 
   private async resolve(attachment: Attachment): Promise<AttachmentLocation> {
     try {
-      const local = await this.serverLocalPath(attachment);
+      const local =
+        this.options.serverPath === false ? undefined : await this.serverLocalPath(attachment);
       if (local) return { path: local };
       return { path: await this.download(attachment) };
     } catch (error) {
@@ -80,7 +94,11 @@ export class AttachmentCache {
   private async download(attachment: Attachment): Promise<string> {
     const dir = path.join(this.options.dir, attachment.sha256);
     const target = path.join(dir, cacheFileName(attachment));
-    if (existsSync(target) && statSync(target).size === attachment.size) return target;
+    // 工作区档能写这个目录（放行给 Copilot、OpenCode 读图）：复用前按摘要核对，被改过就重新下载
+    if (existsSync(target) && statSync(target).size === attachment.size) {
+      const digest = createHash("sha256").update(readFileSync(target)).digest("hex");
+      if (digest === attachment.sha256) return target;
+    }
     const response = await this.fetcher(
       new URL(`/api/attachments/${attachment.id}`, this.options.serverUrl),
       { headers: this.headers() },

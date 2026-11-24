@@ -89,6 +89,27 @@ describe("CopilotResponder", () => {
     expect(lastRun(runner)?.[2]).toMatchObject({ input: "Shared context" });
   });
 
+  it("只读、工作区档用 --add-dir 放行附件缓存目录，只读档照旧拒绝写和命令", async () => {
+    const runner = vi.fn<CommandRunner>(async () => ({
+      stdout: JSON.stringify({ type: "assistant.message", data: { content: "ok" } }),
+      stderr: "",
+    }));
+    for (const access of ["read-only", "workspace", "full"] as const) {
+      await new CopilotResponder({
+        command: "copilot",
+        cwd: "/workspace",
+        hive,
+        access,
+        attachmentDir: "/c/att",
+        runner,
+      }).reply({ instructions: "r", prompt: "p" });
+      const args = lastRun(runner)?.[1] ?? [];
+      if (access === "full") expect(args.join(" ")).not.toContain("--add-dir");
+      else expect(args).toContain("--add-dir=/c/att");
+      if (access === "read-only") expect(args).toContain("--deny-tool=write");
+    }
+  });
+
   it("starts a new session with --session-id when there is no prior threadId", async () => {
     const runner = vi.fn<CommandRunner>(async () => ({
       stdout: JSON.stringify({ type: "assistant.message", data: { content: "ok" } }),

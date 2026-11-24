@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createOpenCodeResponder,
   openCodeConfigContent,
+  openCodeExternalDirectory,
   openCodePermission,
 } from "./opencode-client.js";
 import type { StdioTransport } from "./stdio-transport.js";
@@ -33,6 +34,23 @@ describe("OpenCode ACP profile", () => {
       external_directory: "deny",
     });
     expect(openCodePermission("full")).toBe("allow");
+  });
+
+  it("cwd 以外只放行附件缓存目录（Windows 两种斜杠都放），其余照旧拒绝", () => {
+    expect(openCodePermission("read-only", "/home/a/.superhive/agents/attachments")).toMatchObject({
+      edit: "deny",
+      external_directory: { "*": "deny", "/home/a/.superhive/agents/attachments/*": "allow" },
+    });
+    expect(openCodeExternalDirectory("C:\\Users\\a\\attachments\\")).toEqual({
+      "*": "deny",
+      "C:\\Users\\a\\attachments/*": "allow",
+      "C:/Users/a/attachments/*": "allow",
+    });
+    expect(openCodeExternalDirectory(undefined)).toBe("deny");
+    expect(
+      JSON.parse(openCodeConfigContent("workspace", undefined, undefined, "/c/att")).permission
+        .external_directory,
+    ).toEqual({ "*": "deny", "/c/att/*": "allow" });
   });
 
   it("layers the permission and model on top of inherited inline config", () => {

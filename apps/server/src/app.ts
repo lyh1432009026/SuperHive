@@ -6,6 +6,7 @@ import {
   isAgentOutdated,
   type AgentCodeVersion,
   type AgentWorkspace,
+  type AgentHiveTools,
 } from "@superhive/protocol";
 import { errorText, hiveErrorBody, wsText } from "./texts.js";
 import { resolveRoom, roomsNamedLike } from "./room-lookup.js";
@@ -122,6 +123,7 @@ import {
   classifyInvocation,
   classifyProtocolError,
   classifyServerError,
+  redact,
 } from "./incidents.js";
 import { IncidentStore } from "./incident-store.js";
 import { IncidentDesk, type IncidentGit } from "./incident-desk.js";
@@ -149,6 +151,8 @@ type Connection = {
   version?: AgentCodeVersion | undefined;
   /** Agent 加入时上报的本房间工作目录 */
   workspace?: AgentWorkspace | undefined;
+  /** Agent 上报 Hive 工具（MCP）连不上；连上了就清掉 */
+  hiveTools?: AgentHiveTools | undefined;
 };
 
 export type ConfiguredUrl = string | (() => string);
@@ -1099,18 +1103,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const named = onlineByName.get(participantKey(participant.roomId, participant.username));
     let version: AgentCodeVersion | undefined;
     let workspace: AgentWorkspace | undefined;
+    let hiveTools: AgentHiveTools | undefined;
     for (const connection of named ?? []) {
       version ??= connection.version;
       workspace ??= connection.workspace;
+      hiveTools ??= connection.hiveTools;
     }
     const outdated =
       localAgents?.outdatedByName(participant.username) ??
       isAgentOutdated(version, localAgents?.currentCodeVersion(), false);
-    if (!version && !outdated && !workspace) return participant;
+    if (!version && !outdated && !workspace && !hiveTools) return participant;
     return {
       ...participant,
       ...(version ? { version } : {}),
       ...(workspace ? { workspace } : {}),
+      ...(hiveTools ? { hiveTools } : {}),
       ...(outdated ? { outdated: true } : {}),
     };
   }
@@ -6063,7 +6070,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             approvals: [...approvals.values()]
               .filter((item) => item.roomId === event.roomId)
               .map((item) => item.questionId),
-            features: ["trace", "approval", "session"],
+            features: ["trace", "approval", "session", "tools"],
           });
           // 这台电脑上的房主：先给慢操作全集，补上断开期间漏掉的推送；沙箱里也一样
           if (isLocalOwner(connection)) {
@@ -6225,6 +6232,24 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       }
       if (event.type === "approval.request") {
         if (participant.type === "agent") requestApproval(participant, event);
+        return;
+      }
+      if (event.type === "agent.tools") {
+        if (participant.type !== "agent") return;
+        const next: AgentHiveTools | undefined =
+          event.hive === "unavailable"
+            ? {
+                status: "unavailable",
+                ...(event.detail ? { detail: redact(event.detail).slice(0, 500) } : {}),
+                at: new Date(clock()).toISOString(),
+              }
+            : undefined;
+        if (!next && !connection.hiveTools) return;
+        connection.hiveTools = next;
+        broadcast(participant.roomId, {
+          type: "presence.changed",
+          participant: withAccess(participant),
+        });
         return;
       }
       if (event.type === "agent.session") {

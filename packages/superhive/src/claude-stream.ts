@@ -51,6 +51,8 @@ export class ClaudeStream {
   /** 每出一个结果、每确认收到一条写进去的消息时回调（引导用） */
   onResult?: (result: ClaudeResult) => void;
   onUserAck?: (uuid: string) => void;
+  /** 启动信息里 hive MCP 的状态：connected 或连不上（failed、needs-auth） */
+  onHiveTools?: (status: "connected" | "unavailable", detail?: string) => void;
   /** 控制请求（例如 interrupt）的答复 */
   onControlResponse?: (requestId: string, ok: boolean) => void;
   /** Claude 要求宿主批准一次工具调用（--permission-prompt-tool stdio 时的 can_use_tool） */
@@ -75,6 +77,16 @@ export class ClaudeStream {
     now: () => number = Date.now,
   ) {
     this.thinkingTrace = new ThinkingTrace((step) => this.trace(step), now);
+  }
+
+  /** init 事件里的 mcp_servers：[{ name, status }]，status 为 connected / failed / needs-auth / pending */
+  private hiveMcp(servers: unknown): void {
+    if (!Array.isArray(servers)) return;
+    const hive = servers.map((item) => object(item)).find((item) => item?.name === "hive");
+    const status = typeof hive?.status === "string" ? hive.status : undefined;
+    if (status === "connected") this.onHiveTools?.("connected");
+    else if (status === "failed" || status === "needs-auth")
+      this.onHiveTools?.("unavailable", `Claude Code 报告 hive MCP 状态为 ${status}`);
   }
 
   private traceAssistant(message: ObjectValue | undefined): void {
@@ -270,12 +282,9 @@ export class ClaudeStream {
       }
       return;
     }
-    if (
-      event.type === "system" &&
-      event.subtype === "init" &&
-      typeof event.session_id === "string"
-    ) {
-      this.session(event.session_id);
+    if (event.type === "system" && event.subtype === "init") {
+      this.hiveMcp(event.mcp_servers);
+      if (typeof event.session_id === "string") this.session(event.session_id);
       return;
     }
     if (event.type === "system" && event.subtype === "api_retry") {

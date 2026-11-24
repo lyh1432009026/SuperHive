@@ -15,6 +15,7 @@ import { WhiteboardPanel } from "./whiteboard";
 import { avatarHueStyle, AvatarGlyph } from "./avatar";
 import { OutdatedBadge } from "./local-agent-updates";
 import { MemberWorkspaceBadge } from "./member-workspace";
+import { MemberHiveToolsBadge } from "./member-hive-tools";
 import { GuestMemberActions, GuestAccessBadge } from "./invite-dialog";
 import { agentProviderLabel, participantStatusLabel } from "./agent-setup";
 import type { Attachment, Participant, WhiteboardEntry } from "@superhive/protocol";
@@ -331,6 +332,7 @@ export function SidePanel({
                                 participant={participant}
                                 roomWorkspace={roomWorkspace}
                               />
+                              <MemberHiveToolsBadge participant={participant} />
                               {participant.type === "agent" &&
                                 localAgentNames.has(participant.username.toLocaleLowerCase()) && (
                                   <>

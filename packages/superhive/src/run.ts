@@ -1,6 +1,14 @@
 import { spawnSync } from "node:child_process";
 import { commandFor } from "./windows-command.js";
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { superhiveHome } from "./home-dir.js";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -38,6 +46,13 @@ import {
   type AgentResponder,
 } from "./responder.js";
 import { StateStore, agentWorkspaceDir } from "./state-store.js";
+
+/**
+ * 文件工具只能碰工作区和显式放行目录的运行时（实测）：Copilot 要 --add-dir、Gemini 要 --include-directories、
+ * OpenCode 要在 external_directory 里放行；agy 没法实测，按同样受限处理（只是附件多下载一份）。
+ * Claude Code（含 plan 模式）、Codex（read-only 沙箱可读全盘）、omp 都能直接读工作区以外的文件
+ */
+const ATTACHMENT_DIR_RESTRICTED = new Set(["copilot", "gemini", "opencode", "agy"]);
 
 const usage = `
 SuperHive Agent
@@ -305,6 +320,16 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
     ? path.resolve(parsed.values["agent-settings"])
     : undefined;
 
+  // 附件缓存目录：Bridge 把用户贴的图下载到这里，Agent 用读文件工具打开（各档都给，只读档也要看图）。
+  // 文件工具只能碰指定目录的运行时只放行这一个目录：附件一律下载到这里，不用同机 Server 数据目录里那份
+  const attachmentCacheDir = path.join(stateDir, "attachments");
+  const attachmentDirRestricted = ATTACHMENT_DIR_RESTRICTED.has(provider);
+  let attachmentDir: string | undefined;
+  if (attachmentDirRestricted) {
+    mkdirSync(attachmentCacheDir, { recursive: true, mode: 0o700 });
+    attachmentDir = realpathSync(attachmentCacheDir);
+  }
+
   function buildResponder(hive: HiveMcpConnection, cwd: string): AgentResponder {
     switch (provider) {
       case "echo":
@@ -324,6 +349,7 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
           cwd,
           hive,
           access,
+          ...(attachmentDir ? { attachmentDir } : {}),
           ...(parsed.values.model ? { model: parsed.values.model } : {}),
         });
       case "openclaw":
@@ -340,6 +366,7 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
           cwd,
           hive,
           access,
+          ...(attachmentDir ? { attachmentDir } : {}),
           ...(parsed.values.model ? { model: parsed.values.model } : {}),
         });
       case "omp":
@@ -356,6 +383,7 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
           cwd,
           hive,
           access,
+          ...(attachmentDir ? { attachmentDir } : {}),
           ...(parsed.values.model ? { model: parsed.values.model } : {}),
         });
       case "agy":
@@ -441,7 +469,8 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
         provider,
         token: token!,
         access,
-        attachmentCacheDir: path.join(stateDir, "attachments"),
+        attachmentCacheDir,
+        ...(attachmentDirRestricted ? { attachmentServerPath: false } : {}),
         cwd: workspace.cwd,
         ...(room.workspace ? { roomWorkspace: room.workspace } : {}),
         ...(workspace.note ? { workspaceNote: workspace.note } : {}),

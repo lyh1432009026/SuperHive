@@ -244,6 +244,8 @@ type Session = {
   dead: boolean;
   /** 启动这个进程时关闭的 MCP；设置变了就换新进程 */
   mcpDisabled: string;
+  /** app-server 报的 hive MCP 启动状态（mcpServer/startupStatus/updated），每一轮开始时转告 Bridge */
+  hiveMcp?: { status: "connected" | "unavailable"; detail?: string };
 };
 
 type AgentMessage = { text: string; phase: string | null; turnId?: string };
@@ -257,6 +259,7 @@ type ActiveTurn = {
   signal?: AbortSignal | undefined;
   onProgress?: ((progress: string) => void) | undefined;
   onTrace?: ((step: TraceStep) => void) | undefined;
+  onHiveTools?: AgentReplyInput["onHiveTools"];
   /** 工作区档的审批请求交给人批 */
   requestApproval?: AgentReplyInput["requestApproval"];
   /** 已开始的执行过程条目（按 item id），完成时据此补全 */
@@ -474,6 +477,7 @@ export class CodexAppServerResponder implements AgentResponder {
         signal: input.signal,
         onProgress: input.onProgress,
         onTrace: input.onTrace,
+        onHiveTools: input.onHiveTools,
         requestApproval: input.requestApproval,
         traceSteps: new Map(),
         thinking: new ThinkingTrace((step) => {
@@ -495,6 +499,8 @@ export class CodexAppServerResponder implements AgentResponder {
         onUsage: input.onUsage,
       };
       input.onRuntimeEvent?.({ kind: "capabilities", usage: true });
+      // hive MCP 在开会话、开线程时就启动了：把已知的状态转告 Bridge；之后变了在通知里再报
+      if (session.hiveMcp) input.onHiveTools?.(session.hiveMcp.status, session.hiveMcp.detail);
       turn.usage.setModel(this.threadModels.get(threadId) ?? this.options.model);
       this.active = turn;
 
@@ -899,6 +905,10 @@ export class CodexAppServerResponder implements AgentResponder {
       return;
     }
     if (typeof message.method === "string") {
+      if (message.method === "mcpServer/startupStatus/updated") {
+        this.noteMcpStartup(session, message.params);
+        return;
+      }
       this.handleNotification(message.method, message.params);
     }
   }
@@ -955,6 +965,25 @@ export class CodexAppServerResponder implements AgentResponder {
     const turnId = params.turnId ?? params.turn?.id;
     if (turn.turnId && typeof turnId === "string" && turnId !== turn.turnId) return undefined;
     return turn;
+  }
+
+  /** hive MCP 的启动状态：ready 记为连上，failed 记为连不上（带 app-server 给的原因）；其余状态不管 */
+  private noteMcpStartup(session: Session, params: any) {
+    if (params?.name !== "hive") return;
+    const status =
+      params.status === "ready"
+        ? "connected"
+        : params.status === "failed"
+          ? "unavailable"
+          : undefined;
+    if (!status) return;
+    const detail =
+      status === "unavailable" && typeof params.error === "string" && params.error.trim()
+        ? params.error.trim().slice(0, 300)
+        : undefined;
+    session.hiveMcp = { status, ...(detail ? { detail } : {}) };
+    const turn = this.active;
+    if (turn && !turn.settled && turn.session === session) turn.onHiveTools?.(status, detail);
   }
 
   private handleNotification(method: string, params: any) {

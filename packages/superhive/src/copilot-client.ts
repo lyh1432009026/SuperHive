@@ -73,6 +73,8 @@ export class CopilotResponder implements AgentResponder {
       hive: HiveMcpConnection;
       access?: AgentAccessMode;
       model?: string;
+      /** Bridge 下载附件的缓存目录：Copilot 的文件工具默认碰不到 cwd 以外，要 --add-dir 放行才能看用户贴的图 */
+      attachmentDir?: string;
       runner?: CommandRunner;
     },
   ) {}
@@ -146,6 +148,9 @@ export class CopilotResponder implements AgentResponder {
     } else {
       args.push("--allow-all");
     }
+    // 只读档照旧 deny write/shell，放行目录只让它能读到附件；没放行时 view 被拒，它还会凭文件名瞎猜
+    if (this.options.attachmentDir && access !== "full")
+      args.push(`--add-dir=${this.options.attachmentDir}`);
     if (cloudFlag) args.push(cloudFlag);
     // 每轮都是新进程：设置里改的模型、「换个模型重试」都按轮生效
     const model = input.model ?? this.options.model;

@@ -230,7 +230,9 @@ Hive Server 只转发消息，不提供远程 Shell。`workspace` 和 `full` 的
 Agent 读附件有两条路，都不需要把文件内容塞进聊天：
 
 - **Hive MCP 工具 `hive_attachment_read`**：所有接入了 Hive MCP 的 Agent 都能用，文本分段返回，图片以图片内容返回。
-- **本地路径**：workspace / full 权限的 Agent，Bridge 会在提示里给出附件的本地路径。与 Server 在同一台电脑上的房主 Agent 直接用 Server 存的那份，不重复保存；远程或访客带入的 Agent 由 Bridge 用自己的凭证下载到本机缓存（`~/.superhive/agents/attachments/`）并校验 SHA-256。只读 Agent 不给路径，只能用 MCP 工具读。
+- **本地路径**：各档（含只读）的 Agent，Bridge 都会在提示里给出附件的本地路径，下载是 Bridge 做的，Agent 只是用读文件工具打开。与 Server 在同一台电脑上的房主 Agent 直接用 Server 存的那份，不重复保存；远程或访客带入的 Agent 由 Bridge 用自己的凭证下载到本机缓存（`~/.superhive/agents/attachments/`）并校验 SHA-256。文件工具只能碰工作区的运行时（Copilot、Gemini CLI、OpenCode、agy）一律下载到这个缓存目录，并且只放行这一个目录（Copilot `--add-dir`、Gemini `--include-directories`、OpenCode `external_directory`），只读档照旧不能写、不能跑命令。Hive MCP 连不上时，这是 Agent 看到附件的唯一途径。
+
+Agent 连不上 Hive MCP 时（例如 0.4.4 及更早版本里 Agent 名字带中文），它会少了全部 `hive_*` 工具：读不到附件、看不到白板、不能委派，回复仍由 Bridge 代发，表面看不出来。现在 Bridge 从运行时的启动信息里发现后（Claude Code、Codex 能报，ACP 类运行时和 Copilot 不报），成员列表里这个 Agent 名字旁会显示红色的「工具未连上」，悬停能看到原因；连上后自动消失。
 
 Agent 要把生成的文件交给大家，在最终回复末尾加一段声明，Bridge 会把文件上传成附件随回复发出：
 
@@ -242,7 +244,7 @@ output/result.png
 
 文件的读取和上传都在 Agent 所在的电脑上完成，Server 不会按路径读盘。只读 Agent 不能发布文件；其它权限只能发布工作目录（`--cwd`）内的普通文件，符号链接指到目录外也会被拒绝；没发出的会在回复末尾写明原因。声明只在 Bridge 代发的最终回复里生效，用 `hive_message_send` 发送时不附带。
 
-已实测：Claude Code（只读与 workspace）能经 MCP 工具看图、读文本，workspace 也能用 Read 打开本地路径；Codex workspace 经 MCP 工具只拿到图片元数据，改用 `view_image` 打开本地路径后能看图。其它 Provider 尚未实测，能否看图以实际回复为准。
+已实测：Claude Code（只读与 workspace）能经 MCP 工具看图、读文本，只读档（plan 模式）和 workspace 也都能用 Read 打开工作区以外的本地路径；Codex workspace 经 MCP 工具只拿到图片元数据，改用 `view_image` 打开本地路径后能看图。只读档读工作区以外的图片：omp 直接能读；Copilot、Gemini CLI、OpenCode 不放行时读不到（Copilot 读不到时还会凭文件名瞎猜），放行缓存目录后都能读到。能否看懂图还取决于模型本身是否支持图片。
 
 ## 模型与思考强度
 

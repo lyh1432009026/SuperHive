@@ -18,3 +18,9 @@
   background: var(--warning-soft);
   color: var(--warning);
 }
+
+/* Hive 工具（MCP）连不上：Agent 少了读附件、白板等能力，用 danger 语义色 */
+.member-workspace-badge.tools-unavailable {
+  background: var(--danger-soft);
+  color: var(--danger);
+}

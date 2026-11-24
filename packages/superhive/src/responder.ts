@@ -36,6 +36,11 @@ export type AgentReplyInput = {
   /** 一拿到这一轮用的 Provider 会话 ID 就告诉 Bridge（不用等回合结束），人可以在终端里接着它 */
   onSession?: (sessionId: string) => void;
   /**
+   * 运行时启动时告诉 Bridge Hive 工具（hive MCP）连上了没有。连不上时 Agent 少了全部 hive_* 工具
+   * （读附件、白板、委派……），Bridge 据此在成员状态里标出来。看不到启动信息的运行时不调用。
+   */
+  onHiveTools?: (status: "connected" | "unavailable", detail?: string) => void;
+  /**
    * 本轮结束时（成功、失败、停止都会）交出已观测到的用量，Bridge 据此在失败路径上也能记账。
    * 不支持用量的 Provider 不调用。
    */

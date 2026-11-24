@@ -740,6 +740,56 @@ describe("CodexAppServerResponder", () => {
     expect(await responder.steer("after")).toBe(false);
   });
 
+  it("转告 hive MCP 的启动状态：本轮里变了立即报，下一轮开始时补报已知状态；别的 MCP 不管", async () => {
+    const handlers = defaultHandlers({
+      "turn/start": (message, server) => {
+        const threadId = message.params.threadId;
+        server.emit({ id: message.id, result: { turn: { id: "t" } } });
+        server.emit({
+          method: "mcpServer/startupStatus/updated",
+          params: { threadId: null, name: "other", status: "failed", error: "x" },
+        });
+        server.emit({
+          method: "mcpServer/startupStatus/updated",
+          params: { threadId: null, name: "hive", status: "starting", error: null },
+        });
+        server.emit({
+          method: "mcpServer/startupStatus/updated",
+          params: {
+            threadId: null,
+            name: "hive",
+            status: "failed",
+            error: "handshake failed: Cannot convert argument to a ByteString",
+          },
+        });
+        server.emit({
+          method: "turn/completed",
+          params: { threadId, turn: { id: "t", status: "completed", items: [agentMessage("ok")] } },
+        });
+      },
+    });
+    const { responder } = setup(handlers);
+    const first: Array<[string, string | undefined]> = [];
+    await responder.reply({
+      instructions: "r",
+      prompt: "p",
+      onHiveTools: (status, detail) => first.push([status, detail]),
+    });
+    expect(first).toEqual([
+      ["unavailable", "handshake failed: Cannot convert argument to a ByteString"],
+    ]);
+    const second: Array<[string, string | undefined]> = [];
+    await responder.reply({
+      instructions: "r",
+      prompt: "p",
+      onHiveTools: (status, detail) => second.push([status, detail]),
+    });
+    expect(second[0]).toEqual([
+      "unavailable",
+      "handshake failed: Cannot convert argument to a ByteString",
+    ]);
+  });
+
   it("declines approval requests and rejects unknown server requests", async () => {
     const handlers = defaultHandlers({
       "turn/start": (message, server) => {

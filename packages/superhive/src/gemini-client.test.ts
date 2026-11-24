@@ -128,4 +128,23 @@ describe("Gemini CLI ACP profile", () => {
       "yolo",
     ]);
   });
+
+  it("放行附件缓存目录：--include-directories 必须写成 = 的形式（数组参数会吞掉后面的参数）", async () => {
+    const createTransport = idleTransport();
+    await expect(
+      createGeminiResponder(
+        {
+          command: "gemini",
+          cwd: "/workspace",
+          hive,
+          access: "read-only",
+          attachmentDir: "/c/att",
+        },
+        { createTransport, requestTimeoutMs: 1 },
+      ).reply({ instructions: "rules", prompt: "hi" }),
+    ).rejects.toThrow();
+    const args = (createTransport.mock.calls[0] as unknown as [string, string[]])[1];
+    expect(args).toContain("--include-directories=/c/att");
+    expect(args).not.toContain("--include-directories");
+  });
 });

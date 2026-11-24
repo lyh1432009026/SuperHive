@@ -8,6 +8,7 @@ import {
   type TaskWorkspaceNoticeSink,
   type TaskWorkspaceSelection,
 } from "./task-workspace.js";
+import { homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import {
   isMentioned,
@@ -279,8 +280,13 @@ export class AgentBridge {
       provider: string;
       token: string;
       access?: AgentAccessMode;
-      /** 附件缓存目录；只读档不准备本地路径（它没有读文件工具），只能经 hive_attachment_read 读取 */
+      /**
+       * 附件缓存目录：各档都准备本地路径。只读档也能用读文件工具打开（下载是 Bridge 做的，不是 Agent 写），
+       * Hive 工具连不上时这是 Agent 看到附件的唯一途径
+       */
       attachmentCacheDir?: string;
+      /** false：附件一律下载到缓存目录，不用同机 Server 存的那份（见 AttachmentCache） */
+      attachmentServerPath?: boolean;
       /** Agent 工作目录：回复里声明的附件只允许来自这里 */
       cwd?: string;
       /** 房间设置的工作区（原样，未解析）；没设时为空 */
@@ -334,14 +340,14 @@ export class AgentBridge {
       runtimeExitGraceMs: 3_000,
       ...options.tuning,
     };
-    this.attachments =
-      options.attachmentCacheDir && options.access && options.access !== "read-only"
-        ? new AttachmentCache({
-            serverUrl: options.serverUrl,
-            token: options.token,
-            dir: options.attachmentCacheDir,
-          })
-        : undefined;
+    this.attachments = options.attachmentCacheDir
+      ? new AttachmentCache({
+          serverUrl: options.serverUrl,
+          token: options.token,
+          dir: options.attachmentCacheDir,
+          ...(options.attachmentServerPath === false ? { serverPath: false } : {}),
+        })
+      : undefined;
     this.publisher = options.cwd
       ? new AttachmentPublisher({
           serverUrl: options.serverUrl,
@@ -1521,6 +1527,14 @@ export class AgentBridge {
               void this.store.save(this.state).catch(() => undefined);
             }
           },
+          // Hive 工具连不上：Agent 少了全部 hive_* 工具（读附件、白板、委派……），回复靠 Bridge 代发看不出来。
+          // 记进日志，并在成员状态里标出来，不能悄无声息地少了工具
+          onHiveTools: (status, detail) => {
+            const clean = detail ? hiveToolsDetail(detail) : undefined;
+            if (status === "unavailable")
+              this.log(`[hive] Hive 工具（MCP）连不上${clean ? `：${clean}` : ""}`);
+            this.room.reportHiveTools(status, clean);
+          },
           onTrace: (step) => {
             if (this.active !== active || active.controller.signal.aborted) return;
             const clean = sanitizeTraceStep(step);
@@ -2485,4 +2499,11 @@ export function isSendAcknowledgement(content: string): boolean {
     text.length <= 40 &&
     /(已|已经)(通过|用|经)?.{0,20}(发送|发出|回复|发到|发在)|^sent\b|hive_message_send/i.test(text)
   );
+}
+
+/** 连不上的原因会给房间里的人看：去掉本机用户目录，限制长度 */
+export function hiveToolsDetail(detail: string): string {
+  const home = homedir();
+  const text = home ? detail.split(home).join("~") : detail;
+  return text.replace(/\s+/g, " ").trim().slice(0, 300);
 }

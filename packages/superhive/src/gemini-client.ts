@@ -90,6 +90,8 @@ export function createGeminiResponder(
     access?: AgentAccessMode;
     /** Gemini 模型 ID，如 gemini-2.5-pro */
     model?: string;
+    /** Bridge 下载附件的缓存目录：Gemini 的文件工具只能碰工作区，要 --include-directories 放行才能看用户贴的图 */
+    attachmentDir?: string;
     log?: (message: string) => void;
   },
   dependencies?: AcpResponderDependencies,
@@ -107,6 +109,8 @@ export function createGeminiResponder(
         "--approval-mode",
         geminiApprovalMode(access),
         ...(options.model ? ["--model", options.model] : []),
+        // 必须写成 = 的形式：这个参数是数组，分开写会把后面的参数也吞进去
+        ...(options.attachmentDir ? [`--include-directories=${options.attachmentDir}`] : []),
       ],
       ...(Object.keys(env).length ? { env } : {}),
       cwd: options.cwd,

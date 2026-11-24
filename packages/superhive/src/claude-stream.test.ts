@@ -145,4 +145,32 @@ describe("Claude stream diagnostics", () => {
     stream.push('{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}]}}\n');
     expect(stream.finish()).toBeUndefined();
   });
+
+  it("从 init 的 mcp_servers 里认出 hive MCP 连上没有", () => {
+    const seen: Array<[string, string | undefined]> = [];
+    const sessions: string[] = [];
+    const stream = new ClaudeStream(
+      () => undefined,
+      () => undefined,
+      (id) => sessions.push(id),
+    );
+    stream.onHiveTools = (status, detail) => seen.push([status, detail]);
+    const init = (servers: unknown) =>
+      stream.push(
+        `${JSON.stringify({ type: "system", subtype: "init", session_id: "s1", mcp_servers: servers })}\n`,
+      );
+    init([
+      { name: "figma", status: "failed" },
+      { name: "hive", status: "failed" },
+    ]);
+    init([{ name: "hive", status: "connected" }]);
+    init([{ name: "hive", status: "pending" }]);
+    init(undefined);
+    expect(seen).toEqual([
+      ["unavailable", "Claude Code 报告 hive MCP 状态为 failed"],
+      ["connected", undefined],
+    ]);
+    // 会话 ID 照旧交出
+    expect(sessions).toContain("s1");
+  });
 });

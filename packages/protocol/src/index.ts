@@ -103,6 +103,18 @@ export const agentWorkspaceSchema = z.object({
 });
 export type AgentWorkspace = z.infer<typeof agentWorkspaceSchema>;
 
+/**
+ * Agent 的 Hive 工具（hive_* MCP）连不上：Agent 读不到附件、看不到白板，回复只能靠 Bridge 代发。
+ * Bridge 从运行时的启动信息里看到 hive MCP 失败时上报，连上后清除。
+ */
+export const agentHiveToolsSchema = z.object({
+  status: z.literal("unavailable"),
+  /** 运行时给出的原因（已截断、去掉本机用户目录）；运行时没说时为空 */
+  detail: z.string().max(500).optional(),
+  at: z.string().datetime(),
+});
+export type AgentHiveTools = z.infer<typeof agentHiveToolsSchema>;
+
 export const participantSchema = z.object({
   id: z.string().uuid(),
   roomId: z.string().min(1).max(64),
@@ -120,6 +132,8 @@ export const participantSchema = z.object({
   outdated: z.boolean().optional(),
   /** 在线的 Agent 在本房间实际的工作目录（旧版 Bridge 不上报） */
   workspace: agentWorkspaceSchema.optional(),
+  /** 在线的 Agent 的 Hive 工具连不上（连得上、旧版 Bridge 不上报时没有） */
+  hiveTools: agentHiveToolsSchema.optional(),
 });
 
 /** 外部 IM 渠道：飞书（含 Lark）与个人微信 */
@@ -707,6 +721,13 @@ export const agentSessionEventSchema = z.object({
   cwd: z.string().min(1).max(4096),
 });
 
+/** Agent 的 Hive 工具（MCP）这一轮连上了没有：Bridge 从运行时的启动信息里得知，状态变了才发 */
+export const agentToolsEventSchema = z.object({
+  type: z.literal("agent.tools"),
+  hive: z.enum(["connected", "unavailable"]),
+  detail: z.string().trim().max(500).optional(),
+});
+
 export const invocationReportEventSchema = z.object({
   type: z.literal("invocation.report"),
   messageId: z.string().uuid(),
@@ -789,6 +810,7 @@ export const clientEventSchema = z.discriminatedUnion("type", [
   questionAnswerEventSchema,
   approvalRequestEventSchema,
   agentSessionEventSchema,
+  agentToolsEventSchema,
   invocationReportEventSchema,
   invocationRetryEventSchema,
   invocationDismissEventSchema,

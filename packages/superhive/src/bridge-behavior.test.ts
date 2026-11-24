@@ -1,5 +1,6 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentBridge, pickReplyParent } from "./bridge.js";
@@ -79,6 +80,10 @@ class FakeRoom {
   sessions: Array<{ sessionId: string; cwd: string }> = [];
   reportSession(sessionId: string, cwd: string) {
     this.sessions.push({ sessionId, cwd });
+  }
+  hiveTools: Array<{ hive: string; detail?: string }> = [];
+  reportHiveTools(hive: string, detail?: string) {
+    this.hiveTools.push({ hive, ...(detail ? { detail } : {}) });
   }
   typing: boolean[] = [];
   setTyping(active: boolean) {
@@ -329,6 +334,86 @@ describe("AgentBridge", () => {
     const input = await completePromptTurn();
     expect(input.instructions).toContain("本房间工作区：~/proj");
     expect(input.instructions).toContain(`你当前的工作目录：${directory}（只读`);
+  });
+
+  it("只读档也给附件准备本地路径：Hive 工具连不上时 Agent 仍能用读文件工具看图", async () => {
+    const body = "PNG-BYTES";
+    const attachment = {
+      id: "6f1d2c3b-1111-4222-8333-444455556666",
+      name: "截图.png",
+      mime: "image/png",
+      size: Buffer.byteLength(body),
+      kind: "image" as const,
+      sha256: createHash("sha256").update(body).digest("hex"),
+    };
+    const fetchMock = vi.fn(async (input: URL | string) =>
+      new URL(String(input)).pathname === `/api/attachments/${attachment.id}`
+        ? new Response(body)
+        : new Response("{}", { status: 404 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      bridge = new AgentBridge(
+        {
+          ...identity,
+          persona: "p",
+          provider: "claude",
+          token: "t",
+          access: "read-only",
+          attachmentCacheDir: path.join(directory, "attachments"),
+          tuning: { batchWindowMs: 20 },
+        },
+        store,
+        responder,
+        () => undefined,
+        (_options, handlers) => {
+          room.handlers = handlers;
+          return room as unknown as RoomClient;
+        },
+      );
+      await bridge.start();
+      await room.handlers.onSnapshot({ self, latestSeq: 0, messages: [], participants: [self] });
+      const mention = chat({ attachments: [attachment] });
+      room.messages.push(mention);
+      room.handlers.onMention(mention, mention.seq, false);
+      await waitUntil(() => responder.calls.length === 1);
+      const input = responder.calls[0]!;
+      const cached = path.join(directory, "attachments", attachment.sha256, "截图.png");
+      expect(input.prompt).toContain(`本地路径：${cached}`);
+      expect(await readFile(cached, "utf8")).toBe(body);
+      responder.finish("完成");
+      await waitUntil(() => room.statuses(mention.id).includes("completed"));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("运行时报 Hive 工具连不上时转告房间（去掉本机用户目录），连上后也转告", async () => {
+    bridge = new AgentBridge(
+      { ...identity, persona: "p", provider: "claude", token: "t", tuning: { batchWindowMs: 20 } },
+      store,
+      responder,
+      () => undefined,
+      (_options, handlers) => {
+        room.handlers = handlers;
+        return room as unknown as RoomClient;
+      },
+    );
+    await bridge.start();
+    await room.handlers.onSnapshot({ self, latestSeq: 0, messages: [], participants: [self] });
+    const mention = chat();
+    room.messages.push(mention);
+    room.handlers.onMention(mention, mention.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    const input = responder.calls[0]!;
+    input.onHiveTools?.("unavailable", `连不上 ${homedir()}/x\n第二行`);
+    input.onHiveTools?.("connected");
+    expect(room.hiveTools).toEqual([
+      { hive: "unavailable", detail: "连不上 ~/x 第二行" },
+      { hive: "connected" },
+    ]);
+    responder.finish("完成");
+    await waitUntil(() => room.statuses(mention.id).includes("completed"));
   });
 
   it("compact receipts still deliver the full result to the responder", async () => {

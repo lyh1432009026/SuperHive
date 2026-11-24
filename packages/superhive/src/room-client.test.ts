@@ -399,6 +399,66 @@ describe("RoomClient with an older server", () => {
       { type: "agent.session", sessionId: "sess-2", cwd: "/repo" },
     ]);
   });
+  it("Hive 工具状态变了才报；服务端不认 tools 时不发；连上前就知道的连不上等快照后补报", async () => {
+    server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+    await waitFor<void>((resolve) => server!.on("listening", () => resolve()));
+    const port = (server.address() as AddressInfo).port;
+    const received: Array<Record<string, unknown>> = [];
+    let features = ["tools"];
+    server.on("connection", (connection) => {
+      connection.on("message", (raw) => {
+        const event = JSON.parse(raw.toString()) as Record<string, unknown>;
+        received.push(event);
+        if (event.type === "participant.join") {
+          connection.send(
+            JSON.stringify({
+              type: "room.snapshot",
+              self: { id: "self" },
+              participants: [],
+              messages: [],
+              latestSeq: 0,
+              invocations: [],
+              features,
+            }),
+          );
+        }
+      });
+    });
+    let resolveSnapshot!: () => void;
+    const snapshot = waitFor<void>((resolve) => (resolveSnapshot = resolve));
+    client = new RoomClient(
+      { serverUrl: `http://127.0.0.1:${port}`, roomId: "general", username: "a", token: "t" },
+      { onSnapshot: () => resolveSnapshot(), onMention: () => undefined, onError: () => undefined },
+    );
+    client.reportHiveTools("unavailable", "failed");
+    client.start();
+    await snapshot;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    client.reportHiveTools("unavailable", "failed");
+    client.reportHiveTools("connected");
+    client.reportHiveTools("connected");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(received.filter((event) => event.type === "agent.tools")).toEqual([
+      { type: "agent.tools", hive: "unavailable", detail: "failed" },
+      { type: "agent.tools", hive: "connected" },
+    ]);
+
+    // 旧版服务端不认：一条都不发
+    client.stop();
+    received.length = 0;
+    features = [];
+    let resolveOld!: () => void;
+    const old = waitFor<void>((resolve) => (resolveOld = resolve));
+    client = new RoomClient(
+      { serverUrl: `http://127.0.0.1:${port}`, roomId: "general", username: "a", token: "t" },
+      { onSnapshot: () => resolveOld(), onMention: () => undefined, onError: () => undefined },
+    );
+    client.start();
+    await old;
+    client.reportHiveTools("unavailable");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(received.filter((event) => event.type === "agent.tools")).toEqual([]);
+  });
   it("re-announces that it is busy after reconnecting mid-task", async () => {
     server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
     await waitFor<void>((resolve) => server!.on("listening", () => resolve()));

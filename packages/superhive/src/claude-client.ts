@@ -220,6 +220,7 @@ export class ClaudeCodeResponder implements AgentResponder {
       turn.closed = true;
       turn.stdin?.end();
     };
+    if (input.onHiveTools) stream.onHiveTools = input.onHiveTools;
     stream.onUserAck = (uuid) => {
       const resolve = turn.unacked.get(uuid);
       if (!resolve) return;

@@ -11,15 +11,17 @@ type PermissionAction = "allow" | "deny";
  */
 export function openCodePermission(
   access: AgentAccessMode,
-): PermissionAction | Record<string, PermissionAction> {
+  attachmentDir?: string,
+): PermissionAction | Record<string, unknown> {
   if (access === "full") return "allow";
+  const externalDirectory = openCodeExternalDirectory(attachmentDir);
   if (access === "workspace") {
     return {
       edit: "allow",
       bash: "allow",
       webfetch: "allow",
       websearch: "allow",
-      external_directory: "deny",
+      external_directory: externalDirectory,
       // 无人值守时反复执行同一调用多半是死循环，直接终止
       doom_loop: "deny",
     };
@@ -30,9 +32,23 @@ export function openCodePermission(
     webfetch: "deny",
     websearch: "deny",
     task: "deny",
-    external_directory: "deny",
+    external_directory: externalDirectory,
     doom_loop: "deny",
   };
+}
+
+/**
+ * cwd 以外一律拒绝，只放行 Bridge 下载附件的缓存目录（读图要用）。按 glob 匹配，后写的规则优先；
+ * Windows 上两种斜杠都写上
+ */
+export function openCodeExternalDirectory(
+  attachmentDir: string | undefined,
+): PermissionAction | Record<string, PermissionAction> {
+  if (!attachmentDir) return "deny";
+  const rules: Record<string, PermissionAction> = { "*": "deny" };
+  const base = attachmentDir.replace(/[\\/]+$/, "");
+  for (const dir of new Set([base, base.replace(/\\/g, "/")])) rules[`${dir}/*`] = "allow";
+  return rules;
 }
 
 /**
@@ -43,6 +59,7 @@ export function openCodeConfigContent(
   access: AgentAccessMode,
   model?: string,
   inherited?: string,
+  attachmentDir?: string,
 ): string {
   let base: Record<string, unknown> = {};
   if (inherited) {
@@ -57,7 +74,7 @@ export function openCodeConfigContent(
   }
   return JSON.stringify({
     ...base,
-    permission: openCodePermission(access),
+    permission: openCodePermission(access, attachmentDir),
     ...(model ? { model } : {}),
   });
 }
@@ -70,6 +87,8 @@ export function createOpenCodeResponder(
     access?: AgentAccessMode;
     /** provider/model，如 zhipu-coding/glm-5.3 */
     model?: string;
+    /** Bridge 下载附件的缓存目录：在 external_directory 里单独放行 */
+    attachmentDir?: string;
     log?: (message: string) => void;
   },
   dependencies?: AcpResponderDependencies,
@@ -85,6 +104,7 @@ export function createOpenCodeResponder(
           access,
           options.model,
           process.env.OPENCODE_CONFIG_CONTENT,
+          options.attachmentDir,
         ),
       },
       cwd: options.cwd,
