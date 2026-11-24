@@ -253,6 +253,20 @@ function headerString(value: string | string[] | undefined): string | undefined 
   return Array.isArray(value) ? value[0] : value;
 }
 
+/**
+ * Agent 身份头（X-Hive-Room / X-Hive-Agent-Name）：HTTP 头只能放 Latin-1，客户端把中文名等按 URI 编码后发来，
+ * 这里解码；老客户端发的原样 ASCII 名字解码后不变，解码失败（名字里本来就有单独的 %）就按原样用。
+ */
+function identityHeader(value: string | string[] | undefined): string | undefined {
+  const raw = headerString(value);
+  if (raw === undefined) return undefined;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 function requestPublicUrl(
   request: { protocol: string; headers: { host?: string | undefined } },
   configuredUrl?: ConfiguredUrl,
@@ -4535,8 +4549,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       bearerToken(request as { headers: { authorization?: string } }),
     );
     if (!principal) return undefined;
-    const roomId = headerString(request.headers["x-hive-room"]);
-    const username = headerString(request.headers["x-hive-agent-name"]);
+    const roomId = identityHeader(request.headers["x-hive-room"]);
+    const username = identityHeader(request.headers["x-hive-agent-name"]);
     if (!roomId || !username) return undefined;
     // 访客 Agent 的凭证只代表它自己：房间与名字都必须对上，访客本人的凭证不能用来调 Agent 工具
     if (

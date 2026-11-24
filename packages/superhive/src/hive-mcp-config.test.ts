@@ -27,7 +27,7 @@ describe("Hive MCP provider configuration", () => {
     expect(hiveMcpHeaders(connection)).toEqual({
       Authorization: "Bearer secret-token",
       "X-Hive-Room": "general",
-      "X-Hive-Agent-Name": "小明-codex",
+      "X-Hive-Agent-Name": encodeURIComponent("小明-codex"),
     });
   });
 
@@ -57,7 +57,7 @@ describe("Hive MCP provider configuration", () => {
     expect(overrides).toEqual([
       'mcp_servers.hive.url="https://hive.example.com/mcp"',
       'mcp_servers.hive.bearer_token_env_var="HIVE_MCP_TOKEN"',
-      'mcp_servers.hive.http_headers={"X-Hive-Room"="general","X-Hive-Agent-Name"="小明-codex"}',
+      'mcp_servers.hive.http_headers={"X-Hive-Room"="general","X-Hive-Agent-Name"="%E5%B0%8F%E6%98%8E-codex"}',
       // 模型执行的命令里读不到这个变量
       'shell_environment_policy.set.HIVE_MCP_TOKEN=""',
     ]);

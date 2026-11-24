@@ -14,11 +14,20 @@ export function hiveMcpUrl(connection: HiveMcpConnection): string {
   return `${connection.serverUrl.replace(/\/$/, "")}/mcp`;
 }
 
+/**
+ * HTTP 头的值只能是 Latin-1（Node 的 fetch 遇到「菜包-claude」这种中文名会直接抛错，
+ * Claude Code 等 CLI 连 Hive MCP 时也一样），所以房间和名字一律按 URI 编码，Server 再解码。
+ * 纯字母数字和 -_. 的名字编码前后一样，老版本 Server 照常认。
+ */
+export function encodeHiveHeaderValue(value: string): string {
+  return encodeURIComponent(value);
+}
+
 /** 只标明房间和身份、不含 token 的请求头 */
 function hiveMcpIdentityHeaders(connection: HiveMcpConnection): Record<string, string> {
   return {
-    "X-Hive-Room": connection.roomId,
-    "X-Hive-Agent-Name": connection.username,
+    "X-Hive-Room": encodeHiveHeaderValue(connection.roomId),
+    "X-Hive-Agent-Name": encodeHiveHeaderValue(connection.username),
   };
 }
 
