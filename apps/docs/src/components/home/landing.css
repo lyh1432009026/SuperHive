@@ -359,6 +359,188 @@
   display: block;
 }
 
+/*
+  首屏标题：第一行细字从模糊里浮出来做引子；第二行是主角——粗体液态金属字，
+  银白明暗缓慢流动，一道高光周期性扫过，背后同一段字模糊成柔光，
+  句末一个绿色光标（和眉标的在线绿点同色），像 Agent 正在往下写。
+  颜色全部由 --hl-text / --hl-bg 混出来，浅色主题自动变成石墨色。
+  动效只用 transform/filter/background-position，减少动态时全部停在终态。
+*/
+.hl-hero h1 {
+  font-size: clamp(2.5rem, 6.2vw, 5.4rem);
+  letter-spacing: -0.04em;
+}
+
+.hl-hero h1 .hl-lead {
+  color: color-mix(in srgb, var(--hl-text) 62%, transparent);
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  animation: hl-title-rise 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.hl-hero h1 .hl-grad {
+  --hl-metal-hi: var(--hl-text);
+  --hl-metal-mid: color-mix(in srgb, var(--hl-text) 62%, var(--hl-bg));
+  --hl-metal-lo: color-mix(in srgb, var(--hl-text) 38%, var(--hl-bg));
+  --hl-metal-shine: color-mix(in srgb, var(--hl-text) 30%, #fff);
+  position: relative;
+  display: inline-block;
+  padding: 0 0.04em 0.06em;
+  font-size: 1.08em;
+  font-weight: 800;
+  background:
+    linear-gradient(
+      105deg,
+      transparent 38%,
+      var(--hl-metal-shine) 50%,
+      transparent 62%
+    ),
+    linear-gradient(
+      100deg,
+      var(--hl-metal-hi) 0%,
+      var(--hl-metal-mid) 18%,
+      var(--hl-metal-hi) 34%,
+      var(--hl-metal-lo) 52%,
+      var(--hl-metal-hi) 70%,
+      var(--hl-metal-mid) 86%,
+      var(--hl-metal-hi) 100%
+    );
+  background-size:
+    250% 100%,
+    200% 100%;
+  background-position:
+    var(--hl-sheen-x) 0,
+    var(--hl-flow-x) 0;
+  background-repeat: no-repeat, repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation:
+    hl-title-wipe 1.3s 0.25s cubic-bezier(0.65, 0, 0.35, 1) backwards,
+    hl-title-flow 9s linear infinite,
+    hl-title-sheen 5.5s 1.4s ease-in-out infinite;
+}
+
+/* 辉光：同一段字放在底下模糊开 */
+.hl-hero h1 .hl-grad::before {
+  content: attr(data-text);
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  padding: inherit;
+  background: inherit;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: blur(26px);
+  opacity: 0.45;
+  animation:
+    hl-glow-in 0.9s 1.4s ease-out backwards,
+    hl-title-flow 9s linear infinite,
+    hl-title-sheen 5.5s 1.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* 句末光标 */
+.hl-hero h1 .hl-caret {
+  display: inline-block;
+  width: 0.07em;
+  height: 0.82em;
+  margin-left: 0.1em;
+  border-radius: 0.03em;
+  background: var(--hl-ok);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--hl-ok) 60%, transparent);
+  vertical-align: -0.06em;
+  animation: hl-caret-blink 1.05s 1.3s steps(1, end) infinite;
+}
+
+.hl-hero h1 + .hl-intro {
+  margin-top: 1.6rem;
+}
+
+:lang(zh-CN) .hl-hero h1 .hl-lead {
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+
+:lang(zh-CN) .hl-hero h1 .hl-grad {
+  font-size: 1.04em;
+  letter-spacing: -0.01em;
+}
+
+/* 全角句号右半边是空白，光标往回收；用 transform 而不是负 margin，
+   负 margin 会让行内块的固有宽度算少，偶尔把句号挤到下一行 */
+:lang(zh-CN) .hl-hero h1 .hl-caret {
+  transform: translateX(-0.46em);
+}
+
+@keyframes hl-title-rise {
+  from {
+    opacity: 0;
+    filter: blur(14px);
+    transform: translateY(0.25em);
+  }
+}
+
+/* 软边擦除：遮罩只在入场时存在，结束后去掉，辉光才能溢出到字外 */
+@keyframes hl-title-wipe {
+  from {
+    -webkit-mask: linear-gradient(90deg, #000 40%, transparent 60%) 100% 0 / 250% 100% no-repeat;
+    mask: linear-gradient(90deg, #000 40%, transparent 60%) 100% 0 / 250% 100% no-repeat;
+  }
+  to {
+    -webkit-mask: linear-gradient(90deg, #000 40%, transparent 60%) 0 0 / 250% 100% no-repeat;
+    mask: linear-gradient(90deg, #000 40%, transparent 60%) 0 0 / 250% 100% no-repeat;
+  }
+}
+
+@keyframes hl-glow-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@property --hl-flow-x {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+
+@property --hl-sheen-x {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 150%;
+}
+
+@keyframes hl-title-flow {
+  to {
+    --hl-flow-x: -200%;
+  }
+}
+
+@keyframes hl-title-sheen {
+  0%,
+  55% {
+    --hl-sheen-x: 150%;
+  }
+  100% {
+    --hl-sheen-x: -50%;
+  }
+}
+
+@keyframes hl-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hl-hero h1 :is(.hl-lead, .hl-grad, .hl-caret),
+  .hl-hero h1 .hl-grad::before {
+    animation: none;
+  }
+}
+
 .hl-lead {
   color: var(--hl-text);
 }

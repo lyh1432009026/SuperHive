@@ -149,7 +149,9 @@ const hiveCells = Array.from({ length: 14 }, (_, index) => ({
       </p>
       <h1 id="_top" data-page-title>
         <span class="hl-lead">{t.hero.titleLead}</span>
-        <span class="hl-grad">{t.hero.titleRest}</span>
+        <span class="hl-grad" data-text={t.hero.titleRest}
+          >{t.hero.titleRest}<span class="hl-caret" aria-hidden="true"></span></span
+        >
       </h1>
       <p class="hl-intro">{t.hero.intro}</p>
       <div class="hl-actions">
