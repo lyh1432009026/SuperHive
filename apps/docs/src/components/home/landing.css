@@ -1022,6 +1022,8 @@ html .hl .cm.cm.cm {
   font-weight: 750;
   line-height: 0.9;
   letter-spacing: -0.06em;
+  /* 负字距让字形伸出盒子右边，渐变背景只铺到盒子边，右侧会被切掉；补回这段 */
+  padding-inline-end: 0.08em;
 }
 
 .hl-stat-unit {
