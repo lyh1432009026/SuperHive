@@ -1907,5 +1907,9 @@
   "思考强度 {0}": "{0} reasoning effort",
   "工具未连上": "Tools offline",
   "{0} 连不上 Hive 工具（MCP）：读不到附件和图片、看不到白板、不能委派，回复仍由 Bridge 代发。升级到最新版并重启这个 Agent；仍不行请查看它的日志。": "{0} can't reach the Hive tools (MCP): it can't read attachments or images, see the whiteboard or delegate; its replies are still posted by the Bridge. Update to the latest version and restart this agent; if it persists, check its logs.",
-  "原因：{0}": "Reason: {0}"
+  "原因：{0}": "Reason: {0}",
+  "自动换行": "Wrap lines",
+  "左右对照时总是自动换行": "Lines always wrap in split view",
+  "长行折到下一行显示；点一下改回横向滚动": "Long lines wrap onto the next line. Click to scroll horizontally instead",
+  "长行横向滚动；点一下改为折行显示": "Long lines scroll horizontally. Click to wrap them"
 }

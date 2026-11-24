@@ -48,6 +48,7 @@ import {
   formatBytes,
   highlightHunks,
   highlightLines,
+  isProseFile,
   languageFor,
   parsePatch,
   splitRows,
@@ -68,6 +69,8 @@ type Tab = "changes" | "files" | "commits";
 type DiffView = "unified" | "split";
 
 const VIEW_KEY = "superhive.workspace-diff-view";
+/** 自动换行：正文类文件、代码文件分开记，各自的默认值不同 */
+const WRAP_KEY = "superhive.workspace-wrap";
 /** 打开时变更列表的刷新间隔 */
 const STATUS_REFRESH_MS = 4000;
 
@@ -993,6 +996,65 @@ function ChangeList({
 
 /* ---------- diff ---------- */
 
+type WrapPrefs = { prose: boolean; code: boolean };
+
+function readWrapPrefs(): WrapPrefs {
+  const stored = (kind: keyof WrapPrefs) => localStorage.getItem(`${WRAP_KEY}.${kind}`);
+  // 正文类默认换行，代码默认不换行（和 GitHub、VS Code 一样），用户切过就按记住的来
+  return { prose: stored("prose") !== "0", code: stored("code") === "1" };
+}
+
+/** 这个文件要不要自动换行；切换后同类文件都按新的选择 */
+function useWrap(path: string): [boolean, (wrap: boolean) => void] {
+  const kind: keyof WrapPrefs = isProseFile(path) ? "prose" : "code";
+  const [prefs, setPrefs] = useState(readWrapPrefs);
+  return [
+    prefs[kind],
+    (next) => {
+      localStorage.setItem(`${WRAP_KEY}.${kind}`, next ? "1" : "0");
+      setPrefs((current) => ({ ...current, [kind]: next }));
+    },
+  ];
+}
+
+function WrapToggle({
+  wrap,
+  onChange,
+  locked,
+}: {
+  wrap: boolean;
+  onChange: (wrap: boolean) => void;
+  /** 左右对照两边各占一半，长行只能在自己那一半里换行 */
+  locked?: boolean;
+}) {
+  const button = (
+    <button
+      type="button"
+      className={`workspace-wrap-toggle ${wrap || locked ? "active" : ""}`}
+      aria-pressed={Boolean(wrap || locked)}
+      aria-disabled={locked || undefined}
+      onClick={() => {
+        if (!locked) onChange(!wrap);
+      }}
+    >
+      {t("自动换行")}
+    </button>
+  );
+  return (
+    <Tooltip
+      content={
+        locked
+          ? t("左右对照时总是自动换行")
+          : wrap
+            ? t("长行折到下一行显示；点一下改回横向滚动")
+            : t("长行横向滚动；点一下改为折行显示")
+      }
+    >
+      {button}
+    </Tooltip>
+  );
+}
+
 function useDiffView(): [DiffView, (view: DiffView) => void] {
   const [view, setView] = useState<DiffView>(() =>
     localStorage.getItem(VIEW_KEY) === "split" ? "split" : "unified",
@@ -1022,6 +1084,7 @@ function DiffViewer({
   onBack?: (() => void) | undefined;
 }) {
   const [view, setView] = useDiffView();
+  const [wrap, setWrap] = useWrap(selection.path);
   const [reveal, setReveal] = useState(false);
   const [expandAll, setExpandAll] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -1117,7 +1180,8 @@ function DiffViewer({
     content = (
       <div className="workspace-empty workspace-muted">{t("改动太大，不在这里显示。")}</div>
     );
-  else if (!hunks) content = <pre className="workspace-raw">{diff.data?.patch}</pre>;
+  else if (!hunks)
+    content = <pre className={`workspace-raw ${wrap ? "wrap" : ""}`}>{diff.data?.patch}</pre>;
   else if (!hunks.length)
     content = (
       <div className="workspace-empty workspace-muted">
@@ -1138,7 +1202,7 @@ function DiffViewer({
   else
     content = (
       <div
-        className={`workspace-code workspace-diff ${view}`}
+        className={`workspace-code workspace-diff ${view} ${wrap || view === "split" ? "wrap" : ""}`}
         role="table"
         aria-label={t("{0} 的改动", { 0: selection.path })}
       >
@@ -1249,6 +1313,16 @@ function DiffViewer({
               {expandAll ? t("折叠未改动") : t("全部展开")}
             </button>
           )}
+          {!showMedia &&
+            diff.data?.patch !== undefined &&
+            !diff.data.binary &&
+            !diff.data.tooLarge && (
+              <WrapToggle
+                wrap={wrap}
+                onChange={setWrap}
+                locked={Boolean(hunks) && view === "split"}
+              />
+            )}
           {!showMedia && (
             <div className="workspace-segmented" role="radiogroup" aria-label={t("diff 视图")}>
               <button
@@ -1709,6 +1783,7 @@ function FilePreview({
   onBack?: (() => void) | undefined;
 }) {
   const [reveal, setReveal] = useState(false);
+  const [wrap, setWrap] = useWrap(path);
   // 图片、音视频、PDF、Office 文档直接预览；SVG、CSV 还能切到源码
   const media = mediaKind(path);
   const hasSource = /\.svg$/i.test(path) || isTextOffice(officeKind(path));
@@ -1764,7 +1839,11 @@ function FilePreview({
             {t("文件较大，只显示前 {0}。", { 0: formatBytes(512 * 1024) })}
           </p>
         )}
-        <div className="workspace-code workspace-source-view" role="table" aria-label={path}>
+        <div
+          className={`workspace-code workspace-source-view ${wrap ? "wrap" : ""}`}
+          role="table"
+          aria-label={path}
+        >
           {lines.map((tokens, index) => (
             <div key={index} className="diff-row context" role="row">
               <span className="diff-number" role="cell" aria-hidden="true">
@@ -1791,16 +1870,19 @@ function FilePreview({
           {path}
         </span>
         {file.data && <span className="workspace-muted">{formatBytes(file.data.size)}</span>}
-        {media && hasSource && (
+        {((media && hasSource) || lines) && (
           <div className="workspace-viewer-actions">
-            <button
-              type="button"
-              aria-pressed={showSource}
-              className={showSource ? "active" : ""}
-              onClick={() => setShowSource((value) => !value)}
-            >
-              {!showSource ? t("看源码") : media === "office" ? t("看表格") : t("看图片")}
-            </button>
+            {lines && !showMedia && <WrapToggle wrap={wrap} onChange={setWrap} />}
+            {media && hasSource && (
+              <button
+                type="button"
+                aria-pressed={showSource}
+                className={showSource ? "active" : ""}
+                onClick={() => setShowSource((value) => !value)}
+              >
+                {!showSource ? t("看源码") : media === "office" ? t("看表格") : t("看图片")}
+              </button>
+            )}
           </div>
         )}
       </div>

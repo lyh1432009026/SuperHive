@@ -163,6 +163,59 @@ describe("WorkspacePanel", () => {
     expect(row?.textContent).toContain("const value = 2;");
   });
 
+  it("自动换行：文本文件默认换行、代码默认不换行，两类分别记住；左右对照固定换行", async () => {
+    const api = fakeApi();
+    open(api);
+    const readme = await screen.findByRole("table", { name: "README.md 的改动" });
+    expect(readme.classList.contains("wrap")).toBe(true);
+    const toggle = () => screen.getByRole("button", { name: "自动换行" });
+    expect(toggle().getAttribute("aria-pressed")).toBe("true");
+    await userEvent.click(toggle());
+    expect(toggle().getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole("table", { name: "README.md 的改动" }).classList.contains("wrap")).toBe(
+      false,
+    );
+    expect(localStorage.getItem("superhive.workspace-wrap.prose")).toBe("0");
+
+    // 代码文件按自己的默认值：不换行
+    await userEvent.click(
+      within(screen.getByLabelText("改动的文件")).getByRole("button", { name: /app\.ts/ }),
+    );
+    const code = await screen.findByRole("table", { name: "src/app.ts 的改动" });
+    expect(code.classList.contains("wrap")).toBe(false);
+    await userEvent.click(toggle());
+    expect(
+      screen.getByRole("table", { name: "src/app.ts 的改动" }).classList.contains("wrap"),
+    ).toBe(true);
+    expect(localStorage.getItem("superhive.workspace-wrap.code")).toBe("1");
+    await userEvent.click(toggle());
+
+    // 左右对照两边各占一半，总是换行，开关锁住
+    await userEvent.click(screen.getByRole("radio", { name: "左右对照" }));
+    const split = screen.getByRole("table", { name: "src/app.ts 的改动" });
+    expect(split.classList.contains("wrap")).toBe(true);
+    expect(toggle().getAttribute("aria-disabled")).toBe("true");
+    await userEvent.click(toggle());
+    expect(localStorage.getItem("superhive.workspace-wrap.code")).toBe("0");
+  });
+
+  it("文件预览也有自动换行开关，按文件类型给默认值", async () => {
+    localStorage.setItem("superhive.workspace-wrap.code", "1");
+    const api = fakeApi();
+    open(api);
+    await userEvent.click(await screen.findByRole("tab", { name: "文件树" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^README\.md/ }));
+    const readme = await screen.findByRole("table", { name: "README.md" });
+    expect(readme.classList.contains("wrap")).toBe(true);
+    await userEvent.click(screen.getByRole("button", { name: "自动换行" }));
+    expect(screen.getByRole("table", { name: "README.md" }).classList.contains("wrap")).toBe(false);
+    // 代码文件用记住的选择（之前切成了换行）
+    await userEvent.click(await screen.findByRole("button", { name: /^src/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /^app\.ts/ }));
+    const code = await screen.findByRole("table", { name: "src/app.ts" });
+    expect(code.classList.contains("wrap")).toBe(true);
+  });
+
   it("疑似密钥文件：默认不显示，房主确认后带 reveal 再取", async () => {
     const api = fakeApi();
     open(api);

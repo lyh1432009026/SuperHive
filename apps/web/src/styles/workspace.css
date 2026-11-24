@@ -223,6 +223,25 @@
   background: var(--bg-active);
 }
 
+/* 开关类按钮：关着时文字淡一些，开着时加深边框，一眼看出状态 */
+.workspace-viewer-actions > .workspace-wrap-toggle {
+  color: var(--text-secondary);
+}
+
+.workspace-viewer-actions > .workspace-wrap-toggle.active {
+  border-color: var(--border-heavy);
+  color: var(--text);
+}
+
+.workspace-viewer-actions > button[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.workspace-viewer-actions > button[aria-disabled="true"]:hover {
+  background: var(--bg-active);
+}
+
 .workspace-empty .workspace-primary,
 .workspace-confirm .workspace-primary {
   border-color: var(--button-primary-bg);
@@ -716,6 +735,11 @@
   white-space: pre;
 }
 
+.workspace-raw.wrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* 代码行：行号 + 内容；高亮配色和消息里的代码块一致 */
 .workspace-code {
   --hl-comment: #6e7781;
@@ -776,14 +800,12 @@
   grid-template-columns: 48px minmax(0, 1fr) 48px minmax(0, 1fr);
 }
 
-.diff-row.split .diff-text {
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
+/* 行号底色叠在不透明的底上：不换行时行号列固定在左边，横向滚走的代码不会从底下透出来 */
 .diff-number {
+  --number-bg: var(--diff-gutter);
+
   padding: 0 8px;
-  background: var(--diff-gutter);
+  background: linear-gradient(var(--number-bg), var(--number-bg)) var(--bg-main);
   color: var(--text-tertiary);
   text-align: right;
   user-select: none;
@@ -793,6 +815,38 @@
 .diff-text {
   padding: 0 12px 0 4px;
   white-space: pre;
+}
+
+/* 不换行：整块按最长的行撑开、横向滚动，行号列固定 */
+.workspace-code:not(.wrap) .diff-number {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+
+.workspace-diff.unified:not(.wrap) .diff-number + .diff-number {
+  left: 52px;
+}
+
+/* 自动换行：不撑开，长 URL、长单词也能断开；行号和底色随行高一起拉长 */
+.workspace-code.wrap {
+  min-width: 0;
+}
+
+.workspace-code.wrap .diff-text,
+.workspace-code.wrap .diff-hunk {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 统一视图里折出来的部分对齐到正文，+/− 标记单独悬在左边 */
+.workspace-diff.unified.wrap .diff-text {
+  padding-left: 18px;
+  text-indent: -14px;
+}
+
+.workspace-diff.unified.wrap .diff-marker {
+  text-indent: 0;
 }
 
 .diff-row.split .diff-number:nth-child(3) {
@@ -811,7 +865,7 @@
 
 .diff-row.add .diff-number,
 .diff-number.add {
-  background: var(--diff-add-number);
+  --number-bg: var(--diff-add-number);
 }
 
 .diff-row.add .diff-text,
@@ -821,7 +875,7 @@
 
 .diff-row.del .diff-number,
 .diff-number.del {
-  background: var(--diff-del-number);
+  --number-bg: var(--diff-del-number);
 }
 
 .diff-row.del .diff-text,
@@ -829,7 +883,10 @@
   background: var(--diff-del-bg);
 }
 
-.diff-number.empty,
+.diff-number.empty {
+  --number-bg: var(--bg-subtle);
+}
+
 .diff-text.empty {
   background: var(--bg-subtle);
 }

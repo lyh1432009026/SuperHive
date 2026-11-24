@@ -246,6 +246,39 @@ export function languageFor(filePath: string): string | undefined {
   return language && lowlight.registered(language) ? language : undefined;
 }
 
+/** 默认自动换行的「正文类」文件：一行就是一段话，横向滚动读不了 */
+const PROSE_EXTENSIONS = new Set([
+  "md",
+  "markdown",
+  "mdx",
+  "txt",
+  "text",
+  "log",
+  "rst",
+  "adoc",
+  "asciidoc",
+  "org",
+]);
+const PROSE_NAMES = new Set([
+  "readme",
+  "license",
+  "licence",
+  "changelog",
+  "notice",
+  "authors",
+  "contributors",
+  "copying",
+  "todo",
+]);
+
+/** Markdown、txt、log 这类文本文件（默认换行）；其余按代码处理（默认不换行） */
+export function isProseFile(filePath: string): boolean {
+  const name = filePath.slice(filePath.lastIndexOf("/") + 1).toLowerCase();
+  const dot = name.lastIndexOf(".");
+  if (dot > 0 && PROSE_EXTENSIONS.has(name.slice(dot + 1))) return true;
+  return PROSE_NAMES.has(dot > 0 ? name.slice(0, dot) : name) && !languageFor(filePath);
+}
+
 /** 一段带高亮类名的文字 */
 export type Token = { text: string; className?: string };
 

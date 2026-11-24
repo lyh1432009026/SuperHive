@@ -4,6 +4,7 @@ import {
   diffStats,
   highlightHunks,
   highlightLines,
+  isProseFile,
   languageFor,
   parsePatch,
   splitRows,
@@ -135,5 +136,21 @@ describe("语法高亮", () => {
     expect(tokens.get(context!)?.[0]?.className).toBe("hljs-comment");
     expect(tokens.get(removed!)).toEqual([{ text: "old */", className: "hljs-comment" }]);
     expect(tokens.get(added!)).toEqual([{ text: "new */", className: "hljs-comment" }]);
+  });
+});
+
+describe("isProseFile", () => {
+  it("Markdown、txt、log 和 README/LICENSE 这类文本默认换行，代码不算", () => {
+    for (const path of [
+      "README.md",
+      "docs/guide.markdown",
+      "notes.txt",
+      "logs/app.log",
+      "LICENSE",
+      "a/CHANGELOG",
+    ])
+      expect(isProseFile(path), path).toBe(true);
+    for (const path of ["src/app.ts", "Makefile", "style.css", "data.json", ".env", "todo.py"])
+      expect(isProseFile(path), path).toBe(false);
   });
 });
