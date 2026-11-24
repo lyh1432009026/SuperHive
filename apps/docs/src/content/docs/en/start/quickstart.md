@@ -1,28 +1,31 @@
 ---
 title: "Quickstart: send your first agent task"
-description: Open the Hive web app, create a demo room, walk through the add-agent wizard, and send a targeted message to run the smallest loop with a read-only agent.
+description: Open SuperHive, create a practice room, add one read-only agent and send it a message to run the smallest collaboration loop.
 ---
 
 ## What it's for
 
-Start with one room and one read-only agent to confirm the loop "you send a message → the agent picks up the task → the reply appears in the room". You don't need a real project, private files, or write access, and you don't need to start several agents at once.
+Use one room and one read-only agent to confirm the loop "you send a message → the agent picks up the task → the reply appears in the room". You don't need a real project, private files, or write access, and you don't need to start several agents at once.
 
-There are two ways to use SuperHive. Pick either one:
+Before you start, you need two things:
 
-- **[Install the app](/en/start/installation/#install-the-app)**: download the desktop app and double-click it to start Hive on this computer. It has a built-in terminal, so you don't need to type any commands.
-- **[Install the CLI](/en/start/installation/#install-the-cli)**: install the `hive` command-line tool with npm. Best for servers, Linux, sharing over a LAN, or if you prefer the terminal.
+- **SuperHive**: there are two ways to use SuperHive. Pick either one:
+  - **[Install the app](/en/start/installation/#install-the-app)**: download the desktop app and double-click it to start Hive on this computer. It has a built-in terminal, so you don't need to type any commands.
+  - **[Install the CLI](/en/start/installation/#install-the-cli)**: install the `hive` command-line tool with npm. Best for servers, Linux, sharing over a LAN, or if you prefer the terminal.
 
-Both use the same data directory, `~/.superhive/`, so you can switch between them at any time.
+  Both use the same data directory, `~/.superhive/`, so you can switch between them at any time.
 
-This tutorial assumes you're on the computer running Hive Server and have already installed and signed in to the agent CLI you plan to use.
+- **An agent CLI**: such as Claude Code or Codex, installed and signed in on this computer. SuperHive brings it into the room; it doesn't include any agents.
 
-## Step 1: Open the web app and prepare a room
+The steps below use the app. With the CLI, running `hive` opens the same interface in your browser, and everything after that is the same.
 
-1. On the Server computer, open `http://127.0.0.1:8787` and enter a chat username.
-2. In the left sidebar, create a practice room such as `getting-started`, or open an existing demo room.
-3. Don't attach a real project folder or upload private material yet. When you need to work with files later, choose a dedicated, existing working directory in "Manage room".
+## Step 1: Open SuperHive and create a practice room
 
-People on other devices first need an [invite link or owner device sign-in](/en/guides/rooms/). Entering the same username does not make you the room owner.
+1. Double-click SuperHive to open it. The first time, "Enter SuperHive" asks for your username. Opening it on this computer makes you the owner.
+2. In the left sidebar, create a practice room such as `getting-started`.
+3. Don't attach a real project folder or upload private material yet. When you need to work with files later, choose a dedicated working directory in "Manage room".
+
+To invite people on other computers, see the invite links in [Rooms and members](/en/guides/rooms/). Entering the same username doesn't make someone the owner.
 
 ## Step 2: Walk through the add-agent wizard
 
@@ -39,14 +42,10 @@ Screenshot of the demo environment: names, rooms, and repositories are sample da
 1. Pick a runtime you've already installed and signed in to, such as Codex or Claude Code, then click "Next" yourself. Selecting a card doesn't advance automatically.
 2. Choose the "Read-only" permission, then click "Next" again. The default is Workspace; for this exercise, explicitly switch to Read-only.
 3. Check the agent name, for example `guide-agent`, and keep the count at `1` when starting on this computer. Local batch start supports `1–5` agents of the same type, but you don't need the maximum the first time.
-4. Click "Start on this computer". If the agent runs on another computer, use "Copy command" instead and run the generated command only in that computer's terminal.
+4. Click "Start on this computer". To run the agent on another computer, use "Copy command" instead and run it in that computer's terminal.
 5. Confirm the agent appears in the member list and check that it came online. Copying a command doesn't mean the agent is connected yet.
 
-The copied join command contains credentials. Don't paste it into a public room, a screenshot, or a tutorial. Where you run it decides which computer's CLI and files the agent uses, not the phone you opened the web page on.
-
-![Four-step diagram: start the service, open the demo room, add one read-only agent, send a message naming it, and check the task](/media/codex2/quickstart-flow.svg)
-
-This is an original diagram, not a real screenshot. The buttons available to you depend on your identity and what's detected on this computer.
+The copied join command contains credentials. Don't paste it into a public room or a screenshot. Whichever computer runs it is the one whose CLI and files the agent uses.
 
 ## Step 3: Send a clearly scoped message
 
@@ -79,12 +78,14 @@ For the full rules, invites, and room workspaces, see [Rooms and members](/en/gu
 
 ## What to check first when something goes wrong
 
-| What you see                  | What to do first                                                                                      |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------- |
-| The web page won't open       | Make sure the Server is still running, use the address shown in the terminal, check port and firewall |
-| Adding the agent fails        | Check the local agent status and logs, and whether the CLI is installed and signed in                 |
-| No reply to the message       | Check the agent name, online status, and whether the task is queued or waiting for owner approval     |
-| Task failed or result unknown | Read the task details and existing artifacts first; don't immediately rerun a task with side effects  |
+| What you see                          | What to do first                                                                                     |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| The app won't open and shows an error | Read the reason on the screen and click "Retry"; if it still fails, open the logs folder from there  |
+| Adding the agent fails                | Check that the CLI is signed in, and look at the local agent status and logs                         |
+| No reply to the message               | Check the agent name, online status, and whether the task is queued or waiting for owner approval    |
+| Task failed or result unknown         | Read the task details and existing artifacts first; don't immediately rerun a task with side effects |
+
+If you started with the CLI and the browser doesn't open the interface, check that `hive` is still running in the terminal and use the address it shows.
 
 For stopping, retrying, steering, and automatic recovery under strict conditions, see the [Tasks guide](/en/guides/tasks/). For more issues, see [Troubleshooting](/en/reference/troubleshooting/).
 
@@ -92,5 +93,5 @@ For stopping, retrying, steering, and automatic recovery under strict conditions
 
 - Read-only is the recommended level for a first try. It doesn't mean messages or the model service won't receive content you send. Don't send secrets or private data.
 - "Full access" has no sandbox and isn't required to join successfully. Read the [Permissions guide](/en/guides/permissions/) before working on a real project.
-- Names, tasks, and diagrams in the demo are fictional. This page doesn't claim a real end-to-end model test.
+- Names and tasks in the screenshots are demo data.
 - Next, see [Messages and attachments](/en/guides/messaging/), [Feishu and WeChat](/en/guides/im/), [Usage and costs](/en/guides/usage/), and [Multi-agent collaboration](/en/guides/collaboration/).
