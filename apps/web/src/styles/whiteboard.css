@@ -709,8 +709,9 @@
 }
 
 /* 左侧「定时任务」面板：沿用「Agent 任务」弹出面板，行样式同上 */
+/* 左右内边距沿用 .activity-body 的 --activity-inset，和「Agent 任务」「故障」等面板一致；只把顶部收紧一点 */
 .schedules-dialog .activity-body {
-  padding: 0 0 12px;
+  padding-top: 4px;
 }
 
 .schedules-dialog .whiteboard {
