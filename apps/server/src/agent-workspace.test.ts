@@ -26,7 +26,13 @@ describe("Agent 在本房间的工作目录", () => {
       });
       await human.next((event) => event.type === "room.snapshot");
 
-      const workspace = { cwd: "/code/proj", roomWorkspace: "~/code/proj", note: "说明" };
+      const workspace = {
+        cwd: "/code/proj",
+        roomWorkspace: "~/code/proj",
+        note: "说明",
+        // 工作区档没有系统沙箱（Windows 上的 Claude Code）：原样带给成员列表
+        noSandbox: true,
+      };
       const agent = await connect();
       agent.send({
         type: "participant.join",

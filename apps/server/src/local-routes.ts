@@ -257,13 +257,14 @@ export function registerLocalAgentRoutes(
         mode: "device",
         deviceId: device.id,
         hostLabel,
+        hostPlatform: process.platform,
         manageUntil: device.manageUntil,
         approval: rooms.approvals?.remote() ? "im" : "local",
       };
     }
     const check = isLocal(request);
     if (!check.local) return disabledSession(check.reason);
-    return { enabled: true, mode: "local", ownerToken, hostLabel };
+    return { enabled: true, mode: "local", ownerToken, hostLabel, hostPlatform: process.platform };
   });
 
   /** 校验请求方能否调用这一级接口；不能时发出响应并返回 undefined */

@@ -174,6 +174,8 @@ const localApi: {
   requests: Array<{ url: string; method: string; owner: string | null; body?: unknown }>;
   cleanupBatch: { id: string; count: number } | null;
   clearFailure?: string;
+  /** Server 所在电脑的平台（/api/local/session 的 hostPlatform）；不给时模拟旧版 Server */
+  hostPlatform?: string;
 } = { enabled: false, agents: [], requests: [], cleanupBatch: null };
 
 function localAgent(overrides: Partial<LocalAgent> = {}): LocalAgent {
@@ -214,6 +216,7 @@ describe("App mention autocomplete", () => {
     whiteboardApi.requests = [];
     localApi.enabled = false;
     localApi.agents = [];
+    delete localApi.hostPlatform;
     localApi.requests = [];
     localApi.clearFailure = undefined;
     localApi.cleanupBatch = null;
@@ -276,6 +279,7 @@ describe("App mention autocomplete", () => {
               mode: "local",
               ownerToken: "owner-secret",
               hostLabel: "alice-mac",
+              ...(localApi.hostPlatform ? { hostPlatform: localApi.hostPlatform } : {}),
             });
           }
           if (owner !== "owner-secret") return jsonResponse({ error: "unauthorized" }, 401);
@@ -2768,6 +2772,70 @@ describe("App mention autocomplete", () => {
     await user.click(screen.getByRole("button", { name: "下一步" }));
     expect(screen.getByRole("radio", { name: /^工作区/ }).getAttribute("aria-checked")).toBe(
       "true",
+    );
+  });
+
+  it("Server 在 Windows 上时，Claude Code 的工作区档说明没有系统沙箱；按 Server 平台判断，不看浏览器", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.username", "Alice");
+    localApi.enabled = true;
+    localApi.hostPlatform = "win32";
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self],
+        messages: [],
+        latestSeq: 0,
+      }),
+    );
+    const note =
+      /Windows 上没有系统沙箱：命令可以访问工作区以外的文件；有风险的操作靠 Claude 的自动审核拦下，或先请你确认/;
+
+    await user.click(screen.getByRole("button", { name: "接入 Agent" }));
+    await user.click(await screen.findByRole("radio", { name: /Claude Code/ }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    // 说明写在工作区档的选项里，只读、完全访问不写
+    expect(screen.getByRole("radio", { name: /^工作区/ }).textContent).toMatch(note);
+    expect(screen.getByRole("radio", { name: /^只读/ }).textContent).not.toMatch(note);
+    expect(screen.getByRole("radio", { name: /^完全访问/ }).textContent).not.toMatch(note);
+
+    // 别的运行时在 Windows 上的工作区档有自己的限制方式：不写
+    await user.click(screen.getByRole("button", { name: "返回第 1 步：选择 Agent" }));
+    await user.click(screen.getByRole("radio", { name: /OpenCode/ }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    expect(screen.getByRole("radio", { name: /^工作区/ }).textContent).not.toMatch(note);
+  });
+
+  it("Server 不在 Windows 上（或旧版 Server 不报平台）时，Claude Code 的工作区档不写无沙箱说明", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("superhive.username", "Alice");
+    localApi.enabled = true;
+    localApi.hostPlatform = "darwin";
+    render(<App />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    act(() => socket.open());
+    const self = participant("00000000-0000-4000-8000-000000000001", "Alice", "human");
+    act(() =>
+      socket.serverEvent({
+        type: "room.snapshot",
+        self,
+        participants: [self],
+        messages: [],
+        latestSeq: 0,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "接入 Agent" }));
+    await user.click(await screen.findByRole("radio", { name: /Claude Code/ }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    expect(screen.getByRole("radio", { name: /^工作区/ }).textContent).not.toContain(
+      "没有系统沙箱",
     );
   });
 

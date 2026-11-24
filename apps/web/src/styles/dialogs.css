@@ -380,6 +380,13 @@
   min-width: 0;
 }
 
+/* 档位在 Agent 所在平台上的补充说明（如 Windows 上的 Claude Code 没有系统沙箱）：接在说明下面，用 warning 语义色 */
+.access-selector small.access-platform-note {
+  grid-column: 2;
+  margin-top: 4px;
+  color: var(--warning);
+}
+
 .access-indicator {
   grid-row: 1 / span 2;
   width: 18px;

@@ -83,6 +83,28 @@ function upstreamFailure(
   );
 }
 
+/**
+ * 工作区档在这个平台上有没有系统沙箱。
+ * Windows：Claude Code 的 Windows 沙箱还没对所有会话开放（实测 2.1.299 报「feature gate off」），
+ * 强制沙箱就根本起不来，所以不开沙箱，靠 auto 模式的审核：分类器判为有风险的操作直接拒绝（不会弹给人），
+ * 只有命中 ask 规则的才通过 can_use_tool 交给人批（Windows 实测：写工作区外的文件不拦也不问，curl | sh 被拒）；
+ * 界面和规则都如实说明命令能碰到工作区以外的文件。
+ * macOS、Linux：照旧强制沙箱，开不了（如 Linux 缺 bubblewrap）就报错退出，不悄悄降级。
+ */
+export function claudeWorkspaceSandboxed(platform: NodeJS.Platform = process.platform): boolean {
+  return platform !== "win32";
+}
+
+/** 工作区档传给 Claude Code 的沙箱设置 */
+export function claudeWorkspaceSandboxSettings(
+  platform: NodeJS.Platform = process.platform,
+): Record<string, unknown> {
+  return claudeWorkspaceSandboxed(platform)
+    ? { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false }
+    : // 显式关掉：「开但允许不可用」会在 Windows 沙箱哪天放开时悄悄改变行为，和界面上的说明对不上
+      { enabled: false };
+}
+
 export class ClaudeCodeResponder implements AgentResponder {
   private turn: ClaudeTurn | undefined;
   private warm: WarmClaude | undefined;
@@ -127,6 +149,8 @@ export class ClaudeCodeResponder implements AgentResponder {
       access?: AgentAccessMode;
       model?: string;
       runner?: CommandRunner;
+      /** 测试注入：Agent 运行的平台，默认 process.platform */
+      platform?: NodeJS.Platform;
       /**
        * 本机 Hive Server 写入的 Agent 设置文件。给定时只加载勾选的 MCP（--strict-mcp-config），
        * 每一轮重新读取，改动下一轮生效；不给时沿用 Claude Code 自己的全部 MCP 配置。
@@ -227,13 +251,7 @@ export class ClaudeCodeResponder implements AgentResponder {
     if (access === "workspace") {
       args.push(
         "--settings",
-        JSON.stringify({
-          sandbox: {
-            enabled: true,
-            failIfUnavailable: true,
-            allowUnsandboxedCommands: false,
-          },
-        }),
+        JSON.stringify({ sandbox: claudeWorkspaceSandboxSettings(this.options.platform) }),
       );
     }
     if (access === "full") {

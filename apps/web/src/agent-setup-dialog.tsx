@@ -20,6 +20,7 @@ import { ConfirmPopover } from "./confirm-popover";
 import { HostManageNotice } from "./host-settings";
 import type { RefObject, Dispatch, SetStateAction } from "react";
 import { Tooltip } from "./tooltip";
+import { noSandboxNote, workspaceLacksSandbox } from "./member-sandbox";
 
 /** 接入 Agent 弹窗：选 Agent、设置权限、复制命令 */
 export function AgentSetupDialog({
@@ -318,6 +319,10 @@ export function AgentSetupDialog({
                       </span>
                       <strong>{option.label}</strong>
                       <small>{option.description}</small>
+                      {/* 本机 Agent 跑在 Server 所在电脑上，按它的平台说明（不看浏览器平台） */}
+                      {workspaceLacksSandbox(agentProvider, option.id, local.hostPlatform) && (
+                        <small className="access-platform-note">{noSandboxNote()}</small>
+                      )}
                     </button>
                   ))}
                 </div>

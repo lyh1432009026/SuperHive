@@ -40,7 +40,7 @@ export type RoomClientOptions = {
   /** 上报的代码版本；默认是本进程的版本 */
   version?: AgentCodeVersion;
   /** 在本房间实际的工作目录、房间设置的工作区、没用上的原因；加入时上报，旧版服务端会忽略 */
-  workspace?: { cwd: string; roomWorkspace?: string; note?: string };
+  workspace?: { cwd: string; roomWorkspace?: string; note?: string; noSandbox?: boolean };
 };
 
 export type Snapshot = {

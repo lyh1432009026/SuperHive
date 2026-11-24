@@ -1911,5 +1911,7 @@
   "自动换行": "Wrap lines",
   "左右对照时总是自动换行": "Lines always wrap in split view",
   "长行折到下一行显示；点一下改回横向滚动": "Long lines wrap onto the next line. Click to scroll horizontally instead",
-  "长行横向滚动；点一下改为折行显示": "Long lines scroll horizontally. Click to wrap them"
+  "长行横向滚动；点一下改为折行显示": "Long lines scroll horizontally. Click to wrap them",
+  "无沙箱": "No sandbox",
+  "Windows 上没有系统沙箱：命令可以访问工作区以外的文件；有风险的操作靠 Claude 的自动审核拦下，或先请你确认。": "No system sandbox on Windows: commands can reach files outside the workspace; Claude's auto review blocks risky actions or asks for your approval first."
 }

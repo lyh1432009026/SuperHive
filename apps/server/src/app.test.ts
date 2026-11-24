@@ -621,7 +621,10 @@ describe("Hive WebSocket protocol", () => {
     // 清空房间：需要本机房主凭证，操作人必须是房间里的人类成员
     const session = (await app.inject({ method: "GET", url: "/api/local/session" })).json() as {
       ownerToken: string;
+      hostPlatform?: string;
     };
+    // 本机 Agent 跑在 Server 所在电脑上：网页按这个平台说明工作区档有没有系统沙箱，不看浏览器平台
+    expect(session.hostPlatform).toBe(process.platform);
     const clear = (username: string, owner = session.ownerToken) =>
       app.inject({
         method: "POST",

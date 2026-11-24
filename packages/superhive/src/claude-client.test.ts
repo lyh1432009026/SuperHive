@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { ClaudeCodeResponder } from "./claude-client.js";
+import { ClaudeCodeResponder, claudeWorkspaceSandboxed } from "./claude-client.js";
 import type { CommandRunner } from "./command-runner.js";
 import {
   AgentCancelledError,
@@ -160,6 +160,7 @@ describe("ClaudeCodeResponder", () => {
       hive,
       access,
       runner,
+      platform: "darwin",
     });
 
     await responder.reply({ instructions: "rules", prompt: "context" });
@@ -186,6 +187,47 @@ describe("ClaudeCodeResponder", () => {
     } else {
       expect(settings.sandbox).toMatchObject({ enabled: false });
       expect(args).toContain("--dangerously-skip-permissions");
+    }
+  });
+
+  it.each([
+    ["darwin", true],
+    ["linux", true],
+    ["win32", false],
+  ] as const)("workspace access on %s: system sandbox required=%s", async (platform, sandboxed) => {
+    const runner = vi.fn<CommandRunner>(async () => ({
+      stdout: JSON.stringify({ result: "ok", session_id: "s" }),
+      stderr: "",
+    }));
+    const responder = new ClaudeCodeResponder({
+      command: "claude",
+      cwd: "/workspace",
+      hive,
+      access: "workspace",
+      runner,
+      platform,
+    });
+
+    await responder.reply({ instructions: "rules", prompt: "context" });
+
+    const args = runner.mock.calls[0]?.[1] ?? [];
+    const settings = JSON.parse(args[args.indexOf("--settings") + 1] ?? "{}") as {
+      sandbox?: Record<string, unknown>;
+    };
+    // 不管有没有沙箱，有风险的操作都照旧弹给人批
+    expect(args[args.indexOf("--permission-mode") + 1]).toBe("auto");
+    expect(args[args.indexOf("--permission-prompt-tool") + 1]).toBe("stdio");
+    expect(args).not.toContain("--dangerously-skip-permissions");
+    expect(claudeWorkspaceSandboxed(platform)).toBe(sandboxed);
+    if (sandboxed) {
+      expect(settings.sandbox).toEqual({
+        enabled: true,
+        failIfUnavailable: true,
+        allowUnsandboxedCommands: false,
+      });
+    } else {
+      // Windows：Claude Code 的沙箱开不了，强制就起不来；显式关掉，不留「哪天悄悄开了」的口子
+      expect(settings.sandbox).toEqual({ enabled: false });
     }
   });
 

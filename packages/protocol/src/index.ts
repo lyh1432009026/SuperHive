@@ -100,6 +100,11 @@ export const agentWorkspaceSchema = z.object({
   roomWorkspace: z.string().min(1).max(4096).optional(),
   /** 房间工作区没有用上的原因（目录不存在、不在允许范围内等） */
   note: z.string().max(2000).optional(),
+  /**
+   * 工作区档却没有系统沙箱（Windows 上的 Claude Code）：命令能访问工作区以外的文件，
+   * 有风险的操作靠运行时的审核加人工审批。成员列表据此显示「无沙箱」
+   */
+  noSandbox: z.boolean().optional(),
 });
 export type AgentWorkspace = z.infer<typeof agentWorkspaceSchema>;
 
@@ -1461,12 +1466,15 @@ export const localSessionResponseSchema = z.union([
     mode: z.literal("local"),
     ownerToken: z.string(),
     hostLabel: z.string(),
+    /** Server 所在电脑（本机 Agent 跑在这里）的平台，即 Node 的 process.platform；旧版 Server 不给 */
+    hostPlatform: z.string().optional(),
   }),
   z.object({
     enabled: z.literal(true),
     mode: z.literal("device"),
     deviceId: z.string(),
     hostLabel: z.string(),
+    hostPlatform: z.string().optional(),
     /** 获准管理这台电脑到什么时候；null：只能查看，要先申请 */
     manageUntil: z.string().nullable(),
     /** 申请在哪里批准：im=推到可批准的 IM 账号（也可在本机批准）；local=只能到本机批准 */

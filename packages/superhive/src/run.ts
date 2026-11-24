@@ -21,7 +21,7 @@ import {
   type TaskWorkspaceNoticeSink,
 } from "./task-workspace.js";
 import { AgentManager, SingleRoomStack, type StackHooks } from "./agent-manager.js";
-import { ClaudeCodeResponder } from "./claude-client.js";
+import { ClaudeCodeResponder, claudeWorkspaceSandboxed } from "./claude-client.js";
 import { CODEX_MIN_VERSION, CodexResponder } from "./codex-responder.js";
 import { CopilotResponder } from "./copilot-client.js";
 import { createOmpResponder } from "./omp-client.js";
@@ -475,6 +475,9 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
         cwd: workspace.cwd,
         ...(room.workspace ? { roomWorkspace: room.workspace } : {}),
         ...(workspace.note ? { workspaceNote: workspace.note } : {}),
+        ...(provider === "claude" && access === "workspace" && !claudeWorkspaceSandboxed()
+          ? { noSandbox: true }
+          : {}),
         ...(hooks?.onRoomsChanged ? { onRoomsChanged: hooks.onRoomsChanged } : {}),
         ...(hooks?.onArchived ? { onArchived: hooks.onArchived } : {}),
         ...(process.env.HIVE_SUPERVISOR_PID ? { onShutdown: () => shutdownOnRequest() } : {}),
@@ -568,6 +571,11 @@ export async function run(defaultProvider: "codex" | "echo"): Promise<void> {
   if (["codex", "claude", "copilot", "opencode", "omp", "gemini", "agy"].includes(provider)) {
     console.log(
       `[hive] ${providerLabels[provider]} Hive MCP：已启用，将按需临时注入 ${hiveMcpUrl(hiveForLogs)}（仅当前 Agent 进程，不修改全局配置）`,
+    );
+  }
+  if (provider === "claude" && access === "workspace" && !claudeWorkspaceSandboxed()) {
+    console.warn(
+      "[hive] Windows 上 Claude Code 没有系统沙箱：工作区档的命令能访问工作目录以外的文件，靠 Claude 的 auto 审核（有风险的操作直接拦下）和人工审批（命中 ask 规则的操作在网页上请你确认）。",
     );
   }
   if (provider === "omp" && access === "workspace") {

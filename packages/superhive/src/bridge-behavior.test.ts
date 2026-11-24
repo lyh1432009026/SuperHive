@@ -336,6 +336,36 @@ describe("AgentBridge", () => {
     expect(input.instructions).toContain(`你当前的工作目录：${directory}（只读`);
   });
 
+  it("工作区档没有系统沙箱：加入时上报 noSandbox，规则如实说明", async () => {
+    let roomOptions: ConstructorParameters<typeof RoomClient>[0] | undefined;
+    bridge = new AgentBridge(
+      {
+        ...identity,
+        persona: "p",
+        provider: "claude",
+        token: "t",
+        access: "workspace",
+        cwd: directory,
+        noSandbox: true,
+        tuning: { batchWindowMs: 20 },
+      },
+      store,
+      responder,
+      () => undefined,
+      (options, handlers) => {
+        roomOptions = options;
+        room.handlers = handlers;
+        return room as unknown as RoomClient;
+      },
+    );
+    await bridge.start();
+    await room.handlers.onSnapshot({ self, latestSeq: 0, messages: [], participants: [self] });
+    expect(roomOptions?.workspace).toEqual({ cwd: directory, noSandbox: true });
+    const input = await completePromptTurn();
+    expect(input.instructions).toContain("这台电脑上没有系统沙箱");
+    expect(input.instructions).not.toContain("绕过沙箱");
+  });
+
   it("只读档也给附件准备本地路径：Hive 工具连不上时 Agent 仍能用读文件工具看图", async () => {
     const body = "PNG-BYTES";
     const attachment = {

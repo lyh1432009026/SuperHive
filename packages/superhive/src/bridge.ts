@@ -293,6 +293,11 @@ export class AgentBridge {
       roomWorkspace?: string;
       /** 房间工作区没有采用时的原因，写进规则 */
       workspaceNote?: string;
+      /**
+       * 工作区档却没有系统沙箱（Windows 上的 Claude Code）：命令能访问工作区以外的文件，
+       * 只靠运行时自己的审核和人工审批。加入房间时上报给成员列表，规则里如实写明
+       */
+      noSandbox?: boolean;
       onRoomsChanged?: (room: RoomSummary) => void;
       onArchived?: () => void;
       onShutdown?: () => void;
@@ -372,6 +377,7 @@ export class AgentBridge {
                 cwd: options.cwd,
                 ...(options.roomWorkspace ? { roomWorkspace: options.roomWorkspace } : {}),
                 ...(options.workspaceNote ? { note: options.workspaceNote } : {}),
+                ...(options.noSandbox ? { noSandbox: true } : {}),
               },
             }
           : {}),
@@ -824,6 +830,7 @@ export class AgentBridge {
       ...(this.options.roomWorkspace ? { roomWorkspace: this.options.roomWorkspace } : {}),
       ...(!onDefault ? { taskDirectory: true } : {}),
       ...(onDefault && this.options.workspaceNote ? { note: this.options.workspaceNote } : {}),
+      ...(this.options.noSandbox ? { noSandbox: true } : {}),
     };
   }
 

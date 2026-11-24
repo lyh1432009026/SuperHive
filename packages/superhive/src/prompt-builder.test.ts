@@ -119,6 +119,26 @@ describe("buildDeveloperInstructions", () => {
     ).toContain("本房间工作区：未设置");
   });
 
+  it("工作区档没有系统沙箱（Windows 上的 Claude Code）时如实说明，不再说「绕过沙箱」", () => {
+    const base = { agentName: "agent-a", persona: "协作 Agent", serverRules: "server rules" };
+    const sandboxed = buildDeveloperInstructions({
+      ...base,
+      access: "workspace",
+      workspace: { cwd: "/code/proj" },
+    });
+    expect(sandboxed).toContain("不要尝试绕过沙箱");
+    expect(sandboxed).not.toContain("没有系统沙箱");
+    const unsandboxed = buildDeveloperInstructions({
+      ...base,
+      access: "workspace",
+      workspace: { cwd: "C:\\code\\proj", noSandbox: true },
+    });
+    expect(unsandboxed).toContain("这台电脑上没有系统沙箱");
+    expect(unsandboxed).toContain("不要写入工作目录之外");
+    expect(unsandboxed).toContain("有风险的操作会被自动审核拦下或先交给人确认");
+    expect(unsandboxed).not.toContain("绕过沙箱");
+  });
+
   it("要人在外部系统操作、给凭据或拍板高风险操作时必须立刻提问，长任务开工先报进度", () => {
     const rules = buildDeveloperInstructions({
       agentName: "agent-a",

@@ -85,6 +85,8 @@ export type LocalAgentsState = {
   mode: "local" | "device" | undefined;
   /** Server 所在电脑的名字 */
   hostLabel: string | undefined;
+  /** Server 所在电脑（本机 Agent 跑在这里）的平台，process.platform 的值；旧版 Server 不给 */
+  hostPlatform: string | undefined;
   /** 房主设备模式下这台设备的 ID */
   deviceId: string | undefined;
   /** 能不能启动 Agent、改设置（本机总是可以；设备要获批） */
@@ -974,6 +976,7 @@ export function useLocalAgents(
     reason: session && !session.enabled ? session.reason : undefined,
     mode,
     hostLabel: session?.enabled ? session.hostLabel : undefined,
+    hostPlatform: session?.enabled ? session.hostPlatform : undefined,
     deviceId: session?.enabled && session.mode === "device" ? session.deviceId : undefined,
     canManage,
     manageUntil,
