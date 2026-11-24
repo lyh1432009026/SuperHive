@@ -182,12 +182,11 @@ describe("desktop-titlebar.css", () => {
     );
     const uses = (name: string, variable: string) =>
       rules.some((rule) => rule.selector.includes(name) && rule.body.includes(variable));
-    // 贴着右上角的头部：右边给 Windows 系统按钮让位；铺满时左边给 macOS 红黄绿按钮让位
-    expect(uses(".sheet-header", "--titlebar-safe-right")).toBe(true);
-    expect(uses(".sheet-panel.maximized .sheet-header", "--titlebar-safe-left")).toBe(true);
-    expect(uses(".attachment-lightbox-close", "--titlebar-safe-right")).toBe(true);
+    // 窗口最上面那一行（顶栏 + 窗口按钮）始终露在外面：大面板、弹窗、面板都从它下面开始
+    expect(uses(".attachment-lightbox-close", "--titlebar-safe-top")).toBe(true);
     // 铺满窗口的弹窗层、面板：从窗口按钮那一行下面开始排
     for (const name of [
+      ".sheet-panel",
       ".room-dialog-layer",
       ".agent-dialog-layer",
       ".settings-dialog-layer",
@@ -197,12 +196,6 @@ describe("desktop-titlebar.css", () => {
       ".onboarding-guide",
     ])
       expect(uses(name, "--titlebar-safe-top"), name).toBe(true);
-    // 大面板头部能拖动窗口
-    expect(
-      rules.some(
-        (rule) => rule.selector.includes(".sheet-header") && /app-region: drag/.test(rule.body),
-      ),
-    ).toBe(true);
   });
 
   it("only applies inside the desktop app (every rule is scoped to :root[data-titlebar])", () => {

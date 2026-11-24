@@ -359,6 +359,17 @@ async function checkPanels(): Promise<void> {
         await panel.open();
         await expect(panel.locator().first(), `${panel.name} opens`).toBeVisible();
         await page.waitForTimeout(350);
+        if (panel.locator().toString().includes(".sheet-panel")) {
+          // 大面板从顶栏下面开始：窗口最上面那一行（顶栏、窗口按钮）露在外面
+          const top = await panel.locator().evaluate((el) => el.getBoundingClientRect().top);
+          const header = await page
+            .locator(".chat-header")
+            .evaluate((el) => el.getBoundingClientRect().height);
+          if (top < header - 1)
+            problems.push(
+              `${size.width}px ${mode} ${panel.name}: panel top ${top} covers the header row`,
+            );
+        }
         for (const hit of await controlsInButtonArea())
           problems.push(`${size.width}px ${mode} ${panel.name}: ${hit.label} @ ${hit.rect}`);
         if (process.env.OVERLAY_SHOTS)

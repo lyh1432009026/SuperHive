@@ -60,7 +60,7 @@
   app-region: drag;
 }
 
-:root[data-titlebar] :is(.sidebar-header, .chat-header, .side-panel-heading, .sheet-header) {
+:root[data-titlebar] :is(.sidebar-header, .chat-header, .side-panel-heading) {
   -webkit-app-region: drag;
   app-region: drag;
   user-select: none;
@@ -110,7 +110,7 @@
 /* 模态弹窗打开时，遮罩盖住了整个窗口：顶部不再拖动，点遮罩照常关弹窗 */
 :root[data-titlebar]:has(dialog[open], [aria-modal="true"]) body::before,
 :root[data-titlebar]:has(dialog[open], [aria-modal="true"])
-  :is(.sidebar-header, .chat-header, .side-panel-heading, .sheet-header) {
+  :is(.sidebar-header, .chat-header, .side-panel-heading) {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
@@ -162,21 +162,12 @@
 /* ---------- 盖在窗口上的面板和弹窗：统一按安全区让位 ---------- */
 
 /*
- * 「代码」「产物」「任务目录」大面板：贴着右边、顶到窗口最上面，头部和顶栏一样高、可以拖动窗口。
- * 右边始终给 Windows 的系统按钮留位；铺满窗口（或窄窗口里一律全宽）时左边再给 macOS 的红黄绿按钮留位。
+ * 「代码」「产物」「任务目录」大面板：从顶栏下面开始，窗口最上面那一行（logo、房间名、顶栏按钮、
+ * 红黄绿 / 系统按钮）一直露在外面、照常能拖动窗口，再点一次顶栏的「代码」「产物」也能收起。
  */
-:root[data-titlebar] .sheet-header {
-  padding-right: calc(10px + var(--titlebar-safe-right));
-}
-
-:root[data-titlebar] .sheet-panel.maximized .sheet-header {
-  padding-left: max(16px, var(--titlebar-safe-left));
-}
-
-@media (max-width: 900px) {
-  :root[data-titlebar] .sheet-header {
-    padding-left: max(16px, var(--titlebar-safe-left));
-  }
+:root[data-titlebar] .sheet-panel {
+  top: var(--titlebar-safe-top);
+  border-top: 1px solid var(--border);
 }
 
 /* 居中的弹窗（房间、Agent、IM、邀请、设置、文件预览）：整体从窗口按钮那一行下面开始排 */
@@ -204,9 +195,9 @@
   max-height: min(560px, calc(100dvh - 16px - var(--titlebar-safe-top)));
 }
 
-/* 图片大图：右上角的关闭按钮挪到窗口按钮左边；左上角留给 macOS 红黄绿按钮的地方本来就空着 */
+/* 图片大图：黑底铺满窗口，关闭按钮挪到窗口按钮那一行下面 */
 :root[data-titlebar] .attachment-lightbox-close {
-  right: calc(16px + var(--titlebar-safe-right));
+  top: calc(8px + var(--titlebar-safe-top));
 }
 
 @media (max-width: 720px) {
