@@ -20,6 +20,7 @@ import {
   InvocationChips,
   canCancelInvocation,
   groupInvocationsByMessage,
+  guestCanStopTurn,
   waitingInvocationForQuestion,
 } from "./invocations";
 import { plainPreview } from "./activity";
@@ -346,23 +347,18 @@ export function MessageList({
                     .filter((seq): seq is number => seq !== undefined)
                     .sort((a, b) => a - b)}
                   traceAllowed={!guest || guest.showTrace !== false}
-                  // 只停这一轮：和触发消息下面的「停止」同一个操作。合在一轮里处理的几条一起停；
-                  // 访客只能停自己发起的（服务端同样这么判），停不了的不给按钮
+                  // 只停这一轮：和触发消息下面的「停止」同一个操作，服务端收到任意一条就停整轮。
+                  // 访客只能停全是自己发起的一轮（服务端同样这么判），停不了的不给按钮
                   {...(() => {
-                    const stoppable = batch.filter(
-                      (item) =>
-                        (canCancelInvocation(item) || item.status === "cancelling") &&
-                        (!guest ||
-                          (item.requesterType === "human" &&
-                            item.requesterName.toLocaleLowerCase() ===
-                              username.toLocaleLowerCase())),
+                    const live = batch.filter(
+                      (item) => canCancelInvocation(item) || item.status === "cancelling",
                     );
-                    if (!stoppable.length) return {};
+                    if (!live.length) return {};
+                    if (guest && !guestCanStopTurn(invocation, batch, username)) return {};
+                    const target = live.find(canCancelInvocation);
                     return {
                       onStop: () => {
-                        for (const item of stoppable) {
-                          if (canCancelInvocation(item)) actions.cancelInvocation(item);
-                        }
+                        if (target) actions.cancelInvocation(target);
                       },
                     };
                   })()}
