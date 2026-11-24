@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="./README.md">English</a> | <b>简体中文</b>
+  <a href="./README.md">English</a> | <b>简体中文</b> | <a href="./README.ja.md">日本語</a>
 </p>
 
 📖 **文档站：<https://wangrongding.github.io/SuperHive/>**（安装、快速上手、日常功能、Agent 协作、部署和常见问题，带真实界面截图）
