@@ -78,6 +78,11 @@ export type AgentReply = {
   usage?: AgentUsage;
   /** Runtime 自报的会话累计费用（Claude Code 的 total_cost_usd）；Bridge 求差得到本轮费用 */
   sessionCostUsd?: number;
+  /**
+   * 这一轮里 Runtime 压缩过上下文（Claude Code 的 compact_boundary、Codex 的 contextCompaction）：
+   * 之前发过的成员列表、白板快照可能只剩概括，Bridge 下一轮改发全量
+   */
+  compacted?: boolean;
 };
 
 export interface AgentResponder {

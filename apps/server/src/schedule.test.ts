@@ -137,14 +137,33 @@ describe("hive_schedule", () => {
     expect(database.getSchedule(id)).toMatchObject({ status: "scheduled" });
   });
 
-  it("lists the schedule tools with the server's current time", async () => {
-    const { client } = await executingRoom();
-    const { tools } = await client.listTools();
-    const create = tools.find((tool) => tool.name === "hive_schedule_create");
-    expect(create?.description).toContain("当前服务端时间：");
-    expect(tools.map((tool) => tool.name)).toEqual(
-      expect.arrayContaining(["hive_schedule_list", "hive_schedule_cancel"]),
+  it("keeps tool descriptions identical over time and returns the server time in results", async () => {
+    const { client, advance, create } = await executingRoom();
+    const before = await client.listTools();
+    expect(before.tools.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining([
+        "hive_schedule_create",
+        "hive_schedule_list",
+        "hive_schedule_cancel",
+      ]),
     );
+    // 工具说明要逐字不变：新会话才能复用提示缓存，--resume 时也不会留下过期的时间
+    for (const tool of before.tools)
+      expect(tool.description).not.toMatch(/当前服务端时间|\d{2}:\d{2}（/);
+    await advance(7 * 60_000);
+    const after = await client.listTools();
+    expect(after.tools).toEqual(before.tools);
+    const listed = await client.callTool({ name: "hive_schedule_list", arguments: {} });
+    expect(listed.structuredContent).toMatchObject({
+      serverTime: expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}（/),
+    });
+    const created = await create({
+      runAt: local8(247),
+      task: "看一眼部署",
+      timeZone: "Asia/Shanghai",
+      clientMessageId: "time-1",
+    });
+    expect(created.structuredContent).toMatchObject({ serverTime: expect.any(String) });
   });
 
   it("fires at the scheduled time as the requester, wakes only the creator and needs no extra report on a reply", async () => {

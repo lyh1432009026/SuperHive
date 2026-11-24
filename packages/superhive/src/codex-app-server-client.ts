@@ -270,6 +270,8 @@ type ActiveTurn = {
   summaryIndex: Map<string, number>;
   messages: AgentMessage[];
   reasoningReported: boolean;
+  /** 这一轮里出现过 contextCompaction：交给 Bridge，下一轮改发全量成员和白板 */
+  compacted?: boolean;
   cancelled: boolean;
   interruptSent: boolean;
   graceTimer?: ReturnType<typeof setTimeout>;
@@ -628,7 +630,7 @@ export class CodexAppServerResponder implements AgentResponder {
       // 用量回调异常不影响回合
     }
     if (outcome instanceof Error) turn.reject(outcome);
-    else turn.resolve(outcome);
+    else turn.resolve(turn.compacted ? { ...outcome, compacted: true } : outcome);
   }
 
   private async openThread(session: Session, input: AgentReplyInput): Promise<string> {
@@ -1000,6 +1002,7 @@ export class CodexAppServerResponder implements AgentResponder {
         const turn = this.matchesActive(params);
         const reasoning = params.item?.type === "reasoning" && typeof params.item.id === "string";
         if (turn && !NON_TOOL_ITEMS.has(params.item?.type)) turn.toolStarted = true;
+        if (turn && params.item?.type === "contextCompaction") turn.compacted = true;
         if (turn?.onTrace && reasoning) turn.thinking.start(params.item.id);
         const step =
           turn?.onTrace && !reasoning

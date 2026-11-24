@@ -526,6 +526,7 @@ export class ClaudeCodeResponder implements AgentResponder {
       // 一次请求都没有时不放进回复（onUsage 已交出全零用量）
       ...(usage.requests > 0 ? { usage } : {}),
       ...(sessionCostUsd !== undefined ? { sessionCostUsd } : {}),
+      ...(stream.compacted() ? { compacted: true } : {}),
     };
   }
 }

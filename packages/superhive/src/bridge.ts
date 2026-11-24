@@ -218,6 +218,12 @@ const MAX_ATTEMPTS = 3;
 const MAX_PARKED_SESSIONS = 8;
 /** 这些 Provider 续接会话时不会换上新的系统 / 开发者规则（ACP 等由 refreshInstructions 重新注入） */
 const RESUMED_SYSTEM_PROMPT_PROVIDERS = new Set(["claude", "codex"]);
+/**
+ * 会在回复里报告「这一轮压缩过上下文」的 Runtime（见 AgentReply.compacted）：
+ * 同一会话里之前发过的成员、白板一直在上下文里，压缩过才需要补发全量，定时重发只留作兜底。
+ * 其它 Runtime 压缩时不说，照旧每隔几轮重发一次。
+ */
+const COMPACTION_REPORTING_PROVIDERS = new Set(["claude", "codex"]);
 
 export class AgentBridge {
   private state!: AgentState;
@@ -345,8 +351,9 @@ export class AgentBridge {
       transientRetryDelaysMs: [10_000, 30_000, 60_000],
       approvalTimeoutMs: 10 * 60_000 + 30_000,
       progressStaleMs: 120_000,
-      fullPromptEveryTurns: 8,
-      fullPromptEveryMs: 30 * 60_000,
+      ...(COMPACTION_REPORTING_PROVIDERS.has(options.provider)
+        ? { fullPromptEveryTurns: 40, fullPromptEveryMs: 6 * 60 * 60_000 }
+        : { fullPromptEveryTurns: 8, fullPromptEveryMs: 30 * 60_000 }),
       offlineRetryMs: 5 * 60_000,
       offlineRetryIntervalMs: 2_000,
       crashResumeLimit: 2,
@@ -1702,6 +1709,11 @@ export class AgentBridge {
         if (reply.threadId) this.state.threadId = reply.threadId;
         this.reportSession();
         this.notePromptSent(prompt);
+        // 压缩可能把这一轮及之前发过的成员、白板快照概括掉了：下一轮补发全量
+        if (reply.compacted) {
+          this.state.compactedSinceFull = true;
+          this.log("[hive] 这一轮压缩过上下文，下一轮重发完整的成员列表和白板");
+        }
         // settled：这一轮已经跑完，合并的消息里有的中途结束了（提问被人先回答、被停止）也照常复核
         // 合入后开发环境换代、Server 正在重启时连不上：和补拉消息、发回复一样等它回来再复核，
         // 不因为快速重试的几次没赶上就把整轮判成结果未知；被拒绝（409、身份不符）照旧交人核对
@@ -2452,6 +2464,7 @@ export class AgentBridge {
     const full =
       !this.state.threadId ||
       this.state.instructionsDigest !== this.instructionsDigest() ||
+      this.state.compactedSinceFull === true ||
       (this.state.briefTurns ?? 0) >= this.tuning.fullPromptEveryTurns ||
       Date.now() - lastFull >= this.tuning.fullPromptEveryMs;
     const previous =
@@ -2510,6 +2523,9 @@ export class AgentBridge {
         .map((message) => message.id),
       ...(membersUpdate ? { membersUpdate } : {}),
       ...(whiteboardUpdate ? { whiteboardUpdate } : {}),
+      ...(membersSnapshot && !membersUpdate ? { membersUnchanged: true } : {}),
+      ...(whiteboardSnapshot && !whiteboardUpdate ? { whiteboardUnchanged: true } : {}),
+      now: new Date(),
       attachmentPaths,
     });
     return {
@@ -2547,6 +2563,7 @@ export class AgentBridge {
 
   private notePromptSent(prompt: PreparedPrompt): void {
     if (prompt.full) {
+      delete this.state.compactedSinceFull;
       this.state.briefTurns = 0;
       this.state.lastFullPromptAt = new Date().toISOString();
       this.state.instructionsDigest = this.instructionsDigest();

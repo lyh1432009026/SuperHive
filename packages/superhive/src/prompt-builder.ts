@@ -250,6 +250,14 @@ export type MentionPromptInput = {
   /** Bridge 已与该会话上次成功发送的快照比较；不存在代表本轮没有变化。 */
   membersUpdate?: PromptContextUpdate;
   whiteboardUpdate?: PromptContextUpdate;
+  /** 这一轮拿到了成员/白板、和上次发给这个会话的相比没有变化：写一句「同上」，免得模型以为没拿到 */
+  membersUnchanged?: boolean;
+  whiteboardUnchanged?: boolean;
+  /**
+   * 本轮开始的时间。写在每轮消息里，不写进工具说明或系统规则：
+   * 那两处要逐字不变才能让新会话复用缓存，而 --resume 时 Claude Code 会沿用会话里存下的旧说明
+   */
+  now?: Date;
   /** Bridge 已为 Agent 准备好的附件本地路径 */
   attachmentPaths?: AttachmentPaths;
   /** 服务端标明当作主 Agent 派来的触发消息（没有 @ 任何人） */
@@ -313,11 +321,17 @@ export function buildMentionPrompt(input: MentionPromptInput): string {
       `<room_whiteboard>\n${formatContextUpdate(whiteboardUpdate, "whiteboard")}\n</room_whiteboard>`,
     );
   }
+  const unchanged = [
+    !membersUpdate && input.membersUnchanged ? "成员列表" : "",
+    !whiteboardUpdate && input.whiteboardUnchanged ? "白板" : "",
+  ].filter(Boolean);
+  if (unchanged.length) sections.push(`${unchanged.join("、")}：同上，与上次相比没有变化。`);
   if (publicContext || !brief) {
     sections.push(
       `<public_chat_context>\n${publicContext || "（没有新的公共消息）"}\n</public_chat_context>`,
     );
   }
+  if (input.now) sections.push(`当前时间：${formatPromptTime(input.now)}`);
   sections.push(
     `${input.triggers.length > 1 ? `当前有 ${input.triggers.length} 条消息在你忙时先后唤醒了你` : "当前明确唤醒你的消息是"}：\n<trigger_message>\n${triggers}\n</trigger_message>`,
   );
@@ -356,6 +370,24 @@ export function buildMentionPrompt(input: MentionPromptInput): string {
     fromAgentsOnly ? `${closing}如果这些消息不需要你回应，只输出 ${SILENT_REPLY_TOKEN}。` : closing,
   );
   return sections.join("\n\n");
+}
+
+/** 本机时区的当前时间，带 UTC 偏移，例如「2026-11-24 19:23（Asia/Shanghai，UTC+08:00）」 */
+export function formatPromptTime(now: Date, timeZone?: string): string {
+  const zone = timeZone ?? (Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZoneName: "longOffset",
+  }).formatToParts(now);
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  const offset = part("timeZoneName").replace(/^GMT$/, "GMT+00:00").replace(/^GMT/, "UTC");
+  return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}（${zone}，${offset}）`;
 }
 
 /** Codex 运行中通过 turn/steer 追加的新消息 */

@@ -44,6 +44,8 @@ export class ClaudeStream {
   private buffer = "";
   private discarding = false;
   private failed = false;
+  /** 这一轮里 Claude Code 压缩过上下文（system/compact_boundary）：之前发过的成员、白板快照可能已被概括掉 */
+  private compactedInTurn = false;
   private errorCategory: string | undefined;
   private result?: ClaudeResult;
   /** 这个进程里的每一轮结果：引导后 Claude 可能再跑一轮，各轮的回复都要交出去 */
@@ -169,6 +171,10 @@ export class ClaudeStream {
   }
 
   /** 本轮真实用量（token 数与模型名）；一次请求都没有时为全零 */
+  compacted(): boolean {
+    return this.compactedInTurn;
+  }
+
   usage(): AgentUsage {
     return this.accounting.finish();
   }
@@ -285,6 +291,10 @@ export class ClaudeStream {
     if (event.type === "system" && event.subtype === "init") {
       this.hiveMcp(event.mcp_servers);
       if (typeof event.session_id === "string") this.session(event.session_id);
+      return;
+    }
+    if (event.type === "system" && event.subtype === "compact_boundary") {
+      this.compactedInTurn = true;
       return;
     }
     if (event.type === "system" && event.subtype === "api_retry") {

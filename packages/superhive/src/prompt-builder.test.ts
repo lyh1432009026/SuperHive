@@ -4,6 +4,7 @@ import {
   buildDeveloperInstructions,
   buildMentionPrompt,
   buildSteerPrompt,
+  formatPromptTime,
   formatWhiteboard,
   sanitizeForPrompt,
 } from "./prompt-builder.js";
@@ -359,5 +360,23 @@ describe("reply to own request hint", () => {
         buildMentionPrompt({ messages: [trigger], triggers: [trigger], agentName: "lead" }),
       ).not.toContain("回复你此前发出的请求");
     }
+  });
+});
+
+describe("formatPromptTime", () => {
+  it("writes the local time with its zone and UTC offset", () => {
+    const now = new Date("2026-11-24T11:23:00Z");
+    expect(formatPromptTime(now, "Asia/Shanghai")).toBe(
+      "2026-11-24 19:23（Asia/Shanghai，UTC+08:00）",
+    );
+    expect(formatPromptTime(now, "UTC")).toBe("2026-11-24 11:23（UTC，UTC+00:00）");
+  });
+
+  it("goes into each turn's prompt only when given, outside the tool and rule text", () => {
+    const base = { messages: [], triggers: [chat()] };
+    expect(buildMentionPrompt(base)).not.toContain("当前时间");
+    expect(buildMentionPrompt({ ...base, now: new Date("2026-11-24T11:23:00Z") })).toContain(
+      "当前时间：2026-11-24",
+    );
   });
 });

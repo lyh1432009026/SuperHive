@@ -522,10 +522,11 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
     },
   );
 
-  const nowText = context.formatScheduleTime(
-    new Date(context.now()).toISOString(),
-    context.timeZone,
-  );
+  // 当前时间只放进工具返回，不写进工具说明：说明要逐字不变，新会话才能复用提示缓存；
+  // 而且 Claude Code --resume 会沿用会话里存下的旧说明，写在说明里的时间会一直停在建会话那一刻
+  const serverTime = () => ({
+    serverTime: context.formatScheduleTime(new Date(context.now()).toISOString(), context.timeZone),
+  });
   const scheduleView = (schedule: Schedule) => ({
     id: schedule.id,
     agent: schedule.agentName,
@@ -549,7 +550,7 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
     "hive_schedule_create",
     {
       title: "Schedule a one-off or recurring task for yourself",
-      description: `登记一个定时任务（一次性或周期）：到点后服务端以发起人名义在房间里发一条「⏰ 定时任务」消息 @ 你，你照常执行并回复；状态在网页的「定时」面板里可见，Server 重启后仍在。凡是「X 点提醒/推送/检查/执行」这类需求一律用它，不要用运行时自带的定时、sleep 或系统 cron（进程一结束就没了，也没人看得到）。只能在处理消息的过程中调用，只会唤醒你自己；task 要写成到点时单看它就能执行的完整说明（做什么、产出什么、发给谁），因为那时你的会话可能已重置。当前服务端时间：${nowText}。runAt 必须是带时区偏移的绝对时间；「今晚 00:07」指的是哪一天要按当前时间换算清楚。登记后在回复里写明执行时间（绝对时间+时区），让人能核对。到点时 Server 没运行、晚于 ${Math.round(LIMITS.scheduleGraceMs / 60_000)} 分钟才轮到的会标为已错过，不自动补跑。要每隔一段时间重复（比如每 5 分钟检查一次），一次登记就够：给 everyMinutes（最短 ${LIMITS.minScheduleIntervalMinutes} 分钟）和 until（结束时间），服务端到点后自己登记下一次，最多 ${LIMITS.maxScheduleOccurrences} 次；上一次还没做完时这一次自动跳过；不要在定时任务执行时再登记（会被拒绝）。目标提前达成时，用 hive_schedule_cancel 取消这个周期待执行的那一次，整个周期就结束了。`,
+      description: `登记一个定时任务（一次性或周期）：到点后服务端以发起人名义在房间里发一条「⏰ 定时任务」消息 @ 你，你照常执行并回复；状态在网页的「定时」面板里可见，Server 重启后仍在。凡是「X 点提醒/推送/检查/执行」这类需求一律用它，不要用运行时自带的定时、sleep 或系统 cron（进程一结束就没了，也没人看得到）。只能在处理消息的过程中调用，只会唤醒你自己；task 要写成到点时单看它就能执行的完整说明（做什么、产出什么、发给谁），因为那时你的会话可能已重置。runAt 必须是带时区偏移的绝对时间；「今晚 00:07」指的是哪一天，按每轮消息里的「当前时间」换算清楚（hive_schedule_list 和本工具的返回里也有 serverTime）。登记后在回复里写明执行时间（绝对时间+时区），让人能核对。到点时 Server 没运行、晚于 ${Math.round(LIMITS.scheduleGraceMs / 60_000)} 分钟才轮到的会标为已错过，不自动补跑。要每隔一段时间重复（比如每 5 分钟检查一次），一次登记就够：给 everyMinutes（最短 ${LIMITS.minScheduleIntervalMinutes} 分钟）和 until（结束时间），服务端到点后自己登记下一次，最多 ${LIMITS.maxScheduleOccurrences} 次；上一次还没做完时这一次自动跳过；不要在定时任务执行时再登记（会被拒绝）。目标提前达成时，用 hive_schedule_cancel 取消这个周期待执行的那一次，整个周期就结束了。`,
       inputSchema: {
         runAt: z
           .string()
@@ -606,6 +607,7 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
           {
             created,
             schedule: scheduleView(schedule),
+            ...serverTime(),
             note: "已登记。在回复里写明执行时间（runAtLocal）方便人核对；到点后服务端会发消息唤醒你，不需要你保持运行或再设别的定时。要取消用 hive_schedule_cancel。",
           },
           context.takeInbox(),
@@ -620,14 +622,14 @@ export function createHiveMcpServer(context: HiveMcpContext): McpServer {
     "hive_schedule_list",
     {
       title: "List scheduled tasks in this room",
-      description: `列出房间 #${context.roomId} 的定时任务：待执行的在前，之后是最近结束的。当前服务端时间：${nowText}。`,
+      description: `列出房间 #${context.roomId} 的定时任务：待执行的在前，之后是最近结束的。返回里的 serverTime 是服务端当前时间。`,
       annotations: { readOnlyHint: true },
       inputSchema: {},
     },
     async () => {
       try {
         return toolResult(
-          { schedules: context.listSchedules().map(scheduleView) },
+          { schedules: context.listSchedules().map(scheduleView), ...serverTime() },
           context.takeInbox(),
         );
       } catch (error) {

@@ -177,12 +177,14 @@ class ControlledResponder implements AgentResponder {
     threadId = "thread-1",
     usage?: AgentReply["usage"],
     sessionCostUsd?: number,
+    compacted?: boolean,
   ) {
     this.resolvers.shift()?.resolve({
       text,
       threadId,
       ...(usage ? { usage } : {}),
       ...(sessionCostUsd !== undefined ? { sessionCostUsd } : {}),
+      ...(compacted ? { compacted } : {}),
     });
   }
   fail(message: string | Error = "boom") {
@@ -259,14 +261,17 @@ describe("AgentBridge", () => {
     await room.handlers.onSnapshot(snapshot);
   }
 
-  async function completePromptTurn(threadId = "thread-1"): Promise<AgentReplyInput> {
+  async function completePromptTurn(
+    threadId = "thread-1",
+    compacted = false,
+  ): Promise<AgentReplyInput> {
     const index = responder.calls.length;
     const mention = chat();
     room.messages.push(mention);
     room.handlers.onMention(mention, mention.seq, false);
     await waitUntil(() => responder.calls.length === index + 1);
     const input = responder.calls[index]!;
-    responder.finish("完成", threadId);
+    responder.finish("完成", threadId, undefined, undefined, compacted);
     await waitUntil(() => room.statuses(mention.id).includes("completed"));
     return input;
   }
@@ -2981,13 +2986,51 @@ describe("AgentBridge", () => {
     expect(resumed.prompt).not.toContain("<room_members>");
     const state = (await store.load())!;
     await bridge.stop();
+    // Codex、Claude 会报告压缩，定时全量只留作兜底：8 轮还不重发，40 轮才重发
     await startBridge({ ...state, briefTurns: 8 });
+    const notYet = await completePromptTurn();
+    expect(notYet.refreshInstructions).toBe(false);
+    expect(notYet.prompt).not.toContain("<room_members>");
+    await bridge.stop();
+    await startBridge({ ...(await store.load())!, briefTurns: 40 });
     const periodic = await completePromptTurn();
     expect(periodic.refreshInstructions).toBe(true);
     expect(periodic.prompt).toContain("完整快照");
     expect(periodic.prompt).toContain("summary-a");
     expect(periodic.prompt).toContain("summary-b");
     expect(periodic.prompt).toContain("reviewer");
+  });
+
+  it("says unchanged context is the same as before and stamps each turn with the current time", async () => {
+    seedPromptContext();
+    await startBridge(baseState());
+    const first = await completePromptTurn();
+    expect(first.prompt).not.toContain("同上");
+    expect(first.prompt).toMatch(/当前时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}（/);
+    const next = await completePromptTurn();
+    expect(next.prompt).not.toContain("<room_members>");
+    expect(next.prompt).toContain("成员列表、白板：同上，与上次相比没有变化。");
+    expect(next.prompt).toMatch(/当前时间：/);
+    room.participants[1] = { ...room.participants[1]!, status: "busy" };
+    const changed = await completePromptTurn();
+    expect(changed.prompt).toContain("reviewer（agent，busy）");
+    expect(changed.prompt).toContain("白板：同上，与上次相比没有变化。");
+  });
+
+  it("resends the full context on the turn after the runtime compacted the conversation", async () => {
+    seedPromptContext();
+    await startBridge(baseState());
+    await completePromptTurn();
+    const compactedTurn = await completePromptTurn("thread-1", true);
+    expect(compactedTurn.prompt).not.toContain("<room_members>");
+    expect((await store.load())?.compactedSinceFull).toBe(true);
+    const refreshed = await completePromptTurn();
+    expect(refreshed.prompt).toContain("完整快照");
+    expect(refreshed.prompt).toContain("summary-a");
+    expect(refreshed.prompt).toContain("reviewer");
+    expect((await store.load())?.compactedSinceFull).toBeUndefined();
+    const after = await completePromptTurn();
+    expect(after.prompt).not.toContain("<room_members>");
   });
 
   it("resends full unchanged context after the time-based refresh interval", async () => {

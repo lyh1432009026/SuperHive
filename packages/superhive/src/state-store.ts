@@ -42,6 +42,8 @@ export type AgentState = {
   /** 距上次发送完整上下文（成员、白板、规则提示）以来的轮数与时间，用于提示节流 */
   briefTurns?: number;
   lastFullPromptAt?: string;
+  /** 上次发完整上下文之后 Runtime 压缩过会话：下一轮重发全量 */
+  compactedSinceFull?: boolean;
   /** Legacy fingerprint, ignored after migrating to rendered semantic snapshots. */
   whiteboardDigest?: string;
   /** Last successfully sent context, bound to the provider thread (not the Bridge process). */

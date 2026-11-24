@@ -1137,7 +1137,9 @@ describe("CodexAppServerResponder", () => {
     });
     const { responder } = setup(handlers);
     const onProgress = vi.fn();
-    await responder.reply({ instructions: "r", prompt: "p", onProgress });
+    const reply = await responder.reply({ instructions: "r", prompt: "p", onProgress });
+    // 出现过 contextCompaction：交给 Bridge 下一轮重发全量成员和白板
+    expect(reply.compacted).toBe(true);
     const progress = onProgress.mock.calls.map(([text]) => text as string);
     expect(progress[0]).toBe("思考中");
     expect(progress[1]).toMatch(/^执行命令：echo x+…$/);

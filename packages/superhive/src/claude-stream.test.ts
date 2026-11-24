@@ -126,6 +126,15 @@ describe("Claude stream diagnostics", () => {
     expect(events.at(-2)).toEqual({ kind: "recovered" });
   });
 
+  it("notes when Claude Code compacted the conversation during the turn", () => {
+    const stream = new ClaudeStream(() => {});
+    expect(stream.compacted()).toBe(false);
+    stream.push(
+      `${JSON.stringify({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "auto", pre_tokens: 400000 } })}\n`,
+    );
+    expect(stream.compacted()).toBe(true);
+  });
+
   it("ignores malformed, oversized and unknown events without replaying the task", () => {
     const events: RuntimeEvent[] = [];
     const stream = new ClaudeStream((e) => events.push(e));
