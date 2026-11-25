@@ -10,6 +10,36 @@
   scrollbar-gutter: stable both-edges;
 }
 
+/*
+ * macOS 悬浮滚动条（data-scrollbars="overlay"）下，对话流不用系统滚动条：系统那根鼠标一靠近就变宽、
+ * 带一条灰色轨道，在深色对话流右侧很扎眼。这里换成和常驻平台一样的细条（看上去 6px、圆角、无轨道），
+ * 只在鼠标停在对话流上时显示，离开就隐藏，保留「不用时看不见」的感觉。
+ * 写了 ::-webkit-scrollbar 后滚动条会占宽，上面的 scrollbar-gutter: stable both-edges 两侧各留 10px，对话栏仍居中。
+ */
+:root[data-scrollbars="overlay"] .message-list::-webkit-scrollbar {
+  width: 10px;
+}
+
+:root[data-scrollbars="overlay"] .message-list::-webkit-scrollbar-track,
+:root[data-scrollbars="overlay"] .message-list::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+:root[data-scrollbars="overlay"] .message-list::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent padding-box;
+}
+
+:root[data-scrollbars="overlay"] .message-list:hover::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+}
+
+:root[data-scrollbars="overlay"] .message-list::-webkit-scrollbar-thumb:hover,
+:root[data-scrollbars="overlay"] .message-list::-webkit-scrollbar-thumb:active {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
 /* shadow root 内的内容容器 */
 .message-shadow-inner {
   position: relative;
