@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   CLAUDE_COMPACT_WINDOW_DEFAULT,
   CLAUDE_COMPACT_WINDOW_MAX,
@@ -10,7 +10,7 @@ import {
 } from "@superhive/protocol";
 import { getLocale, t } from "./i18n";
 import { Select, type SelectOption } from "./select";
-import { Button } from "./button";
+import { SaveStatus, useAutoSave } from "./auto-save";
 
 /** 20 万 token / 200k tokens：按界面语言写 token 数 */
 export function compactWindowLabel(tokens: number): string {
@@ -32,6 +32,7 @@ function windowChoice(value: ClaudeCompactWindow): string {
 /**
  * Claude Agent 的上下文设置：自动压缩阈值（默认 40 万 token）和缓存时长（默认跟随 Claude Code）。
  * 写进设置文件，下一轮生效；改了以后常驻的 Claude 进程会换新进程。
+ * 选了就存；自定义阈值在按回车或离开输入框时存。
  */
 export function ClaudeContextSettings({
   agent,
@@ -43,36 +44,61 @@ export function ClaudeContextSettings({
   /** 它是当前房间的主 Agent：跟随 Claude Code 时 Bridge 实际按 1 小时发 */
   lead?: boolean;
   disabled: boolean;
+  /** 只带改了的那一项 */
   onSave: (settings: {
-    compactWindow: ClaudeCompactWindow | null;
-    cacheTtl: ClaudeCacheTtl | null;
+    compactWindow?: ClaudeCompactWindow | null;
+    cacheTtl?: ClaudeCacheTtl | null;
   }) => Promise<Pick<LocalAgent, "compactWindow" | "cacheTtl">>;
 }) {
   const initialWindow = agent.compactWindow ?? CLAUDE_COMPACT_WINDOW_DEFAULT;
-  const [saved, setSaved] = useState({ window: initialWindow, ttl: agent.cacheTtl ?? "" });
+  // 服务端已确认的值；排队中的保存拿它比较，决定发不发、发哪一项
+  const confirmed = useRef({ window: initialWindow, ttl: agent.cacheTtl ?? "" });
   const [choice, setChoice] = useState(windowChoice(initialWindow));
   const [custom, setCustom] = useState(
     typeof initialWindow === "number" ? String(initialWindow) : "",
   );
   const [ttl, setTtl] = useState<string>(agent.cacheTtl ?? "");
-  const [saving, setSaving] = useState(false);
-  const [done, setDone] = useState(false);
-  const [error, setError] = useState<string | undefined>();
+  const { state, save } = useAutoSave((ok) => {
+    // 成功时界面就是人最后选的；自定义框里正填着的数字也别动
+    if (ok) return;
+    const { window: savedWindow, ttl: savedTtl } = confirmed.current;
+    setTtl(savedTtl);
+    setChoice(windowChoice(savedWindow));
+    if (typeof savedWindow === "number") setCustom(String(savedWindow));
+  });
 
-  const customTokens = Number(custom.trim());
-  const customValid =
-    Number.isInteger(customTokens) &&
-    customTokens >= CLAUDE_COMPACT_WINDOW_MIN &&
-    customTokens <= CLAUDE_COMPACT_WINDOW_MAX;
-  const window: ClaudeCompactWindow | undefined =
-    choice === "auto"
-      ? "auto"
-      : choice === CUSTOM
-        ? customValid
-          ? customTokens
-          : undefined
-        : Number(choice);
-  const dirty = window !== undefined && (window !== saved.window || ttl !== saved.ttl);
+  function parseCustom(text: string): number | undefined {
+    const tokens = Number(text.trim());
+    return Number.isInteger(tokens) &&
+      tokens >= CLAUDE_COMPACT_WINDOW_MIN &&
+      tokens <= CLAUDE_COMPACT_WINDOW_MAX
+      ? tokens
+      : undefined;
+  }
+  const customValid = parseCustom(custom) !== undefined;
+
+  /** 存这一组值：阈值是 undefined（自定义还没填对）时只存缓存时长 */
+  function commit(window: ClaudeCompactWindow | undefined, nextTtl: string) {
+    if (disabled) return;
+    save(async () => {
+      const current = confirmed.current;
+      const patch: {
+        compactWindow?: ClaudeCompactWindow | null;
+        cacheTtl?: ClaudeCacheTtl | null;
+      } = {};
+      // 默认值存成「没设过」：以后默认值改了，没动过的 Agent 跟着变
+      if (window !== undefined && window !== current.window)
+        patch.compactWindow = window === CLAUDE_COMPACT_WINDOW_DEFAULT ? null : window;
+      if (nextTtl !== current.ttl)
+        patch.cacheTtl = nextTtl === "5m" || nextTtl === "1h" ? nextTtl : null;
+      if (Object.keys(patch).length === 0) return false;
+      const updated = await onSave(patch);
+      confirmed.current = {
+        window: updated.compactWindow ?? CLAUDE_COMPACT_WINDOW_DEFAULT,
+        ttl: updated.cacheTtl ?? "",
+      };
+    });
+  }
 
   const windowOptions: SelectOption[] = [
     ...CLAUDE_COMPACT_WINDOW_PRESETS.map((tokens) => ({
@@ -101,29 +127,6 @@ export function ClaudeContextSettings({
     { value: "1h", label: t("1 小时"), description: t("写缓存更贵") },
   ];
 
-  async function save() {
-    if (window === undefined) return;
-    setSaving(true);
-    setError(undefined);
-    try {
-      const updated = await onSave({
-        // 默认值存成「没设过」：以后默认值改了，没动过的 Agent 跟着变
-        compactWindow: window === CLAUDE_COMPACT_WINDOW_DEFAULT ? null : window,
-        cacheTtl: ttl === "5m" || ttl === "1h" ? ttl : null,
-      });
-      const nextWindow = updated.compactWindow ?? CLAUDE_COMPACT_WINDOW_DEFAULT;
-      setSaved({ window: nextWindow, ttl: updated.cacheTtl ?? "" });
-      setTtl(updated.cacheTtl ?? "");
-      setChoice(windowChoice(nextWindow));
-      if (typeof nextWindow === "number") setCustom(String(nextWindow));
-      setDone(true);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setSaving(false);
-    }
-  }
-
   return (
     <section className="agent-model agent-context" aria-labelledby="agent-context-title">
       <h3 id="agent-context-title">{t("上下文与缓存")}</h3>
@@ -132,10 +135,12 @@ export function ClaudeContextSettings({
         aria-label={t("自动压缩")}
         value={choice}
         options={windowOptions}
-        disabled={disabled || saving}
+        disabled={disabled}
         onChange={(next) => {
           setChoice(next);
-          setDone(false);
+          // 选「自定义…」先等人填数字，填好了（回车或离开输入框）再存
+          if (next === CUSTOM) return;
+          commit(next === "auto" ? "auto" : Number(next), ttl);
         }}
       />
       {choice === CUSTOM && (
@@ -148,12 +153,19 @@ export function ClaudeContextSettings({
             max={CLAUDE_COMPACT_WINDOW_MAX}
             step={10_000}
             value={custom}
-            disabled={disabled || saving}
+            disabled={disabled}
             aria-label={t("自定义压缩阈值（token）")}
             aria-invalid={!customValid}
-            onChange={(event) => {
-              setCustom(event.target.value);
-              setDone(false);
+            onChange={(event) => setCustom(event.target.value)}
+            onBlur={() => {
+              const tokens = parseCustom(custom);
+              if (tokens !== undefined) commit(tokens, ttl);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              const tokens = parseCustom(custom);
+              if (tokens !== undefined) commit(tokens, ttl);
             }}
           />
           <span>token</span>
@@ -176,10 +188,11 @@ export function ClaudeContextSettings({
         aria-label={t("缓存时长")}
         value={ttl}
         options={ttlOptions}
-        disabled={disabled || saving}
+        disabled={disabled}
         onChange={(next) => {
           setTtl(next);
-          setDone(false);
+          // 自定义阈值还没填对：这次只存缓存时长
+          commit(choice === CUSTOM ? parseCustom(custom) : undefined, next);
         }}
       />
       {ttl === "" && lead && (
@@ -196,27 +209,11 @@ export function ClaudeContextSettings({
           )}
         </p>
       )}
-      {error && (
-        <p className="agent-mcp-hint warning" role="alert">
-          {error}
-        </p>
-      )}
-      <div className="agent-model-actions">
-        <small>{t("从下一次回复开始生效，不用重启。")}</small>
-        {done && (
-          <span className="agent-mcp-saved" role="status">
-            {t("已保存。")}
-          </span>
-        )}
-        <Button
-          size="sm"
-          variant="primary"
-          disabled={disabled || saving || !dirty}
-          onClick={() => void save()}
-        >
-          {saving ? t("保存中…") : t("保存上下文设置")}
-        </Button>
-      </div>
+      <SaveStatus
+        state={state}
+        hint={t("选了就保存，从下一次回复开始生效，不用重启。")}
+        savedHint={t("从下一次回复开始生效，不用重启。")}
+      />
     </section>
   );
 }

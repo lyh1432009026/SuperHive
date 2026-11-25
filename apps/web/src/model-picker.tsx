@@ -16,6 +16,7 @@ export function ModelPicker({
   value,
   onChange,
   onRefresh,
+  onCommit,
   allowDefault = false,
   disabled = false,
   id,
@@ -24,6 +25,8 @@ export function ModelPicker({
   data: LocalAgentModelsResponse | undefined;
   value: string;
   onChange: (value: string) => void;
+  /** 选定了一个模型：从列表里选中时，或手填的模型名按回车、离开输入框时调用，由外面决定存不存 */
+  onCommit?: (value: string) => void;
   /** 让 Server 重新拉一次列表 */
   onRefresh?: () => void;
   allowDefault?: boolean;
@@ -78,6 +81,7 @@ export function ModelPicker({
             }
             setCustom(false);
             onChange(next);
+            onCommit?.(next);
           }}
         />
         {onRefresh && (
@@ -97,6 +101,13 @@ export function ModelPicker({
           placeholder={t("模型名，例如 {0}", { 0: models[0]?.id ?? "gpt-5" })}
           aria-label={t("模型名")}
           onChange={(event) => onChange(event.target.value)}
+          onBlur={() => onCommit?.(value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              onCommit?.(value);
+            }
+          }}
         />
       )}
       {data?.error && (

@@ -63,7 +63,7 @@ const modelList: LocalAgentModelsResponse = {
 describe("AgentSettingsDialog", () => {
   afterEach(cleanup);
 
-  it("lists MCP sizes, estimates the start cost and saves the unchecked servers", async () => {
+  it("lists MCP sizes, estimates the start cost and saves an unchecked server right away", async () => {
     const mcpServers = vi.fn(async () => listed);
     const updateSettings = vi.fn(async (_id: string, settings: { mcpDisabled: string[] }) => ({
       ...agent,
@@ -93,13 +93,14 @@ describe("AgentSettingsDialog", () => {
     );
     expect(screen.queryByText(/每个新会话开局约/)).toBeNull();
 
+    // 整个弹窗不再有「保存」按钮：勾了就存
+    expect(screen.queryByRole("button", { name: /保存/ })).toBeNull();
     fireEvent.click(screen.getByRole("checkbox", { name: /rea/ }));
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() =>
       expect(updateSettings).toHaveBeenCalledWith(agent.id, { mcpDisabled: ["rea"] }),
     );
     expect(act).not.toHaveBeenCalled();
-    expect(await screen.findByText("已保存。")).toBeTruthy();
+    expect(await screen.findByText(/^已保存。从下一次回复开始生效/)).toBeTruthy();
   });
 
   it("only lists MCP on an owner device without management access: no measuring, no changes", async () => {
@@ -126,10 +127,12 @@ describe("AgentSettingsDialog", () => {
     for (const box of screen.getAllByRole("checkbox")) {
       expect((box as HTMLInputElement).disabled).toBe(true);
     }
-    expect((screen.getByRole("button", { name: "保存" }) as HTMLButtonElement).disabled).toBe(true);
+    for (const box of screen.getAllByRole("combobox")) {
+      expect((box as HTMLButtonElement).disabled).toBe(true);
+    }
   });
 
-  it("asks for a restart when the running process predates the settings file", async () => {
+  it("saves but leaves the restart to the person when the running process predates the settings file", async () => {
     const act = vi.fn(async () => undefined);
     render(
       <AgentSettingsDialog
@@ -149,8 +152,9 @@ describe("AgentSettingsDialog", () => {
     expect(await screen.findByText(/每个新会话开局约 40 万 token/)).toBeTruthy();
     fireEvent.click(screen.getByRole("checkbox", { name: /rea/ }));
     expect(screen.getByText(/每个新会话开局约 5.2 万 token/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "保存并重启" }));
-    await waitFor(() => expect(act).toHaveBeenCalledWith(agent.id, "restart"));
+    // 重启会打断正在执行的任务：只存，提示人点「重启」
+    expect(await screen.findByText("已保存。点上面的「重启」后生效。")).toBeTruthy();
+    expect(act).not.toHaveBeenCalled();
   });
 
   it("picks the model from the runtime's list, accepts a typed one and goes back to the default", async () => {
@@ -176,30 +180,31 @@ describe("AgentSettingsDialog", () => {
     );
     const picker = await screen.findByRole("combobox", { name: "模型" });
     await waitFor(() => expect(picker.textContent).toContain("运行时默认"));
-    const save = screen.getByRole("button", { name: "保存模型" }) as HTMLButtonElement;
-    expect(save.disabled).toBe(true);
 
     fireEvent.click(picker);
     // 运行时默认那一项写明现在实际是哪个模型
     expect(screen.getByRole("option", { name: /运行时默认.*现在是 GPT A/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("option", { name: /^gpt-b/ }));
-    fireEvent.click(save);
     await waitFor(() => expect(updateSettings).toHaveBeenCalledWith(agent.id, { model: "gpt-b" }));
-    expect(await screen.findByText("已保存。")).toBeTruthy();
+    expect(await screen.findByText(/^已保存。从下一次回复开始生效/)).toBeTruthy();
 
+    // 手填：打字时不存，按回车才存；离开输入框时同样的值不再发一次
     fireEvent.click(screen.getByRole("combobox", { name: "模型" }));
     fireEvent.click(screen.getByRole("option", { name: /^手动输入/ }));
-    fireEvent.change(screen.getByRole("textbox", { name: "模型名" }), {
-      target: { value: " my/custom-model " },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "保存模型" }));
+    const typed = screen.getByRole("textbox", { name: "模型名" });
+    fireEvent.change(typed, { target: { value: " my/custom-model " } });
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(typed, { key: "Enter" });
     await waitFor(() =>
       expect(updateSettings).toHaveBeenLastCalledWith(agent.id, { model: "my/custom-model" }),
     );
+    await waitFor(() => expect((typed as HTMLInputElement).value).toBe("my/custom-model"));
+    fireEvent.blur(typed);
+    await screen.findByText(/^已保存。/);
+    expect(updateSettings).toHaveBeenCalledTimes(2);
 
     fireEvent.click(screen.getByRole("combobox", { name: "模型" }));
     fireEvent.click(screen.getByRole("option", { name: /^运行时默认/ }));
-    fireEvent.click(screen.getByRole("button", { name: "保存模型" }));
     await waitFor(() => expect(updateSettings).toHaveBeenLastCalledWith(agent.id, { model: null }));
 
     // 刷新：让 Server 重新拉一次
@@ -217,12 +222,12 @@ describe("AgentSettingsDialog", () => {
       efforts: ["none", "minimal", "low", "medium", "high", "xhigh"],
     };
     const updateSettings = vi.fn(
-      async (_id: string, settings: { model?: string | null; effort?: string | null }) => ({
-        ...agent,
-        model: settings.model ?? null,
-        effort: settings.effort ?? null,
-      }),
+      async (_id: string, settings: { model?: string | null; effort?: string | null }) => {
+        current = { ...current, ...settings };
+        return current;
+      },
     );
+    let current: LocalAgent = { ...agent, provider: "codex" };
     render(
       <AgentSettingsDialog
         agent={{ ...agent, provider: "codex" }}
@@ -247,24 +252,23 @@ describe("AgentSettingsDialog", () => {
     ).toBeTruthy();
     expect(screen.queryByRole("option", { name: /xhigh/ })).toBeNull();
     fireEvent.click(screen.getByRole("option", { name: /^低 · low/ }));
-    fireEvent.click(screen.getByRole("button", { name: "保存模型和强度" }));
+    // 只发改了的那一项：审计只记「思考强度」这一笔
     await waitFor(() =>
-      expect(updateSettings).toHaveBeenLastCalledWith(agent.id, { model: null, effort: "low" }),
+      expect(updateSettings).toHaveBeenLastCalledWith(agent.id, { effort: "low" }),
     );
 
     // 换到 gpt-b：low 它不支持，仍列出并提示
     fireEvent.click(screen.getByRole("combobox", { name: "模型" }));
     fireEvent.click(screen.getByRole("option", { name: /^gpt-b/ }));
+    await waitFor(() =>
+      expect(updateSettings).toHaveBeenLastCalledWith(agent.id, { model: "gpt-b" }),
+    );
     expect(screen.getByText(/当前模型不支持 low/)).toBeTruthy();
     fireEvent.click(screen.getByRole("combobox", { name: "思考强度" }));
     fireEvent.click(screen.getByRole("option", { name: /^很高 · xhigh/ }));
     expect(screen.queryByText(/当前模型不支持/)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "保存模型和强度" }));
     await waitFor(() =>
-      expect(updateSettings).toHaveBeenLastCalledWith(agent.id, {
-        model: "gpt-b",
-        effort: "xhigh",
-      }),
+      expect(updateSettings).toHaveBeenLastCalledWith(agent.id, { effort: "xhigh" }),
     );
   });
 
@@ -285,20 +289,22 @@ describe("AgentSettingsDialog", () => {
       />,
     );
     await screen.findByRole("combobox", { name: "模型" });
-    await waitFor(() => expect(screen.getByRole("button", { name: "保存模型" })).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "模型" }).textContent).toContain("运行时默认"),
+    );
     expect(screen.queryByRole("combobox", { name: "思考强度" })).toBeNull();
   });
 
   it("sets Claude's auto-compact threshold and cache duration, defaulting to 400k", async () => {
+    let current: LocalAgent = agent;
     const updateSettings = vi.fn(
       async (
         _id: string,
         settings: { compactWindow?: number | "auto" | null; cacheTtl?: "5m" | "1h" | null },
-      ) => ({
-        ...agent,
-        compactWindow: settings.compactWindow ?? null,
-        cacheTtl: settings.cacheTtl ?? null,
-      }),
+      ) => {
+        current = { ...current, ...settings };
+        return current;
+      },
     );
     render(
       <AgentSettingsDialog
@@ -322,39 +328,39 @@ describe("AgentSettingsDialog", () => {
     expect(ttl.textContent).toContain("跟随 Claude Code（默认）");
     // 不是主 Agent：不提示按 1 小时
     expect(screen.queryByRole("note")).toBeNull();
-    const save = screen.getByRole("button", { name: "保存上下文设置" }) as HTMLButtonElement;
-    expect(save.disabled).toBe(true);
 
     fireEvent.click(ttl);
     fireEvent.click(screen.getByRole("option", { name: /^1 小时/ }));
-    // 选 1 小时：注明写缓存更贵
+    // 选 1 小时：注明写缓存更贵，并且立即保存
     expect(screen.getByRole("note").textContent).toContain("1.25 倍变成 2 倍");
+    await waitFor(() =>
+      expect(updateSettings).toHaveBeenLastCalledWith(agent.id, { cacheTtl: "1h" }),
+    );
     fireEvent.click(compact);
     fireEvent.click(screen.getByRole("option", { name: /^自定义/ }));
+    // 选「自定义…」先不存，等填好数字
+    expect(updateSettings).toHaveBeenCalledTimes(1);
     const custom = screen.getByRole("spinbutton", { name: "自定义压缩阈值（token）" });
     fireEvent.change(custom, { target: { value: "50000" } });
-    expect(save.disabled).toBe(true);
+    fireEvent.blur(custom);
     expect(screen.getByText(/填 100,000～2,000,000 之间的整数/)).toBeTruthy();
+    expect(updateSettings).toHaveBeenCalledTimes(1);
     fireEvent.change(custom, { target: { value: "300000" } });
-    fireEvent.click(save);
+    fireEvent.keyDown(custom, { key: "Enter" });
     await waitFor(() =>
-      expect(updateSettings).toHaveBeenLastCalledWith(agent.id, {
-        compactWindow: 300_000,
-        cacheTtl: "1h",
-      }),
+      expect(updateSettings).toHaveBeenLastCalledWith(agent.id, { compactWindow: 300_000 }),
     );
-    expect(await screen.findByText("已保存。")).toBeTruthy();
+    expect(await screen.findByText(/^已保存。从下一次回复开始生效/)).toBeTruthy();
+    // 存好了还留在自定义框里
+    expect(screen.getByRole("spinbutton", { name: "自定义压缩阈值（token）" })).toBeTruthy();
 
     // 改回默认档：存成「没设过」
     fireEvent.click(screen.getByRole("combobox", { name: "自动压缩" }));
     fireEvent.click(screen.getByRole("option", { name: /40 万 token（默认）/ }));
-    fireEvent.click(screen.getByRole("button", { name: "保存上下文设置" }));
     await waitFor(() =>
-      expect(updateSettings).toHaveBeenLastCalledWith(agent.id, {
-        compactWindow: null,
-        cacheTtl: "1h",
-      }),
+      expect(updateSettings).toHaveBeenLastCalledWith(agent.id, { compactWindow: null }),
     );
+    expect(updateSettings).toHaveBeenCalledTimes(3);
   });
 
   it("tells that the room's lead agent caches for 1 hour when following Claude Code", async () => {
@@ -432,6 +438,89 @@ describe("AgentSettingsDialog", () => {
     expect((screen.getByRole("textbox", { name: "模型名" }) as HTMLInputElement).value).toBe(
       "legacy-model",
     );
+  });
+
+  it("rolls a failed save back to the saved value and says why", async () => {
+    const updateSettings = vi.fn(async () => {
+      throw new Error("设置文件写不进去");
+    });
+    render(
+      <AgentSettingsDialog
+        agent={agent}
+        local={{
+          mcpServers: async () => listed,
+          updateSettings,
+          act: async () => undefined,
+          canManage: true,
+          logs: async () => [],
+          remove: async () => undefined,
+          models: async () => modelList,
+        }}
+        onClose={() => undefined}
+      />,
+    );
+    const steer = screen.getByRole("checkbox", { name: /人发的消息自动引导/ }) as HTMLInputElement;
+    fireEvent.click(steer);
+    expect(steer.checked).toBe(true);
+    expect(await screen.findByText("保存失败：设置文件写不进去。已恢复原来的设置。")).toBeTruthy();
+    expect(steer.checked).toBe(false);
+
+    const picker = await screen.findByRole("combobox", { name: "模型" });
+    await waitFor(() => expect(picker.textContent).toContain("运行时默认"));
+    fireEvent.click(picker);
+    fireEvent.click(screen.getByRole("option", { name: /^gpt-b/ }));
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "模型" }).textContent).toContain("运行时默认"),
+    );
+  });
+
+  it("sends one save at a time and only the latest of quick changes", async () => {
+    const calls: Array<{ settings: { mcpDisabled?: string[] }; resolve: () => void }> = [];
+    let current: LocalAgent = agent;
+    const updateSettings = vi.fn(
+      (_id: string, settings: { mcpDisabled?: string[] }) =>
+        new Promise<LocalAgent>((resolve) => {
+          calls.push({
+            settings,
+            resolve: () => {
+              current = { ...current, ...settings };
+              resolve(current);
+            },
+          });
+        }),
+    );
+    render(
+      <AgentSettingsDialog
+        agent={agent}
+        local={{
+          mcpServers: async () => listed,
+          updateSettings,
+          act: async () => undefined,
+          canManage: true,
+          logs: async () => [],
+          remove: async () => undefined,
+          models: async () => modelList,
+        }}
+        onClose={() => undefined}
+      />,
+    );
+    const rea = await screen.findByRole("checkbox", { name: /rea/ });
+    const chrome = screen.getByRole("checkbox", { name: /chrome-devtools/ });
+    fireEvent.click(rea);
+    expect(await screen.findByText("保存中…")).toBeTruthy();
+    // 第一个还没回来：后面几下只记最新的一次
+    fireEvent.click(chrome);
+    fireEvent.click(rea);
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    calls[0]!.resolve();
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(2));
+    expect(calls[1]!.settings).toEqual({ mcpDisabled: ["chrome-devtools"] });
+    calls[1]!.resolve();
+    expect(await screen.findByText(/^已保存。/)).toBeTruthy();
+    expect(updateSettings).toHaveBeenCalledTimes(2);
+    expect((rea as HTMLInputElement).checked).toBe(true);
+    expect((chrome as HTMLInputElement).checked).toBe(false);
   });
 
   it("formats token counts", () => {

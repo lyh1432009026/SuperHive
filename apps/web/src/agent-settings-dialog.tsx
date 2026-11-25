@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   LocalAgent,
   LocalAgentMcpResponse,
@@ -11,6 +11,7 @@ import { RestartNowButton, agentUpdateNotes } from "./local-agent-updates";
 import { ClaudeContextSettings } from "./claude-context-settings";
 import { Button, IconButton } from "./button";
 import { EffortPicker, ModelPicker } from "./model-picker";
+import { SaveStatus, useAutoSave } from "./auto-save";
 
 function CloseGlyph() {
   return (
@@ -168,19 +169,19 @@ export function AgentSettingsDialog({
   const [data, setData] = useState<LocalAgentMcpResponse | undefined>();
   const [disabled, setDisabled] = useState(() => new Set(agent.mcpDisabled));
   const [measuring, setMeasuring] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const [saved, setSaved] = useState<"saved" | "restarted" | undefined>();
   const [autoSteer, setAutoSteer] = useState(agent.autoSteer);
-  const [savingSteer, setSavingSteer] = useState(false);
   const [acting, setActing] = useState<"start" | "stop" | "restart" | "remove">();
   const [models, setModels] = useState<LocalAgentModelsResponse | undefined>();
   const [model, setModel] = useState(agent.model ?? "");
-  const [savedModel, setSavedModel] = useState(agent.model ?? "");
   const [effort, setEffort] = useState(agent.effort ?? "");
-  const [savedEffort, setSavedEffort] = useState(agent.effort ?? "");
-  const [savingModel, setSavingModel] = useState(false);
-  const [modelSaved, setModelSaved] = useState(false);
+  // 服务端已确认的值：改了就存，排队中的保存拿它比较，只发真变了的字段（审计也只记这些）
+  const confirmed = useRef({
+    model: agent.model ?? null,
+    effort: agent.effort ?? null,
+    autoSteer: agent.autoSteer,
+    mcpDisabled: [...agent.mcpDisabled].sort(),
+  });
   const [logsOpen, setLogsOpen] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const live = agent.status !== "stopped" && agent.status !== "crashed";
@@ -226,41 +227,48 @@ export function AgentSettingsDialog({
 
   // 运行时能切思考强度才显示、才保存（不支持的运行时 Server 也会拒绝）
   const effortSupported = (models?.efforts.length ?? 0) > 0;
-  const modelDirty = model.trim() !== savedModel || (effortSupported && effort !== savedEffort);
 
   /** 模型和思考强度写进设置文件，下一次回复就按新的跑，不用重启 */
-  async function saveModel() {
-    setSavingModel(true);
-    setError(undefined);
-    try {
-      const updated = await local.updateSettings(agent.id, {
-        model: model.trim() || null,
-        ...(effortSupported ? { effort: effort || null } : {}),
-      });
-      setModel(updated.model ?? "");
-      setSavedModel(updated.model ?? "");
-      setEffort(updated.effort ?? "");
-      setSavedEffort(updated.effort ?? "");
-      setModelSaved(true);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setSavingModel(false);
+  const modelSave = useAutoSave((ok) => {
+    const current = confirmed.current;
+    // 成功时只把整理过的模型名（去掉首尾空格）对齐回来；人在那之后又改了的不动
+    if (ok) {
+      if (model.trim() === (current.model ?? "")) setModel(current.model ?? "");
+      return;
     }
+    setModel(current.model ?? "");
+    setEffort(current.effort ?? "");
+  });
+  function saveModel(nextModel: string, nextEffort: string) {
+    if (!local.canManage) return;
+    const withEffort = effortSupported;
+    modelSave.save(async () => {
+      const current = confirmed.current;
+      const patch: { model?: string | null; effort?: string | null } = {};
+      const modelValue = nextModel.trim() || null;
+      if (modelValue !== current.model) patch.model = modelValue;
+      if (withEffort && (nextEffort || null) !== current.effort) patch.effort = nextEffort || null;
+      if (Object.keys(patch).length === 0) return false;
+      const updated = await local.updateSettings(agent.id, patch);
+      confirmed.current = {
+        ...confirmed.current,
+        model: updated.model ?? null,
+        effort: updated.effort ?? null,
+      };
+    });
   }
 
   /** 自动引导：服务端在派发时判断，改了立即生效，不用重启 */
-  async function toggleAutoSteer(next: boolean) {
-    setSavingSteer(true);
-    setError(undefined);
-    try {
+  const steerSave = useAutoSave((ok) => {
+    if (!ok) setAutoSteer(confirmed.current.autoSteer);
+  });
+  function toggleAutoSteer(next: boolean) {
+    setAutoSteer(next);
+    steerSave.save(async () => {
+      if (next === confirmed.current.autoSteer) return false;
       const updated = await local.updateSettings(agent.id, { autoSteer: next });
-      setAutoSteer(updated.autoSteer);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setSavingSteer(false);
-    }
+      confirmed.current = { ...confirmed.current, autoSteer: updated.autoSteer };
+    });
   }
 
   const load = useCallback(
@@ -291,36 +299,25 @@ export function AgentSettingsDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const changed =
-    disabled.size !== agent.mcpDisabled.length ||
-    agent.mcpDisabled.some((name) => !disabled.has(name));
-
+  /** MCP 开关：勾了就存；运行中的进程下一次回复按新的工具开局 */
+  const mcpSave = useAutoSave((ok) => {
+    if (!ok) setDisabled(new Set(confirmed.current.mcpDisabled));
+  });
   function toggle(name: string) {
-    setSaved(undefined);
-    setDisabled((current) => {
-      const next = new Set(current);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
+    const next = new Set(disabled);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    setDisabled(next);
+    // 列表里已不存在的旧名字一并清掉，避免越积越多
+    const known = new Set(data?.servers.map((server) => server.name) ?? []);
+    const list = [...next].filter((item) => known.size === 0 || known.has(item)).sort();
+    mcpSave.save(async () => {
+      const current = confirmed.current.mcpDisabled;
+      if (list.length === current.length && list.every((item, index) => item === current[index]))
+        return false;
+      const updated = await local.updateSettings(agent.id, { mcpDisabled: list });
+      confirmed.current = { ...confirmed.current, mcpDisabled: [...updated.mcpDisabled].sort() };
     });
-  }
-
-  async function save(restart: boolean) {
-    setSaving(true);
-    setError(undefined);
-    try {
-      // 列表里已不存在的旧名字一并清掉，避免越积越多
-      const known = new Set(data?.servers.map((server) => server.name) ?? []);
-      const next = [...disabled].filter((name) => known.size === 0 || known.has(name));
-      const updated = await local.updateSettings(agent.id, { mcpDisabled: next });
-      if (restart) await local.act(agent.id, "restart");
-      setDisabled(new Set(updated.mcpDisabled));
-      setSaved(restart ? "restarted" : "saved");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setSaving(false);
-    }
   }
 
   const needsRestart = agent.settingsPendingRestart === true;
@@ -462,11 +459,9 @@ export function AgentSettingsDialog({
               data={models}
               value={model}
               allowDefault
-              disabled={savingModel || !local.canManage}
-              onChange={(next) => {
-                setModel(next);
-                setModelSaved(false);
-              }}
+              disabled={!local.canManage}
+              onChange={setModel}
+              onCommit={(next) => saveModel(next, effort)}
               onRefresh={() => void loadModels(true)}
             />
             {effortSupported && (
@@ -476,35 +471,29 @@ export function AgentSettingsDialog({
                   data={models}
                   model={model}
                   value={effort}
-                  disabled={savingModel || !local.canManage}
+                  disabled={!local.canManage}
                   onChange={(next) => {
                     setEffort(next);
-                    setModelSaved(false);
+                    saveModel(model, next);
                   }}
                 />
               </>
             )}
-            <div className="agent-model-actions">
-              <small>
-                {agent.settingsPendingRestart
-                  ? t("这个 Agent 是在支持此设置之前启动的，保存后需要重启一次才会生效。")
+            <SaveStatus
+              state={modelSave.state}
+              hint={
+                agent.settingsPendingRestart
+                  ? t("这个 Agent 是在支持此设置之前启动的，改了以后需要重启一次才会生效。")
                   : t(
-                      "从下一次回复开始生效，不用重启。失败的任务也可以点「换个模型重试」只换这一次。",
-                    )}
-              </small>
-              {modelSaved && (
-                <span className="agent-mcp-saved" role="status">
-                  {t("已保存。")}
-                </span>
-              )}
-              <Button
-                size="sm"
-                disabled={savingModel || !modelDirty || !local.canManage}
-                onClick={() => void saveModel()}
-              >
-                {savingModel ? t("保存中…") : effortSupported ? t("保存模型和强度") : t("保存模型")}
-              </Button>
-            </div>
+                      "选了就保存，从下一次回复开始生效，不用重启。失败的任务也可以点「换个模型重试」只换这一次。",
+                    )
+              }
+              savedHint={
+                agent.settingsPendingRestart
+                  ? t("需要重启一次才会生效。")
+                  : t("从下一次回复开始生效，不用重启。")
+              }
+            />
           </section>
           {agent.provider === "claude" && (
             <ClaudeContextSettings
@@ -518,11 +507,14 @@ export function AgentSettingsDialog({
             <input
               type="checkbox"
               checked={autoSteer}
-              disabled={savingSteer || !local.canManage}
-              onChange={(event) => void toggleAutoSteer(event.target.checked)}
+              disabled={!local.canManage}
+              onChange={(event) => toggleAutoSteer(event.target.checked)}
             />
             <span>
-              <strong>{t("人发的消息自动引导")}</strong>
+              <span className="agent-auto-steer-title">
+                <strong>{t("人发的消息自动引导")}</strong>
+                <SaveStatus state={steerSave.state} hint="" savedHint={t("立即生效。")} />
+              </span>
               <small>
                 {t(
                   "它正在执行任务时，人 @ 它的新消息直接用来引导当前任务，不排队。默认关：先排队，需要时在那条消息上或输入框旁点「引导」。其他 Agent 的消息始终排队。",
@@ -535,38 +527,34 @@ export function AgentSettingsDialog({
             failed={error !== undefined}
             disabled={disabled}
             measuring={measuring}
-            busy={saving || !local.canManage}
+            busy={!local.canManage}
             onToggle={toggle}
           />
           {!local.canManage && (
             <p className="agent-mcp-hint">{t("这台设备只能查看。要修改，先申请管理权。")}</p>
           )}
-          <p className="agent-mcp-hint">
-            {needsRestart
-              ? t("这个 Agent 是在支持此设置之前启动的，保存后需要重启一次才会生效。")
-              : t(
-                  "保存后从下一次回复开始生效；会话里已有的上下文会在下一次回复时按新的工具重新缓存一次。",
-                )}
-          </p>
+          {data?.supported && (
+            <SaveStatus
+              state={mcpSave.state}
+              hint={
+                needsRestart
+                  ? t("这个 Agent 是在支持此设置之前启动的，改了以后需要点上面的「重启」才会生效。")
+                  : t(
+                      "勾了就保存，从下一次回复开始生效；会话里已有的上下文会在下一次回复时按新的工具重新缓存一次。",
+                    )
+              }
+              savedHint={
+                needsRestart
+                  ? t("点上面的「重启」后生效。")
+                  : t("从下一次回复开始生效，已有的上下文会按新的工具重新缓存一次。")
+              }
+            />
+          )}
           {error && (
             <p className="room-dialog-error" role="alert">
               {error}
             </p>
           )}
-          {saved && (
-            <p className="agent-mcp-saved" role="status">
-              {saved === "restarted" ? t("已保存并重启。") : t("已保存。")}
-            </p>
-          )}
-          <div className="dialog-actions">
-            <Button
-              variant="primary"
-              disabled={!changed || saving || !data?.supported || !local.canManage}
-              onClick={() => void save(needsRestart)}
-            >
-              {saving ? t("保存中…") : needsRestart ? t("保存并重启") : t("保存")}
-            </Button>
-          </div>
         </div>
       </div>
     </div>

@@ -646,8 +646,7 @@
   font-weight: var(--weight-medium);
 }
 
-.agent-mcp-hint,
-.agent-mcp-saved {
+.agent-mcp-hint {
   margin: 0;
   color: var(--text-secondary);
   font-size: var(--text-xs);
@@ -739,17 +738,32 @@
   font-weight: var(--weight-medium);
 }
 
-.agent-model-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.agent-model-actions small {
-  flex: 1;
+/* Agent 设置：改了就存，区块底部那行说明兼保存状态（保存中、已保存、失败原因），不另占位置 */
+.agent-save-status {
+  display: block;
+  margin: 0;
   color: var(--text-secondary);
   font-size: var(--text-xs);
   line-height: 1.5;
+}
+
+.agent-save-status.saved {
+  color: var(--success);
+}
+
+.agent-save-status.error {
+  color: var(--danger);
+}
+
+.agent-auto-steer .agent-auto-steer-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.agent-auto-steer .agent-auto-steer-title .agent-save-status {
+  display: inline;
 }
 
 /* Agent 设置：Claude 的自动压缩阈值、缓存时长 */
