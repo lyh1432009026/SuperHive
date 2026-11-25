@@ -1014,6 +1014,25 @@ export function App({
     setSettingsOpen(true);
   }, []);
 
+  /** 输入框下的「发送 · 换行」提示：打开设置「聊天与输入」，定位到「发送消息」 */
+  const openSendSettings = useCallback(() => {
+    setSettingsTab("chat");
+    setSettingsOpen(true);
+    const focusShortcut = (tries: number) => {
+      const target = document.querySelector<HTMLElement>(
+        '#settings-send-shortcut [role="radio"][aria-checked="true"]',
+      );
+      if (target) {
+        // 等设置弹窗自己的「打开时聚焦」做完，再把焦点放到当前选中的发送方式上
+        window.setTimeout(() => {
+          target.scrollIntoView({ block: "center" });
+          target.focus({ preventScroll: true });
+        }, 30);
+      } else if (tries > 0) window.requestAnimationFrame(() => focusShortcut(tries - 1));
+    };
+    window.requestAnimationFrame(() => focusShortcut(10));
+  }, []);
+
   useEffect(() => {
     if (!userMenuOpen) return;
     const closeOnOutside = (event: MouseEvent) => {
@@ -2250,6 +2269,7 @@ export function App({
                 sendShortcut={sendShortcut}
                 richComposer={richComposer}
                 currentRoomId={currentRoomId}
+                onOpenSendSettings={openSendSettings}
               />
             </div>
             <TerminalDock state={desktopTerminal} cwd={currentRoomWorkspace} />

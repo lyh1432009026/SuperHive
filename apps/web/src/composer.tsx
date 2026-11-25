@@ -12,7 +12,7 @@ import type { SendShortcut } from "./app-storage";
 import type { ComposerState } from "./use-composer";
 import { t } from "./i18n";
 import { Tooltip } from "./tooltip";
-import { IconButton } from "./button";
+import { Button, IconButton } from "./button";
 
 /** 所见即所得输入框（Tiptap）单独打包，用到时才加载；加载完之前先用纯文本输入框顶着 */
 const RichComposer = lazy(() => import("./rich-composer"));
@@ -27,6 +27,7 @@ export function Composer({
   sendShortcut,
   richComposer,
   currentRoomId,
+  onOpenSendSettings,
 }: {
   composer: ComposerState;
   showJumpToBottom: boolean;
@@ -36,6 +37,8 @@ export function Composer({
   sendShortcut: SendShortcut;
   richComposer: boolean;
   currentRoomId: string;
+  /** 点输入框下的「发送 · 换行」提示：打开设置里的「发送消息」 */
+  onOpenSendSettings?: () => void;
 }) {
   const {
     answering,
@@ -431,20 +434,31 @@ export function Composer({
             </button>
           </Tooltip>
           <span className="composer-hint">
-            {/* 按当前发送方式显示：⌘↵ 发送 · ↵ 换行，或 ↵ 发送 · ⇧↵ 换行 */}
-            {t("{0} 发送 · {1} 换行")
-              .split(/(\{[01]\})/)
-              .map((part, index) => {
-                const keys =
-                  sendShortcut === "modifier-enter"
-                    ? { "{0}": ["Mod", "Enter"], "{1}": ["Enter"] }
-                    : { "{0}": ["Enter"], "{1}": ["Shift", "Enter"] };
-                return part === "{0}" || part === "{1}" ? (
-                  <KeyCombo key={index} keys={keys[part]} />
-                ) : (
-                  part
-                );
-              })}
+            <Tooltip content={t("更改发送快捷键")}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="composer-hint-button"
+                aria-label={t("更改发送快捷键")}
+                disabled={!onOpenSendSettings}
+                onClick={onOpenSendSettings}
+              >
+                {/* 按当前发送方式显示：⌘↵ 发送 · ↵ 换行，或 ↵ 发送 · ⇧↵ 换行 */}
+                {t("{0} 发送 · {1} 换行")
+                  .split(/(\{[01]\})/)
+                  .map((part, index) => {
+                    const keys =
+                      sendShortcut === "modifier-enter"
+                        ? { "{0}": ["Mod", "Enter"], "{1}": ["Enter"] }
+                        : { "{0}": ["Enter"], "{1}": ["Shift", "Enter"] };
+                    return part === "{0}" || part === "{1}" ? (
+                      <KeyCombo key={index} keys={keys[part]} />
+                    ) : (
+                      part
+                    );
+                  })}
+              </Button>
+            </Tooltip>
           </span>
           <div className="composer-actions">
             {draftTooLong ? (

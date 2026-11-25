@@ -108,6 +108,17 @@
   white-space: nowrap;
 }
 
+/* 发送提示可以点：打开设置里的「发送消息」；保持提示的灰色小字，悬停才显出按钮底 */
+.composer-hint > .composer-hint-button {
+  min-width: 0;
+  max-width: 100%;
+  gap: 4px;
+  overflow: hidden;
+  font-weight: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
 /* 发送提示里的快捷键：一个键一个小键帽，符号放大到看得清 */
 .composer-footer .key-combo kbd {
   min-width: 18px;

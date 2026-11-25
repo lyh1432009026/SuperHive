@@ -1957,5 +1957,6 @@
   "从下一次回复开始生效，已有的上下文会按新的工具重新缓存一次。": "Applies from the next reply; the existing context is re-cached once with the new tools.",
   "保存失败：{0}。已恢复原来的设置。": "Couldn't save: {0}. The previous setting is restored.",
   "选了就保存，从下一次回复开始生效，不用重启。": "Saved as soon as you pick. Takes effect from the next reply; no restart needed.",
-  "已保存。{0}": "Saved. {0}"
+  "已保存。{0}": "Saved. {0}",
+  "更改发送快捷键": "Change send shortcut"
 }

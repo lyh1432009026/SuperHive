@@ -211,7 +211,7 @@ export function SettingsDialog({
                   <p>{t("控制消息如何编辑、发送和显示。")}</p>
                 </div>
 
-                <div className="settings-group">
+                <div className="settings-group" id="settings-send-shortcut">
                   <div className="settings-section-heading">
                     <div>
                       <h4>{t("发送消息")}</h4>
