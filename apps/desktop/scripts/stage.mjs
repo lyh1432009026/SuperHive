@@ -45,7 +45,13 @@ const electronVersion = JSON.parse(
 
 function run(command, args, options = {}) {
   console.log(`[stage] ${command} ${args.join(" ")}`);
-  execFileSync(command, args, { stdio: "inherit", ...options });
+  // Windows 上 pnpm / npm 是 .cmd，execFileSync 不走 shell 找不到（spawnSync pnpm ENOENT）；
+  // 这里的参数都是固定的、没有空格，走 shell 不会被拆开
+  execFileSync(command, args, {
+    stdio: "inherit",
+    ...(process.platform === "win32" ? { shell: true } : {}),
+    ...options,
+  });
 }
 
 // 1. superhive 包：CLI、打包后的 Server、网页、skills
