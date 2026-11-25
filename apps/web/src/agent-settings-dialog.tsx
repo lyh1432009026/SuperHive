@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
-  AgentContextStatus,
+  AgentLastModel,
   LocalAgent,
   LocalAgentMcpResponse,
   LocalAgentModelsResponse,
@@ -12,6 +12,7 @@ import { RestartNowButton, agentUpdateNotes } from "./local-agent-updates";
 import { ClaudeContextSettings } from "./claude-context-settings";
 import { Button, IconButton } from "./button";
 import { EffortPicker, ModelPicker, effortLabel } from "./model-picker";
+import { modelDisplayName } from "./agent-models";
 import { SaveStatus, useAutoSave } from "./auto-save";
 
 function CloseGlyph() {
@@ -149,10 +150,42 @@ export function McpChecklist({
  * 本机 Agent 的设置：勾选它加载哪些本机 MCP。每个 MCP 的工具定义都会在每个会话开局整段发给模型，
  * 体积大的会让每次新会话、每次缓存过期都多花一大笔，所以把大小标出来让房主自己取舍。
  */
+/**
+ * 模型下拉下面那行：这个房间上一轮实际用的是哪个模型（选「运行时默认」时也知道到底是哪个）；
+ * 还没回复过、又是运行时默认时，写运行时列出的默认模型
+ */
+function CurrentModelNote({
+  lastModel,
+  selected,
+  models,
+}: {
+  lastModel: AgentLastModel | undefined;
+  selected: string;
+  models: LocalAgentModelsResponse | undefined;
+}) {
+  const named = (id: string) => {
+    const name = modelDisplayName(id, models);
+    return name === id ? id : `${name}（${id}）`;
+  };
+  let text: string | undefined;
+  if (lastModel) {
+    text = lastModel.effort
+      ? t("这个房间上一轮实际用的是 {0}，思考强度 {1}", {
+          0: named(lastModel.id),
+          1: effortLabel(lastModel.effort),
+        })
+      : t("这个房间上一轮实际用的是 {0}", { 0: named(lastModel.id) });
+  } else if (!selected.trim()) {
+    const fallback = models?.models.find((entry) => entry.isDefault)?.id;
+    if (fallback) text = t("运行时默认用的是 {0}", { 0: named(fallback) });
+  }
+  return text ? <p className="agent-model-current">{text}</p> : null;
+}
+
 export function AgentSettingsDialog({
   agent,
   lead = false,
-  lastTurn,
+  lastModel,
   local,
   onClose,
   onOpenTerminal,
@@ -160,8 +193,8 @@ export function AgentSettingsDialog({
   agent: LocalAgent;
   /** 它是当前房间的主 Agent：缓存时长跟随 Claude Code 时实际按 1 小时 */
   lead?: boolean;
-  /** 它在当前房间上一轮的上下文，带着那一轮实际用的模型和思考强度 */
-  lastTurn?: AgentContextStatus | undefined;
+  /** 它在当前房间最近一轮实际用的模型和思考强度 */
+  lastModel?: AgentLastModel | undefined;
   /** 在终端里接着它在当前房间的会话 */
   onOpenTerminal?: () => void;
   local: Pick<
@@ -468,16 +501,7 @@ export function AgentSettingsDialog({
               onCommit={(next) => saveModel(next, effort)}
               onRefresh={() => void loadModels(true)}
             />
-            {lastTurn?.model && (
-              <p className="agent-model-current" role="note">
-                {lastTurn.effort
-                  ? t("这个房间上一轮实际用的是 {0}，思考强度 {1}", {
-                      0: lastTurn.model,
-                      1: effortLabel(lastTurn.effort),
-                    })
-                  : t("这个房间上一轮实际用的是 {0}", { 0: lastTurn.model })}
-              </p>
-            )}
+            <CurrentModelNote lastModel={lastModel} selected={model} models={models} />
             {effortSupported && (
               <>
                 <h4>{t("思考强度")}</h4>

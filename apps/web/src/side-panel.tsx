@@ -19,6 +19,7 @@ import { MemberWorkspaceBadge, memberWorkspaceCwdHint } from "./member-workspace
 import { LeadMark, MemberName } from "./member-badge";
 import { MemberHiveToolsBadge } from "./member-hive-tools";
 import { MemberContextBadge } from "./member-context";
+import { memberModel, useRuntimeModels, type RuntimeModelLists } from "./agent-models";
 import { MemberSandboxBadge } from "./member-sandbox";
 import { GuestMemberActions, GuestAccessBadge } from "./invite-dialog";
 import { agentProviderLabel, participantStatusLabel } from "./agent-setup";
@@ -133,6 +134,8 @@ export function SidePanel({
   whiteboard: ReadonlyMap<string, WhiteboardEntry>;
   whiteboardEpochRef: RefObject<number>;
 }) {
+  // 每种运行时的模型列表：成员副标题把模型 id 换成名称，设置是「运行时默认」时找出默认的那个
+  const runtimeModels = useRuntimeModels(local.canManage ? local.agents : [], local.models);
   return (
     <aside
       className={`members-panel panel ${mobilePanel === "members" ? "mobile-open" : ""}`}
@@ -398,7 +401,7 @@ export function SidePanel({
                                         {local.mode === "device" ? t("主机") : t("本机")}
                                       </span>
                                     ) : undefined,
-                                    memberModel(participant, local.agents),
+                                    memberModelLabel(participant, local.agents, runtimeModels),
                                     participant.context ? (
                                       <MemberContextBadge key="context" participant={participant} />
                                     ) : undefined,
@@ -552,17 +555,19 @@ function joinDots(items: Array<ReactNode | undefined>): ReactNode {
   ));
 }
 
-/**
- * 在用的模型：这个房间上一轮实际用的（运行时报的，选「运行时默认」时也知道是哪个）；
- * 还没回复过就用本机 Agent 设置里选的；都不知道不写
- */
-export function memberModel(
+/** 副标题里的模型：显示名称，悬停看 id */
+function memberModelLabel(
   participant: Participant,
-  localAgents: ReadonlyArray<{ name: string; model?: string | undefined }>,
-): string | undefined {
-  if (participant.context?.model) return participant.context.model;
-  const name = participant.username.toLocaleLowerCase();
-  return localAgents.find((agent) => agent.name.toLocaleLowerCase() === name)?.model || undefined;
+  localAgents: LocalAgentsState["agents"],
+  lists: RuntimeModelLists,
+): ReactNode {
+  const model = memberModel(participant, localAgents, lists);
+  if (!model) return undefined;
+  return (
+    <span key="model" title={model.name === model.id ? undefined : model.id}>
+      {model.name}
+    </span>
+  );
 }
 
 /** 接入时没写角色说明会默认成「通用协作 Agent」：每个人都一样，不用占地方 */

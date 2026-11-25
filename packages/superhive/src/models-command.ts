@@ -1,5 +1,6 @@
 import { execFile, spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { ACP_PROTOCOL_VERSION, sessionModelChoices } from "./acp-responder.js";
@@ -368,19 +369,100 @@ function parseOpenClaw(stdout: string): ModelEntry[] {
   });
 }
 
+/**
+ * Claude Code 没指定模型时用的：ANTHROPIC_MODEL，其次 settings.json（CLAUDE_CONFIG_DIR 或 ~/.claude）里的 model；
+ * 都没有就是账号默认，不知道是哪个
+ */
+export function claudeConfiguredModel(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const fromEnv = env.ANTHROPIC_MODEL?.trim();
+  if (fromEnv) return fromEnv;
+  const dir = env.CLAUDE_CONFIG_DIR?.trim() || path.join(os.homedir(), ".claude");
+  try {
+    const settings = JSON.parse(readFileSync(path.join(dir, "settings.json"), "utf8")) as {
+      model?: unknown;
+    };
+    return typeof settings.model === "string" && settings.model.trim()
+      ? settings.model.trim()
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 文件读不到就是 undefined */
+function readText(file: string): string | undefined {
+  try {
+    return readFileSync(file, "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * OpenCode 的默认模型：OPENCODE_CONFIG 指的文件，其次 ~/.config/opencode/opencode.json(c) 顶层的 model。
+ * 不引 JSONC 解析库：只认顶层（缩进不超过两格）那一行 "model": "…"
+ */
+export function opencodeConfiguredModel(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const dir = path.join(
+    env.XDG_CONFIG_HOME?.trim() || path.join(os.homedir(), ".config"),
+    "opencode",
+  );
+  const files = [
+    env.OPENCODE_CONFIG?.trim(),
+    path.join(dir, "opencode.json"),
+    path.join(dir, "opencode.jsonc"),
+  ];
+  for (const file of files) {
+    const text = file ? readText(file) : undefined;
+    const match = text ? /^[ \t]{0,2}"model"\s*:\s*"([^"]+)"/m.exec(text) : null;
+    if (match) return match[1]!.trim();
+  }
+  return undefined;
+}
+
+/** omp 的默认模型：~/.omp/agent/config.yml 里 modelRoles.default，去掉末尾的「:思考档」 */
+export function ompConfiguredModel(home: string = os.homedir()): string | undefined {
+  const text = readText(path.join(home, ".omp", "agent", "config.yml"));
+  const match = text
+    ? /^modelRoles:\s*\n(?:[ \t]+.*\n)*?[ \t]+default:\s*["']?([^"'\s#]+)/m.exec(text)
+    : null;
+  return match ? match[1]!.replace(/:[a-z]+$/i, "") : undefined;
+}
+
+/** 各运行时自己配置的默认模型（没指定模型时 CLI 用它）；不知道返回 undefined */
+export function configuredDefaultModel(provider: ModelProvider): string | undefined {
+  if (provider === "claude") return claudeConfiguredModel();
+  if (provider === "opencode") return opencodeConfiguredModel();
+  if (provider === "omp") return ompConfiguredModel();
+  return undefined;
+}
+
+/** 把运行时自己的默认模型标出来：在列表里就标上，不在就加在最前面 */
+function withDefault(models: ModelEntry[], id: string | undefined): ModelEntry[] {
+  if (!id) return models;
+  if (models.some((model) => model.id === id)) {
+    return models.map((model) => (model.id === id ? { ...model, isDefault: true } : model));
+  }
+  return [{ id, isDefault: true }, ...models];
+}
+
 export async function listModels(options: {
   provider: ModelProvider;
   command?: string;
   run?: ModelRunner;
   listCodex?: CodexModelLister;
   listAcp?: AcpModelLister;
+  /** 运行时自己配置的默认模型（测试注入）；默认读各 CLI 的配置文件 */
+  configuredDefault?: (provider: ModelProvider) => string | undefined;
 }): Promise<ModelList> {
   const { provider } = options;
   const command = options.command ?? provider;
   const run = options.run ?? defaultRunner;
   const efforts = RUNTIME_EFFORTS[provider] ?? [];
   const preset = PRESETS[provider];
-  if (preset) return { provider, source: "preset", models: preset, efforts };
+  const fallback = () => (options.configuredDefault ?? configuredDefaultModel)(provider);
+  if (preset)
+    return { provider, source: "preset", models: withDefault(preset, fallback()), efforts };
   try {
     let models: ModelEntry[];
     if (provider === "codex")
@@ -390,7 +472,10 @@ export async function listModels(options: {
     else if (provider === "gemini" || provider === "agy")
       models = parseAcpSession(await (options.listAcp ?? defaultAcpLister)(provider, command));
     else models = parseOpenClaw(await run(command, ["models", "list", "--json"]));
-    return { provider, source: "runtime", models: unique(models), efforts };
+    models = unique(models);
+    // 运行时列表里没标默认的，按它自己的配置文件标上
+    if (!models.some((model) => model.isDefault)) models = withDefault(models, fallback());
+    return { provider, source: "runtime", models, efforts };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     return {

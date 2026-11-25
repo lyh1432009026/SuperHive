@@ -450,6 +450,13 @@ describe("HiveDatabase", () => {
     ]);
     expect(summary.recent[0]?.invocationId).toBe(b.id);
     expect(db.usageSummary("general", "2026-11-01T00:00:00.000Z", 200_000).totals.turns).toBe(0);
+    // 成员列表要的「最近一轮用的模型」：清空房间后照样查得到，没记过的是 undefined
+    expect(db.latestUsageModel(agentA.id)).toEqual({
+      id: "claude-opus-5-5",
+      at: "2026-10-30T10:00:00.000Z",
+    });
+    expect(db.latestUsageModel(agentB.id)?.id).toBe("gpt-6-astra");
+    expect(db.latestUsageModel("00000000-0000-4000-8000-00000000dead")).toBeUndefined();
   });
 
   it("keeps each retry of an invocation as its own ledger row and migrates the old ledger", () => {

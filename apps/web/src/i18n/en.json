@@ -2029,5 +2029,6 @@
   "已保存。": "Saved.",
   "保存失败：{0}": "Couldn't save: {0}",
   "这个房间上一轮实际用的是 {0}，思考强度 {1}": "Last turn in this room used {0}, reasoning effort {1}",
-  "这个房间上一轮实际用的是 {0}": "Last turn in this room used {0}"
+  "这个房间上一轮实际用的是 {0}": "Last turn in this room used {0}",
+  "运行时默认用的是 {0}": "The runtime default is {0}"
 }

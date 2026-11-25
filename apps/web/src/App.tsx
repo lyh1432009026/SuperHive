@@ -2572,12 +2572,12 @@ export function App({
           lead={
             currentRoom?.leadAgent?.toLocaleLowerCase() === settingsAgent.name.toLocaleLowerCase()
           }
-          lastTurn={
+          lastModel={
             participants.find(
               (participant) =>
                 participant.type === "agent" &&
                 participant.username.toLocaleLowerCase() === settingsAgent.name.toLocaleLowerCase(),
-            )?.context
+            )?.lastModel
           }
           local={local}
           onOpenTerminal={() => void openAgentTerminal(settingsAgent)}

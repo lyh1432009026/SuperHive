@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { listModels } from "./models-command.js";
+import { claudeConfiguredModel, listModels } from "./models-command.js";
 
 describe("listModels", () => {
   it("reads Codex models from app-server model/list, skipping hidden ones", async () => {
@@ -64,18 +64,31 @@ describe("listModels", () => {
         ],
       })}`;
     });
-    expect((await listModels({ provider: "opencode", run })).models).toEqual([
-      { id: "opencode/big-pickle" },
-      { id: "zhipu-coding/glm-5.3" },
-    ]);
-    expect((await listModels({ provider: "omp", run })).models).toEqual([
+    expect(
+      (await listModels({ provider: "opencode", run, configuredDefault: () => undefined })).models,
+    ).toEqual([{ id: "opencode/big-pickle" }, { id: "zhipu-coding/glm-5.3" }]);
+    expect(
+      (await listModels({ provider: "omp", run, configuredDefault: () => undefined })).models,
+    ).toEqual([
       { id: "zhipu/glm-5", label: "GLM-5", efforts: ["off", "low", "high", "max", "auto"] },
       { id: "zhipu/flat" },
     ]);
-    expect((await listModels({ provider: "opencode", run })).efforts).toEqual([]);
+    expect(
+      (await listModels({ provider: "opencode", run, configuredDefault: () => undefined })).efforts,
+    ).toEqual([]);
     expect((await listModels({ provider: "openclaw", run })).models).toEqual([
       { id: "codex/gpt-5.5", label: "gpt-5.5", isDefault: true },
     ]);
+    // 列表里没标默认的：按运行时自己的配置文件标上
+    expect(
+      (
+        await listModels({
+          provider: "opencode",
+          run,
+          configuredDefault: () => "zhipu-coding/glm-5.3",
+        })
+      ).models,
+    ).toEqual([{ id: "opencode/big-pickle" }, { id: "zhipu-coding/glm-5.3", isDefault: true }]);
   });
 
   it("reads gemini and agy models from an ACP session", async () => {
@@ -136,7 +149,11 @@ describe("listModels", () => {
 
   it("gives common options for runtimes without a model list command", async () => {
     const run = vi.fn();
-    const claude = await listModels({ provider: "claude", run });
+    const claude = await listModels({
+      provider: "claude",
+      run,
+      configuredDefault: () => undefined,
+    });
     expect(claude.source).toBe("preset");
     expect(claude.models.map((model) => model.id)).toEqual(["opus", "sonnet", "haiku", "opusplan"]);
     expect(claude.efforts).toEqual(["low", "medium", "high", "xhigh", "max"]);
@@ -144,6 +161,18 @@ describe("listModels", () => {
     expect(copilot.models[0]!.id).toBe("auto");
     expect(copilot.efforts).toContain("none");
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("marks the model Claude Code is configured to use as the runtime default", async () => {
+    const listed = await listModels({
+      provider: "claude",
+      configuredDefault: () => "claude-opus-5-5[1M]",
+    });
+    expect(listed.models[0]).toEqual({ id: "claude-opus-5-5[1M]", isDefault: true });
+    const alias = await listModels({ provider: "claude", configuredDefault: () => "sonnet" });
+    expect(alias.models.find((model) => model.isDefault)?.id).toBe("sonnet");
+    expect(claudeConfiguredModel({ ANTHROPIC_MODEL: " haiku " })).toBe("haiku");
+    expect(claudeConfiguredModel({ CLAUDE_CONFIG_DIR: "/nonexistent-claude-dir" })).toBeUndefined();
   });
 
   it("reports why the list could not be fetched instead of failing", async () => {
@@ -160,5 +189,29 @@ describe("listModels", () => {
       efforts: [],
       error: "spawn opencode ENOENT",
     });
+  });
+});
+
+describe("runtime default model from config files", () => {
+  it("reads OpenCode's top-level model and omp's default role", async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const path = await import("node:path");
+    const { ompConfiguredModel, opencodeConfiguredModel } = await import("./models-command.js");
+    const root = mkdtempSync(path.join(tmpdir(), "models-default-"));
+    mkdirSync(path.join(root, "opencode"));
+    writeFileSync(
+      path.join(root, "opencode", "opencode.jsonc"),
+      '{\n  // 注释\n  "agent": { "x": {\n      "model": "nested/one" } },\n  "model": "zhipu-coding/glm-5.3"\n}\n',
+    );
+    expect(opencodeConfiguredModel({ XDG_CONFIG_HOME: root })).toBe("zhipu-coding/glm-5.3");
+    expect(opencodeConfiguredModel({ XDG_CONFIG_HOME: path.join(root, "none") })).toBeUndefined();
+    mkdirSync(path.join(root, ".omp", "agent"), { recursive: true });
+    writeFileSync(
+      path.join(root, ".omp", "agent", "config.yml"),
+      "modelRoles:\n  default: zhipu-coding-plan/glm-5.3:max\n  smol: other/x\ntheme:\n  dark: t\n",
+    );
+    expect(ompConfiguredModel(root)).toBe("zhipu-coding-plan/glm-5.3");
+    expect(ompConfiguredModel(path.join(root, "none"))).toBeUndefined();
   });
 });

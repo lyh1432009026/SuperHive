@@ -1011,7 +1011,11 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
       contextWindow: 1_000_000,
       cacheExpiresAt: "2026-11-24T12:00:00.000Z",
       at: "2026-11-24T11:00:00.000Z",
-      model: "claude-opus-5-5",
+    });
+    // 这一轮实际用的模型另外带着，开新话题也不丢
+    expect(changed.type === "presence.changed" && changed.participant.lastModel).toEqual({
+      id: "claude-opus-5-5",
+      at: "2026-11-24T11:00:00.000Z",
     });
     // 开新话题：旧会话的上下文不再适用
     alice.send({ type: "topic.start" });
@@ -1019,9 +1023,12 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
       (event) =>
         event.type === "presence.changed" &&
         event.participant.username === "helper" &&
-        event.participant.context === undefined,
+        event.participant.context === undefined &&
+        event.participant.lastModel !== undefined,
     );
-    expect(cleared.type).toBe("presence.changed");
+    expect(cleared.type === "presence.changed" && cleared.participant.lastModel?.id).toBe(
+      "claude-opus-5-5",
+    );
   });
 
   it("records a turn's usage even after the invocation finished and summarizes it per agent and day", async () => {

@@ -7,6 +7,7 @@ import {
   failureKindSchema,
   runtimeObservationSchema,
   type FailureKind,
+  type AgentLastModel,
   type AgentUsage,
   type RuntimeObservation,
   type UsageRecord,
@@ -1882,6 +1883,35 @@ export class HiveDatabase {
    * 记下一个回合的真实用量：写入账本并挂到调用上（调用上只保留最近一轮）。
    * 用量与调用状态无关——迟到、已停止的回合同样花了钱，一律记账。
    */
+  /** 这个成员最近一轮实际用的模型（用量账本里最新一条带模型的） */
+  latestUsageModel(agentId: string): AgentLastModel | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT model, usage, created_at FROM agent_usage
+         WHERE agent_id = ? AND model IS NOT NULL AND model != ''
+         ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(agentId) as { model: string; usage: string; created_at: string } | undefined;
+    if (!row) return undefined;
+    let usage: Partial<AgentUsage> = {};
+    try {
+      usage = JSON.parse(row.usage) as Partial<AgentUsage>;
+    } catch {
+      // 坏的 JSON 只是拿不到思考强度和时间
+    }
+    const at =
+      typeof usage.lastRequestAt === "string" && Number.isFinite(Date.parse(usage.lastRequestAt))
+        ? usage.lastRequestAt
+        : row.created_at;
+    return {
+      id: row.model.slice(0, 120),
+      ...(typeof usage.effort === "string" && usage.effort
+        ? { effort: usage.effort.slice(0, 32) }
+        : {}),
+      at,
+    };
+  }
+
   recordUsage(
     invocation: Invocation,
     usage: AgentUsage,

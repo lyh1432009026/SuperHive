@@ -299,12 +299,7 @@ describe("AgentSettingsDialog", () => {
     render(
       <AgentSettingsDialog
         agent={agent}
-        lastTurn={{
-          contextTokens: 1000,
-          at: "2026-11-26T00:00:00.000Z",
-          model: "claude-opus-5-5",
-          effort: "high",
-        }}
+        lastModel={{ id: "claude-opus-5-5", effort: "high", at: "2026-11-26T00:00:00.000Z" }}
         local={{
           mcpServers: async () => listed,
           updateSettings: async () => agent,
@@ -317,8 +312,8 @@ describe("AgentSettingsDialog", () => {
         onClose={() => undefined}
       />,
     );
-    const note = await screen.findByRole("note");
-    expect(note.textContent).toContain("claude-opus-5-5");
+    const note = await screen.findByText(/这个房间上一轮实际用的是/);
+    expect(note.textContent).toContain("Opus 5.5（claude-opus-5-5）");
     expect(note.textContent).toContain("思考强度");
   });
 

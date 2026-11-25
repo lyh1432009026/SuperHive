@@ -8,6 +8,7 @@ import {
   type AgentWorkspace,
   type AgentHiveTools,
   type AgentContextStatus,
+  type AgentLastModel,
   type AgentUsage,
 } from "@superhive/protocol";
 import { errorText, hiveErrorBody, wsText } from "./texts.js";
@@ -1141,16 +1142,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       hiveTools ??= connection.hiveTools;
     }
     const context = agentContexts.get(participant.id);
+    const lastModel = lastModelOf(participant);
     const outdated =
       localAgents?.outdatedByName(participant.username) ??
       isAgentOutdated(version, localAgents?.currentCodeVersion(), false);
-    if (!version && !outdated && !workspace && !hiveTools && !context) return participant;
+    if (!version && !outdated && !workspace && !hiveTools && !context && !lastModel) {
+      return participant;
+    }
     return {
       ...participant,
       ...(version ? { version } : {}),
       ...(workspace ? { workspace } : {}),
       ...(hiveTools ? { hiveTools } : {}),
       ...(context ? { context } : {}),
+      ...(lastModel ? { lastModel } : {}),
       ...(outdated ? { outdated: true } : {}),
     };
   }
@@ -1417,9 +1422,22 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         ? { cacheExpiresAt: new Date(at + usage.cacheTtlMs).toISOString() }
         : {}),
       at: new Date(at).toISOString(),
-      ...(usage.model ? { model: usage.model } : {}),
-      ...(usage.effort ? { effort: usage.effort } : {}),
     };
+  }
+
+  /**
+   * Agent 最近一轮实际用的模型（按成员 ID）：没记过的第一次从用量账本里查（查不到记 null，不反复查），
+   * 之后跟着用量上报更新
+   */
+  const agentModels = new Map<string, AgentLastModel | null>();
+  function lastModelOf(participant: Participant): AgentLastModel | undefined {
+    if (participant.type !== "agent") return undefined;
+    let known = agentModels.get(participant.id);
+    if (known === undefined) {
+      known = database.latestUsageModel(participant.id) ?? null;
+      agentModels.set(participant.id, known);
+    }
+    return known ?? undefined;
   }
 
   /** 等人批的权限申请（见 requestApproval） */
@@ -3579,8 +3597,26 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       // 成员列表里的上下文和缓存：只认更新的一轮（迟到的旧用量不覆盖）
       const context = contextFromUsage(report.usage);
       const known = agentContexts.get(agent.id);
+      let changed = false;
       if (context && (!known || Date.parse(context.at) >= Date.parse(known.at))) {
         agentContexts.set(agent.id, context);
+        changed = true;
+      }
+      // 这一轮实际用的模型：换了才推，迟到的旧用量不覆盖
+      if (report.usage.model) {
+        const at = report.usage.lastRequestAt ?? new Date().toISOString();
+        const previous = lastModelOf(agent);
+        if (!previous || Date.parse(at) >= Date.parse(previous.at)) {
+          const next: AgentLastModel = {
+            id: report.usage.model,
+            ...(report.usage.effort ? { effort: report.usage.effort } : {}),
+            at,
+          };
+          agentModels.set(agent.id, next);
+          if (previous?.id !== next.id || previous?.effort !== next.effort) changed = true;
+        }
+      }
+      if (changed) {
         broadcast(agent.roomId, { type: "presence.changed", participant: withAccess(agent) });
       }
     }
