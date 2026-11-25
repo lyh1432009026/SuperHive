@@ -723,6 +723,14 @@
   font-weight: var(--weight-medium);
 }
 
+/* 上一轮实际用的模型：选「运行时默认」时也知道到底是哪个 */
+.agent-model-current {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
 /* 思考强度：Agent 设置、「换个模型重试」共用 */
 .effort-picker,
 .retry-effort {

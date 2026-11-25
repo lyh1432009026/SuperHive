@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  AgentContextStatus,
   LocalAgent,
   LocalAgentMcpResponse,
   LocalAgentModelsResponse,
@@ -10,7 +11,7 @@ import { LogViewer, localAgentStatusLabels, type LocalAgentsState } from "./loca
 import { RestartNowButton, agentUpdateNotes } from "./local-agent-updates";
 import { ClaudeContextSettings } from "./claude-context-settings";
 import { Button, IconButton } from "./button";
-import { EffortPicker, ModelPicker } from "./model-picker";
+import { EffortPicker, ModelPicker, effortLabel } from "./model-picker";
 import { SaveStatus, useAutoSave } from "./auto-save";
 
 function CloseGlyph() {
@@ -151,6 +152,7 @@ export function McpChecklist({
 export function AgentSettingsDialog({
   agent,
   lead = false,
+  lastTurn,
   local,
   onClose,
   onOpenTerminal,
@@ -158,6 +160,8 @@ export function AgentSettingsDialog({
   agent: LocalAgent;
   /** 它是当前房间的主 Agent：缓存时长跟随 Claude Code 时实际按 1 小时 */
   lead?: boolean;
+  /** 它在当前房间上一轮的上下文，带着那一轮实际用的模型和思考强度 */
+  lastTurn?: AgentContextStatus | undefined;
   /** 在终端里接着它在当前房间的会话 */
   onOpenTerminal?: () => void;
   local: Pick<
@@ -464,6 +468,16 @@ export function AgentSettingsDialog({
               onCommit={(next) => saveModel(next, effort)}
               onRefresh={() => void loadModels(true)}
             />
+            {lastTurn?.model && (
+              <p className="agent-model-current" role="note">
+                {lastTurn.effort
+                  ? t("这个房间上一轮实际用的是 {0}，思考强度 {1}", {
+                      0: lastTurn.model,
+                      1: effortLabel(lastTurn.effort),
+                    })
+                  : t("这个房间上一轮实际用的是 {0}", { 0: lastTurn.model })}
+              </p>
+            )}
             {effortSupported && (
               <>
                 <h4>{t("思考强度")}</h4>

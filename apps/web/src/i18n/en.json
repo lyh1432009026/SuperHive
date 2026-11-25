@@ -2027,5 +2027,7 @@
   "重启全部本机 Agent": "Restart all local agents",
   "会等每个 Agent 手上的任务做完再重启，不打断正在做的事。": "Each agent restarts after its current tasks finish, so nothing is interrupted.",
   "已保存。": "Saved.",
-  "保存失败：{0}": "Couldn't save: {0}"
+  "保存失败：{0}": "Couldn't save: {0}",
+  "这个房间上一轮实际用的是 {0}，思考强度 {1}": "Last turn in this room used {0}, reasoning effort {1}",
+  "这个房间上一轮实际用的是 {0}": "Last turn in this room used {0}"
 }

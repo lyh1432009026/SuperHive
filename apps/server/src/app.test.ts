@@ -1011,6 +1011,7 @@ describe("invocation lifecycle, budgets, whiteboard and inbox", () => {
       contextWindow: 1_000_000,
       cacheExpiresAt: "2026-11-24T12:00:00.000Z",
       at: "2026-11-24T11:00:00.000Z",
+      model: "claude-opus-5-5",
     });
     // 开新话题：旧会话的上下文不再适用
     alice.send({ type: "topic.start" });

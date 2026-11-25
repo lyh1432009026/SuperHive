@@ -1417,6 +1417,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         ? { cacheExpiresAt: new Date(at + usage.cacheTtlMs).toISOString() }
         : {}),
       at: new Date(at).toISOString(),
+      ...(usage.model ? { model: usage.model } : {}),
+      ...(usage.effort ? { effort: usage.effort } : {}),
     };
   }
 

@@ -140,6 +140,10 @@ export const agentContextStatusSchema = z.object({
   cacheExpiresAt: z.string().datetime().optional(),
   /** 最后一次模型请求的时间 */
   at: z.string().datetime(),
+  /** 这一轮实际用的模型（运行时报的；设置里选「运行时默认」时靠它知道到底是哪个） */
+  model: z.string().max(120).optional(),
+  /** 这一轮的思考强度（传给运行时的，或运行时报出的会话当前值） */
+  effort: z.string().max(32).optional(),
 });
 export type AgentContextStatus = z.infer<typeof agentContextStatusSchema>;
 

@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { t } from "./i18n";
 import { PanelResizer, type ResizablePanel } from "./panel-resizer";
 import { FilePreview } from "./attachments";
@@ -376,13 +377,16 @@ export function SidePanel({
                                 </>
                               ) : participant.type === "agent" ? (
                                 <>
-                                  {`${agentProviderLabel(participant.provider)} · `}
-                                  {/* 本机启动的 Agent：「本机 / 主机」写在说明里，不在名字后挂标签 */}
-                                  {localAgentNames.has(
-                                    participant.username.toLocaleLowerCase(),
-                                  ) && (
-                                    <>
+                                  {/* 运行时看头像就知道，不再写一遍；依次是本机 / 主机、在用的模型、上下文和缓存、自己写的角色说明 */}
+                                  <span className="sr-only">
+                                    {`${agentProviderLabel(participant.provider)} · `}
+                                  </span>
+                                  {joinDots([
+                                    localAgentNames.has(
+                                      participant.username.toLocaleLowerCase(),
+                                    ) ? (
                                       <span
+                                        key="local"
                                         title={
                                           local.mode === "device"
                                             ? t("由 {0} 上的 Hive Server 启动", {
@@ -393,17 +397,13 @@ export function SidePanel({
                                       >
                                         {local.mode === "device" ? t("主机") : t("本机")}
                                       </span>
-                                      {" · "}
-                                    </>
-                                  )}
-                                  {/* 名字那一行放不下：上下文和缓存放在第二行，排在角色描述前面 */}
-                                  {participant.context && (
-                                    <>
-                                      <MemberContextBadge participant={participant} />
-                                      {" · "}
-                                    </>
-                                  )}
-                                  {participant.persona || t("通用协作 Agent")}
+                                    ) : undefined,
+                                    memberModel(participant, local.agents),
+                                    participant.context ? (
+                                      <MemberContextBadge key="context" participant={participant} />
+                                    ) : undefined,
+                                    customPersona(participant.persona),
+                                  ])}
                                 </>
                               ) : (
                                 "Human"
@@ -541,6 +541,36 @@ export function SidePanel({
 }
 
 /** 忙碌 Agent 行的悬停提示：它在做哪条、在哪个房间，并说明点击会跳过去 */
+/** 名字下面那一行：有内容的几项用「 · 」连起来 */
+function joinDots(items: Array<ReactNode | undefined>): ReactNode {
+  const present = items.filter((item) => item !== undefined && item !== "");
+  return present.map((item, index) => (
+    <Fragment key={index}>
+      {index > 0 && " · "}
+      {item}
+    </Fragment>
+  ));
+}
+
+/**
+ * 在用的模型：这个房间上一轮实际用的（运行时报的，选「运行时默认」时也知道是哪个）；
+ * 还没回复过就用本机 Agent 设置里选的；都不知道不写
+ */
+export function memberModel(
+  participant: Participant,
+  localAgents: ReadonlyArray<{ name: string; model?: string | undefined }>,
+): string | undefined {
+  if (participant.context?.model) return participant.context.model;
+  const name = participant.username.toLocaleLowerCase();
+  return localAgents.find((agent) => agent.name.toLocaleLowerCase() === name)?.model || undefined;
+}
+
+/** 接入时没写角色说明会默认成「通用协作 Agent」：每个人都一样，不用占地方 */
+export function customPersona(persona: string | undefined): string | undefined {
+  const value = persona?.trim();
+  return value && value !== "通用协作 Agent" ? value : undefined;
+}
+
 function memberTaskHint({
   count,
   seq,

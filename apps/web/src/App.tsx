@@ -2572,6 +2572,13 @@ export function App({
           lead={
             currentRoom?.leadAgent?.toLocaleLowerCase() === settingsAgent.name.toLocaleLowerCase()
           }
+          lastTurn={
+            participants.find(
+              (participant) =>
+                participant.type === "agent" &&
+                participant.username.toLocaleLowerCase() === settingsAgent.name.toLocaleLowerCase(),
+            )?.context
+          }
           local={local}
           onOpenTerminal={() => void openAgentTerminal(settingsAgent)}
           onClose={() => setSettingsAgentId(undefined)}

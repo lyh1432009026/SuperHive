@@ -2746,7 +2746,8 @@ describe("App mention autocomplete", () => {
     // 「本机」写在第二行说明里（提供方 · 本机 · 角色），不在名字后挂标签
     const origin = screen.getByTitle("由本机 Hive Server 启动");
     expect(origin.textContent).toBe("本机");
-    expect(origin.closest("small")?.textContent).toMatch(/^Agent · 本机 · 通用协作 Agent$/);
+    // 运行时只给读屏（头像已经看得出来），默认的「通用协作 Agent」不再显示
+    expect(origin.closest("small")?.textContent).toMatch(/^Agent · 本机$/);
 
     // 本机房主也可以一键启动完全访问：需要工作目录，并给出无沙箱警告
     await user.click(screen.getByRole("button", { name: "返回第 2 步：设置权限" }));
@@ -3539,10 +3540,10 @@ describe("App mention autocomplete", () => {
       )!;
     await waitFor(() => expect(memberRow("helper").classList.contains("has-task")).toBe(true));
     const row = memberRow("helper");
-    // 悬停提示和读屏描述说明点击会跳过去，副标题照旧是 Agent 的描述
+    // 悬停提示和读屏描述说明点击会跳过去，副标题不变（默认的「通用协作 Agent」不显示）
     const hint = document.getElementById(row.getAttribute("aria-describedby")!)!;
     expect(hint.textContent).toBe("正在处理 #2 等 2 条 · 点击跳过去");
-    expect(row.querySelector("small")?.textContent).toContain("通用协作 Agent");
+    expect(row.querySelector("small")?.textContent).not.toContain("点击跳过去");
     expect(row.hasAttribute("title")).toBe(false);
     expect(memberRow("idle-bot").classList.contains("has-task")).toBe(false);
 

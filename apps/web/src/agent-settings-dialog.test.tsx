@@ -295,6 +295,33 @@ describe("AgentSettingsDialog", () => {
     expect(screen.queryByRole("combobox", { name: "思考强度" })).toBeNull();
   });
 
+  it("shows the model the last turn in this room actually used, even on the runtime default", async () => {
+    render(
+      <AgentSettingsDialog
+        agent={agent}
+        lastTurn={{
+          contextTokens: 1000,
+          at: "2026-11-26T00:00:00.000Z",
+          model: "claude-opus-5-5",
+          effort: "high",
+        }}
+        local={{
+          mcpServers: async () => listed,
+          updateSettings: async () => agent,
+          act: async () => undefined,
+          canManage: true,
+          logs: async () => [],
+          remove: async () => undefined,
+          models: async () => modelList,
+        }}
+        onClose={() => undefined}
+      />,
+    );
+    const note = await screen.findByRole("note");
+    expect(note.textContent).toContain("claude-opus-5-5");
+    expect(note.textContent).toContain("思考强度");
+  });
+
   it("sets Claude's auto-compact threshold and cache duration, defaulting to 400k", async () => {
     let current: LocalAgent = agent;
     const updateSettings = vi.fn(
