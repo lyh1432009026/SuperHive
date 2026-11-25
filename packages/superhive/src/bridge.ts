@@ -47,6 +47,14 @@ import {
   type Snapshot,
 } from "./room-client.js";
 import { StateStore, type AgentState, type ParkedSession } from "./state-store.js";
+import {
+  buildHandoffSummary,
+  nextSessionStats,
+  pendingDelegations,
+  renewalReason,
+  renewalSettings,
+  type RenewalReason,
+} from "./lane-renewal.js";
 import { isIrreversibleStep, isMutatingStep, sanitizeTraceStep } from "./trace.js";
 import { CLAUDE_COMPACT_WINDOW_DEFAULT, readAgentSettings } from "./mcp-servers.js";
 import { failurePolicy, type FailureKind } from "./failure.js";
@@ -219,6 +227,12 @@ type ActiveBatch = {
   };
 };
 
+function describeRenewal(reason: RenewalReason): string {
+  return reason.kind === "size"
+    ? `约 ${formatTokens(reason.contextTokens)} token，超过 ${formatTokens(reason.threshold)}`
+    : `约 ${formatTokens(reason.contextTokens)} token，空闲 ${Math.round(reason.idleMs / 60_000)} 分钟缓存已过期`;
+}
+
 /** 状态里写的 token 数：289737 → 290k（中英文都看得懂） */
 function formatTokens(tokens: number): string {
   return tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : String(tokens);
@@ -285,6 +299,10 @@ export class AgentBridge {
   /** 刚接回的会话没看到的消息范围（见 switchSession） */
   private sessionGap:
     { threadId: string; afterSeq: number; untilSeq: number; lane: string } | undefined;
+  /** 主道刚换了新会话时交给它的交接摘要（见 renewMainSession），只用一次 */
+  private pendingHandoff: { threadId: string; text: string } | undefined;
+  /** 上一轮传给运行时的自动压缩阈值：换新阈值不超过它的 0.6 */
+  private lastCompactWindow: number | undefined;
   /** 刚为子任务开了新会话的那一道（见 takeFreshLaneNote） */
   private freshLane: string | undefined;
   /** 服务端标的每条提及落在哪一道会话（Invocation.laneKey） */
@@ -1080,6 +1098,110 @@ export class AgentBridge {
       };
   }
 
+  /** 这一轮结束后会话有多长：运行时报了就用它报的，没报就按字符估 */
+  private noteSessionLength(promptText: string, reply: AgentReply, compactWindow?: number): void {
+    if (compactWindow) this.lastCompactWindow = compactWindow;
+    const threadId = this.state.threadId;
+    if (!threadId) return;
+    const usage = reply.usage;
+    const reported =
+      usage?.lastContextTokens ??
+      (usage && usage.requests > 0 ? usage.peakContextTokens : undefined);
+    this.state.sessionStats = nextSessionStats({
+      previous: this.state.sessionStats,
+      threadId,
+      ...(reported !== undefined ? { contextTokens: reported } : {}),
+      promptText,
+      replyText: reply.text,
+    });
+  }
+
+  /**
+   * 主道在两件活之间、会话太长或缓存已过期时换一段新会话，并附上按规则拼的交接摘要。
+   * 回执、提问的回答、中断后接着做的不换：那是同一件活做到一半。
+   */
+  private async renewMainSession(active: ActiveBatch, context: ChatMessage[]): Promise<void> {
+    if (!this.lanesEnabled || active.lane !== MAIN_LANE || !this.state.threadId) return;
+    const continuing = active.messages.some(
+      (message) =>
+        message.kind === "receipt" ||
+        Boolean(message.replyToMessageId) ||
+        this.resumeNotes.has(message.id) ||
+        this.crashResumable.has(message.id) ||
+        (this.state.crashResumes?.[message.id] ?? 0) > 0,
+    );
+    if (continuing) return;
+    const reason = renewalReason({
+      stats: this.state.sessionStats,
+      threadId: this.state.threadId,
+      settings: renewalSettings(),
+      ...(this.lastCompactWindow ? { compactWindow: this.lastCompactWindow } : {}),
+      ...(this.state.lastTurnEndedAt ? { lastTurnEndedAt: this.state.lastTurnEndedAt } : {}),
+      ...(this.state.lastCacheTtlMs ? { cacheTtlMs: this.state.lastCacheTtlMs } : {}),
+    });
+    if (!reason) return;
+    const afterSeq = Math.max(0, this.state.lastProcessedSeq - 300);
+    let history: ChatMessage[];
+    try {
+      history = (await this.room.fetchMessages(afterSeq)).messages;
+    } catch {
+      // 拿不到房间记录就拼不出摘要：这一轮先不换，下一轮再看
+      return;
+    }
+    const seen = new Set(history.map((message) => message.id));
+    history = [...history, ...context.filter((message) => !seen.has(message.id))];
+    const triggers = new Set(active.messages.map((message) => message.id));
+    const before = history.filter((message) => !triggers.has(message.id));
+    // 还有派出去没回执的子任务：回执到了要接着这段会话做，先不换
+    if (pendingDelegations(before, this.ownParticipantId).length > 0) return;
+    const previous = this.state.threadId;
+    this.dropSession();
+    const text = buildHandoffSummary({
+      messages: before,
+      username: this.options.username,
+      ownId: this.ownParticipantId,
+      reason,
+      ...(this.options.cwd ? { cwd: this.options.cwd } : {}),
+      afterSeq,
+    });
+    this.pendingHandoff = { threadId: previous, text };
+    this.log(
+      `[hive] 房间主对话换新会话（${describeRenewal(reason)}），附交接摘要 ${text.length} 字`,
+    );
+    const note = bridgeText("bridge.sessionRenewed", {
+      tokens: formatTokens(reason.contextTokens),
+    });
+    this.reportAll(active.messages, {
+      status: "running",
+      ...said(note),
+      progress: bridgeTextZh(note).slice(0, 200),
+    });
+    await this.store.save(this.state);
+  }
+
+  /** 丢掉当前这一道的会话（换新），消息游标、收起的别的会话都保留 */
+  private dropSession(): void {
+    const state = this.state;
+    delete state.threadId;
+    delete state.promptContext;
+    delete state.instructionsDigest;
+    delete state.lastFullPromptAt;
+    delete state.lastTurnEndedAt;
+    delete state.lastRequestAt;
+    delete state.lastCacheTtlMs;
+    delete state.sessionStats;
+    delete state.compactedSinceFull;
+    state.briefTurns = 0;
+  }
+
+  /** 主道刚换新：这一轮开头附上交接摘要，只用一次 */
+  private takeHandoffNote(): string | undefined {
+    const handoff = this.pendingHandoff;
+    this.pendingHandoff = undefined;
+    if (!handoff || this.state.threadId) return undefined;
+    return handoff.text;
+  }
+
   /** 接回的会话没看到的那段消息（在别的任务目录里处理的），这一轮开头告诉 Agent，只说一次 */
   private takeSessionGapNote(): string | undefined {
     const gap = this.sessionGap;
@@ -1599,6 +1721,7 @@ export class AgentBridge {
         this.switchSession(this.state.workspace, active.lane);
         await this.store.save(this.state);
       }
+      await this.renewMainSession(active, context.messages);
       let handoff: string | undefined;
       let handoffSteps: Array<{ summary: string; done: boolean; irreversible?: boolean }> = [];
       let handoffFrom: string | undefined;
@@ -1652,7 +1775,8 @@ export class AgentBridge {
         // 只在第一次开工时说：切到新任务目录之后，新会话里就不需要了
         const workspaceNote = handoff ? undefined : this.takeWorkspaceNote(messages);
         if (workspaceNote) prompt = { ...prompt, text: `${workspaceNote}\n\n${prompt.text}` };
-        const gapNote = this.takeSessionGapNote() ?? this.takeFreshLaneNote();
+        const gapNote =
+          this.takeHandoffNote() ?? this.takeSessionGapNote() ?? this.takeFreshLaneNote();
         if (gapNote) prompt = { ...prompt, text: `${gapNote}\n\n${prompt.text}` };
         if (handoff)
           prompt = {
@@ -1843,6 +1967,7 @@ export class AgentBridge {
         if (reply.usage) turn.observed = reply.usage;
         usage = this.settleUsage(active, "completed", reply);
         if (reply.threadId) this.state.threadId = reply.threadId;
+        this.noteSessionLength(prompt.text, reply, turn.compactWindow);
         this.reportSession();
         this.notePromptSent(prompt);
         // 压缩可能把这一轮及之前发过的成员、白板快照概括掉了：下一轮补发全量

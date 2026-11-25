@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { AgentBridge, pickReplyParent } from "./bridge.js";
 import type {
   ChatMessage,
@@ -624,6 +624,68 @@ describe("AgentBridge", () => {
     expect(responder.calls[2]?.prompt).toContain("子任务时的那段对话");
     responder.finish("fixed", "sub-thread");
     await waitUntil(() => room.statuses(rework.id).includes("completed"));
+  });
+
+  it("renews a long room session between tasks and hands over a rule-built summary", async () => {
+    const earlier = chat({ content: "@agent-a 做登录页" });
+    const myReply = chat({
+      content: "登录页做好了，提交 abc123",
+      senderId: SELF,
+      senderName: "agent-a",
+      senderType: "agent",
+      mentions: [],
+    });
+    room.messages.push(earlier, myReply);
+    await startBridge({
+      ...baseState(),
+      lastProcessedSeq: myReply.seq,
+      threadId: "room-thread",
+      sessionStats: { threadId: "room-thread", contextTokens: 250_000, turns: 12 },
+    });
+    const ask = chat({ content: "@agent-a 再做注册页" });
+    room.messages.push(ask);
+    room.handlers.onMention(ask, ask.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    expect(responder.calls[0]?.threadId).toBeUndefined();
+    const prompt = responder.calls[0]?.prompt ?? "";
+    expect(prompt).toContain("房间主对话的一段新会话");
+    expect(prompt).toContain(`#${earlier.seq} [Alice] @agent-a 做登录页`);
+    expect(prompt).toContain("提交 abc123");
+    expect(
+      room.reports
+        .filter((report) => report.messageId === ask.id)
+        .map((report) => report.progress ?? "")
+        .join("\n"),
+    ).toContain("换了一段新对话");
+    responder.finish("注册页开工", "fresh-thread", {
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      requests: 1,
+      peakContextTokens: 30_000,
+      peakCacheWriteTokens: 0,
+    } as AgentReply["usage"]);
+    await waitUntil(() => room.statuses(ask.id).includes("completed"));
+    expect((await store.load())?.sessionStats).toMatchObject({
+      threadId: "fresh-thread",
+      contextTokens: 30_000,
+    });
+  });
+
+  it("does not renew the room session for a receipt", async () => {
+    await startBridge({
+      ...baseState(),
+      threadId: "room-thread",
+      sessionStats: { threadId: "room-thread", contextTokens: 900_000, turns: 30 },
+    });
+    const receipt = chat({ kind: "receipt", content: "@agent-a 📬 子任务回执" });
+    room.messages.push(receipt);
+    room.handlers.onMention(receipt, receipt.seq, false);
+    await waitUntil(() => responder.calls.length === 1);
+    expect(responder.calls[0]?.threadId).toBe("room-thread");
+    responder.finish();
+    await waitUntil(() => room.statuses(receipt.id).includes("completed"));
   });
 
   it("keeps a single session when HIVE_TASK_LANES=0", async () => {
@@ -1460,6 +1522,9 @@ describe("AgentBridge", () => {
   });
 
   it("reports a turn's usage once, tagged with new/resumed session and idle time", async () => {
+    // 这里用的是 40 万 token 的会话：关掉主道自动换新，只看用量怎么记
+    vi.stubEnv("HIVE_LANE_RENEW", "0");
+    onTestFinished(() => vi.unstubAllEnvs());
     await startBridge(baseState());
     const usage = {
       inputTokens: 10,

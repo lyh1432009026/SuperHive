@@ -71,6 +71,7 @@ export const BRIDGE_TEXTS = {
   "bridge.effortUnsupported":
     "当前模型不支持 {effort} 思考强度（可选：{options}），这一轮按 CLI 配置的强度跑",
   "bridge.compacted": "上下文已自动压缩（{before} → {after} token）",
+  "bridge.sessionRenewed": "房间主对话已约 {tokens} token，换了一段新对话，附上了交接摘要",
   "bridge.crashResumed":
     "Agent 中途意外退出，这一轮还没做过任何改动，已自动重新执行（第 {count}/{limit} 次）",
   "bridge.crashResumedDone": "中途意外退出后已自动恢复 {count} 次",

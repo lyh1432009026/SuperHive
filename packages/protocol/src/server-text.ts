@@ -756,6 +756,10 @@ export const serverTexts = {
     zh: "上下文已自动压缩（{before} → {after} token）",
     en: "Context was auto-compacted ({before} → {after} tokens)",
   },
+  "bridge.sessionRenewed": {
+    zh: "房间主对话已约 {tokens} token，换了一段新对话，附上了交接摘要",
+    en: "The room conversation had grown to about {tokens} tokens, so it started a fresh one with a handoff summary",
+  },
   "bridge.worktreeHandoff": {
     zh: "已切到独立目录 {path}，开新会话继续；旧会话不迁移",
     en: "Continuing in a new session in isolated workspace {path}; the old session is not moved",
