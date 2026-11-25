@@ -44,6 +44,17 @@ const texts = {
     zh: "你现在用的是 {current}。下载安装包后，Mac 上把新的 SuperHive 拖进「应用程序」替换旧的；Windows 上直接运行安装包覆盖安装（会先关掉正在运行的 SuperHive），房间、消息和设置都会保留。",
     en: "You're on {current}. On macOS, drag the new SuperHive into Applications to replace the old one; on Windows, run the installer over the current install (it closes SuperHive first). Your rooms, messages and settings are kept.",
   },
+  updateAvailableInstallDetail: {
+    zh: "你现在用的是 {current}。可以在后台下载并更新，下载好后点「重启以更新」，也可以等下次退出时自动换上新版本。房间、消息和设置都会保留。",
+    en: "You're on {current}. SuperHive can download the update in the background. When it's ready, restart to update, or it's applied the next time you quit. Your rooms, messages and settings are kept.",
+  },
+  updateInstall: { zh: "下载并更新", en: "Download and Update" },
+  updateReadyTitle: { zh: "新版本 {version} 已下载好", en: "SuperHive {version} is ready" },
+  updateReadyDetail: {
+    zh: "重启后就是新版本；现在不重启的话，下次退出时自动更新。",
+    en: "Restart to use the new version. If you don't restart now, it's applied the next time you quit.",
+  },
+  updateRestart: { zh: "重启以更新", en: "Restart to Update" },
   updateDownload: { zh: "下载", en: "Download" },
   updateLater: { zh: "以后再说", en: "Later" },
   updateNone: { zh: "已经是最新版本", en: "You're up to date" },

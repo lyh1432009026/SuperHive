@@ -8,7 +8,10 @@ import { describe, expect, it } from "vitest";
  * windowsHide，就会新开一个可见的终端窗口（用户看到一层层黑色空窗口）。这里扫一遍源码，
  * 每处 child_process 调用都得写 windowsHide，确实要开窗口的写进 ALLOWED 并说明原因。
  */
-const ALLOWED: Record<string, string> = {};
+const ALLOWED: Record<string, string> = {
+  "mac-update.ts":
+    "只在 macOS 上运行（ditto / plutil / xattr / 替换 .app 的 /bin/sh），Windows 上不会被调用",
+};
 
 const CALL = /(?<![.\w])(spawn|spawnSync|execFile|execFileSync|exec|execSync|fork)\(/g;
 

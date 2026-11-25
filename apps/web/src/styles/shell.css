@@ -476,6 +476,54 @@
   font-size: var(--text-sm);
 }
 
+.desktop-update-reason {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+
+/* 下载进度：知道总大小时按比例，不知道（Windows）时来回滑动 */
+.desktop-update-progress {
+  height: 4px;
+  margin: 0 0 10px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--accent-soft);
+}
+
+.desktop-update-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.desktop-update-progress > span.indeterminate {
+  width: 35%;
+  animation: desktop-update-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes desktop-update-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(290%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-update-progress > span.indeterminate {
+    width: 100%;
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
 .desktop-update-size {
   margin-left: 6px;
   opacity: 0.75;

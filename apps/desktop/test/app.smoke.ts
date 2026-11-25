@@ -312,13 +312,18 @@ test("renderer is locked down", async () => {
       Object.keys((window as unknown as { superhiveDesktop: object }).superhiveDesktop).sort(),
     ),
   ).toEqual(["files", "platform", "ready", "terminal", "titlebar", "updates", "version"]);
-  // 开发时不查新版：没有提示，也打不开任何链接（网页本来也传不了地址）
+  // 开发时不查新版：没有提示，也打不开任何链接（网页本来也传不了地址），不下载不重启
   expect(
     await page.evaluate(async () => {
       const updates = (
         window as unknown as {
           superhiveDesktop: {
-            updates: { get(): Promise<unknown>; open(target: string): Promise<boolean> };
+            updates: {
+              get(): Promise<unknown>;
+              open(target: string): Promise<boolean>;
+              install(version: string): Promise<boolean>;
+              restart(): Promise<boolean>;
+            };
           };
         }
       ).superhiveDesktop.updates;
@@ -326,9 +331,12 @@ test("renderer is locked down", async () => {
         await updates.get(),
         await updates.open("download"),
         await updates.open("https://example.com"),
+        // 开发时也不会下载或重启
+        await updates.install("99.0.0"),
+        await updates.restart(),
       ];
     }),
-  ).toEqual([null, false, false]);
+  ).toEqual([null, false, false, false, false]);
   // 同源的 iframe 拿不到能力：preload 只在顶层框架暴露
   const inFrame = await page.evaluate(async () => {
     const frame = document.createElement("iframe");

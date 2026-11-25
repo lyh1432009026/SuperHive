@@ -8,10 +8,13 @@ import {
   compareVersions,
   isAllowedReleaseUrl,
   loadUpdateCache,
+  parseDigest,
   parseRelease,
+  pickInstallPackage,
   pickAsset,
   saveUpdateCache,
   summarizeNotes,
+  UPDATE_CACHE_VERSION,
   UpdateChecker,
   type UpdateCache,
   type UpdateFetch,
@@ -390,6 +393,7 @@ describe("loadUpdateCache / saveUpdateCache", () => {
     writeFileSync(
       file,
       JSON.stringify({
+        version: UPDATE_CACHE_VERSION,
         checkedAt: "soon",
         release: {
           ...parsed,
@@ -406,7 +410,13 @@ describe("loadUpdateCache / saveUpdateCache", () => {
     expect(cache.release?.assets).toHaveLength(2);
     expect(cache.dismissed).toEqual(["0.4.6"]);
 
-    writeFileSync(file, JSON.stringify({ release: { ...parsed, pageUrl: "https://evil.com" } }));
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: UPDATE_CACHE_VERSION,
+        release: { ...parsed, pageUrl: "https://evil.com" },
+      }),
+    );
     expect(loadUpdateCache(file).release).toBeUndefined();
   });
 
@@ -417,5 +427,104 @@ describe("loadUpdateCache / saveUpdateCache", () => {
     writeFileSync(file, "{oops");
     expect(loadUpdateCache(file)).toEqual({});
     expect(readFileSync(file, "utf8")).toBe("{oops");
+  });
+});
+
+describe("应用内更新包", () => {
+  const SHA = "a".repeat(64);
+  const asset = (name: string, extra: Record<string, unknown> = {}, tag = "v0.4.8") => ({
+    name,
+    browser_download_url: `${BASE}/download/${tag}/${name}`,
+    size: 300,
+    state: "uploaded",
+    ...extra,
+  });
+  const withAssets = (assets: unknown[]) =>
+    parseRelease(release("0.4.8", { assets: [...release("0.4.8").assets, ...assets] }))!;
+
+  it("parseDigest 只认 sha256:<64 位十六进制>", () => {
+    expect(parseDigest(`sha256:${"A".repeat(64)}`)).toBe("a".repeat(64));
+    expect(parseDigest(`sha1:${"a".repeat(40)}`)).toBeUndefined();
+    expect(parseDigest(`sha256:${"a".repeat(63)}`)).toBeUndefined();
+    expect(parseDigest(undefined)).toBeUndefined();
+  });
+
+  it("Mac 要 darwin-arm64 的 zip，并且必须带 sha256", () => {
+    const zip = "SuperHive-darwin-arm64-0.4.8.zip";
+    const parsed = withAssets([asset(zip, { digest: `sha256:${SHA}` })]);
+    expect(pickInstallPackage(parsed, "darwin", "arm64")).toEqual({
+      kind: "mac-zip",
+      version: "0.4.8",
+      url: `${BASE}/download/v0.4.8/${zip}`,
+      size: 300,
+      sha256: SHA,
+    });
+    expect(pickInstallPackage(withAssets([asset(zip)]), "darwin", "arm64")).toBeUndefined();
+    // 版本号对不上的 zip 不要
+    expect(
+      pickInstallPackage(
+        withAssets([asset("SuperHive-darwin-arm64-0.4.7.zip", { digest: `sha256:${SHA}` })]),
+        "darwin",
+        "arm64",
+      ),
+    ).toBeUndefined();
+    expect(pickInstallPackage(parsed, "darwin", "x64")).toBeUndefined();
+    expect(pickInstallPackage(parsed, "linux", "x64")).toBeUndefined();
+  });
+
+  it("Windows 要同一个 Release 下的 RELEASES 和 full.nupkg，feed 是那个下载目录", () => {
+    const parsed = withAssets([asset("RELEASES"), asset("SuperHive-0.4.8-full.nupkg")]);
+    expect(pickInstallPackage(parsed, "win32", "x64")).toEqual({
+      kind: "squirrel",
+      version: "0.4.8",
+      feedUrl: `${BASE}/download/v0.4.8`,
+      size: 300,
+    });
+    expect(pickInstallPackage(withAssets([asset("RELEASES")]), "win32", "x64")).toBeUndefined();
+    expect(
+      pickInstallPackage(
+        withAssets([asset("RELEASES"), asset("SuperHive-0.4.8-full.nupkg", {}, "v0.4.7")]),
+        "win32",
+        "x64",
+      ),
+    ).toBeUndefined();
+    expect(pickInstallPackage(parsed, "win32", "arm64")).toBeUndefined();
+  });
+
+  it("检查器只在有要提示的新版时给更新包", async () => {
+    const zip = asset("SuperHive-darwin-arm64-0.4.8.zip", { digest: `sha256:${SHA}` });
+    const body = release("0.4.8", { assets: [...release("0.4.8").assets, zip] });
+    const make = (current: string) =>
+      new UpdateChecker({
+        currentVersion: current,
+        platform: "darwin",
+        arch: "arm64",
+        fetch: async () => response(200, body),
+        load: () => ({}),
+        save: () => undefined,
+      });
+    const newer = make("0.4.7");
+    await newer.check();
+    expect(newer.installPackage()).toMatchObject({ kind: "mac-zip", sha256: SHA });
+    const same = make("0.4.8");
+    await same.check();
+    expect(same.installPackage()).toBeUndefined();
+  });
+
+  it("老格式的缓存（没有 sha256 那一版）丢掉 release 和 ETag，重新查", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "update-cache-"));
+    try {
+      const file = path.join(dir, "update-check.json");
+      const parsed = parseRelease(release("0.4.8"))!;
+      writeFileSync(
+        file,
+        JSON.stringify({ checkedAt: 5, etag: '"e"', release: parsed, dismissed: ["0.4.6"] }),
+      );
+      expect(loadUpdateCache(file)).toEqual({ dismissed: ["0.4.6"] });
+      saveUpdateCache(file, { checkedAt: 5, release: withAssets([]) });
+      expect(JSON.parse(readFileSync(file, "utf8")).version).toBe(UPDATE_CACHE_VERSION);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

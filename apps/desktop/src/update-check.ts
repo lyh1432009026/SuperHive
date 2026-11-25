@@ -1,7 +1,7 @@
 /**
  * 桌面端检查新版：查 GitHub Releases 的最新正式版，有比当前新、并且带本平台安装包的版本时，
- * 交给网页显示一个不打扰的「有新版本」入口。只提示、不下载不安装（真正的自动更新要签名，见
- * docs/research/desktop-auto-update.md）。
+ * 交给网页显示一个不打扰的「有新版本」入口。下载和安装在 update-install.ts（Windows 用 Squirrel，
+ * Mac 自己下载 zip 替换 .app），这里只负责查、缓存和挑出要下载的包，见 docs/research/desktop-auto-update.md。
  *
  * - 启动后查一次，之后每 6 小时一次；距上次查不到 6 小时就直接用缓存，不发请求。
  * - 断网、限流、返回格式不对都安静跳过，照旧用上次缓存的结果。
@@ -93,7 +93,24 @@ export function isAllowedReleaseUrl(input: unknown): input is string {
 
 // ---------- 选本平台安装包 ----------
 
-export type ReleaseAsset = { name: string; url: string; size: number };
+export type ReleaseAsset = {
+  name: string;
+  url: string;
+  size: number;
+  /** GitHub 给的 sha256（小写十六进制）；老 Release 或老缓存里没有 */
+  sha256?: string;
+};
+
+/** GitHub asset 的 digest 形如 "sha256:<64 位十六进制>"；别的算法或格式不对一律不认 */
+export function parseDigest(input: unknown): string | undefined {
+  if (typeof input !== "string") return undefined;
+  const match = /^sha256:([0-9a-f]{64})$/i.exec(input.trim());
+  return match ? match[1]!.toLowerCase() : undefined;
+}
+
+function isSha256(input: unknown): input is string {
+  return typeof input === "string" && /^[0-9a-f]{64}$/.test(input);
+}
 
 /** 本平台认的安装包文件名；没有对应安装包的平台（Intel Mac、Linux、Windows ARM）返回 undefined */
 export function assetPattern(platform: string, arch: string): RegExp | undefined {
@@ -110,6 +127,55 @@ export function pickAsset(
   const pattern = assetPattern(platform, arch);
   if (!pattern) return undefined;
   return assets.find((asset) => pattern.test(asset.name) && isAllowedReleaseUrl(asset.url));
+}
+
+// ---------- 应用内更新用的包 ----------
+
+/**
+ * 应用内更新要下载的东西：
+ * - Mac：Release 里的 `SuperHive-darwin-arm64-<版本>.zip`（Forge maker-zip 的产物），必须带 GitHub 的 sha256；
+ * - Windows：Squirrel 的 `RELEASES` 和 `SuperHive-<版本>-full.nupkg`，feed 就是它们所在的 Release 下载目录。
+ */
+export type InstallPackage =
+  | { kind: "mac-zip"; version: string; url: string; size: number; sha256: string }
+  | { kind: "squirrel"; version: string; feedUrl: string; size: number };
+
+export const macZipName = (version: string) => `SuperHive-darwin-arm64-${version}.zip`;
+export const nupkgName = (version: string) => `SuperHive-${version}-full.nupkg`;
+
+const DOWNLOAD_DIR = new RegExp(
+  `^https://github\\.com/${RELEASE_REPO.owner}/${RELEASE_REPO.name}/releases/download/[^/?#%]+$`,
+);
+
+/** 本平台能在应用里直接更新时返回要下载的包；Release 里缺文件、缺 sha256 时返回 undefined（退回打开下载页） */
+export function pickInstallPackage(
+  release: Pick<LatestRelease, "version" | "assets">,
+  platform: string,
+  arch: string,
+): InstallPackage | undefined {
+  const find = (name: string) =>
+    release.assets.find((asset) => asset.name === name && isAllowedReleaseUrl(asset.url));
+  if (platform === "darwin" && arch === "arm64") {
+    const zip = find(macZipName(release.version));
+    if (!zip?.sha256 || zip.size <= 0) return undefined;
+    return {
+      kind: "mac-zip",
+      version: release.version,
+      url: zip.url,
+      size: zip.size,
+      sha256: zip.sha256,
+    };
+  }
+  if (platform === "win32" && arch === "x64") {
+    const releases = find("RELEASES");
+    const nupkg = find(nupkgName(release.version));
+    if (!releases || !nupkg || !releases.url.endsWith("/RELEASES")) return undefined;
+    const feedUrl = releases.url.slice(0, -"/RELEASES".length);
+    // 两个文件必须在同一个 Release 的下载目录下：Squirrel 按 feed 目录拼 nupkg 的地址
+    if (!DOWNLOAD_DIR.test(feedUrl) || nupkg.url !== `${feedUrl}/${nupkg.name}`) return undefined;
+    return { kind: "squirrel", version: release.version, feedUrl, size: nupkg.size };
+  }
+  return undefined;
 }
 
 // ---------- 解析 Release ----------
@@ -177,10 +243,12 @@ export function parseRelease(input: unknown): LatestRelease | undefined {
       if (asset.state !== undefined && asset.state !== "uploaded") continue;
       if (typeof asset.name !== "string" || !isAllowedReleaseUrl(asset.browser_download_url))
         continue;
+      const sha256 = parseDigest(asset.digest);
       assets.push({
         name: asset.name,
         url: asset.browser_download_url,
         size: typeof asset.size === "number" ? asset.size : 0,
+        ...(sha256 ? { sha256 } : {}),
       });
     }
   }
@@ -195,7 +263,11 @@ export function parseRelease(input: unknown): LatestRelease | undefined {
 
 // ---------- 缓存 ----------
 
+/** 缓存格式版本：2 起 asset 带 sha256。老格式的 release 和 ETag 丢掉重查，免得 304 一直沿用没有 sha256 的结果 */
+export const UPDATE_CACHE_VERSION = 2;
+
 export type UpdateCache = {
+  version?: number;
   /** 上次成功查到的时间（毫秒）；查失败不改它 */
   checkedAt?: number;
   etag?: string;
@@ -213,7 +285,13 @@ export function loadUpdateCache(file: string): UpdateCache {
     if (typeof value.etag === "string") cache.etag = value.etag;
     // 缓存里的 release 也按同样的规则再校验一遍，文件被改过也打不开别的地址
     const release = value.release as Partial<LatestRelease> | undefined;
+    if (value.version !== UPDATE_CACHE_VERSION) {
+      // 老格式：只留「忽略的版本」，其余丢掉，下次马上重查
+      delete cache.etag;
+      delete cache.checkedAt;
+    }
     if (
+      value.version === UPDATE_CACHE_VERSION &&
       release &&
       isValidVersion(release.version) &&
       isAllowedReleaseUrl(release.pageUrl) &&
@@ -228,13 +306,20 @@ export function loadUpdateCache(file: string): UpdateCache {
           .filter((note): note is string => typeof note === "string")
           .slice(0, MAX_NOTES)
           .map((note) => clip(note, MAX_NOTE_CHARS)),
-        assets: release.assets.filter(
-          (asset): asset is ReleaseAsset =>
-            Boolean(asset) &&
-            typeof asset.name === "string" &&
-            typeof asset.size === "number" &&
-            isAllowedReleaseUrl(asset.url),
-        ),
+        assets: release.assets
+          .filter(
+            (asset): asset is ReleaseAsset =>
+              Boolean(asset) &&
+              typeof asset.name === "string" &&
+              typeof asset.size === "number" &&
+              isAllowedReleaseUrl(asset.url),
+          )
+          .map((asset) => ({
+            name: asset.name,
+            url: asset.url,
+            size: asset.size,
+            ...(isSha256(asset.sha256) ? { sha256: asset.sha256 } : {}),
+          })),
       };
     }
     if (Array.isArray(value.dismissed))
@@ -247,7 +332,7 @@ export function loadUpdateCache(file: string): UpdateCache {
 
 export function saveUpdateCache(file: string, cache: UpdateCache): void {
   try {
-    writeFileSync(file, `${JSON.stringify(cache)}\n`);
+    writeFileSync(file, `${JSON.stringify({ ...cache, version: UPDATE_CACHE_VERSION })}\n`);
   } catch {
     /* 存不下来只是下次多查一次 */
   }
@@ -359,6 +444,13 @@ export class UpdateChecker {
     this.cache = { ...this.cache, dismissed };
     this.options.save(this.cache);
     return true;
+  }
+
+  /** 当前提示的新版能不能在应用里直接更新：能就返回要下载的包 */
+  installPackage(): InstallPackage | undefined {
+    const release = this.cache.release;
+    if (!release || !this.current()) return undefined;
+    return pickInstallPackage(release, this.options.platform, this.options.arch);
   }
 
   /** 网页点「下载」/「发布说明」时要打开的地址；只从缓存里取，并再过一遍白名单 */

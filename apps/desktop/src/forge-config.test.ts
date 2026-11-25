@@ -47,3 +47,23 @@ describe("forge config", () => {
     });
   });
 });
+
+describe("scripts/release-assets.mjs", () => {
+  it("收集的文件名和客户端认的更新包一致", async () => {
+    const { pathToFileURL } = await import("node:url");
+    const { macZipName, nupkgName, assetPattern } = await import("./update-check.js");
+    const script = pathToFileURL(path.join(desktopDir, "scripts/release-assets.mjs")).href;
+    const { expectedAssets } = (await import(script)) as {
+      expectedAssets: (platform: string, version: string) => [string, boolean][];
+    };
+    const names = (platform: string) =>
+      expectedAssets(platform, "1.2.3").map(([file]) => path.basename(file));
+    const mac = names("darwin");
+    expect(mac).toContain(macZipName("1.2.3"));
+    expect(mac.some((name) => assetPattern("darwin", "arm64")!.test(name))).toBe(true);
+    const win = names("win32");
+    expect(win).toEqual(expect.arrayContaining(["RELEASES", nupkgName("1.2.3")]));
+    expect(win.some((name) => assetPattern("win32", "x64")!.test(name))).toBe(true);
+    expect(expectedAssets("linux", "1.2.3")).toEqual([]);
+  });
+});

@@ -69,6 +69,35 @@ export type DesktopUpdateInfo = {
   notes: string[];
   assetName: string;
   assetSize: number;
+  /** 应用内更新的状态（老版本桌面端没有，只能下载安装包） */
+  install?: DesktopInstallView;
+};
+
+/** 不能直接更新 / 更新失败的原因 */
+export type DesktopInstallFailure =
+  | "no-package"
+  | "not-installed"
+  | "translocated"
+  | "read-only"
+  | "not-writable"
+  | "network"
+  | "checksum"
+  | "bad-package"
+  | "unknown";
+
+export type DesktopInstallState =
+  | { phase: "idle" }
+  /** total 为 0 表示不知道总大小（Windows 不报进度） */
+  | { phase: "downloading"; received: number; total: number }
+  | { phase: "verifying" }
+  | { phase: "ready" }
+  | { phase: "failed"; reason: DesktopInstallFailure };
+
+export type DesktopInstallView = {
+  available: boolean;
+  reason?: DesktopInstallFailure;
+  size: number;
+  state: DesktopInstallState;
 };
 
 /** 新版提示：打开下载地址或发布页时网页只说打开哪个，地址由桌面端自己取 */
@@ -77,6 +106,10 @@ export type DesktopUpdatesApi = {
   open(target: "download" | "release"): Promise<boolean>;
   dismiss(version: string): Promise<boolean>;
   onChange(listener: (info: DesktopUpdateInfo | null) => void): () => void;
+  /** 「下载并更新」（老版本桌面端没有） */
+  install?(version: string): Promise<boolean>;
+  /** 「重启以更新」（老版本桌面端没有） */
+  restart?(): Promise<boolean>;
 };
 
 export type DesktopBridge = {
@@ -140,6 +173,18 @@ export function desktopBridge(
   ) {
     // 新版提示接口形状不对只丢掉这一项
     return desktopBridge({ ...value, updates: undefined });
+  }
+  if (
+    updates &&
+    (["install", "restart"] as const).some(
+      (name) => name in updates && typeof updates[name] !== "function",
+    )
+  ) {
+    // 应用内更新的两个方法形状不对：只去掉它们，退回下载安装包
+    const cleaned: Partial<DesktopUpdatesApi> = { ...updates };
+    delete cleaned.install;
+    delete cleaned.restart;
+    return desktopBridge({ ...value, updates: cleaned });
   }
   const titlebar = value.titlebar as Partial<DesktopTitlebarApi> | undefined;
   if (titlebar !== undefined && (!titlebar || typeof titlebar.setAppearance !== "function")) {

@@ -2,7 +2,7 @@
 
 用 Electron 45 把 SuperHive 包成一个双击就能用的应用：打开后自动在本机起 Hive（或连上已经在跑的那个），窗口里就是现有的网页界面，另外多一个内置终端。
 
-> 预览阶段：安装包作为未签名预览版发布在 [GitHub Releases](https://github.com/wangrongding/SuperHive/releases/latest)，还没有签名、公证和自动更新。
+> 预览阶段：安装包作为未签名预览版发布在 [GitHub Releases](https://github.com/wangrongding/SuperHive/releases/latest)，还没有签名和公证；从 0.4.8 起可以在应用里直接更新（见下面「发版」和 [docs/research/desktop-auto-update.md](../../docs/research/desktop-auto-update.md)）。
 
 ## 它做了什么
 
@@ -47,7 +47,7 @@ pnpm --filter @superhive/desktop make      # 重新构建并打出安装包
 pnpm --filter @superhive/desktop package   # 只打 .app / 目录，不做安装包
 ```
 
-产物在 `apps/desktop/out/`（已 gitignore）：macOS 是 `out/make/dmg/arm64/SuperHive-<版本>-arm64.dmg` 和 `out/make/zip/darwin/arm64/*.zip`。Windows（Squirrel 安装包、zip）和 Linux（deb、rpm、zip）的 maker 已经配好，需要在对应系统上打。
+产物在 `apps/desktop/out/`（已 gitignore）：macOS 是 `out/make/dmg/arm64/SuperHive-<版本>-arm64.dmg` 和 `out/make/zip/darwin/arm64/SuperHive-darwin-arm64-<版本>.zip`。Mac 上打包后 `forge.config.cjs` 的 `postPackage` 会把整个 `.app` 重新 ad-hoc 签名并校验（fuses 只重签了主程序，签名不完整的包在应用内更新后打不开）。Windows（Squirrel 安装包、zip）和 Linux（deb、rpm、zip）的 maker 已经配好，需要在对应系统上打。
 
 打包时 `scripts/prune-natives.cjs`（Forge 的 `afterCopy` 钩子）把 node-pty、better-sqlite3 里非目标平台的预编译、`.pdb` 调试符号和 C++ 源码删掉，Windows 安装包因此从 191MB 降到 168MB。
 
@@ -69,13 +69,21 @@ SUPERHIVE_DESKTOP_APP=out/SuperHive-darwin-arm64/SuperHive.app/Contents/MacOS/Su
 
 应用图标的源文件是 `build/icon.svg`，改了之后运行 `pnpm --filter @superhive/desktop icons`（需要 macOS）重新生成 png / icns / ico。
 
+## 发版：要上传的文件
+
+每次发版在各自平台打包后运行 `pnpm --filter @superhive/desktop release-assets`：把要上传的文件收到 `out/release/<版本>/`，打印 sha256 和 `gh release upload` 命令（只打印，不上传）。缺了应用内更新要用的文件会报错退出。
+
+- Mac：`SuperHive-<版本>-arm64.dmg`（安装）和 `SuperHive-darwin-arm64-<版本>.zip`（应用内更新）；
+- Windows：`SuperHive-<版本>-win-x64-Setup.exe`（安装）、`RELEASES` 和 `SuperHive-<版本>-full.nupkg`（应用内更新）。
+
+没传更新包时那个平台只能手动下载安装包。客户端只认正式版（不是 draft、prerelease）里的这些文件名，Mac 的 zip 靠 GitHub 给的 sha256 校验。
+
 ## 发布前要准备的（这次没做）
 
 | 事项                  | 要准备什么                                                                                   | 配置位置                                                                 |
 | --------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | macOS 签名和公证      | Apple Developer 账号（年费）、Developer ID Application 证书、App 专用密码或 API Key、Team ID | `forge.config.cjs` 的 `packagerConfig.osxSign` / `osxNotarize`           |
 | Windows 签名          | 代码签名证书（OV/EV），或 Azure Trusted Signing 账号                                         | `packagerConfig.windowsSign`、`maker-squirrel` 的签名参数                |
-| 自动更新              | 签名之后才可用；用 update.electronjs.org（需公开 GitHub Release）或自建更新源                | 主进程接入 `update-electron-app`                                         |
 | 发布到 GitHub Release | 有发版权限的 GitHub token；在 CI 上按平台打包                                                | `forge.config.cjs` 的 `publishers`（`@electron-forge/publisher-github`） |
 
 ## 已知限制

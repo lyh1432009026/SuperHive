@@ -9,11 +9,13 @@
  */
 import {
   app,
+  autoUpdater,
   BrowserWindow,
   dialog,
   ipcMain,
   Menu,
   nativeTheme,
+  net,
   screen,
   session,
   shell,
@@ -76,8 +78,10 @@ import {
   RELEASE_REPO,
   saveUpdateCache,
   UpdateChecker,
-  type UpdateInfo,
 } from "./update-check.js";
+import { createMacUpdater } from "./mac-update.js";
+import { createWindowsUpdater } from "./win-update.js";
+import { UpdateInstaller, type DesktopUpdate, type InstallBackend } from "./update-install.js";
 import { loadWindowState, restoreBounds, saveWindowState, MIN_SIZE } from "./window-state.js";
 
 const CLI_FLAG = "--superhive-cli";
@@ -280,7 +284,7 @@ function runApp(): void {
     }),
   );
 
-  // ---------- 检查新版：只提示，不下载不安装 ----------
+  // ---------- 检查新版、应用内更新 ----------
   // 打包后的正式版才查；开发时设 SUPERHIVE_DESKTOP_UPDATE_CHECK=1 也查，设 0 一律不查
   const updateCheckEnabled =
     process.env.SUPERHIVE_DESKTOP_UPDATE_CHECK === "1" ||
@@ -293,38 +297,79 @@ function runApp(): void {
       currentVersion: app.getVersion(),
       platform: process.platform,
       arch: process.arch,
-      fetch: (url, init) => fetch(url, init),
+      // 和下载一样走 Chromium 的网络栈：跟系统代理设置（Node 自带的 fetch 不认代理）
+      fetch: (url, init) => net.fetch(url, init),
       load: () => loadUpdateCache(file()),
       save: (cache) => saveUpdateCache(file(), cache),
     });
     return updates;
   };
-  let lastSentUpdate: string | null | undefined;
-  /** 把当前要提示的新版告诉主窗口里的网页（和上次一样就不发） */
-  const pushUpdate = (info: UpdateInfo | null) => {
-    const key = info ? info.version : null;
+  /** 应用内更新只在打包后的正式版上做：开发版没有 .app / Update.exe 可替换 */
+  const installBackend = (): InstallBackend | undefined => {
+    if (!app.isPackaged) return undefined;
+    if (process.platform === "darwin" && process.arch === "arm64") {
+      const updatesDir = path.join(app.getPath("userData"), "updates");
+      return createMacUpdater({
+        exePath: process.execPath,
+        pid: process.pid,
+        workDir: path.join(updatesDir, "work"),
+        logFile: path.join(updatesDir, "install.log"),
+        // 走 Chromium 的网络栈：跟系统代理设置，GitHub 跳转到下载服务器也照常跟
+        fetch: (url, init) => net.fetch(url, init),
+        quit: () => app.quit(),
+      });
+    }
+    if (process.platform === "win32" && process.arch === "x64") {
+      return createWindowsUpdater({ execPath: process.execPath, updater: () => autoUpdater });
+    }
+    return undefined;
+  };
+  let installer: UpdateInstaller | undefined;
+  const updateInstaller = (): UpdateInstaller => {
+    installer ??= new UpdateInstaller({ backend: installBackend(), onChange: () => pushUpdate() });
+    return installer;
+  };
+  /** 交给网页的新版信息：检查结果 + 应用内更新的状态 */
+  const updateSnapshot = (): DesktopUpdate | null => {
+    const checker = updateChecker();
+    const info = checker.current();
+    if (!info) return null;
+    return { ...info, install: updateInstaller().view(info.version, checker.installPackage()) };
+  };
+  let lastSentUpdate: string | undefined;
+  /** 把当前新版信息和安装进度告诉主窗口里的网页（和上次一样就不发） */
+  const pushUpdate = () => {
+    const snapshot = updateSnapshot();
+    const key = JSON.stringify(snapshot);
     if (key === lastSentUpdate) return;
     const contents = mainWindow?.webContents;
     if (!allowedOrigin || !contents || contents.isDestroyed()) return;
     lastSentUpdate = key;
-    contents.send(IPC.updateChanged, info);
+    contents.send(IPC.updateChanged, snapshot);
   };
   const scheduleUpdateCheck = (delay: number) => {
     clearTimeout(updateTimer);
     updateTimer = setTimeout(() => {
       void updateChecker()
         .check()
-        .then(pushUpdate)
+        .then(() => pushUpdate())
         .catch(() => undefined)
         .finally(() => scheduleUpdateCheck(updateChecker().msUntilNextCheck() || 60 * 60 * 1000));
     }, delay);
   };
+  /** 「下载并更新」：只认当前正在提示的版本，要下载的包由主进程自己从检查结果里挑 */
+  const startInstall = (version: unknown): boolean => {
+    const checker = updateChecker();
+    const info = checker.current();
+    if (!info || info.version !== version) return false;
+    return updateInstaller().start(checker.installPackage());
+  };
   ipcMain.handle(IPC.updateGet, (event) => {
     if (!trusted(event)) throw new Error("Forbidden");
     if (!updateCheckEnabled) return null;
-    const info = updateChecker().current();
-    lastSentUpdate = info ? info.version : null;
-    return info;
+    const snapshot = updateSnapshot();
+    lastSentUpdate = JSON.stringify(snapshot);
+    return snapshot;
   });
   ipcMain.handle(IPC.updateOpen, (event, target: unknown) => {
     if (!trusted(event) || !updateCheckEnabled) return false;
@@ -337,30 +382,63 @@ function runApp(): void {
   ipcMain.handle(IPC.updateDismiss, (event, version: unknown) => {
     if (!trusted(event) || !updateCheckEnabled) return false;
     const ok = updateChecker().dismiss(version);
-    if (ok) pushUpdate(updateChecker().current());
+    if (ok) pushUpdate();
     return ok;
+  });
+  ipcMain.handle(IPC.updateInstall, (event, version: unknown) => {
+    if (!trusted(event) || !updateCheckEnabled) return false;
+    return startInstall(version);
+  });
+  ipcMain.handle(IPC.updateRestart, (event) => {
+    if (!trusted(event) || !updateCheckEnabled) return false;
+    return installer?.restart() ?? false;
   });
 
   /** 菜单「检查新版本…」：不管上次什么时候查过，马上查一次，并且一定给个答复 */
   async function checkUpdatesNow(): Promise<void> {
     const checker = updateChecker();
     const info = await checker.check(true).catch(() => null);
-    pushUpdate(info);
+    pushUpdate();
     const owner = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
     const show = (options: Electron.MessageBoxOptions) =>
       owner ? dialog.showMessageBox(owner, options) : dialog.showMessageBox(options);
     const current = app.getVersion();
     if (info) {
+      const install = updateInstaller().view(info.version, checker.installPackage());
+      if (install.state.phase === "ready") {
+        const { response } = await show({
+          type: "info",
+          message: t("updateReadyTitle", { version: info.version }),
+          detail: t("updateReadyDetail"),
+          buttons: [t("updateRestart"), t("updateLater")],
+          defaultId: 0,
+          cancelId: 1,
+        });
+        if (response === 0) updateInstaller().restart();
+        return;
+      }
+      if (install.state.phase === "downloading" || install.state.phase === "verifying") {
+        showMainWindow();
+        return;
+      }
       const { response } = await show({
         type: "info",
         message: t("updateAvailableTitle", { version: info.version }),
-        detail: t("updateAvailableDetail", { current }),
-        buttons: [t("updateDownload"), t("updateLater")],
+        detail: t(install.available ? "updateAvailableInstallDetail" : "updateAvailableDetail", {
+          current,
+        }),
+        buttons: [t(install.available ? "updateInstall" : "updateDownload"), t("updateLater")],
         defaultId: 0,
         cancelId: 1,
       });
+      if (response !== 0) return;
+      if (install.available && startInstall(info.version)) {
+        // 进度在侧栏的「有新版本」入口里看
+        showMainWindow();
+        return;
+      }
       const url = checker.urlFor("download");
-      if (response === 0 && isAllowedReleaseUrl(url)) void shell.openExternal(url);
+      if (isAllowedReleaseUrl(url)) void shell.openExternal(url);
     } else if (checker.lastCheckFailed) {
       const { response } = await show({
         type: "warning",
@@ -858,6 +936,8 @@ function runApp(): void {
     if (shutdownDone) return;
     event.preventDefault();
     shutdownDone = true;
+    // 新版已经准备好：起替换脚本（Mac），等这个进程退出后换上新版本
+    installer?.onQuit();
     terminals.disposeAll();
     clearTimeout(updateTimer);
     const server = owned;
@@ -888,6 +968,10 @@ function runApp(): void {
     const shellPath = await loginShellPath();
     if (shellPath) process.env.PATH = mergePath(shellPath, process.env.PATH);
     await boot();
-    if (updateCheckEnabled) scheduleUpdateCheck(UPDATE_FIRST_CHECK_DELAY_MS);
+    if (updateCheckEnabled) {
+      // 清掉上次下载了但没换上的临时文件（Mac 暂存在 .app 旁边的目录）
+      updateInstaller().cleanup();
+      scheduleUpdateCheck(UPDATE_FIRST_CHECK_DELAY_MS);
+    }
   });
 }

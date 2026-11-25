@@ -17,7 +17,7 @@ import {
   type TerminalSessionInfo,
   type UpdateOpenTarget,
 } from "./ipc-contract.js";
-import type { UpdateInfo } from "./update-check.js";
+import type { DesktopUpdate } from "./update-install.js";
 import type { PickFilesRequest, PickFilesResult } from "./file-picker.js";
 import { applyDesktopMarks, parseTitlebarArg, setFullscreenMark } from "./titlebar-dom.js";
 
@@ -70,7 +70,7 @@ if (allowedOrigin && window.location.origin === allowedOrigin && window.top === 
     },
     updates: {
       /** 主进程缓存的检查结果：有要提示的新版时是版本信息，否则 null（页面拿不到任何链接） */
-      get: (): Promise<UpdateInfo | null> => ipcRenderer.invoke(IPC.updateGet),
+      get: (): Promise<DesktopUpdate | null> => ipcRenderer.invoke(IPC.updateGet),
       /** 打开下载地址或发布页；地址由主进程从检查结果里取，只会是 github.com 上本仓库的 Release */
       open: (target: UpdateOpenTarget): Promise<boolean> =>
         ipcRenderer.invoke(
@@ -80,8 +80,13 @@ if (allowedOrigin && window.location.origin === allowedOrigin && window.top === 
       /** 「忽略这个版本」 */
       dismiss: (version: string): Promise<boolean> =>
         ipcRenderer.invoke(IPC.updateDismiss, String(version)),
-      onChange: (listener: (info: UpdateInfo | null) => void): (() => void) => {
-        const handler = (_event: IpcRendererEvent, info: UpdateInfo | null) => listener(info);
+      /** 「下载并更新」：在后台下载、校验、准备好新版本，进度从 onChange 推过来 */
+      install: (version: string): Promise<boolean> =>
+        ipcRenderer.invoke(IPC.updateInstall, String(version)),
+      /** 「重启以更新」 */
+      restart: (): Promise<boolean> => ipcRenderer.invoke(IPC.updateRestart),
+      onChange: (listener: (info: DesktopUpdate | null) => void): (() => void) => {
+        const handler = (_event: IpcRendererEvent, info: DesktopUpdate | null) => listener(info);
         ipcRenderer.on(IPC.updateChanged, handler);
         return () => ipcRenderer.removeListener(IPC.updateChanged, handler);
       },

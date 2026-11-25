@@ -30,7 +30,11 @@ export const IPC = {
   updateOpen: "superhive:update:open",
   /** 「忽略这个版本」 */
   updateDismiss: "superhive:update:dismiss",
-  /** 主进程查到新版（或提示该收起）时通知页面 */
+  /** 「下载并更新」：网页只给版本号，要下载什么由主进程从检查结果里挑 */
+  updateInstall: "superhive:update:install",
+  /** 「重启以更新」 */
+  updateRestart: "superhive:update:restart",
+  /** 主进程查到新版、安装进度变了（或提示该收起）时通知页面 */
   updateChanged: "superhive:update:changed",
 } as const;
 

@@ -76,4 +76,20 @@ describe("desktopBridge", () => {
     expect(broken?.terminal).toBe(terminal);
     expect(broken?.updates).toBeUndefined();
   });
+
+  it("drops only malformed install / restart, keeping the rest of the update API", () => {
+    const full = { get: fn, open: fn, dismiss: fn, onChange: fn, install: fn, restart: fn };
+    expect(
+      desktopBridge({ version: 1, platform: "darwin", terminal, updates: full })?.updates,
+    ).toBe(full);
+    const broken = desktopBridge({
+      version: 1,
+      platform: "darwin",
+      terminal,
+      updates: { get: fn, open: fn, dismiss: fn, onChange: fn, install: "x", restart: fn },
+    })?.updates;
+    expect(broken?.get).toBe(fn);
+    expect(broken && "install" in broken).toBe(false);
+    expect(broken && "restart" in broken).toBe(false);
+  });
 });

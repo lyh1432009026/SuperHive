@@ -16,12 +16,13 @@ const info: DesktopUpdateInfo = {
   assetSize: 129 * 1024 * 1024,
 };
 
-function fakeApi(initial: DesktopUpdateInfo | null) {
+function fakeApi(initial: DesktopUpdateInfo | null, withInstall = false) {
   let listener: ((next: DesktopUpdateInfo | null) => void) | undefined;
   const api: DesktopUpdatesApi = {
     get: vi.fn(async () => initial),
     open: vi.fn(async () => true),
     dismiss: vi.fn(async () => true),
+    ...(withInstall ? { install: vi.fn(async () => true), restart: vi.fn(async () => true) } : {}),
     onChange: vi.fn((next) => {
       listener = next;
       return () => {
@@ -93,5 +94,110 @@ describe("DesktopUpdateEntry", () => {
     expect(screen.getByRole("button", { name: "有新版本 0.4.9" })).toBeTruthy();
     act(() => push(null));
     expect(screen.queryByRole("button", { name: /有新版本/ })).toBeNull();
+  });
+
+  describe("应用内更新", () => {
+    const withInstall = (
+      install: NonNullable<DesktopUpdateInfo["install"]>,
+    ): DesktopUpdateInfo => ({
+      ...info,
+      install,
+    });
+    const idle = { phase: "idle" } as const;
+
+    it("能直接更新时主按钮是「下载并更新」，只告诉桌面端版本号", async () => {
+      const { api } = fakeApi(
+        withInstall({ available: true, size: 120_000_000, state: idle }),
+        true,
+      );
+      render(<DesktopUpdateEntry api={api} platform="darwin" />);
+      fireEvent.click(await screen.findByRole("button", { name: "有新版本 0.4.8" }));
+      const dialog = screen.getByRole("dialog");
+      expect(dialog.textContent).toContain("下次退出时再换");
+      fireEvent.click(screen.getByRole("button", { name: /^下载并更新/ }));
+      expect(api.install).toHaveBeenCalledWith("0.4.8");
+      expect(screen.getByRole("button", { name: /下载并更新.*120 MB/ })).toBeTruthy();
+    });
+
+    it("下载中显示进度，入口也显示百分比；不知道大小时（Windows）只说在下载", async () => {
+      const { api, push } = fakeApi(
+        withInstall({
+          available: true,
+          size: 200,
+          state: { phase: "downloading", received: 50, total: 200 },
+        }),
+        true,
+      );
+      render(<DesktopUpdateEntry api={api} platform="darwin" />);
+      fireEvent.click(await screen.findByRole("button", { name: "正在下载新版本 25%" }));
+      expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("25");
+      const busy = screen.getByRole("button", { name: "下载中 25%" }) as HTMLButtonElement;
+      expect(busy.disabled).toBe(true);
+      expect(screen.queryByRole("button", { name: "忽略这个版本" })).toBeNull();
+      act(() =>
+        push(
+          withInstall({
+            available: true,
+            size: 200,
+            state: { phase: "downloading", received: 0, total: 0 },
+          }),
+        ),
+      );
+      expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBeNull();
+      expect(screen.getByRole("button", { name: "下载中…" })).toBeTruthy();
+      act(() => push(withInstall({ available: true, size: 200, state: { phase: "verifying" } })));
+      expect(screen.getByRole("button", { name: "正在校验…" })).toBeTruthy();
+    });
+
+    it("下好后「重启以更新」，并说明不重启也会在下次退出时生效", async () => {
+      const { api } = fakeApi(
+        withInstall({ available: true, size: 200, state: { phase: "ready" } }),
+        true,
+      );
+      render(<DesktopUpdateEntry api={api} platform="darwin" />);
+      fireEvent.click(await screen.findByRole("button", { name: "重启以更新到 0.4.8" }));
+      const dialog = screen.getByRole("dialog", { name: "新版本 0.4.8 已下载好" });
+      expect(dialog.textContent).toContain("下次退出 SuperHive 时自动换上新版本");
+      fireEvent.click(screen.getByRole("button", { name: "重启以更新" }));
+      expect(api.restart).toHaveBeenCalled();
+    });
+
+    it("失败时说明原因，主按钮退回下载安装包，可以重试", async () => {
+      const { api } = fakeApi(
+        withInstall({ available: true, size: 200, state: { phase: "failed", reason: "checksum" } }),
+        true,
+      );
+      render(<DesktopUpdateEntry api={api} platform="darwin" />);
+      fireEvent.click(await screen.findByRole("button", { name: "有新版本 0.4.8" }));
+      expect(screen.getByRole("status").textContent).toContain("校验不通过");
+      expect(screen.getByRole("status").textContent).toContain("当前版本不受影响");
+      fireEvent.click(screen.getByRole("button", { name: "重试" }));
+      expect(api.install).toHaveBeenCalledWith("0.4.8");
+      fireEvent.click(screen.getByRole("button", { name: /^下载安装包/ }));
+      expect(api.open).toHaveBeenLastCalledWith("download");
+    });
+
+    it("位置不能写时只给「下载」，并写明原因；Release 没传更新包时不多说", async () => {
+      const { api, push } = fakeApi(
+        withInstall({ available: false, reason: "translocated", size: 200, state: idle }),
+        true,
+      );
+      render(<DesktopUpdateEntry api={api} platform="darwin" />);
+      fireEvent.click(await screen.findByRole("button", { name: "有新版本 0.4.8" }));
+      expect(screen.getByRole("status").textContent).toContain("拖进「应用程序」再打开");
+      expect(screen.queryByRole("button", { name: /下载并更新/ })).toBeNull();
+      expect(screen.getByRole("button", { name: /^下载/ })).toBeTruthy();
+      act(() =>
+        push(withInstall({ available: false, reason: "no-package", size: 0, state: idle })),
+      );
+      expect(screen.queryByRole("status")).toBeNull();
+    });
+
+    it("老版本桌面端没有 install / restart 时照旧只给「下载」", async () => {
+      const { api } = fakeApi(withInstall({ available: true, size: 200, state: idle }));
+      render(<DesktopUpdateEntry api={api} platform="darwin" />);
+      fireEvent.click(await screen.findByRole("button", { name: "有新版本 0.4.8" }));
+      expect(screen.queryByRole("button", { name: /下载并更新/ })).toBeNull();
+    });
   });
 });

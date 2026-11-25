@@ -6,6 +6,7 @@
  * 位置留在下面的 TODO 里，见 apps/desktop/README.md「发布前要准备的」。
  */
 const path = require("node:path");
+const { execFileSync } = require("node:child_process");
 const { FusesPlugin } = require("@electron-forge/plugin-fuses");
 const { FuseV1Options, FuseVersion } = require("@electron/fuses");
 const { prune: pruneNatives } = require("./prune-natives.cjs");
@@ -17,6 +18,19 @@ const { version } = require(path.join(desktopDir, "package.json"));
 /** Windows 安装包文件名带版本和架构，和 Release 上的文件名一致，不用再手动改名 */
 function setupExeName(arch) {
   return `SuperHive-${version}-win-${arch}-Setup.exe`;
+}
+
+/**
+ * Mac：打包后把整个 .app 重新 ad-hoc 签一遍。fuses 插件只重签了主程序，Info.plist 和资源的封印对不上
+ * （codesign --verify 报 invalid Info.plist）；这样的包从网页下载后经用户「仍要打开」能用，但应用内更新换上去的
+ * 新版本不带 quarantine，系统会直接拒绝打开（LaunchServices -54）。有了 Developer ID 后换成 osxSign。
+ */
+function adHocSign(outputPaths) {
+  for (const dir of outputPaths) {
+    const app = path.join(dir, "SuperHive.app");
+    execFileSync("codesign", ["--force", "--deep", "--sign", "-", app], { stdio: "inherit" });
+    execFileSync("codesign", ["--verify", "--deep", "--strict", app], { stdio: "inherit" });
+  }
 }
 
 module.exports = {
@@ -68,8 +82,14 @@ module.exports = {
     },
   ],
   // TODO(发布)：publishers: [{ name: "@electron-forge/publisher-github", config: { repository: { owner, name }, draft: true } }]
-  // TODO(自动更新)：Windows 不签名也能接 autoUpdater（发版多传 RELEASES 和 -full.nupkg），Mac 要先签名和公证；
-  // 方案见 docs/research/desktop-auto-update.md。现在只做了检查新版并提示（src/update-check.ts）
+  // 应用内更新：Windows 用 autoUpdater（Squirrel，读 Release 里的 RELEASES 和 -full.nupkg），
+  // Mac 下载 Release 里 maker-zip 打的 SuperHive-darwin-arm64-<版本>.zip 自己替换 .app（src/mac-update.ts）。
+  // 发版要上传的文件用 `pnpm --filter @superhive/desktop release-assets` 收集，见 docs/research/desktop-auto-update.md
+  hooks: {
+    postPackage: async (_config, { platform, outputPaths }) => {
+      if (platform === "darwin") adHocSign(outputPaths);
+    },
+  },
   plugins: [
     new FusesPlugin({
       version: FuseVersion.V1,
