@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildApp } from "./app.js";
+import { buildApp, type BuildAppOptions } from "./app.js";
 import { HiveDatabase } from "./database.js";
 import {
   checkCwd,
@@ -122,15 +122,19 @@ describe("local agent routes", () => {
   });
 
   async function setup(
-    extra: Partial<LocalAgentSupervisorOptions> & { publicUrl?: string | (() => string) } = {},
+    extra: Partial<LocalAgentSupervisorOptions> & {
+      publicUrl?: string | (() => string);
+      networkProxy?: BuildAppOptions["networkProxy"];
+    } = {},
   ) {
     const spawner = fakeSpawner();
-    const { publicUrl, ...agentOptions } = extra;
+    const { publicUrl, networkProxy, ...agentOptions } = extra;
     const app = await buildApp({
       databasePath: ":memory:",
       token: "join-token",
       staticDir: "/definitely-not-present",
       ...(publicUrl ? { publicUrl } : {}),
+      ...(networkProxy !== undefined ? { networkProxy } : {}),
       localAgents: {
         cli,
         serverUrl: "http://127.0.0.1:8787",
@@ -555,6 +559,81 @@ describe("local agent routes", () => {
       // 自动更新默认开；这里的 CLI 路径不存在，判断不出当前版本，所以不带 currentVersion
       autoUpdate: true,
     });
+  });
+
+  it("applies the network proxy setting to agents started afterwards", async () => {
+    const { app, owner, spawner } = await setup({
+      networkProxy: {
+        env: () => ({ PATH: "/bin" }),
+        readSystem: () => ({
+          https: "http://127.0.0.1:7890",
+          http: "http://127.0.0.1:7890",
+          bypass: [".local"],
+        }),
+      },
+    });
+    const state = await app.inject({
+      method: "GET",
+      url: "/api/local/network-proxy",
+      headers: owner,
+    });
+    expect(state.json()).toMatchObject({
+      mode: "system",
+      effective: { source: "system", url: "http://127.0.0.1:7890" },
+    });
+    const start = (name: string) =>
+      app.inject({
+        method: "POST",
+        url: "/api/local/agents",
+        headers: owner,
+        payload: { provider: "agy", name, access: "read-only" },
+      });
+    expect((await start("rd-agy")).statusCode).toBe(201);
+    expect(spawner.children[0]!.env).toMatchObject({
+      HTTPS_PROXY: "http://127.0.0.1:7890",
+      http_proxy: "http://127.0.0.1:7890",
+      NO_PROXY: ".local,localhost,127.0.0.1,::1,[::1]",
+      HIVE_AGENT_TOKEN: "join-token",
+    });
+
+    const bad = await app.inject({
+      method: "PUT",
+      url: "/api/local/network-proxy",
+      headers: owner,
+      payload: { mode: "manual", url: "127.0.0.1" },
+    });
+    expect(bad.statusCode).toBe(400);
+    const manual = await app.inject({
+      method: "PUT",
+      url: "/api/local/network-proxy",
+      headers: owner,
+      payload: { mode: "manual", url: "socks5://u:pw@127.0.0.1:7891" },
+    });
+    expect(manual.statusCode).toBe(200);
+    expect(manual.json()).toMatchObject({ mode: "manual", url: "socks5://***:***@127.0.0.1:7891" });
+    expect((await start("rd-agy2")).statusCode).toBe(201);
+    expect(spawner.children[1]!.env).toMatchObject({
+      HTTPS_PROXY: "socks5://u:pw@127.0.0.1:7891",
+      ALL_PROXY: "socks5://u:pw@127.0.0.1:7891",
+    });
+    const logs = await app.inject({
+      method: "GET",
+      url: `/api/local/agents/${(await app.inject({ method: "GET", url: "/api/local/agents", headers: owner })).json().agents.find((agent: { name: string }) => agent.name === "rd-agy2").id}/logs`,
+      headers: owner,
+    });
+    expect(logs.json().lines).toContain("[hive] 网络代理：socks5://***:***@127.0.0.1:7891");
+    expect(JSON.stringify(logs.json())).not.toContain("pw@");
+
+    await app.inject({
+      method: "PUT",
+      url: "/api/local/network-proxy",
+      headers: owner,
+      payload: { mode: "none" },
+    });
+    expect((await start("rd-agy3")).statusCode).toBe(201);
+    const third = spawner.spawn.mock.calls[2]![2];
+    expect(third.env).not.toHaveProperty("HTTPS_PROXY");
+    expect(third.unsetEnv).toEqual(expect.arrayContaining(["HTTPS_PROXY", "no_proxy"]));
   });
 
   it("launches the CLI with the token in the environment, not in argv", async () => {

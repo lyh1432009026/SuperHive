@@ -12,6 +12,8 @@ import type {
   IncidentsResponse,
   KeepAwakeSettings,
   KeepAwakeState,
+  NetworkProxySettings,
+  NetworkProxyState,
   LocalAgent,
   LocalAgentsResponse,
   LocalAgentMcpResponse,
@@ -169,6 +171,9 @@ export type LocalAgentsState = {
   /** 熄屏后保持在线：这台电脑的设置与实际状态（不是本机房主时为 undefined） */
   keepAwake: KeepAwakeState | undefined;
   updateKeepAwake(patch: Partial<KeepAwakeSettings>): Promise<void>;
+  /** 网络代理：本机 Agent 子进程走不走代理（设置 → 这台电脑） */
+  networkProxy(): Promise<NetworkProxyState>;
+  updateNetworkProxy(patch: Partial<NetworkProxySettings>): Promise<NetworkProxyState>;
   /** 本机：故障单、经验库、规则提议与派修设置 */
   incidents(): Promise<IncidentsResponse>;
   updateIncidentSettings(patch: UpdateIncidentSettingsRequest): Promise<IncidentSettings>;
@@ -705,6 +710,23 @@ export function useLocalAgents(
     [request],
   );
 
+  /* ---------- 网络代理 ---------- */
+
+  const networkProxy = useCallback(async () => {
+    const response = await request("/api/local/network-proxy");
+    return (await response.json()) as NetworkProxyState;
+  }, [request]);
+  const updateNetworkProxy = useCallback(
+    async (patch: Partial<NetworkProxySettings>) => {
+      const response = await request("/api/local/network-proxy", {
+        method: "PUT",
+        body: JSON.stringify(patch),
+      });
+      return (await response.json()) as NetworkProxyState;
+    },
+    [request],
+  );
+
   /* ---------- 故障单（只限本机） ---------- */
 
   const incidents = useCallback(async () => {
@@ -1002,6 +1024,8 @@ export function useLocalAgents(
     agentCliJob,
     keepAwake,
     updateKeepAwake,
+    networkProxy,
+    updateNetworkProxy,
     incidents,
     updateIncidentSettings,
     incidentAction,

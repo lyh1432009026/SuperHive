@@ -1090,6 +1090,14 @@ export const serverTexts = {
     zh: "触发这个任务的消息已经不在了。",
     en: "The message that started this task no longer exists.",
   },
+  "error.networkProxy.disabled": {
+    zh: "这个服务没有启用本机 Agent，不能设置网络代理。",
+    en: "Local agents aren't enabled on this server, so there's no network proxy to set.",
+  },
+  "error.networkProxy.invalid": {
+    zh: "代理地址格式不对：要写成 http://主机:端口 或 socks5://主机:端口，不能带路径。",
+    en: "The proxy address isn't valid. Use http://host:port or socks5://host:port, without a path.",
+  },
   "error.keepAwake.disabled": {
     zh: "这个服务没有启用熄屏后保持在线。",
     en: "Keep awake isn't enabled on this server.",

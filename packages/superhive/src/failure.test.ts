@@ -810,6 +810,14 @@ describe("failure taxonomy: production log samples", () => {
       "API Error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)",
       "network",
     ],
+    // Go 写的 CLI（agy）直连海外服务、代理没开或开错端口时的 net/http 报错
+    [
+      'Post "https://cloudcode-pa.googleapis.com/v1internal": dial tcp 142.250.66.106:443: i/o timeout',
+      "network",
+    ],
+    ["proxyconnect tcp: dial tcp 127.0.0.1:7890: connect: connection refused", "network"],
+    ['Get "https://oauth2.googleapis.com/token": net/http: TLS handshake timeout', "network"],
+    ["dial tcp: lookup generativelanguage.googleapis.com: no such host", "network"],
     // Codex 经网关
     [
       "rate limit exceeded: The system is currently experiencing high demand and cannot process your request. Your request exceeds the maximum usage size allowed during peak load. For improved capacity reliability, consider switching to Provision…",

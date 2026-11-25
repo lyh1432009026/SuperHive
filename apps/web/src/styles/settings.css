@@ -640,6 +640,51 @@
   color: var(--danger);
 }
 
+.settings-note.warning {
+  color: var(--warning);
+}
+
+/* 设置 · 这台电脑 · 网络代理 */
+.network-proxy-fields {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.network-proxy-fields label {
+  display: grid;
+  gap: 4px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.network-proxy-fields input {
+  width: 100%;
+  font-family: var(--font-mono);
+}
+
+.network-proxy-fields input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.network-proxy-effective {
+  margin: 10px 0 2px;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.network-proxy-restart {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.network-proxy-restart .settings-note {
+  margin: 0;
+}
+
 /* 房间标题下的状态行：正在阻止睡眠时的小标签 */
 .keep-awake-badge {
   margin-left: 2px;

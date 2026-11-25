@@ -43,7 +43,7 @@ import {
 import { IPC, type TerminalCreateRequest, type TerminalLayoutAction } from "./ipc-contract.js";
 import { createPickFilesHandler, createWorkspaceLookup, readPickedFiles } from "./file-picker.js";
 import { isLoopbackOrigin, isTrustedSender, originAnswer, originOf } from "./ipc-guard.js";
-import { loginShellPath, mergePath } from "./shell-env.js";
+import { loginShellEnv, mergePath, mergeProxyEnv } from "./shell-env.js";
 import {
   loadSplashTheme,
   parseSplashAction,
@@ -964,9 +964,10 @@ function runApp(): void {
       permissionOk(permission, requestingOrigin),
     );
     buildMenu();
-    // 从访达 / Dock 打开时 PATH 不全，本机 Agent 和终端都要用到用户自己的 PATH
-    const shellPath = await loginShellPath();
-    if (shellPath) process.env.PATH = mergePath(shellPath, process.env.PATH);
+    // 从访达 / Dock 打开时 PATH 不全、也没有终端里设的代理变量，本机 Agent 和终端都要用到
+    const shellEnv = await loginShellEnv();
+    if (shellEnv?.PATH) process.env.PATH = mergePath(shellEnv.PATH, process.env.PATH);
+    mergeProxyEnv(process.env, shellEnv);
     await boot();
     if (updateCheckEnabled) {
       // 清掉上次下载了但没换上的临时文件（Mac 暂存在 .app 旁边的目录）

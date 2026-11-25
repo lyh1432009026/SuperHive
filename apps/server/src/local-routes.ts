@@ -20,6 +20,9 @@ import {
   restartLocalAgentRequestSchema,
   updateLocalAgentSettingsRequestSchema,
   keepAwakeSettingsSchema,
+  networkProxySettingsSchema,
+  type NetworkProxySettings,
+  type NetworkProxyState,
   type KeepAwakeSettings,
   type KeepAwakeState,
   type LocalAgent,
@@ -47,6 +50,7 @@ import {
 import QRCode from "qrcode";
 import { HiveError } from "./database.js";
 import { registerIncidentSecret } from "./incidents.js";
+import { ProxySettingsError } from "./network-proxy.js";
 import type { HostApproval, HostApprovals } from "./host-approvals.js";
 import type { OwnerDevice } from "./owner-devices.js";
 import { checkLocalRequest, type LocalCheck } from "./local-access.js";
@@ -218,6 +222,11 @@ export type LocalRoomActions = {
     updateSettings(patch: UpdateIncidentSettingsRequest): IncidentSettings;
     act(id: string, action: IncidentActionRequest["action"]): Incident;
     decide(id: string, decision: RuleProposalDecisionRequest["decision"], by: string): RuleProposal;
+  };
+  /** 网络代理：本机 Agent 子进程的代理环境变量 */
+  networkProxy?: {
+    state(): NetworkProxyState;
+    update(patch: Partial<NetworkProxySettings>): NetworkProxyState;
   };
   /** 熄屏后保持在线 */
   keepAwake?: {
@@ -890,6 +899,35 @@ export function registerLocalAgentRoutes(
       return reply.code(404).send({ ...errorText(serverText("error.keepAwake.disabled")) });
     audit(request, caller, { key: "im.audit.keepAwake" }, true);
     return state;
+  });
+
+  app.get("/api/local/network-proxy", async (request, reply) => {
+    if (!authorize(request, reply, "read")) return reply;
+    if (!rooms.networkProxy)
+      return reply.code(404).send({ ...errorText(serverText("error.networkProxy.disabled")) });
+    return rooms.networkProxy.state();
+  });
+
+  app.put("/api/local/network-proxy", async (request, reply) => {
+    const caller = authorize(request, reply, "manage");
+    if (!caller) return reply;
+    if (!rooms.networkProxy)
+      return reply.code(404).send({ ...errorText(serverText("error.networkProxy.disabled")) });
+    const parsed = networkProxySettingsSchema.partial().safeParse(request.body);
+    if (!parsed.success)
+      return reply.code(400).send({ ...errorText(serverText("error.request.invalid")) });
+    const patch = Object.fromEntries(
+      Object.entries(parsed.data).filter(([, value]) => value !== undefined),
+    ) as Partial<NetworkProxySettings>;
+    try {
+      const state = rooms.networkProxy.update(patch);
+      audit(request, caller, { key: "im.audit.networkProxy" }, true);
+      return state;
+    } catch (error) {
+      if (error instanceof ProxySettingsError)
+        return reply.code(400).send({ ...errorText(serverText("error.networkProxy.invalid")) });
+      throw error;
+    }
   });
 
   app.get("/api/local/providers", async (request, reply) => {

@@ -14,6 +14,7 @@ import {
 import { homedir } from "node:os";
 import path from "node:path";
 import {
+  maskProxyUrl,
   isAgentOutdated,
   runtimeReasoningEfforts,
   supportsClaudeContextSettings,
@@ -35,6 +36,7 @@ import { codeVersionAt, packageRootOfCli } from "./code-version.js";
 import { HiveError, type HiveDatabase, type LocalAgentConfig } from "./database.js";
 import { expandHome, homeDirectory, isDesktopInstallDirectory } from "./local-directories.js";
 import { slowOps } from "./slow-ops.js";
+import { applyProxyEnv, type ProxyEnvPatch } from "./network-proxy.js";
 import { commandFor } from "./windows-command.js";
 
 /**
@@ -61,7 +63,13 @@ export type SpawnAgent = (
   command: string,
   args: string[],
   /** logFile：输出写到这个文件而不是管道，Server 退出后 Agent 仍能继续运行 */
-  options: { env: Record<string, string>; cwd: string; logFile?: string },
+  options: {
+    env: Record<string, string>;
+    /** 先从继承的环境里去掉的变量（不分大小写），例如「不用代理」时的 HTTPS_PROXY */
+    unsetEnv?: readonly string[];
+    cwd: string;
+    logFile?: string;
+  },
 ) => ChildHandle;
 
 /** 接管上一个 Server 留下的 Agent 进程；进程已不在或不是这个 Agent 时返回 undefined */
@@ -103,6 +111,8 @@ export type LocalAgentSupervisorOptions = {
   logDir?: string;
   /** Agent 设置文件目录（网页上勾选的 MCP 等）；Agent 每一轮读取，改动不必重启 */
   settingsDir?: string;
+  /** 网络代理：启动 Agent 时要补上、去掉的环境变量（设置 → 这台电脑 → 网络代理） */
+  proxyEnv?: () => ProxyEnvPatch | undefined;
   /** 列出 Agent 会加载的本机 MCP（测试注入）；默认运行 `hive mcp list` */
   listMcp?: McpLister;
   /** 列出运行时能用的模型（测试注入）；默认运行 `hive models --provider X --json` */
@@ -261,7 +271,10 @@ function fileSize(file: string): number {
 
 export const defaultSpawnAgent: SpawnAgent = (command, args, options) => {
   const logFile = options.logFile;
-  const env = { ...process.env, ...options.env };
+  const inherited = options.unsetEnv?.length
+    ? applyProxyEnv(process.env, { set: {}, unset: [...options.unsetEnv] })
+    : process.env;
+  const env = { ...inherited, ...options.env };
   if (!logFile) {
     // 输出走管道：随 Server 一起结束；windowsHide 且不继承句柄，Windows 上得到一个看不见的控制台
     const child = spawn(command, args, {
@@ -1281,17 +1294,37 @@ export class LocalAgentSupervisor {
     );
     const logFile = this.logFile(config);
     if (logFile) mkdirSync(path.dirname(logFile), { recursive: true });
+    const proxy = this.proxyEnv(runtime);
+    const proxyUrl = proxy?.set.HTTPS_PROXY;
+    if (proxyUrl) this.appendLog(runtime, `[hive] 网络代理：${maskProxyUrl(proxyUrl)}\n`);
+    else if (proxy?.unset.includes("HTTPS_PROXY"))
+      this.appendLog(runtime, "[hive] 网络代理：不用代理\n");
     const child = this.spawnAgent(this.options.cli.command, args, {
       cwd: homedir(),
       env: {
+        ...proxy?.set,
         // token 走环境变量：命令行参数会被同机其他用户通过 ps 看到
         HIVE_AGENT_TOKEN: this.options.joinToken,
         // 让子进程在 Hive Server 消失（包括被 kill -9）且一段时间内没有回来时自行退出，不留孤儿
         HIVE_SUPERVISOR_PID: String(process.pid),
       },
+      ...(proxy?.unset.length ? { unsetEnv: proxy.unset } : {}),
       ...(logFile ? { logFile } : {}),
     });
     this.attach(runtime, child, runtime.startedAt);
+  }
+
+  /** 网络代理设置算出的环境变量；读系统代理出错不影响启动，按没设代理处理 */
+  private proxyEnv(runtime: Runtime): ProxyEnvPatch | undefined {
+    try {
+      return this.options.proxyEnv?.();
+    } catch (error) {
+      this.appendLog(
+        runtime,
+        `[hive] 读取网络代理设置失败，这次不设代理：${error instanceof Error ? error.message : String(error)}\n`,
+      );
+      return undefined;
+    }
   }
 
   private attach(runtime: Runtime, child: ChildHandle, startedAt: number): void {

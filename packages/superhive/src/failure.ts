@@ -171,8 +171,9 @@ const AUTH_FAILED = /failed to authenticate|unauthori[sz]ed|authentication faile
 const MODEL_UNAVAILABLE =
   /model_not_found|not_found_error[\s\S]{0,80}\bmodel\b|model[^.]{0,40}(?:does not exist|not found|not supported|is not available|unavailable|deprecated|has been (?:deprecated|retired|removed))|unknown model|invalid model|no such model|issue with the selected model|unrecognized_model|not allowed to sample from this model|模型不存在|模型已下线/i;
 const FORBIDDEN = /\bforbidden\b|permission_error|PERMISSION_DENIED|does not have permission/i;
+/** 连不上：Node 的错误码、各 CLI 的说法，以及 Go 写的 CLI（agy）的 net/http 报错 */
 const NETWORK =
-  /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH|ENETDOWN|socket hang up|Connection error|Connection dropped|Can't reach the API server|Cannot connect to API|fetch failed|network (?:error|is unreachable)|getaddrinfo|waiting for network/i;
+  /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH|ENETDOWN|socket hang up|Connection error|Connection dropped|Can't reach the API server|Cannot connect to API|fetch failed|network (?:error|is unreachable)|getaddrinfo|waiting for network|dial tcp [^\n]*(?:i\/o timeout|connection refused|connection reset)|no such host|TLS handshake timeout|proxyconnect tcp/i;
 const OVERLOADED = /overloaded|server overload|service unavailable|服务繁忙/i;
 const PROVIDER_ERROR =
   /bad gateway|gateway time-?out|internal server error|stream (?:error|disconnected)|response stream was interrupted|upstream error|server had an error/i;

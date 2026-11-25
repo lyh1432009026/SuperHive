@@ -188,4 +188,5 @@ hive autostart status
 - 默认数据目录是 `~/.superhive/`，其中有消息、认证数据和日志。不要把整个目录作为公开附件；备份和恢复看 [部署参考](/reference/deployment/)。
 - 默认监听所有网卡，不代表已经适合暴露公网。公网访问需要 HTTPS/WSS、正确的对外地址与额外访问控制，见 [安全边界](/reference/security/)。
 - 网页能打开但 Agent 不回复时，先检查 CLI 和登录状态，不要通过提高本机权限来解决网络或认证问题。
+- Agent 要经代理才能连上模型服务（例如在国内用 agy、Gemini、Claude）时，在设置 →「这台电脑」→「网络代理」里选跟随系统、手动或不用代理，见 [排障指南](/reference/troubleshooting/) 的「Agent 连不上模型服务」。
 - 本教程按仓库实现说明命令与流程，没有替你运行安装、连接真实模型或验证所有平台环境。异常情况见 [排障指南](/reference/troubleshooting/)。

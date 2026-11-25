@@ -455,6 +455,15 @@ function QueueHint({
   );
 }
 
+/** 连不上模型服务：失败了，或者正在等网络恢复后自动重试 */
+export function isNetworkFailure(invocation: Invocation): boolean {
+  return (
+    invocation.failure === "network" &&
+    (invocation.status === "failed" || invocation.status === "running") &&
+    !invocation.resolution
+  );
+}
+
 export function InvocationChips({
   invocations,
   participants,
@@ -475,7 +484,10 @@ export function InvocationChips({
   onOpenTerminal,
   onViewChanges,
   onRetryWithModel,
+  onOpenProxySettings,
 }: {
+  /** 连不上模型服务（网络错误）时的「网络代理设置」：本机 Agent、房主才返回处理函数 */
+  onOpenProxySettings?: ((invocation: Invocation) => (() => void) | undefined) | undefined;
   /** 「看改动」：打开「代码」面板并切到这个 Agent 的任务线 */
   onViewChanges?: ((invocation: Invocation) => void) | undefined;
   /** 「换个模型重试」：只有房主能用，失败的任务上才有 */
@@ -695,6 +707,29 @@ export function InvocationChips({
                   </Button>
                 </Tooltip>
               )}
+              {(() => {
+                if (!isNetworkFailure(invocation)) return null;
+                const open = onOpenProxySettings?.(invocation);
+                if (!open) return null;
+                return (
+                  <Tooltip
+                    content={t(
+                      "连不上模型服务。在国内用 agy、Gemini、Claude 等海外服务时，多半要给本机 Agent 配网络代理",
+                    )}
+                  >
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label={t("@{0} 连不上模型服务，打开网络代理设置", {
+                        0: invocation.agentName,
+                      })}
+                      onClick={open}
+                    >
+                      {t("可能需要配置代理")}
+                    </Button>
+                  </Tooltip>
+                );
+              })()}
               {onDismiss &&
                 canDismissInvocation(invocation) &&
                 (invocation.blockReason !== "guest_approval" || isOwner) && (

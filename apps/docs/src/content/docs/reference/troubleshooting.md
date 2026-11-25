@@ -117,6 +117,26 @@ description: 按页面、身份、Agent、MCP、任务、审批和 worktree 症�
 
 **安全动作**：结果未知先核对，再明确继续范围。删除、部署、付款、发送消息等不得“重试看看”；模型不存在或账号不可用时先修配置。对长时间未确认停止的任务也不要假定进程已退出。详见[任务状态与恢复](/guides/tasks/)。
 
+## Agent 连不上模型服务（agy、Gemini、Claude 等需要代理）
+
+**症状**：Agent 在线，但一干活就报 `ETIMEDOUT`、`ECONNRESET`、`ENOTFOUND`、`dial tcp … i/o timeout`、`TLS handshake timeout`，或者一直卡着没结果；任务状态旁边出现「可能需要配置代理」。在终端里直接跑同一个 CLI 却是好的。
+
+**原因**：这些服务在海外，这台电脑要经代理才能连上。从访达、开始菜单打开客户端时，Agent 拿不到你在终端里设的 `HTTPS_PROXY`；不少 CLI 也不会自己去读系统代理设置。
+
+**可以这样做**：
+
+1. 打开设置 →「这台电脑」→「网络代理」（或点任务状态旁的「可能需要配置代理」）。
+2. 选一种：
+   - **跟随系统**（默认）：启动 Hive 的终端里设了 `HTTPS_PROXY` 等变量就沿用（客户端会从登录 shell 里读回来）；没有就读系统代理设置（macOS 的网络设置、Windows 的「代理服务器」），代理软件开了「系统代理」就能用上。系统用的是自动代理配置（PAC）时读不出地址，改用手动。
+   - **手动**：填代理软件的本地端口，例如 `http://127.0.0.1:7890`，也可以是 `socks5://`。Claude Code 和用 Node 写的 CLI（Gemini、Copilot 等）不支持 socks，能用 http 就用 http。
+   - **不用代理**：Agent 一律直连。
+3. 设置从下一次启动 Agent 开始生效。页面上会显示有几个 Agent 还在用旧设置，点「重启全部本机 Agent」，它们会等手上的任务做完再重启。
+4. agy 提示「not currently available in your location」：说明已经连上了 Google，只是代理出口所在的地区不在服务范围，换一个支持地区的节点。
+
+不管选哪种，本机回环地址（`localhost`、`127.0.0.1`、`::1`）和 Hive 自己的地址都直连，Agent 连 Hive 和 MCP 不会被代理截走。账号密码只保存在这台电脑上，页面和 Agent 日志里显示成 `***`。
+
+**安全动作**：只影响 Hive 启动的本机 Agent，不改系统代理；Hive Server 自己查 npm、连飞书和微信的请求不走这里的设置。远程电脑上接入的 Agent 不受影响，在那台电脑的终端里设代理变量再启动。
+
 ## 经 SuperHive 用 Claude Code 比直接用 CLI 慢
 
 **症状**：同一句话，在房间里 @ Claude Code 比在终端里直接问它慢不少，而且越用越慢。

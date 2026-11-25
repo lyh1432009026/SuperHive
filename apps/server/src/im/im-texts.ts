@@ -633,6 +633,10 @@ export const imTexts = {
     zh: "退出了其他 {count} 台已登录的设备",
     en: { one: "signed out {count} other device", other: "signed out {count} other devices" },
   },
+  "im.audit.networkProxy": {
+    zh: "修改了本机 Agent 的网络代理设置",
+    en: "changed the network proxy setting for local agents",
+  },
   "im.audit.keepAwake": {
     zh: "修改了熄屏后保持在线的设置",
     en: "changed the stay-online-when-asleep setting",

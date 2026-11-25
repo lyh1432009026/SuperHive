@@ -117,6 +117,26 @@ For identity and security boundaries, see the [Security reference](/en/reference
 
 **Safe action**: When the outcome is unknown, verify first, then state clearly what should continue. Never "just retry" deletes, deployments, payments or sent messages. If the model doesn't exist or the account is unusable, fix the config first. Don't assume a process has exited because a stop hasn't been confirmed for a long time. See [Task status and recovery](/en/guides/tasks/).
 
+## The agent can't reach the model service (agy, Gemini, Claude and others need a proxy)
+
+**Symptoms**: The agent is online, but work fails with `ETIMEDOUT`, `ECONNRESET`, `ENOTFOUND`, `dial tcp … i/o timeout` or `TLS handshake timeout`, or it hangs with no result. "May need a proxy" appears next to the task status. The same CLI works when you run it in a terminal.
+
+**Why**: These services can only be reached through a proxy from this computer. When you open the app from Finder or the Start menu, agents don't get the `HTTPS_PROXY` you set in your shell, and many CLIs don't read the system proxy settings themselves.
+
+**What to do**:
+
+1. Open Settings → This computer → Network proxy (or click "May need a proxy" next to the task status).
+2. Pick one:
+   - **Follow system** (default): If the shell that started Hive sets `HTTPS_PROXY` and similar variables, they're used (the app reads them back from your login shell). Otherwise Hive reads the system proxy settings (macOS network settings, the Windows proxy server setting), so turning on your proxy app's system proxy is enough. Automatic proxy configuration (PAC) has no fixed address to read; use Manual instead.
+   - **Manual**: Enter your proxy app's local port, such as `http://127.0.0.1:7890`, or a `socks5://` address. Claude Code and Node-based CLIs (Gemini, Copilot, and others) don't support SOCKS, so use http when you can.
+   - **No proxy**: Agents always connect directly.
+3. Changes apply the next time an agent starts. The page shows how many agents still use the previous setting; click "Restart all local agents" and each restarts after its current tasks finish.
+4. If agy says "not currently available in your location", it did reach Google, but the proxy's exit region isn't supported. Switch to a node in a supported region.
+
+Whichever you pick, loopback addresses (`localhost`, `127.0.0.1`, `::1`) and Hive's own address always connect directly, so agents' connections to Hive and MCP never go through the proxy. Credentials are kept only on this computer and shown as `***` on the page and in agent logs.
+
+**Safe action**: This only affects local agents started by Hive and never changes the system proxy. Hive Server's own requests (npm lookups, Feishu, WeChat) don't use it. Agents connected from other computers aren't affected; set the proxy variables in that computer's shell before starting them.
+
 ## Claude Code is slower through SuperHive than in the CLI
 
 **Symptoms**: The same question takes noticeably longer when you @ Claude Code in a room than when you ask it directly in a terminal, and it gets slower over time.

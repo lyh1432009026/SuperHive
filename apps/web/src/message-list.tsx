@@ -95,6 +95,7 @@ export function MessageList({
   setRetryModelFor,
   localAgentFor,
   openAgentTerminal,
+  openProxySettings,
   canViewWorkspace,
   openWorkspaceFor,
 }: {
@@ -129,6 +130,8 @@ export function MessageList({
   setRetryModelFor: Dispatch<SetStateAction<Invocation | undefined>>;
   localAgentFor: (name: string) => LocalAgent | undefined;
   openAgentTerminal: (agent: LocalAgent) => Promise<void>;
+  /** 设置 → 这台电脑 → 网络代理：本机 Agent 连不上模型服务时的入口 */
+  openProxySettings?: (() => void) | undefined;
   canViewWorkspace: boolean;
   openWorkspaceFor: (agent: string) => void;
 }) {
@@ -315,6 +318,7 @@ export function MessageList({
                     setRetryModelFor={setRetryModelFor}
                     localAgentFor={localAgentFor}
                     openAgentTerminal={openAgentTerminal}
+                    openProxySettings={openProxySettings}
                     canViewWorkspace={canViewWorkspace}
                     openWorkspaceFor={openWorkspaceFor}
                   />
@@ -491,6 +495,7 @@ function MessageItem({
   setRetryModelFor,
   localAgentFor,
   openAgentTerminal,
+  openProxySettings,
   canViewWorkspace,
   openWorkspaceFor,
 }: {
@@ -525,6 +530,8 @@ function MessageItem({
   setRetryModelFor: Dispatch<SetStateAction<Invocation | undefined>>;
   localAgentFor: (name: string) => LocalAgent | undefined;
   openAgentTerminal: (agent: LocalAgent) => Promise<void>;
+  /** 设置 → 这台电脑 → 网络代理：本机 Agent 连不上模型服务时的入口 */
+  openProxySettings?: (() => void) | undefined;
   canViewWorkspace: boolean;
   openWorkspaceFor: (agent: string) => void;
 }) {
@@ -774,6 +781,12 @@ function MessageItem({
             onJump={jumpToMessage}
             onRetry={(invocation) => retryInvocation(invocation)}
             onRetryWithModel={isOwner ? setRetryModelFor : undefined}
+            onOpenProxySettings={
+              isOwner && openProxySettings
+                ? (invocation) =>
+                    localAgentFor(invocation.agentName) ? openProxySettings : undefined
+                : undefined
+            }
             onCancel={cancelInvocation}
             onDismiss={(invocation) => dismissInvocations([invocation])}
             onExtend={extendAgentBudget}

@@ -106,6 +106,7 @@ import { MANAGE_GRANT_MS, registerLocalAgentRoutes } from "./local-routes.js";
 import type { RuntimeCredentialStore } from "./runtime-credentials.js";
 import type { AgentCliManager } from "./agent-clis.js";
 import { KeepAwake } from "./keep-awake.js";
+import { NetworkProxy, type StoredNetworkProxy, type SystemProxyReader } from "./network-proxy.js";
 import { OwnerDevices, isOwnerDeviceToken } from "./owner-devices.js";
 import { HostApprovals, type HostApproval } from "./host-approvals.js";
 import { checkLocalRequest } from "./local-access.js";
@@ -198,6 +199,11 @@ export type BuildAppOptions = {
   imDrivers?: Partial<Record<ImChannel, ImChannelDriver>>;
   /** 熄屏后保持在线（macOS 起 caffeinate）；测试里默认关闭，避免真的阻止睡眠 */
   keepAwake?: boolean;
+  /**
+   * 本机 Agent 的网络代理；测试里默认关闭（免得读到跑测试的机器的系统代理和环境变量），
+   * 传对象打开并注入系统代理和环境
+   */
+  networkProxy?: false | { readSystem?: SystemProxyReader; env?: () => NodeJS.ProcessEnv };
   /** 运行时全局配置里的地址和密钥；省略即不提供（测试默认关闭，免得读写真实的 ~/.claude、~/.codex），由 index.ts 注入 */
   runtimeCredentials?: RuntimeCredentialStore;
   /** 本机 Agent CLI 的检测与升级；省略即不提供（测试默认关闭，免得真的跑登录 shell、查 npm），由 index.ts 注入 */
@@ -696,9 +702,31 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     return false;
   }
 
+  /* ---------- 网络代理：本机 Agent 子进程的代理环境变量 ---------- */
+  const networkProxyOptions = options.networkProxy ?? (process.env.VITEST ? false : ({} as const));
+  const networkProxy =
+    options.localAgents && !sandbox && networkProxyOptions
+      ? new NetworkProxy({
+          load: () => {
+            try {
+              const raw = database.getSetting("networkProxy");
+              return raw ? (JSON.parse(raw) as StoredNetworkProxy) : undefined;
+            } catch {
+              return undefined;
+            }
+          },
+          save: (settings) => database.setSetting("networkProxy", JSON.stringify(settings)),
+          env: networkProxyOptions.env ?? (() => process.env),
+          ...(networkProxyOptions.readSystem ? { readSystem: networkProxyOptions.readSystem } : {}),
+          serverUrl: options.localAgents.serverUrl,
+          ...(options.now ? { now: options.now } : {}),
+        })
+      : undefined;
+
   const localAgents =
     options.localAgents && !sandbox
       ? new LocalAgentSupervisor({
+          proxyEnv: () => networkProxy?.plan().patch,
           ...options.localAgents,
           database,
           joinToken,
@@ -1025,6 +1053,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       state: () => keepAwake?.state(),
       update: (patch) => keepAwake?.update(patch),
     },
+    ...(networkProxy ? { networkProxy } : {}),
   });
 
   /* ---------- 访问控制：房主（join token）与限时访客 ---------- */

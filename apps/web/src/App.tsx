@@ -1033,6 +1033,25 @@ export function App({
     window.requestAnimationFrame(() => focusShortcut(10));
   }, []);
 
+  /** 调用状态里的「可能需要配置代理」：打开设置「这台电脑」，定位到「网络代理」 */
+  const openProxySettings = useCallback(() => {
+    setSettingsTab("computer");
+    setSettingsOpen(true);
+    const focusProxy = (tries: number) => {
+      const target = document.querySelector<HTMLElement>(
+        '#settings-network-proxy [role="radio"][aria-checked="true"]',
+      );
+      if (target) {
+        window.setTimeout(() => {
+          target.scrollIntoView({ block: "center" });
+          target.focus({ preventScroll: true });
+        }, 30);
+      } else if (tries > 0) window.requestAnimationFrame(() => focusProxy(tries - 1));
+    };
+    // 网络代理的设置要先从 Server 读回来才显示，多等几帧
+    window.requestAnimationFrame(() => focusProxy(60));
+  }, []);
+
   useEffect(() => {
     if (!userMenuOpen) return;
     const closeOnOutside = (event: MouseEvent) => {
@@ -2251,6 +2270,7 @@ export function App({
                 setRetryModelFor={setRetryModelFor}
                 localAgentFor={localAgentFor}
                 openAgentTerminal={openAgentTerminal}
+                {...(local.enabled ? { openProxySettings } : {})}
                 canViewWorkspace={canViewWorkspace}
                 openWorkspaceFor={openWorkspaceFor}
               />

@@ -51,7 +51,11 @@ export const settingsTabs: Array<{ id: SettingsTab; label: string; description: 
     { id: "chat", label: t("聊天与输入"), description: t("发送、草稿与时间") },
     { id: "notifications", label: t("通知"), description: t("提及、声音与状态") },
     { id: "appearance", label: t("外观"), description: t("语言、主题、密度与字号") },
-    { id: "computer", label: t("这台电脑"), description: t("本机 Agent、熄屏后保持在线") },
+    {
+      id: "computer",
+      label: t("这台电脑"),
+      description: t("本机 Agent、网络代理、熄屏后保持在线"),
+    },
     { id: "runtimes", label: t("Agent 运行时"), description: t("CLI 升级与配置") },
   ]);
 

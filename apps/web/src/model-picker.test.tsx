@@ -149,3 +149,49 @@ describe("换个模型重试", () => {
     expect(onRetry).toHaveBeenCalledWith("claude-opus-5-5", "");
   });
 });
+
+describe("可能需要配置代理", () => {
+  it("links network failures of local agents to the proxy settings", () => {
+    const open = vi.fn();
+    const onOpenProxySettings = vi.fn((invocation: Invocation) =>
+      invocation.agentName === "rd-codex" ? open : undefined,
+    );
+    const { rerender } = render(
+      <InvocationChips
+        {...chipProps}
+        invocations={[{ ...failed, failure: "network" }]}
+        onOpenProxySettings={onOpenProxySettings}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "@rd-codex 连不上模型服务，打开网络代理设置" }),
+    );
+    expect(open).toHaveBeenCalled();
+    // 自动重试等网络恢复时也给
+    rerender(
+      <InvocationChips
+        {...chipProps}
+        invocations={[{ ...failed, status: "running", failure: "network" }]}
+        onOpenProxySettings={onOpenProxySettings}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /打开网络代理设置/ })).toBeTruthy();
+    // 别的失败原因、远程 Agent（拿不到处理函数）都不给
+    rerender(
+      <InvocationChips
+        {...chipProps}
+        invocations={[{ ...failed, failure: "auth" }]}
+        onOpenProxySettings={onOpenProxySettings}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /打开网络代理设置/ })).toBeNull();
+    rerender(
+      <InvocationChips
+        {...chipProps}
+        invocations={[{ ...failed, agentName: "remote", failure: "network" }]}
+        onOpenProxySettings={onOpenProxySettings}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /打开网络代理设置/ })).toBeNull();
+  });
+});
