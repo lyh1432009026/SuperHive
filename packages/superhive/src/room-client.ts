@@ -68,6 +68,8 @@ export type RoomClientHandlers = {
     resume?: boolean,
     /** 人点「换个模型重试」时选的思考强度：只对这一次生效 */
     effort?: string,
+    /** 服务端标的这条提及落在哪一道会话（Invocation.laneKey）；老服务端没有 */
+    laneKey?: string,
   ) => void;
   onCancel?: (messageId: string, turn?: string[]) => void;
   /** 人批了 / 拒了执行中申请的权限 */
@@ -374,6 +376,7 @@ export class RoomClient {
         event.model,
         event.resume === true,
         event.effort,
+        event.laneKey,
       );
       return;
     }

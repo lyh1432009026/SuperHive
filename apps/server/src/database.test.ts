@@ -331,6 +331,83 @@ describe("HiveDatabase", () => {
     expect(db.listPendingContinuations()).toEqual([]);
   });
 
+  it("assigns session lanes: delegations open a lane, rework and receipts reuse it", () => {
+    const ask = (sender: Participant, content: string, extra: Record<string, unknown> = {}) =>
+      db.createMessage(sender, { content, clientMessageId: `c-${content}`, ...extra }).message;
+    const root = ask(human, "@agent-a build it");
+    const lead = db.createInvocation({ message: root, agent: agentA, status: "queued" }).invocation;
+    expect(lead.laneKey).toBe("main");
+
+    const delegation = ask(agentA, "@agent-b part 1", {
+      parentMessageId: root.id,
+      kind: "delegation",
+    });
+    const sub = db.createInvocation({
+      message: delegation,
+      agent: agentB,
+      status: "queued",
+      parentInvocationId: lead.id,
+    }).invocation;
+    expect(sub.laneKey).toBe(sub.id);
+
+    // 子任务回执回到委派方自己那一道（主道）
+    const receipt = ask(agentB, "@agent-a receipt", {
+      parentMessageId: delegation.id,
+      kind: "receipt",
+    });
+    const back = db.createInvocation({
+      message: receipt,
+      agent: agentA,
+      status: "queued",
+      parentInvocationId: sub.id,
+    }).invocation;
+    expect(back.laneKey).toBe("main");
+
+    // 委派方接着同一件活再派「返修」：沿用子任务原来那一道
+    const rework = ask(agentA, "@agent-b fix it", {
+      parentMessageId: receipt.id,
+      kind: "delegation",
+    });
+    const again = db.createInvocation({
+      message: rework,
+      agent: agentB,
+      status: "queued",
+      parentInvocationId: back.id,
+    }).invocation;
+    expect(again.laneKey).toBe(sub.id);
+
+    // 人另起一件活，再派出去的是新的一道
+    const other = ask(human, "@agent-a another thing");
+    const lead2 = db.createInvocation({
+      message: other,
+      agent: agentA,
+      status: "queued",
+    }).invocation;
+    const fresh = db.createInvocation({
+      message: ask(agentA, "@agent-b part 2", { parentMessageId: other.id, kind: "delegation" }),
+      agent: agentB,
+      status: "queued",
+      parentInvocationId: lead2.id,
+    }).invocation;
+    expect(fresh.laneKey).toBe(fresh.id);
+
+    // 人直接回复子任务里 Agent 发的消息：进那一道
+    const delivered = ask(agentB, "done part 1", { parentMessageId: delegation.id });
+    const followUp = db.createInvocation({
+      message: ask(human, "@agent-b tweak", { replyToMessageId: delivered.id }),
+      agent: agentB,
+      status: "queued",
+    }).invocation;
+    expect(followUp.laneKey).toBe(sub.id);
+    // 普通 @ 是主道
+    const plain = db.createInvocation({
+      message: ask(human, "@agent-b hi"),
+      agent: agentB,
+      status: "queued",
+    }).invocation;
+    expect(plain.laneKey).toBe("main");
+  });
+
   it("keeps the usage ledger across retries and room clears, and splits it by agent, day and model", () => {
     const usage = (model: string, write: number, read: number) => ({
       model,

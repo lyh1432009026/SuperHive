@@ -95,6 +95,8 @@ export type Invocation = {
   attempts: number;
   /** 人已收起（标为已处理）或被后来的结果取代：这类调用不再自动重跑 */
   resolution?: { kind: string };
+  /** 落在 Agent 的哪一道会话：main 或开启这件子任务的委派调用 ID；老服务端没有 */
+  laneKey?: string;
 };
 
 export type WhiteboardEntry = {
@@ -224,6 +226,8 @@ export type ServerEvent =
       model?: string;
       /** 人点「换个模型重试」选的思考强度：只对这一次生效 */
       effort?: string;
+      /** 这条提及落在哪一道会话（Invocation.laneKey） */
+      laneKey?: string;
       /** 人对一次中途中断点了「继续」：接着原会话核对现状再往下做 */
       resume?: boolean;
     }

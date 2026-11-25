@@ -199,6 +199,7 @@ type InvocationRow = {
   reply_message_id: string | null;
   parent_invocation_id: string | null;
   continuation: InvocationContinuation | null;
+  lane_key?: string | null;
   attempts: number;
   created_at: string;
   updated_at: string;
@@ -518,6 +519,7 @@ function mapInvocation(row: InvocationRow): Invocation {
     requesterType: row.requester_type,
     ...(row.parent_invocation_id ? { parentInvocationId: row.parent_invocation_id } : {}),
     ...(row.continuation ? { continuation: row.continuation } : {}),
+    ...(row.lane_key ? { laneKey: row.lane_key } : {}),
     status: row.status,
     ...(row.block_reason ? { blockReason: row.block_reason } : {}),
     ...(row.detail ? { detail: row.detail } : {}),
@@ -913,6 +915,10 @@ export class HiveDatabase {
       // 委派关系与子任务回执状态（见 Invocation.parentInvocationId / continuation）
       this.db.exec("ALTER TABLE invocations ADD COLUMN parent_invocation_id TEXT");
       this.db.exec("ALTER TABLE invocations ADD COLUMN continuation TEXT");
+    }
+    if (!invocationColumns.some((column) => column.name === "lane_key")) {
+      // 这次调用属于 Agent 的哪一道会话（见 Invocation.laneKey）；老数据为空，按主道处理
+      this.db.exec("ALTER TABLE invocations ADD COLUMN lane_key TEXT");
     }
     const messageColumns = this.db.pragma("table_info(messages)") as Array<{ name: string }>;
     if (!messageColumns.some((column) => column.name === "deleted_at")) {
@@ -1553,8 +1559,8 @@ export class HiveDatabase {
         `INSERT INTO invocations(
           id, room_id, message_id, agent_id, agent_name, requester_id, requester_name,
           requester_type, status, block_reason, detail, detail_text, parent_invocation_id,
-          continuation, attempts, created_at, updated_at
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+          continuation, lane_key, attempts, created_at, updated_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
       )
       .run(
         id,
@@ -1570,10 +1576,63 @@ export class HiveDatabase {
         ...detailColumns(input.detail ?? null),
         input.parentInvocationId ?? null,
         input.continuation ?? null,
+        this.laneFor(id, input.message, input.agent.id, input.parentInvocationId),
         now,
         now,
       );
     return { invocation: this.getInvocation(id)!, created: true };
+  }
+
+  /**
+   * 新调用落在 Agent 的哪一道会话（docs/research/task-scoped-sessions.md 1.1）：
+   * 委派开一道新的（同一请求方在同一件上游的活里再派来的返修、补充，沿用之前那道）；
+   * 回执、回复唤醒沿用委派链上这个 Agent 自己那件活的道；人回复了某道里 Agent 发的消息，进那一道；
+   * 其余是主道 main。
+   */
+  private laneFor(
+    id: string,
+    message: ChatMessage,
+    agentId: string,
+    parentInvocationId: string | undefined,
+  ): string {
+    const parent = parentInvocationId ? this.getInvocation(parentInvocationId) : undefined;
+    if (message.kind === "delegation") {
+      if (!parent || !message.senderId) return id;
+      const root = this.workRoot(parent);
+      const rows = this.db
+        .prepare(
+          `SELECT i.* FROM invocations i JOIN messages m ON m.id = i.message_id
+             WHERE i.agent_id = ? AND i.requester_id = ? AND m.kind = 'delegation'
+               AND i.lane_key IS NOT NULL AND i.parent_invocation_id IS NOT NULL
+             ORDER BY i.created_at DESC, i.rowid DESC LIMIT 20`,
+        )
+        .all(agentId, message.senderId) as InvocationRow[];
+      for (const row of rows) {
+        const previous = this.getInvocation(row.parent_invocation_id!);
+        if (previous && this.workRoot(previous) === root) return row.lane_key!;
+      }
+      return id;
+    }
+    if (parent) {
+      for (const invocation of [parent, ...this.invocationAncestors(parent.id)]) {
+        if (invocation.agentId === agentId) return invocation.laneKey ?? "main";
+      }
+    }
+    if (message.senderType === "human") {
+      for (const target of [message.replyToMessageId, message.parentMessageId]) {
+        const replied = target ? this.getMessage(target) : undefined;
+        if (!replied || replied.senderId !== agentId || !replied.parentMessageId) continue;
+        const lane = this.getInvocationFor(replied.parentMessageId, agentId)?.laneKey;
+        if (lane) return lane;
+      }
+    }
+    return "main";
+  }
+
+  /** 这次调用所在那件活的起点：沿委派链往上，走到这个 Agent 接的委派为止 */
+  private workRoot(invocation: Invocation): string {
+    const chain = this.workAncestors(invocation.id);
+    return (chain.at(-1) ?? invocation).id;
   }
 
   getInvocation(id: string): Invocation | undefined {

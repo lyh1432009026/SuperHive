@@ -588,6 +588,11 @@ export const invocationSchema = z.object({
    * failed=回执无法投递（例如链条已到深度上限）。
    */
   continuation: z.enum(["pending", "delivered", "consumed", "failed"]).optional(),
+  /**
+   * 这次调用落在 Agent 的哪一道会话：main=房间主对话；别的值是开启这件活的那次委派的调用 ID。
+   * Bridge 按它把子任务放进单独的会话；老服务端没有这一项，一律按 main 处理。
+   */
+  laneKey: z.string().min(1).max(64).optional(),
   status: invocationStatusSchema,
   blockReason: invocationBlockReasonSchema.optional(),
   detail: z.string().max(500).optional(),
@@ -930,6 +935,8 @@ export const agentMentionedEventSchema = z.object({
   effort: reasoningEffortSchema.optional(),
   /** 人对一次中途中断（结果未知、上游出错）点了「继续」：接着原会话核对现状再往下做，不从头重做 */
   resume: z.boolean().optional(),
+  /** 这条提及落在 Agent 的哪一道会话（见 Invocation.laneKey）；没有时按 main */
+  laneKey: z.string().min(1).max(64).optional(),
 });
 /** 本机 Hive Server 请它拉起的 Agent 自行退出（Windows 上没有可用的结束信号，信号一律是强制结束） */
 export const agentShutdownEventSchema = z.object({

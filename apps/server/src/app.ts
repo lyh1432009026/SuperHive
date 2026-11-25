@@ -1669,9 +1669,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   ): void {
     const target = onlineAgent(message.roomId, agent.username);
     if (!target) return;
+    const laneKey = database.getInvocationFor(message.id, agent.id)?.laneKey;
     send(target.socket, {
       type: "agent.mentioned",
       message,
+      ...(laneKey ? { laneKey } : {}),
       latestSeq: database.latestSeq(message.roomId),
       ...(retry ? { retry: true } : {}),
       ...(model ? { model } : {}),

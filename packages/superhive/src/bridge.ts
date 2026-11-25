@@ -46,7 +46,7 @@ import {
   type RoomClientHandlers,
   type Snapshot,
 } from "./room-client.js";
-import { StateStore, type AgentState } from "./state-store.js";
+import { StateStore, type AgentState, type ParkedSession } from "./state-store.js";
 import { isIrreversibleStep, isMutatingStep, sanitizeTraceStep } from "./trace.js";
 import { CLAUDE_COMPACT_WINDOW_DEFAULT, readAgentSettings } from "./mcp-servers.js";
 import { failurePolicy, type FailureKind } from "./failure.js";
@@ -191,6 +191,8 @@ type ActiveBatch = {
   /** Provider 回合仍在进行、可以吸收 steer；回合结束后新消息改为排队 */
   accepting: boolean;
   workspace: string | undefined;
+  /** 这一轮所在的道（见 laneOf）：引导只插同一道的消息 */
+  lane: string;
   /** 这一轮做过可能有副作用的操作（改文件、跑非只读命令、发消息……）：中断后不自动继续 */
   mutated?: boolean;
   /** 这一轮做过的可能有改动的步骤：出错后接着做时交给下一轮 */
@@ -223,8 +225,10 @@ function formatTokens(tokens: number): string {
 }
 
 const MAX_ATTEMPTS = 3;
-/** 换任务目录时最多收起几段会话（每个目录一段），多了丢掉最早收起的 */
-const MAX_PARKED_SESSIONS = 8;
+/** 最多收起几段会话（每个目录 + 道一段），多了先丢最早收起的子任务道 */
+const MAX_PARKED_SESSIONS = 16;
+/** 房间主对话所在的那一道；子任务各自一道（键是开启它的那次委派的调用 ID） */
+export const MAIN_LANE = "main";
 /** 这些 Provider 续接会话时不会换上新的系统 / 开发者规则（ACP 等由 refreshInstructions 重新注入） */
 const RESUMED_SYSTEM_PROMPT_PROVIDERS = new Set(["claude", "codex"]);
 /**
@@ -279,7 +283,14 @@ export class AgentBridge {
   private readonly crashResumable = new Map<string, number>();
   /** 中断前改过东西、接着原会话继续的提及：交给下一轮的步骤清单 */
   /** 刚接回的会话没看到的消息范围（见 switchSession） */
-  private sessionGap: { threadId: string; afterSeq: number; untilSeq: number } | undefined;
+  private sessionGap:
+    { threadId: string; afterSeq: number; untilSeq: number; lane: string } | undefined;
+  /** 刚为子任务开了新会话的那一道（见 takeFreshLaneNote） */
+  private freshLane: string | undefined;
+  /** 服务端标的每条提及落在哪一道会话（Invocation.laneKey） */
+  private readonly laneKeys = new Map<string, string>();
+  /** HIVE_TASK_LANES=0 关掉分道：所有消息都在一段会话里，和以前一样 */
+  private readonly lanesEnabled = process.env.HIVE_TASK_LANES !== "0";
   private readonly crashNotes = new Map<
     string,
     {
@@ -413,7 +424,19 @@ export class AgentBridge {
       },
       {
         onSnapshot: (snapshot) => this.onSnapshot(snapshot),
-        onMention: (message, _latestSeq, retry, steer, first, lead, model, resume, effort) => {
+        onMention: (
+          message,
+          _latestSeq,
+          retry,
+          steer,
+          first,
+          lead,
+          model,
+          resume,
+          effort,
+          laneKey,
+        ) => {
+          if (laneKey) this.laneKeys.set(message.id, laneKey);
           if (lead) this.leadMessages.add(message.id);
           else this.leadMessages.delete(message.id);
           // 人对一次中途中断点了「继续」：提示 Agent 接着原会话核对现状再往下做，不从头重做
@@ -547,6 +570,9 @@ export class AgentBridge {
   private async recoverInterruptedExecution(): Promise<void> {
     const inflight = this.state.inflight;
     if (!inflight) return;
+    // 接着做时回到原来那一道（服务端快照里的 laneKey 到了也会是同一个）
+    if (inflight.laneKey)
+      for (const messageId of inflight.messageIds) this.laneKeys.set(messageId, inflight.laneKey);
     const pids = inflight.runtimePids ?? [];
     const deadline = Date.now() + this.tuning.runtimeExitGraceMs;
     while (anyProcessAlive(pids) && Date.now() < deadline) {
@@ -692,6 +718,9 @@ export class AgentBridge {
     if (!this.stateExisted) {
       // 首次加入不回放历史聊天，但服务端仍为本 Agent 挂着的 queued 调用要接着做，
       // 否则这些 @ 永远没人处理，最后被扫成"结果未知"
+      for (const invocation of snapshot.invocations ?? [])
+        if (invocation.agentId === this.ownParticipantId && invocation.laneKey)
+          this.laneKeys.set(invocation.messageId, invocation.laneKey);
       const queued = new Set(
         (snapshot.invocations ?? [])
           .filter(
@@ -718,7 +747,9 @@ export class AgentBridge {
     }
     const known = new Map<string, Invocation>();
     for (const invocation of snapshot.invocations ?? []) {
-      if (invocation.agentId === this.ownParticipantId) known.set(invocation.messageId, invocation);
+      if (invocation.agentId !== this.ownParticipantId) continue;
+      known.set(invocation.messageId, invocation);
+      if (invocation.laneKey) this.laneKeys.set(invocation.messageId, invocation.laneKey);
     }
     const missed = await this.room.fetchMessages(this.state.lastProcessedSeq);
     // 先把上次进程退出时可以安全重跑的排回队里：它们算作本地在办，下面就不会被当成「已不在进行」
@@ -779,7 +810,7 @@ export class AgentBridge {
     }
     // 人要求引导：已经在排队的从队里拿出来用来引导当前任务；不能插就留在队里并说明原因
     if (options.steer && this.pending.some((item) => item.id === message.id)) {
-      if (this.canSteer()) {
+      if (this.canSteer(message)) {
         this.pending.splice(
           this.pending.findIndex((item) => item.id === message.id),
           1,
@@ -826,7 +857,7 @@ export class AgentBridge {
     this.room.report({ messageId: message.id, status: "received" });
     // 默认排队；只有人明确要求（引导当前任务、发送并引导、Agent 开了自动引导）才插进正在执行的这一轮
     if (options.steer) {
-      if (this.canSteer()) {
+      if (this.canSteer(message)) {
         void this.steerIntoActive(this.active!, message);
         return;
       }
@@ -838,9 +869,13 @@ export class AgentBridge {
   }
 
   /** 有正在执行、还能吸收新消息的一轮，而且这个运行时支持引导 */
-  private canSteer(): boolean {
+  private canSteer(message?: ChatMessage): boolean {
     return Boolean(
-      this.active?.accepting && this.responder.steer && !this.active.controller.signal.aborted,
+      this.active?.accepting &&
+      this.responder.steer &&
+      !this.active.controller.signal.aborted &&
+      // 只插进同一道的那一轮：别的道的消息要在自己的会话里做
+      (!message || this.laneOf(message.id) === this.active.lane),
     );
   }
 
@@ -909,6 +944,7 @@ export class AgentBridge {
   private async selectTaskWorkspace(
     messageId: string,
     prepared?: { path: TaskWorkspaceSelection },
+    lane = this.currentLane(),
   ): Promise<boolean> {
     const runtime = this.options.taskWorkspace;
     if (!runtime || !this.defaultCwd) return false;
@@ -929,7 +965,8 @@ export class AgentBridge {
         access: this.options.access ?? "read-only",
       });
     }
-    if (selected !== this.state.workspace) this.switchSession(selected);
+    if (selected !== this.state.workspace || lane !== this.currentLane())
+      this.switchSession(selected, lane);
     this.instructions = buildDeveloperInstructions({
       agentName: this.options.username,
       persona: this.options.persona,
@@ -941,18 +978,35 @@ export class AgentBridge {
     return changed;
   }
 
+  /** 这条消息落在哪一道会话：服务端标的 laneKey；关掉分道或老服务端一律是主道 */
+  private laneOf(messageId: string): string {
+    if (!this.lanesEnabled) return MAIN_LANE;
+    return this.laneKeys.get(messageId) ?? MAIN_LANE;
+  }
+
+  /** 当前会话所在的那一道 */
+  private currentLane(): string {
+    return this.state.lane ?? MAIN_LANE;
+  }
+
   /**
-   * 换任务目录时换会话：原目录的会话先收起来，要去的目录以前有会话就接回，没有才从新会话开始。
-   * 这样进任务目录做完、再回房间工作区时，原来那段对话还在（以前会整段丢掉）。
+   * 换会话：换任务目录或换到另一道（子任务）时，原来那段会话先收起来；要去的目录 + 道以前有会话就接回，
+   * 没有才从新会话开始。这样进任务目录做完、再回房间工作区时，原来那段对话还在；
+   * 子任务在自己的会话里做，不把房间主对话越拉越长。
    */
-  private switchSession(workspace: string): void {
+  private switchSession(workspace: string | undefined, lane = this.currentLane()): void {
     const state = this.state;
+    const from = { workspace: state.workspace ?? "", lane: this.currentLane() };
+    const to = { workspace: workspace ?? "", lane };
+    const same = (item: ParkedSession, key: { workspace: string; lane: string }) =>
+      item.workspace === key.workspace && (item.lane ?? MAIN_LANE) === key.lane;
     const parked = (state.parkedSessions ?? []).filter(
-      (item) => item.workspace !== workspace && item.workspace !== state.workspace,
+      (item) => !same(item, to) && !same(item, from),
     );
-    if (state.threadId && state.workspace) {
+    if (state.threadId) {
       parked.push({
-        workspace: state.workspace,
+        workspace: from.workspace,
+        ...(from.lane !== MAIN_LANE ? { lane: from.lane } : {}),
         threadId: state.threadId,
         seenSeq: state.lastProcessedSeq,
         ...(state.topicSeq !== undefined ? { topicSeq: state.topicSeq } : {}),
@@ -969,12 +1023,20 @@ export class AgentBridge {
         ...(state.sessionCost?.threadId === state.threadId
           ? { sessionCost: state.sessionCost }
           : {}),
+        ...(state.sessionStats?.threadId === state.threadId
+          ? { sessionStats: state.sessionStats }
+          : {}),
       });
     }
     const restore = (state.parkedSessions ?? []).find(
-      (item) => item.workspace === workspace && item.topicSeq === state.topicSeq,
+      (item) => same(item, to) && item.topicSeq === state.topicSeq,
     );
-    state.parkedSessions = parked.slice(-MAX_PARKED_SESSIONS);
+    // 主道的会话最珍贵：超出上限时先丢最早收起的子任务道
+    while (parked.length > MAX_PARKED_SESSIONS) {
+      const index = parked.findIndex((item) => (item.lane ?? MAIN_LANE) !== MAIN_LANE);
+      parked.splice(index >= 0 ? index : 0, 1);
+    }
+    state.parkedSessions = parked;
     if (state.parkedSessions.length === 0) delete state.parkedSessions;
     delete state.threadId;
     delete state.promptContext;
@@ -983,10 +1045,17 @@ export class AgentBridge {
     delete state.lastTurnEndedAt;
     delete state.lastRequestAt;
     delete state.lastCacheTtlMs;
+    delete state.sessionStats;
     state.briefTurns = 0;
-    state.workspace = workspace;
+    if (workspace !== undefined) state.workspace = workspace;
+    if (lane === MAIN_LANE) delete state.lane;
+    else state.lane = lane;
     this.sessionGap = undefined;
-    if (!restore) return;
+    this.freshLane = undefined;
+    if (!restore) {
+      if (lane !== MAIN_LANE) this.freshLane = lane;
+      return;
+    }
     state.threadId = restore.threadId;
     if (restore.promptContext) state.promptContext = restore.promptContext;
     if (restore.instructionsDigest) state.instructionsDigest = restore.instructionsDigest;
@@ -996,12 +1065,18 @@ export class AgentBridge {
     if (restore.lastRequestAt) state.lastRequestAt = restore.lastRequestAt;
     if (restore.lastCacheTtlMs !== undefined) state.lastCacheTtlMs = restore.lastCacheTtlMs;
     if (restore.sessionCost) state.sessionCost = restore.sessionCost;
-    this.log(`[hive] 回到 ${workspace}，接回之前在这里的会话`);
+    if (restore.sessionStats) state.sessionStats = restore.sessionStats;
+    this.log(
+      lane === MAIN_LANE
+        ? `[hive] 回到 ${to.workspace || "工作目录"}，接回之前在这里的会话`
+        : `[hive] 接回子任务 ${lane.slice(0, 8)} 的会话`,
+    );
     if (restore.seenSeq < state.lastProcessedSeq)
       this.sessionGap = {
         threadId: restore.threadId,
         afterSeq: restore.seenSeq,
         untilSeq: state.lastProcessedSeq,
+        lane,
       };
   }
 
@@ -1011,7 +1086,17 @@ export class AgentBridge {
     this.sessionGap = undefined;
     if (!gap || gap.threadId !== this.state.threadId) return undefined;
     const args = JSON.stringify({ afterSeq: gap.afterSeq });
-    return `（系统提示）这是你之前在当前工作目录里的那段对话，已接回。之后你在别的任务目录里处理过一些消息（#${gap.afterSeq + 1}～#${gap.untilSeq} 之间），那些对话不在这里；下面只附上新消息。需要了解当时做了什么时，用 hive_room_read(${args}) 补读。`;
+    if (gap.lane !== MAIN_LANE)
+      return `（系统提示）这是你之前处理这件子任务时的那段对话，已接回。之后你在房间主对话或别的子任务里处理过一些消息（#${gap.afterSeq + 1}～#${gap.untilSeq} 之间），那些不在这里；下面只附上新消息。需要时用 hive_room_read(${args}) 补读。`;
+    return `（系统提示）这是你之前在当前工作目录里的那段对话，已接回。之后你在别的任务目录或子任务里处理过一些消息（#${gap.afterSeq + 1}～#${gap.untilSeq} 之间），那些对话不在这里；下面只附上新消息。需要了解当时做了什么时，用 hive_room_read(${args}) 补读。`;
+  }
+
+  /** 刚为一件子任务开了单独的会话：这一轮开头说明它看不到房间主对话，只说一次 */
+  private takeFreshLaneNote(): string | undefined {
+    const lane = this.freshLane;
+    this.freshLane = undefined;
+    if (!lane || lane !== this.currentLane() || this.state.threadId) return undefined;
+    return `（系统提示）这是为这件子任务单独开的新对话，看不到你在房间主对话和其它子任务里的上下文。照任务说明做；缺背景时用 hive_room_read 补读相关消息，或在回执里说明需要什么。`;
   }
 
   private reportNotSteered(message: ChatMessage): void {
@@ -1179,6 +1264,10 @@ export class AgentBridge {
         );
         let prepared: { path: TaskWorkspaceSelection } | undefined;
         let count = candidates.length;
+        // 一轮只做同一道的消息：子任务和房间主对话各用各的会话
+        const lane = this.laneOf(first.id);
+        const otherLane = candidates.findIndex((message) => this.laneOf(message.id) !== lane);
+        if (otherLane >= 0) count = otherLane;
         if (this.options.taskWorkspace) {
           try {
             const selections = await this.taskWorkspaces(candidates);
@@ -1322,6 +1411,7 @@ export class AgentBridge {
     this.leadMessages.delete(messageId);
     this.modelOverrides.delete(messageId);
     this.sessionRetried.delete(messageId);
+    this.laneKeys.delete(messageId);
     this.state.processedMessageIds = [
       ...this.state.processedMessageIds.filter((id) => id !== messageId),
       messageId,
@@ -1370,6 +1460,7 @@ export class AgentBridge {
       cancelled: new Set(),
       accepting: false,
       workspace: this.options.cwd,
+      lane: this.laneOf(messages[0]!.id),
       startedAt: Date.now(),
     };
     this.active = active;
@@ -1388,6 +1479,7 @@ export class AgentBridge {
         minSeq: Math.min(...messages.map((message) => message.seq)),
         runtimePids: liveRuntimePids(),
         ...(this.options.cwd ? { cwd: this.options.cwd } : {}),
+        ...(active.lane !== MAIN_LANE ? { laneKey: active.lane } : {}),
       };
       await this.store.save(this.state);
       // 本轮新起的运行时子进程也记下：进程退出后它们可能还在跑
@@ -1501,7 +1593,12 @@ export class AgentBridge {
       }, this.tuning.heartbeatMs);
       heartbeat.unref?.();
 
-      await this.selectTaskWorkspace(messages[0]!.id, preparedWorkspace);
+      await this.selectTaskWorkspace(messages[0]!.id, preparedWorkspace, active.lane);
+      // 没有任务目录的 Agent 也要换道：子任务在自己的会话里做
+      if (this.currentLane() !== active.lane) {
+        this.switchSession(this.state.workspace, active.lane);
+        await this.store.save(this.state);
+      }
       let handoff: string | undefined;
       let handoffSteps: Array<{ summary: string; done: boolean; irreversible?: boolean }> = [];
       let handoffFrom: string | undefined;
@@ -1555,7 +1652,7 @@ export class AgentBridge {
         // 只在第一次开工时说：切到新任务目录之后，新会话里就不需要了
         const workspaceNote = handoff ? undefined : this.takeWorkspaceNote(messages);
         if (workspaceNote) prompt = { ...prompt, text: `${workspaceNote}\n\n${prompt.text}` };
-        const gapNote = this.takeSessionGapNote();
+        const gapNote = this.takeSessionGapNote() ?? this.takeFreshLaneNote();
         if (gapNote) prompt = { ...prompt, text: `${gapNote}\n\n${prompt.text}` };
         if (handoff)
           prompt = {

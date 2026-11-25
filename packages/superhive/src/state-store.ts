@@ -9,6 +9,11 @@ export type AgentState = {
   roomId: string;
   username: string;
   threadId?: string;
+  /**
+   * 当前会话属于哪一道（见 docs/research/task-scoped-sessions.md）：没有就是房间主对话 main，
+   * 否则是开启那件子任务的委派调用 ID。别的道的会话收在 parkedSessions 里。
+   */
+  lane?: string;
   lastProcessedSeq: number;
   processedMessageIds: string[];
   /**
@@ -31,6 +36,8 @@ export type AgentState = {
     cwd?: string;
     /** 本轮做过的可能有改动的步骤（最多 20 条）：中断后交给接着做的那一轮，提醒它别重复、先核对 */
     steps?: Array<{ summary: string; done: boolean; irreversible?: boolean }>;
+    /** 这一轮所在的道：中断后接着做时回到原来那一道 */
+    laneKey?: string;
   };
   /** 中断后转给人决定的提及：当时记下的改动步骤，人点「继续」时交给 Agent（最多留 50 条） */
   interruptedSteps?: Record<
@@ -66,6 +73,8 @@ export type AgentState = {
   lastCacheTtlMs?: number;
   /** Runtime 自报的会话累计费用，按会话记录，用来算出每一轮的费用 */
   sessionCost?: { threadId: string; usd: number };
+  /** 当前会话有多长：决定主道要不要换新（见 lane-renewal.ts） */
+  sessionStats?: SessionStats;
   /**
    * 换到别的任务目录时先收起来的会话（每个目录一段，最多 8 段）：回到原目录时接回，
    * 不用丢掉原来那段对话。开了新话题后收起的作废。
@@ -75,7 +84,10 @@ export type AgentState = {
 
 /** 收起来的会话：只留和这段会话绑定的状态，回到原目录时原样放回 */
 export type ParkedSession = {
+  /** 会话所在目录；没有固定工作目录的 Agent 为空字符串 */
   workspace: string;
+  /** 所在的道；没有就是主道 main */
+  lane?: string;
   threadId: string;
   /** 收起时已经处理到的消息位置：接回后告诉 Agent 这之后的消息是在别的目录里处理的 */
   seenSeq: number;
@@ -90,6 +102,16 @@ export type ParkedSession = {
   lastRequestAt?: string;
   lastCacheTtlMs?: number;
   sessionCost?: AgentState["sessionCost"];
+  sessionStats?: SessionStats;
+};
+
+/** 一段会话的长度：运行时报了上下文大小就用它，没报就按发出和收到的字符估算（estimated） */
+export type SessionStats = {
+  threadId: string;
+  contextTokens: number;
+  estimated?: boolean;
+  /** 这段会话已经跑了几轮 */
+  turns: number;
 };
 
 /**

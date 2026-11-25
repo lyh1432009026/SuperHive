@@ -577,6 +577,83 @@ describe("AgentBridge", () => {
     expect(state?.parkedSessions?.map((item) => item.threadId)).toEqual(["room-thread"]);
   });
 
+  it("runs a delegated subtask in its own session lane and keeps the room session", async () => {
+    await startBridge({ ...baseState(), threadId: "room-thread" });
+    const mention = (content: string, laneKey?: string) => {
+      const message = chat({ content });
+      room.messages.push(message);
+      room.handlers.onMention(
+        message,
+        message.seq,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        laneKey,
+      );
+      return message;
+    };
+
+    // 子任务：开一段单独的新会话，并说明它看不到房间主对话
+    const task = mention("@agent-a part 1", "lane-1");
+    await waitUntil(() => responder.calls.length === 1);
+    expect(responder.calls[0]?.threadId).toBeUndefined();
+    expect(responder.calls[0]?.prompt).toContain("单独开的新对话");
+    responder.finish("part 1 done", "sub-thread");
+    await waitUntil(() => room.statuses(task.id).includes("completed"));
+    expect(await store.load()).toMatchObject({ lane: "lane-1", threadId: "sub-thread" });
+
+    // 房间里的人 @：回到主对话那一段
+    const ask = mention("@agent-a status?");
+    await waitUntil(() => responder.calls.length === 2);
+    expect(responder.calls[1]?.threadId).toBe("room-thread");
+    expect(responder.calls[1]?.prompt).not.toContain("单独开的新对话");
+    responder.finish("fine", "room-thread");
+    await waitUntil(() => room.statuses(ask.id).includes("completed"));
+    const state = await store.load();
+    expect(state?.lane).toBeUndefined();
+    expect(state?.parkedSessions).toMatchObject([{ lane: "lane-1", threadId: "sub-thread" }]);
+
+    // 同一件子任务的返修：接回子任务那一段，并说明中间漏看的消息怎么补读
+    const rework = mention("@agent-a fix part 1", "lane-1");
+    await waitUntil(() => responder.calls.length === 3);
+    expect(responder.calls[2]?.threadId).toBe("sub-thread");
+    expect(responder.calls[2]?.prompt).toContain("子任务时的那段对话");
+    responder.finish("fixed", "sub-thread");
+    await waitUntil(() => room.statuses(rework.id).includes("completed"));
+  });
+
+  it("keeps a single session when HIVE_TASK_LANES=0", async () => {
+    vi.stubEnv("HIVE_TASK_LANES", "0");
+    try {
+      await startBridge({ ...baseState(), threadId: "room-thread" });
+      const message = chat({ content: "@agent-a part 1" });
+      room.messages.push(message);
+      room.handlers.onMention(
+        message,
+        message.seq,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "lane-1",
+      );
+      await waitUntil(() => responder.calls.length === 1);
+      expect(responder.calls[0]?.threadId).toBe("room-thread");
+      responder.finish("ok", "room-thread");
+      await waitUntil(() => room.statuses(message.id).includes("completed"));
+      expect((await store.load())?.lane).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("does not pick up a parked session after a new topic started", async () => {
     const checkout = path.join(directory, "checkout");
     let selected: string | undefined = checkout;
