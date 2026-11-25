@@ -39,6 +39,7 @@ import {
   buildSteerPrompt,
   snapshotMembers,
   snapshotWhiteboard,
+  contextBudgetFromEnv,
 } from "./prompt-builder.js";
 import {
   RoomClient,
@@ -2805,6 +2806,7 @@ export class AgentBridge {
       messages: context,
       triggers,
       receiptResults,
+      contextBudgetTokens: contextBudgetFromEnv(),
       mode: full ? "full" : "brief",
       agentName: this.options.username,
       leadMessageIds: triggers

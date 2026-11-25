@@ -296,10 +296,12 @@ describe("long message continuation hints", () => {
       messages: [history, first, second],
       triggers: [first, second],
     });
-    for (const message of [first, second, history])
-      expect(prompt).toContain(`"messageId":"${message.id}"`);
+    for (const message of [first, second]) expect(prompt).toContain(`"messageId":"${message.id}"`);
     expect(prompt.match(/答复前须补读完/g)).toHaveLength(2);
-    expect(prompt).toContain("需要依据这条消息作答时，请补读后文");
+    // 不在必带范围里的长消息只给一行索引，不占预算
+    expect(prompt).toContain(`#${history.seq} id=${history.id} [human:`);
+    expect(prompt).toContain("（全文 4001 字，未附上）");
+    expect(prompt).not.toContain("c".repeat(100));
   });
 
   it("never reveals a recalled trigger's previous body", () => {
@@ -378,5 +380,74 @@ describe("formatPromptTime", () => {
     expect(buildMentionPrompt({ ...base, now: new Date("2026-11-24T11:23:00Z") })).toContain(
       "当前时间：2026-11-24",
     );
+  });
+});
+
+describe("public context budget", () => {
+  const at = (seq: number, overrides: Partial<ChatMessage> = {}) =>
+    chat({
+      id: `00000000-0000-4000-8000-${String(seq).padStart(12, "0")}`,
+      seq,
+      mentions: [],
+      content: `消息${seq} ${"字".repeat(200)}`,
+      ...overrides,
+    });
+
+  it("keeps the newest messages within budget, indexes the next ones and summarises the rest", () => {
+    const history = Array.from({ length: 80 }, (_, index) => at(index + 1));
+    const trigger = at(100, { content: "@agent 看看", mentions: ["agent"] });
+    const prompt = buildMentionPrompt({
+      messages: [...history, trigger],
+      triggers: [trigger],
+      agentName: "agent",
+      contextBudgetTokens: 2_000,
+    });
+    // 最新的完整附上
+    expect(prompt).toContain(`#80 id=${history[79]!.id} [human:Alice] 消息80`);
+    // 装不下的给一行索引
+    expect(prompt).toMatch(/#\d+ id=\S+ \[human:Alice\] 消息\d+ 字+…（全文 \d+ 字，未附上）/);
+    // 再往前只写范围和补读方式
+    expect(prompt).toMatch(
+      /另有 \d+ 条较早消息（#1–#\d+）未附上，需要时 hive_room_read\(\{"afterSeq":0\}\)/,
+    );
+    expect(prompt).not.toContain(`#1 id=${history[0]!.id} [human:Alice] 消息1 `);
+  });
+
+  it("always keeps the trigger's reply chain and messages that mention or answer the agent", () => {
+    const asked = at(1, { content: "@agent 早先的需求", mentions: ["agent"] });
+    const mine = at(2, { senderName: "agent", senderType: "agent", content: "我的问题？" });
+    const answer = at(3, { content: "用方案 B", replyToMessageId: mine.id });
+    const parent = at(4, { content: "上一条" });
+    const filler = Array.from({ length: 60 }, (_, index) => at(10 + index));
+    const trigger = at(200, {
+      content: "@agent 接着做",
+      mentions: ["agent"],
+      replyToMessageId: parent.id,
+    });
+    const prompt = buildMentionPrompt({
+      messages: [asked, mine, answer, parent, ...filler, trigger],
+      triggers: [trigger],
+      agentName: "agent",
+      contextBudgetTokens: 500,
+    });
+    for (const text of ["@agent 早先的需求", "我的问题？", "用方案 B", "上一条"])
+      expect(prompt).toContain(text);
+  });
+
+  it("caps each subtask result and points to the rest", () => {
+    const receipt = chat({ id: "00000000-0000-4000-8000-000000000201", kind: "receipt" });
+    const result = chat({
+      id: "00000000-0000-4000-8000-000000000202",
+      seq: 9,
+      content: "r".repeat(20_000),
+    });
+    const prompt = buildMentionPrompt({
+      messages: [],
+      triggers: [receipt],
+      receiptResults: [{ receiptId: receipt.id, messageId: result.id, result }],
+    });
+    expect(prompt).toContain("r".repeat(16_000));
+    expect(prompt).not.toContain("r".repeat(16_001));
+    expect(prompt).toContain(`"messageId":"${result.id}","offset":16000`);
   });
 });
