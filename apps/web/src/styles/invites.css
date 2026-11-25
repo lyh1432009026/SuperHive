@@ -674,10 +674,13 @@
   min-width: 0;
 }
 
+.model-picker-row > .btn {
+  flex: none;
+}
+
 /* 模型下拉的触发按钮：灰底药丸，和旁边的「刷新」按钮同高 */
 .model-picker-row > .select-trigger {
   height: 32px;
-  flex: 0 0 auto;
   padding: 0 14px;
   border: 0;
   border-radius: var(--radius-pill);
