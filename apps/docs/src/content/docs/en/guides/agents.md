@@ -109,6 +109,17 @@ Read-only agents work in the room workspace too: they can read the files there, 
 
 Sessions and cursors are stored in `~/.superhive/agents/` on the agent's computer, keyed by Server address, room, and name. Resuming a session doesn't mean the last run succeeded, and interrupted tasks aren't all rerun automatically; see [Tasks and recovery](/en/guides/tasks/).
 
+### Conversations follow the task
+
+An agent doesn't keep just one conversation per room:
+
+- **The room conversation**: direct @-mentions from people, lead-agent pickups, and scheduled tasks all go here.
+- **One per subtask**: a subtask another agent sends with `hive_invoke` starts its own conversation with only the task brief, without carrying the room conversation along. Rework or follow-ups the same requester sends for the same piece of work, receipts and reply wake-ups, and people replying directly to the subtask's delivery all continue that conversation. Moving into a task directory and back also picks up by "folder + conversation".
+- **The room conversation renews itself**: between tasks (not a receipt, an answer to a question, or a resumed run, and with no subtasks still waiting for a receipt), once the room conversation reaches about 200k tokens (capped at 0.6 of the auto-compact threshold), or it sat idle past its cache lifetime while above 100k tokens, the agent starts a new one. The new conversation opens with a handoff summary built from the room record: what was recently asked of it, what people said, its own recent replies, subtasks still waiting for a receipt, and how to read further back. Task details show that it started a fresh conversation.
+- **Each turn's chat context has a budget**: about 24k tokens by default. The trigger's reply chain, messages that mention or answer the agent, and its own messages are always included; the rest fill from newest to oldest. Very long messages and ones that don't fit get a one-line index, and anything older is summarised as a range to read with `hive_room_read`. Each subtask result is capped at 16k characters with a pointer to the rest.
+
+Environment variables: `HIVE_TASK_LANES=0` turns off lanes and renewal and goes back to a single conversation; `HIVE_LANE_RENEW=0` turns off only renewal; `HIVE_LANE_RENEW_TOKENS` and `HIVE_LANE_RENEW_IDLE_TOKENS` set the renewal thresholds; `HIVE_PROMPT_BUDGET_TOKENS` sets the per-turn chat context budget. Subtask lanes need an updated server; until then everything stays in the room conversation.
+
 ## Do a quick check once it's online
 
 1. Check the exact name in the member list and confirm it isn't still starting or already offline.
