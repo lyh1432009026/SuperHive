@@ -68,7 +68,8 @@ module.exports = {
     },
   ],
   // TODO(发布)：publishers: [{ name: "@electron-forge/publisher-github", config: { repository: { owner, name }, draft: true } }]
-  // TODO(自动更新)：签名后可用 update-electron-app（update.electronjs.org）或自建更新源
+  // TODO(自动更新)：Windows 不签名也能接 autoUpdater（发版多传 RELEASES 和 -full.nupkg），Mac 要先签名和公证；
+  // 方案见 docs/research/desktop-auto-update.md。现在只做了检查新版并提示（src/update-check.ts）
   plugins: [
     new FusesPlugin({
       version: FuseVersion.V1,

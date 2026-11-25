@@ -60,6 +60,25 @@ export type DesktopFilesApi = {
   }): Promise<{ canceled: boolean; files: DesktopPickedFile[] }>;
 };
 
+/** 桌面端查到的新版（只有展示用的信息，没有链接） */
+export type DesktopUpdateInfo = {
+  version: string;
+  currentVersion: string;
+  publishedAt?: string;
+  /** 发布说明摘要，一条里中英文用「 / 」隔开 */
+  notes: string[];
+  assetName: string;
+  assetSize: number;
+};
+
+/** 新版提示：打开下载地址或发布页时网页只说打开哪个，地址由桌面端自己取 */
+export type DesktopUpdatesApi = {
+  get(): Promise<DesktopUpdateInfo | null>;
+  open(target: "download" | "release"): Promise<boolean>;
+  dismiss(version: string): Promise<boolean>;
+  onChange(listener: (info: DesktopUpdateInfo | null) => void): () => void;
+};
+
 export type DesktopBridge = {
   version: number;
   platform: string;
@@ -69,6 +88,8 @@ export type DesktopBridge = {
   ready?: () => void;
   /** 选附件（老版本桌面端没有这一项，照旧用 <input type=file>） */
   files?: DesktopFilesApi;
+  /** 检查新版（老版本桌面端没有这一项，不显示新版提示） */
+  updates?: DesktopUpdatesApi;
 };
 
 declare global {
@@ -86,6 +107,8 @@ const TERMINAL_METHODS = [
   "onExit",
   "onNewRequest",
 ] as const;
+
+const UPDATE_METHODS = ["get", "open", "dismiss", "onChange"] as const;
 
 /** 读取并校验桌面端能力；形状不对（版本不兼容、被别的脚本冒充）就当作不在桌面端 */
 export function desktopBridge(
@@ -109,6 +132,14 @@ export function desktopBridge(
   if (files !== undefined && (!files || typeof files.pick !== "function")) {
     // 选附件接口形状不对只丢掉这一项，退回网页自己的选文件
     return desktopBridge({ ...value, files: undefined });
+  }
+  const updates = value.updates as Partial<DesktopUpdatesApi> | undefined;
+  if (
+    updates !== undefined &&
+    (!updates || UPDATE_METHODS.some((name) => typeof updates[name] !== "function"))
+  ) {
+    // 新版提示接口形状不对只丢掉这一项
+    return desktopBridge({ ...value, updates: undefined });
   }
   const titlebar = value.titlebar as Partial<DesktopTitlebarApi> | undefined;
   if (titlebar !== undefined && (!titlebar || typeof titlebar.setAppearance !== "function")) {

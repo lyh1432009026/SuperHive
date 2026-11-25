@@ -35,6 +35,29 @@ const texts = {
     zh: "终端移到右侧 / 底部",
     en: "Move Terminal Right / Bottom",
   },
+  checkForUpdates: { zh: "检查新版本…", en: "Check for Updates…" },
+  updateAvailableTitle: {
+    zh: "有新版本 {version}",
+    en: "SuperHive {version} is available",
+  },
+  updateAvailableDetail: {
+    zh: "你现在用的是 {current}。下载安装包后，Mac 上把新的 SuperHive 拖进「应用程序」替换旧的；Windows 上直接运行安装包覆盖安装（会先关掉正在运行的 SuperHive），房间、消息和设置都会保留。",
+    en: "You're on {current}. On macOS, drag the new SuperHive into Applications to replace the old one; on Windows, run the installer over the current install (it closes SuperHive first). Your rooms, messages and settings are kept.",
+  },
+  updateDownload: { zh: "下载", en: "Download" },
+  updateLater: { zh: "以后再说", en: "Later" },
+  updateNone: { zh: "已经是最新版本", en: "You're up to date" },
+  updateNoneDetail: {
+    zh: "SuperHive {current} 是目前最新的正式版。",
+    en: "SuperHive {current} is the latest release.",
+  },
+  updateFailed: { zh: "没能检查新版本", en: "Couldn't check for updates" },
+  updateFailedDetail: {
+    zh: "连不上 GitHub，稍后再试，或者到发布页查看。",
+    en: "Couldn't reach GitHub. Try again later, or check the releases page.",
+  },
+  updateOpenReleases: { zh: "打开发布页", en: "Open Releases" },
+  ok: { zh: "好", en: "OK" },
   connectedExisting: {
     zh: "已连上本机正在运行的 Hive（{origin}）。退出桌面端不会停止它。",
     en: "Connected to the Hive already running on this computer ({origin}). Quitting the app won't stop it.",

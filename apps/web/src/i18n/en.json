@@ -1958,5 +1958,13 @@
   "保存失败：{0}。已恢复原来的设置。": "Couldn't save: {0}. The previous setting is restored.",
   "选了就保存，从下一次回复开始生效，不用重启。": "Saved as soon as you pick. Takes effect from the next reply; no restart needed.",
   "已保存。{0}": "Saved. {0}",
-  "更改发送快捷键": "Change send shortcut"
+  "更改发送快捷键": "Change send shortcut",
+  "有新版本 {0}": "Version {0} is available",
+  "忽略这个版本": "Skip this version",
+  "完整发布说明": "Full release notes",
+  "你现在用的是 {0}，新版发布于 {1}。": "You're on {0}. The new version was released on {1}.",
+  "你现在用的是 {0}。": "You're on {0}.",
+  "本版改动": "What's changed",
+  "下载后直接运行安装包，会关掉正在运行的 SuperHive 并覆盖安装，房间、消息和设置都会保留。": "After downloading, run the installer. It closes SuperHive and installs over the current version, keeping your rooms, messages and settings.",
+  "下载后打开 dmg，把 SuperHive 拖进「应用程序」替换旧版，再重新打开。房间、消息和设置都会保留。": "After downloading, open the dmg, drag SuperHive into Applications to replace the old one, then reopen it. Your rooms, messages and settings are kept."
 }

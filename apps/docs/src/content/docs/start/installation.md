@@ -61,7 +61,7 @@ xattr -dr com.apple.quarantine /Applications/SuperHive.app
 - 终端面板默认在对话下方，可以移到右侧（拖宽度），或最大化铺满对话区；面板标题栏有按钮，也可以用菜单「视图」或快捷键 ⌘⇧M（最大化 / 还原）、⌥⌘P（底部 / 右侧），Windows 上 ⌘ 换成 Ctrl、⌥ 换成 Alt。位置和尺寸会记住；窗口太窄放不下右侧时自动按底部显示。刷新页面不会结束正在跑的终端。
 - 窗口没有系统标题栏：macOS 的红黄绿按钮在左侧栏顶部，Windows 的最小化、最大化、关闭按钮在右上角，颜色跟着深浅色主题变。拖顶部那一行能移动窗口。
 - 本机 Agent 可以直接在客户端里接入、上线，不用另开终端。
-- 目前还没有自动更新，新版本发布后到 [Releases](https://github.com/wangrongding/SuperHive/releases/latest) 下载新的安装包覆盖安装即可，数据不受影响。想从源码运行或自己打包，见 [开发与扩展](/reference/development/#桌面端)。
+- 目前还不能自动更新，但客户端会提示新版本：启动后和之后每 6 小时查一次，有新版时侧栏底部显示「有新版本」，点开可以下载对应的安装包，或者忽略这个版本；菜单里的「检查新版本…」可以马上查一次。下载后覆盖安装即可，房间、消息和设置都会保留（Windows 安装时会先关掉正在运行的 SuperHive）。也可以直接到 [Releases](https://github.com/wangrongding/SuperHive/releases/latest) 下载。想从源码运行或自己打包，见 [开发与扩展](/reference/development/#桌面端)。
 
 ## 安装 CLI
 

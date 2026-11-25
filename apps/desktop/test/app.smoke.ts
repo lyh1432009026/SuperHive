@@ -311,7 +311,24 @@ test("renderer is locked down", async () => {
     await page.evaluate(() =>
       Object.keys((window as unknown as { superhiveDesktop: object }).superhiveDesktop).sort(),
     ),
-  ).toEqual(["files", "platform", "ready", "terminal", "titlebar", "version"]);
+  ).toEqual(["files", "platform", "ready", "terminal", "titlebar", "updates", "version"]);
+  // 开发时不查新版：没有提示，也打不开任何链接（网页本来也传不了地址）
+  expect(
+    await page.evaluate(async () => {
+      const updates = (
+        window as unknown as {
+          superhiveDesktop: {
+            updates: { get(): Promise<unknown>; open(target: string): Promise<boolean> };
+          };
+        }
+      ).superhiveDesktop.updates;
+      return [
+        await updates.get(),
+        await updates.open("download"),
+        await updates.open("https://example.com"),
+      ];
+    }),
+  ).toEqual([null, false, false]);
   // 同源的 iframe 拿不到能力：preload 只在顶层框架暴露
   const inFrame = await page.evaluate(async () => {
     const frame = document.createElement("iframe");

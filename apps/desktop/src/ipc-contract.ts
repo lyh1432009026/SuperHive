@@ -24,7 +24,19 @@ export const IPC = {
   appReady: "superhive:app:ready",
   /** 输入框「添加附件」：系统选文件窗口，起始目录是房间工作区 */
   pickFiles: "superhive:files:pick",
+  /** 有没有新版（主进程缓存的检查结果，没有就是 null） */
+  updateGet: "superhive:update:get",
+  /** 打开新版的下载地址或发布页：网页只说打开哪个，地址由主进程自己取 */
+  updateOpen: "superhive:update:open",
+  /** 「忽略这个版本」 */
+  updateDismiss: "superhive:update:dismiss",
+  /** 主进程查到新版（或提示该收起）时通知页面 */
+  updateChanged: "superhive:update:changed",
 } as const;
+
+/** 网页点新版提示里的哪个按钮 */
+export type UpdateOpenTarget = "download" | "release";
+export const UPDATE_OPEN_TARGETS: readonly UpdateOpenTarget[] = ["download", "release"];
 
 export type TerminalCreateRequest = {
   /** 房间工作区目录；没有或不存在时用用户主目录。允许 ~ 开头 */

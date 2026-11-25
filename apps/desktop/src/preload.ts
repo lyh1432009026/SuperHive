@@ -8,13 +8,16 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import {
   IPC,
   TERMINAL_LAYOUT_ACTIONS,
+  UPDATE_OPEN_TARGETS,
   type TerminalAttachResult,
   type TerminalCreateRequest,
   type TerminalCreateResult,
   type TerminalExitEvent,
   type TerminalLayoutAction,
   type TerminalSessionInfo,
+  type UpdateOpenTarget,
 } from "./ipc-contract.js";
+import type { UpdateInfo } from "./update-check.js";
 import type { PickFilesRequest, PickFilesResult } from "./file-picker.js";
 import { applyDesktopMarks, parseTitlebarArg, setFullscreenMark } from "./titlebar-dom.js";
 
@@ -64,6 +67,24 @@ if (allowedOrigin && window.location.origin === allowedOrigin && window.top === 
           roomId: typeof request?.roomId === "string" ? request.roomId : null,
           multiple: request?.multiple !== false,
         }),
+    },
+    updates: {
+      /** 主进程缓存的检查结果：有要提示的新版时是版本信息，否则 null（页面拿不到任何链接） */
+      get: (): Promise<UpdateInfo | null> => ipcRenderer.invoke(IPC.updateGet),
+      /** 打开下载地址或发布页；地址由主进程从检查结果里取，只会是 github.com 上本仓库的 Release */
+      open: (target: UpdateOpenTarget): Promise<boolean> =>
+        ipcRenderer.invoke(
+          IPC.updateOpen,
+          UPDATE_OPEN_TARGETS.includes(target) ? target : "release",
+        ),
+      /** 「忽略这个版本」 */
+      dismiss: (version: string): Promise<boolean> =>
+        ipcRenderer.invoke(IPC.updateDismiss, String(version)),
+      onChange: (listener: (info: UpdateInfo | null) => void): (() => void) => {
+        const handler = (_event: IpcRendererEvent, info: UpdateInfo | null) => listener(info);
+        ipcRenderer.on(IPC.updateChanged, handler);
+        return () => ipcRenderer.removeListener(IPC.updateChanged, handler);
+      },
     },
     titlebar: {
       /** "mac"：红黄绿按钮在左上；"overlay"：系统按钮在右上；"native"：系统标题栏 */

@@ -17,6 +17,7 @@ import type { IncidentAttentionItem } from "./incidents-panel";
 import type { useRoomReorder } from "./room-reorder";
 import { Tooltip } from "./tooltip";
 import { Button, IconButton } from "./button";
+import { DesktopUpdateEntry } from "./desktop-update";
 
 /** 左侧栏：房间列表、需要处理的事项与当前用户 */
 export function RoomSidebar({
@@ -333,6 +334,7 @@ export function RoomSidebar({
       >
         {showArchivedRooms ? t("隐藏已归档房间") : t("显示已归档房间")}
       </Button>
+      <DesktopUpdateEntry />
       <div
         className="sidebar-user"
         ref={userMenuRef}

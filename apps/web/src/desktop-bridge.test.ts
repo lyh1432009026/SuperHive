@@ -61,4 +61,19 @@ describe("desktopBridge", () => {
     expect(broken?.terminal.attach).toBe(fn);
     expect(broken?.terminal.onLayoutRequest).toBeUndefined();
   });
+
+  it("keeps the update API only when it has every method", () => {
+    const updates = { get: fn, open: fn, dismiss: fn, onChange: fn };
+    expect(desktopBridge({ version: 1, platform: "darwin", terminal, updates })?.updates).toBe(
+      updates,
+    );
+    const broken = desktopBridge({
+      version: 1,
+      platform: "darwin",
+      terminal,
+      updates: { get: fn, open: "https://evil.example" },
+    });
+    expect(broken?.terminal).toBe(terminal);
+    expect(broken?.updates).toBeUndefined();
+  });
 });

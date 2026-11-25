@@ -70,11 +70,22 @@ import {
   type TitlebarAppearance,
 } from "./titlebar.js";
 import { TITLEBAR_ARG_PREFIX } from "./titlebar-dom.js";
+import {
+  isAllowedReleaseUrl,
+  loadUpdateCache,
+  RELEASE_REPO,
+  saveUpdateCache,
+  UpdateChecker,
+  type UpdateInfo,
+} from "./update-check.js";
 import { loadWindowState, restoreBounds, saveWindowState, MIN_SIZE } from "./window-state.js";
 
 const CLI_FLAG = "--superhive-cli";
 const DOCS_URL = "https://wangrongding.github.io/SuperHive/";
 const ISSUES_URL = "https://github.com/wangrongding/SuperHive/issues";
+const RELEASES_URL = `https://github.com/${RELEASE_REPO.owner}/${RELEASE_REPO.name}/releases/`;
+/** 启动后等一会儿再查新版，不和本机 Hive 启动、网页加载抢 */
+const UPDATE_FIRST_CHECK_DELAY_MS = 20_000;
 /** 网页载入完多久还没说「画好了」就直接收起加载画面 */
 const READY_FALLBACK_MS = 6_000;
 const PREFERRED_PORT = Number.parseInt(process.env.SUPERHIVE_DESKTOP_PORT ?? "", 10) || 8787;
@@ -268,6 +279,107 @@ function runApp(): void {
         }),
     }),
   );
+
+  // ---------- 检查新版：只提示，不下载不安装 ----------
+  // 打包后的正式版才查；开发时设 SUPERHIVE_DESKTOP_UPDATE_CHECK=1 也查，设 0 一律不查
+  const updateCheckEnabled =
+    process.env.SUPERHIVE_DESKTOP_UPDATE_CHECK === "1" ||
+    (app.isPackaged && process.env.SUPERHIVE_DESKTOP_UPDATE_CHECK !== "0");
+  let updates: UpdateChecker | undefined;
+  let updateTimer: NodeJS.Timeout | undefined;
+  const updateChecker = (): UpdateChecker => {
+    const file = () => path.join(app.getPath("userData"), "desktop-update.json");
+    updates ??= new UpdateChecker({
+      currentVersion: app.getVersion(),
+      platform: process.platform,
+      arch: process.arch,
+      fetch: (url, init) => fetch(url, init),
+      load: () => loadUpdateCache(file()),
+      save: (cache) => saveUpdateCache(file(), cache),
+    });
+    return updates;
+  };
+  let lastSentUpdate: string | null | undefined;
+  /** 把当前要提示的新版告诉主窗口里的网页（和上次一样就不发） */
+  const pushUpdate = (info: UpdateInfo | null) => {
+    const key = info ? info.version : null;
+    if (key === lastSentUpdate) return;
+    const contents = mainWindow?.webContents;
+    if (!allowedOrigin || !contents || contents.isDestroyed()) return;
+    lastSentUpdate = key;
+    contents.send(IPC.updateChanged, info);
+  };
+  const scheduleUpdateCheck = (delay: number) => {
+    clearTimeout(updateTimer);
+    updateTimer = setTimeout(() => {
+      void updateChecker()
+        .check()
+        .then(pushUpdate)
+        .catch(() => undefined)
+        .finally(() => scheduleUpdateCheck(updateChecker().msUntilNextCheck() || 60 * 60 * 1000));
+    }, delay);
+  };
+  ipcMain.handle(IPC.updateGet, (event) => {
+    if (!trusted(event)) throw new Error("Forbidden");
+    if (!updateCheckEnabled) return null;
+    const info = updateChecker().current();
+    lastSentUpdate = info ? info.version : null;
+    return info;
+  });
+  ipcMain.handle(IPC.updateOpen, (event, target: unknown) => {
+    if (!trusted(event) || !updateCheckEnabled) return false;
+    // 地址只从主进程自己的检查结果里取，网页传什么都不会被当成地址
+    const url = updateChecker().urlFor(target);
+    if (!isAllowedReleaseUrl(url)) return false;
+    void shell.openExternal(url);
+    return true;
+  });
+  ipcMain.handle(IPC.updateDismiss, (event, version: unknown) => {
+    if (!trusted(event) || !updateCheckEnabled) return false;
+    const ok = updateChecker().dismiss(version);
+    if (ok) pushUpdate(updateChecker().current());
+    return ok;
+  });
+
+  /** 菜单「检查新版本…」：不管上次什么时候查过，马上查一次，并且一定给个答复 */
+  async function checkUpdatesNow(): Promise<void> {
+    const checker = updateChecker();
+    const info = await checker.check(true).catch(() => null);
+    pushUpdate(info);
+    const owner = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+    const show = (options: Electron.MessageBoxOptions) =>
+      owner ? dialog.showMessageBox(owner, options) : dialog.showMessageBox(options);
+    const current = app.getVersion();
+    if (info) {
+      const { response } = await show({
+        type: "info",
+        message: t("updateAvailableTitle", { version: info.version }),
+        detail: t("updateAvailableDetail", { current }),
+        buttons: [t("updateDownload"), t("updateLater")],
+        defaultId: 0,
+        cancelId: 1,
+      });
+      const url = checker.urlFor("download");
+      if (response === 0 && isAllowedReleaseUrl(url)) void shell.openExternal(url);
+    } else if (checker.lastCheckFailed) {
+      const { response } = await show({
+        type: "warning",
+        message: t("updateFailed"),
+        detail: t("updateFailedDetail"),
+        buttons: [t("updateOpenReleases"), t("ok")],
+        defaultId: 1,
+        cancelId: 1,
+      });
+      if (response === 0) void shell.openExternal(RELEASES_URL);
+    } else {
+      await show({
+        type: "info",
+        message: t("updateNone"),
+        detail: t("updateNoneDetail", { current }),
+        buttons: [t("ok")],
+      });
+    }
+  }
 
   // preload 问自己能不能拿到桌面端能力：只回答主窗口的顶层框架，而且页面已经在本机 Hive 上
   ipcMain.on(IPC.originQuery, (event) => {
@@ -650,7 +762,27 @@ function runApp(): void {
   function buildMenu(): void {
     const isMac = process.platform === "darwin";
     const template: MenuItemConstructorOptions[] = [
-      ...(isMac ? [{ role: "appMenu" as const }] : []),
+      ...(isMac
+        ? [
+            {
+              label: app.name,
+              submenu: [
+                { role: "about" as const },
+                ...(updateCheckEnabled
+                  ? [{ label: t("checkForUpdates"), click: () => void checkUpdatesNow() }]
+                  : []),
+                { type: "separator" as const },
+                { role: "services" as const },
+                { type: "separator" as const },
+                { role: "hide" as const },
+                { role: "hideOthers" as const },
+                { role: "unhide" as const },
+                { type: "separator" as const },
+                { role: "quit" as const },
+              ],
+            },
+          ]
+        : []),
       {
         label: t("file"),
         submenu: [
@@ -703,6 +835,12 @@ function runApp(): void {
           },
           { label: t("issues"), click: () => void shell.openExternal(ISSUES_URL) },
           { label: t("openLogs"), click: () => void shell.openPath(dataDir) },
+          ...(!isMac && updateCheckEnabled
+            ? [
+                { type: "separator" as const },
+                { label: t("checkForUpdates"), click: () => void checkUpdatesNow() },
+              ]
+            : []),
         ],
       },
     ];
@@ -721,6 +859,7 @@ function runApp(): void {
     event.preventDefault();
     shutdownDone = true;
     terminals.disposeAll();
+    clearTimeout(updateTimer);
     const server = owned;
     owned = undefined;
     void (server ? server.stop().catch(() => undefined) : Promise.resolve()).finally(() =>
@@ -749,5 +888,6 @@ function runApp(): void {
     const shellPath = await loginShellPath();
     if (shellPath) process.env.PATH = mergePath(shellPath, process.env.PATH);
     await boot();
+    if (updateCheckEnabled) scheduleUpdateCheck(UPDATE_FIRST_CHECK_DELAY_MS);
   });
 }
