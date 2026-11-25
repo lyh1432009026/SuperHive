@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { agyAccessArgs, createAgyResponder, isAgyHiveTool } from "./agy-client.js";
+import {
+  agyAccessArgs,
+  agySystemPromptMeta,
+  createAgyResponder,
+  isAgyHiveTool,
+} from "./agy-client.js";
 import type { StdioTransport } from "./stdio-transport.js";
 
 const hive = {
@@ -20,6 +25,12 @@ describe("agy ACP profile", () => {
     expect(isAgyHiveTool({ kind: "other", name: "mcp_hive_hive_board_update" })).toBe(true);
     expect(isAgyHiveTool({ kind: "other", name: "mcp_hivex_tool" })).toBe(false);
     expect(isAgyHiveTool({ kind: "other", title: "Run mcp_hive_hive_board_update" })).toBe(false);
+  });
+
+  it("appends the Hive rules to agy's own system prompt", () => {
+    expect(agySystemPromptMeta("rules")).toEqual({
+      antigravity: { systemPrompt: { append: "rules" } },
+    });
   });
 
   it("starts `agy acp` and picks the configured model per session", async () => {

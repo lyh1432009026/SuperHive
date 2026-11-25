@@ -17,6 +17,14 @@ export function isAgyHiveTool(toolCall: AcpToolCall): boolean {
   return typeof toolCall.name === "string" && toolCall.name.startsWith("mcp_hive_hive_");
 }
 
+/**
+ * agy 在 initialize 里声明 _meta.antigravity.systemPrompt.append：打开会话（new / resume / load）时带上，
+ * 内容追加进 agy 自己的系统提示，随会话保存；resume 时带新的会替换旧的（1.5.14 实测）
+ */
+export function agySystemPromptMeta(instructions: string): Record<string, unknown> {
+  return { antigravity: { systemPrompt: { append: instructions } } };
+}
+
 export const AGY_AUTH_HINT =
   "请先在这台电脑的终端运行一次 agy，用 Google 账号登录；也可以在 ~/.gemini/.env 里配置 GEMINI_API_KEY（自建接口再加 GOOGLE_GEMINI_BASE_URL）改用 API key。然后再 @ 它";
 
@@ -52,6 +60,7 @@ export function createAgyResponder(
         hasApiKey: hasGeminiApiKey(env),
       },
       ...(options.model ? { defaultModel: options.model } : {}),
+      systemPromptMeta: agySystemPromptMeta,
       ...(options.log ? { log: options.log } : {}),
     },
     dependencies,

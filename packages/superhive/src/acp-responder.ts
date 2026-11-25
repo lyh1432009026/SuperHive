@@ -2,7 +2,7 @@ import { lstatSync, readlinkSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { acpHiveMcpServer, type HiveMcpConnection } from "./hive-mcp-config.js";
-import type { TraceStep } from "./hive-protocol.js";
+import type { AgentUsage, TraceStep } from "./hive-protocol.js";
 import { ThinkingTrace } from "./trace.js";
 import { classifyAcp, classifyText } from "./failure.js";
 import {
@@ -69,6 +69,12 @@ export type AcpResponderOptions = {
   auth?: { hint: string; apiKeyMethod?: string; hasApiKey?: boolean };
   /** 没指定模型的回合用的模型：启动参数里没法指定模型的 Agent（agy）用它，按会话切换 */
   defaultModel?: string;
+  /**
+   * 能把规则放进会话系统提示的 Agent（agy 的 _meta.antigravity.systemPrompt.append）：返回打开会话时带的 _meta。
+   * 有它时规则随 session/new、resume、load 进系统提示，不再拼进用户消息——否则每次完整上下文的回合都把整套规则
+   * 再塞进会话历史一次，越聊越长，之后模型的每一步都要带着它们
+   */
+  systemPromptMeta?: (instructions: string) => Record<string, unknown>;
 };
 
 export type AcpResponderDependencies = {
@@ -87,6 +93,8 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
 const DEFAULT_CANCEL_GRACE_MS = 10_000;
 /** 每个用过的房间都有一个 Agent 进程：空闲这么久就结束，免得挂着一堆进程占内存 */
 const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60_000;
+/** 估算模型请求次数时，相隔不到这么久的工具调用算同一次请求并行发出的 */
+const PARALLEL_TOOL_GAP_MS = 1_000;
 
 function idleText(ms: number): string {
   return ms >= 60_000 ? `${Math.round(ms / 60_000)} 分钟` : `${Math.round(ms / 1000)} 秒`;
@@ -382,6 +390,8 @@ type AgentProcess = {
     string,
     { configId: string; initial?: string; current?: string; options: string[] }
   >;
+  /** 打开会话时放进系统提示的规则（systemPromptMeta）：和这一轮的规则相同就不用再拼进消息 */
+  sessionInstructions: Map<string, string>;
   /** 这个进程已用 API key 登录过（authenticate） */
   authenticated: boolean;
   /** initialize 返回的登录方式 */
@@ -399,6 +409,15 @@ type ActiveTurn = {
   signal?: AbortSignal | undefined;
   onProgress?: ((progress: string) => void) | undefined;
   onTrace?: ((step: TraceStep) => void) | undefined;
+  onUsage?: ((usage: AgentUsage) => void) | undefined;
+  /** session/prompt 发出的时间：用量里的第一次请求时间 */
+  promptAt: number;
+  /**
+   * 模型请求次数的估计：ACP 只在回合结束时给总用量，不报请求次数。一次请求可以并行发出几个工具调用：
+   * 中间没有文字、和上一个工具调用相隔不到 1 秒的算同一次，最后出回答再算一次
+   */
+  toolRounds: number;
+  lastToolAt?: number | undefined;
   /** 工作区档超出范围的权限请求交给人批 */
   requestApproval?: AgentReplyInput["requestApproval"];
   /** 已开始的执行过程条目（按 toolCallId），更新与完成时据此补全 */
@@ -458,7 +477,12 @@ export class AcpResponder implements AgentResponder {
     try {
       agent = await this.ensureAgent();
       this.throwIfAborted(input.signal);
-      session = await this.openSession(agent, input.threadId, Boolean(input.refreshInstructions));
+      session = await this.openSession(
+        agent,
+        input.threadId,
+        Boolean(input.refreshInstructions),
+        input.instructions,
+      );
       input.onSession?.(session.sessionId);
       this.throwIfAborted(input.signal);
       await this.useModel(agent, session.sessionId, input.model ?? this.options.defaultModel);
@@ -472,9 +496,11 @@ export class AcpResponder implements AgentResponder {
       throw error;
     }
 
-    // ACP 没有系统提示词字段：新会话或需要刷新时把规则拼进本轮消息
+    // ACP 没有系统提示词字段：新会话或需要刷新时把规则拼进本轮消息；
+    // 规则已随打开会话放进系统提示（systemPromptMeta）且没变时不再拼
+    const inSystemPrompt = agent.sessionInstructions.get(session.sessionId) === input.instructions;
     const text =
-      session.fresh || input.refreshInstructions
+      !inSystemPrompt && (session.fresh || input.refreshInstructions)
         ? `${input.instructions}\n\n---\n\n${input.prompt}`
         : input.prompt;
 
@@ -485,6 +511,9 @@ export class AcpResponder implements AgentResponder {
         signal: input.signal,
         onProgress: input.onProgress,
         onTrace: input.onTrace,
+        onUsage: input.onUsage,
+        promptAt: Date.now(),
+        toolRounds: 0,
         requestApproval: input.requestApproval,
         traceSteps: new Map(),
         thinking: new ThinkingTrace((step) => this.traceStep(turn, step)),
@@ -615,6 +644,7 @@ export class AcpResponder implements AgentResponder {
   }
 
   private completeTurn(turn: ActiveTurn, result: any) {
+    this.reportUsage(turn, result?.usage);
     const stopReason = typeof result?.stopReason === "string" ? result.stopReason : "end_turn";
     const label = this.options.label;
     if (turn.cancelled || (stopReason === "cancelled" && turn.signal?.aborted)) {
@@ -645,6 +675,48 @@ export class AcpResponder implements AgentResponder {
     }
     // max_tokens / max_turn_requests 时仍把已生成的回答发出去，比整轮失败更有用
     this.finishTurn(turn, { text, threadId: turn.sessionId! });
+  }
+
+  /**
+   * ACP 的 session/prompt 结果里带本轮总用量（ACP 的 usage 字段；agy 1.5.14 实测 inputTokens 含缓存读写，totalTokens 是输入加输出）：
+   * 换成 Hive 的四个互斥的桶报给 Bridge，带上会话当前的模型和思考强度，任务详情里能看到这一轮用的是哪个模型
+   */
+  private reportUsage(turn: ActiveTurn, raw: any): void {
+    if (!turn.onUsage || !raw || typeof raw !== "object") return;
+    const count = (value: unknown) =>
+      typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+    const input = count(raw.inputTokens);
+    const cacheRead = count(raw.cachedReadTokens);
+    const cacheWrite = count(raw.cachedWriteTokens);
+    const thought = count(raw.thoughtTokens);
+    let output = count(raw.outputTokens);
+    // 思考 token 单独报、而且没算进输出时（总数 = 输入 + 输出 + 思考）补进输出
+    if (thought && count(raw.totalTokens) === input + output + thought) output += thought;
+    if (!input && !output && !cacheRead && !cacheWrite) return;
+    const agent = turn.process;
+    const sessionId = turn.sessionId ?? "";
+    const model = agent?.sessionModels.get(sessionId)?.current;
+    const effort = agent?.sessionEfforts.get(sessionId)?.current;
+    const requests = turn.toolRounds + 1;
+    const usage: AgentUsage = {
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
+      inputTokens: Math.max(0, input - cacheRead - cacheWrite),
+      cacheReadTokens: cacheRead,
+      cacheWriteTokens: cacheWrite,
+      outputTokens: output,
+      requests,
+      // 只有总数，没有每次请求的上下文：按平均值估
+      peakContextTokens: Math.round(input / requests),
+      peakCacheWriteTokens: cacheWrite,
+      firstRequestAt: new Date(turn.promptAt).toISOString(),
+      lastRequestAt: new Date().toISOString(),
+    };
+    try {
+      turn.onUsage(usage);
+    } catch {
+      // 用量回调异常不影响回合
+    }
   }
 
   /** session/prompt 被拒：按 HTTP 状态码、错误类别和原文分类，会话坏了开新会话，上游出错按分类等待或交给人 */
@@ -774,8 +846,20 @@ export class AcpResponder implements AgentResponder {
     agent: AgentProcess,
     threadId: string | undefined,
     fullPrompt = true,
+    instructions?: string,
   ): Promise<{ sessionId: string; fresh: boolean }> {
-    const params = { cwd: this.options.cwd, mcpServers: [acpHiveMcpServer(this.options.hive)] };
+    const meta =
+      instructions && this.options.systemPromptMeta
+        ? this.options.systemPromptMeta(instructions)
+        : undefined;
+    const params = {
+      cwd: this.options.cwd,
+      mcpServers: [acpHiveMcpServer(this.options.hive)],
+      ...(meta ? { _meta: meta } : {}),
+    };
+    const remember = (sessionId: string) => {
+      if (meta && instructions) agent.sessionInstructions.set(sessionId, instructions);
+    };
     if (threadId) {
       if (agent.loadedSessions.has(threadId)) return { sessionId: threadId, fresh: false };
       // session/resume 不回放历史，优先使用；否则退回 session/load（回放的 session/update 会被忽略）
@@ -792,6 +876,7 @@ export class AcpResponder implements AgentResponder {
           });
           agent.loadedSessions.add(threadId);
           this.rememberModels(agent, threadId, resumed);
+          remember(threadId);
           return { sessionId: threadId, fresh: false };
         } catch (error) {
           if (!(error instanceof AcpRpcError)) throw error;
@@ -810,6 +895,7 @@ export class AcpResponder implements AgentResponder {
     }
     agent.loadedSessions.add(sessionId);
     this.rememberModels(agent, sessionId, result);
+    remember(sessionId);
     return { sessionId, fresh: true };
   }
 
@@ -847,6 +933,7 @@ export class AcpResponder implements AgentResponder {
       loadedSessions: new Set(),
       sessionModels: new Map(),
       sessionEfforts: new Map(),
+      sessionInstructions: new Map(),
       authenticated: false,
       authMethods: [],
       capabilities: undefined,
@@ -1046,6 +1133,17 @@ export class AcpResponder implements AgentResponder {
     // 只处理当前回合的更新；session/load 回放的历史在回合开始前到达，会被忽略
     if (!turn || turn.settled || !turn.sessionId || params?.sessionId !== turn.sessionId) return;
     const update = params.update;
+    if (update?.sessionUpdate === "tool_call") {
+      const now = Date.now();
+      if (turn.lastToolAt === undefined || now - turn.lastToolAt > PARALLEL_TOOL_GAP_MS)
+        turn.toolRounds += 1;
+      turn.lastToolAt = now;
+    } else if (
+      update?.sessionUpdate === "agent_message_chunk" ||
+      update?.sessionUpdate === "agent_thought_chunk"
+    ) {
+      turn.lastToolAt = undefined;
+    }
     switch (update?.sessionUpdate) {
       case "agent_message_chunk":
         if (update.content?.type === "text" && typeof update.content.text === "string") {

@@ -426,7 +426,7 @@ export const usageBucketsSchema = z.object({
 });
 export const agentUsageSchema = usageBucketsSchema.extend({
   model: z.string().max(120).optional(),
-  /** 这一轮实际传给运行时的思考强度；没传（沿用 CLI 配置）时不填 */
+  /** 这一轮的思考强度：Hive 传给运行时的，或运行时报出的会话当前值（ACP）；都不知道（沿用 CLI 配置）时不填 */
   effort: z.string().max(32).optional(),
   /** 这一轮里 Claude Code 自动压缩了上下文（一轮里可能不止一次） */
   compactions: z.array(contextCompactionSchema).max(20).optional(),

@@ -289,6 +289,150 @@ describe("AcpResponder", () => {
     expect(prompts[1]?.params.prompt[0].text).toBe("rules\n\n---\n\nsecond");
   });
 
+  it("puts the rules into the session system prompt when the agent supports it", async () => {
+    const systemPromptMeta = (instructions: string) => ({ sys: { append: instructions } });
+    const { responder, agents } = setup(defaultHandlers(), { systemPromptMeta });
+
+    await responder.reply({ instructions: "rules", prompt: "first" });
+    // 完整上下文的回合（refreshInstructions）规则没变：不再把整套规则拼进消息
+    await responder.reply({
+      instructions: "rules",
+      prompt: "second",
+      threadId: "ses-new",
+      refreshInstructions: true,
+    });
+    // 规则变了，会话已经在这个进程里打开：系统提示换不了，退回拼进消息
+    await responder.reply({
+      instructions: "rules v2",
+      prompt: "third",
+      threadId: "ses-new",
+      refreshInstructions: true,
+    });
+
+    const agent = agents[0]!;
+    expect(agent.request("session/new")?.params._meta).toEqual({ sys: { append: "rules" } });
+    const prompts = agent.requests("session/prompt").map((m) => m.params.prompt[0].text);
+    expect(prompts).toEqual(["first", "second", "rules v2\n\n---\n\nthird"]);
+  });
+
+  it("reports the turn's usage with the session's model and thinking level", async () => {
+    const { responder } = setup(
+      defaultHandlers({
+        "session/new": ok({
+          sessionId: "ses-new",
+          configOptions: [
+            {
+              id: "model",
+              category: "model",
+              currentValue: "gemini-3.1-pro",
+              options: [{ value: "gemini-3.1-pro" }],
+            },
+            {
+              id: "thought_level",
+              category: "thought_level",
+              currentValue: "low",
+              options: [{ value: "low" }, { value: "high" }],
+            },
+          ],
+        }),
+        "session/prompt": (message, agent) => {
+          const sessionId = message.params.sessionId;
+          // 一次并行的两个读取、隔着一段话的一次修改，加最后的回答：估三次模型请求
+          agent.update(sessionId, { sessionUpdate: "tool_call", toolCallId: "a", kind: "read" });
+          agent.update(sessionId, { sessionUpdate: "tool_call", toolCallId: "b", kind: "read" });
+          agent.update(sessionId, text("看过了"));
+          agent.update(sessionId, { sessionUpdate: "tool_call", toolCallId: "c", kind: "edit" });
+          agent.update(sessionId, text("改好了"));
+          agent.emit({
+            id: message.id,
+            result: {
+              stopReason: "end_turn",
+              usage: {
+                inputTokens: 30_000,
+                outputTokens: 600,
+                cachedReadTokens: 12_000,
+                cachedWriteTokens: 0,
+                thoughtTokens: 0,
+                totalTokens: 30_600,
+              },
+            },
+          });
+        },
+      }),
+    );
+    const usages: unknown[] = [];
+    await responder.reply({ instructions: "r", prompt: "p", onUsage: (u) => usages.push(u) });
+    expect(usages).toEqual([
+      expect.objectContaining({
+        model: "gemini-3.1-pro",
+        effort: "low",
+        inputTokens: 18_000,
+        cacheReadTokens: 12_000,
+        cacheWriteTokens: 0,
+        outputTokens: 600,
+        requests: 3,
+        peakContextTokens: 10_000,
+      }),
+    ]);
+  });
+
+  it("counts back-to-back tool calls seconds apart as separate model requests", async () => {
+    let clock = 1_000_000;
+    const now = vi.spyOn(Date, "now").mockImplementation(() => (clock += 5_000));
+    try {
+      const { responder } = setup(
+        defaultHandlers({
+          "session/prompt": (message, agent) => {
+            const sessionId = message.params.sessionId;
+            agent.update(sessionId, { sessionUpdate: "tool_call", toolCallId: "a", kind: "read" });
+            agent.update(sessionId, { sessionUpdate: "tool_call", toolCallId: "b", kind: "edit" });
+            agent.update(sessionId, {
+              sessionUpdate: "tool_call",
+              toolCallId: "c",
+              kind: "execute",
+            });
+            agent.update(sessionId, text("done"));
+            agent.emit({
+              id: message.id,
+              result: { stopReason: "end_turn", usage: { inputTokens: 4_000, outputTokens: 10 } },
+            });
+          },
+        }),
+      );
+      const onUsage = vi.fn();
+      await responder.reply({ instructions: "r", prompt: "p", onUsage });
+      expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({ requests: 4 }));
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("reports no usage when the agent does not send any", async () => {
+    const { responder } = setup();
+    const onUsage = vi.fn();
+    await responder.reply({ instructions: "r", prompt: "p", onUsage });
+    expect(onUsage).not.toHaveBeenCalled();
+  });
+
+  it("re-sends the system prompt when resuming a session in a new process", async () => {
+    const systemPromptMeta = (instructions: string) => ({ sys: { append: instructions } });
+    const { responder, agents } = setup(defaultHandlers(), { systemPromptMeta });
+
+    await responder.reply({
+      instructions: "rules v2",
+      prompt: "hi",
+      threadId: "ses-old",
+      refreshInstructions: true,
+    });
+
+    const agent = agents[0]!;
+    expect(agent.request("session/resume")?.params).toMatchObject({
+      sessionId: "ses-old",
+      _meta: { sys: { append: "rules v2" } },
+    });
+    expect(agent.request("session/prompt")?.params.prompt[0].text).toBe("hi");
+  });
+
   it("falls back to session/load and ignores the replayed history", async () => {
     const { responder, agents } = setup(
       defaultHandlers({
