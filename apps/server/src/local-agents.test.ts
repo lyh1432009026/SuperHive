@@ -1529,6 +1529,56 @@ describe("LocalAgentSupervisor", () => {
     database.close();
   });
 
+  it("ends an untracked leftover process of the same agent on launch, stop and remove", async () => {
+    const database = new HiveDatabase(":memory:");
+    const spawner = fakeSpawner();
+    const timers = manualTimers();
+    const settingsDir = mkdtempSync(path.join(tmpdir(), "hive-settings-"));
+    let strays = [424242];
+    const killed: Array<[number, string]> = [];
+    const shutdowns: string[] = [];
+    const supervisor = new LocalAgentSupervisor({
+      database,
+      cli,
+      serverUrl: "http://127.0.0.1:8787",
+      joinToken: "join-token",
+      isAgentOnline: () => false,
+      isNameInUse: () => false,
+      requestShutdown: (name) => {
+        shutdowns.push(name);
+        return true;
+      },
+      spawn: spawner.spawn,
+      probe,
+      setTimer: timers.setTimer,
+      settingsDir,
+      findStrays: (file) => {
+        expect(file.startsWith(settingsDir)).toBe(true);
+        return strays;
+      },
+      killStray: (pid, signal) => killed.push([pid, signal]),
+    });
+    const agent = supervisor.create({
+      provider: "claude",
+      name: "rd-claude4",
+      access: "full",
+      cwd: mkdtempSync(path.join(tmpdir(), "hive-stray-")),
+    });
+    // 启动前先请占着名字的旧进程退出
+    expect(killed).toEqual([[424242, "SIGTERM"]]);
+    expect(spawner.children).toHaveLength(1);
+    // 删除：自己的进程结束后，再结束旧进程、请同名连接下线，宽限期后还在就 SIGKILL（假 pid 早已不在，不再补刀）
+    killed.length = 0;
+    strays = [424243];
+    const removing = supervisor.remove(agent.id);
+    await vi.waitFor(() => expect(killed).toEqual([[424243, "SIGTERM"]]));
+    expect(shutdowns).toEqual(["rd-claude4"]);
+    timers.fireNext();
+    await removing;
+    expect(supervisor.list()).toEqual([]);
+    database.close();
+  });
+
   it("escalates to SIGKILL when an agent ignores SIGTERM", async () => {
     const database = new HiveDatabase(":memory:");
     const spawner = fakeSpawner({ exitOnTerm: false });

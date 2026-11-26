@@ -107,6 +107,13 @@ export type LocalAgentSupervisorOptions = {
   log?: (message: string) => void;
   spawn?: SpawnAgent;
   adopt?: AdoptAgent;
+  /**
+   * 找没被跟踪的同一个本机 Agent 进程（命令行里带着它的设置文件，测试注入）：Server 交接没接上时
+   * 旧进程会留下来占着名字；默认按 ps / Win32_Process 的命令行找
+   */
+  findStrays?: (settingsFile: string) => number[];
+  /** 结束找到的残留进程（测试注入）；默认 SIGTERM，Windows 上结束进程树 */
+  killStray?: (pid: number, signal: NodeJS.Signals) => void;
   /** Agent 输出日志的目录；设置后 Agent 以独立进程组运行，Server 交接重启时不随之退出 */
   logDir?: string;
   /** Agent 设置文件目录（网页上勾选的 MCP 等）；Agent 每一轮读取，改动不必重启 */
@@ -954,6 +961,7 @@ export class LocalAgentSupervisor {
     runtime.pendingRestart = undefined;
     this.options.database.setLocalAgentAutostart(id, false);
     await this.terminate(runtime);
+    await this.stopStrays(runtime);
     runtime.phase = "stopped";
     return this.view(runtime);
   }
@@ -1162,8 +1170,48 @@ export class LocalAgentSupervisor {
   async remove(id: string): Promise<void> {
     const runtime = this.require(id);
     await this.terminate(runtime);
+    await this.stopStrays(runtime);
     this.runtimes.delete(id);
     this.options.database.deleteLocalAgent(id);
+  }
+
+  /** 找到没被跟踪的同一 Agent 进程并发 SIGTERM，返回它们的 pid */
+  private signalStrays(runtime: Runtime): number[] {
+    const file = this.settingsFile(runtime.config);
+    if (!file) return [];
+    const own = runtime.child?.pid;
+    let strays: number[];
+    try {
+      strays = (this.options.findStrays ?? defaultFindStrays)(file);
+    } catch {
+      return [];
+    }
+    strays = strays.filter((pid) => pid !== own && pid !== process.pid);
+    const kill = this.options.killStray ?? defaultKillStray;
+    for (const pid of strays) {
+      this.appendLog(runtime, `[hive] 结束没被跟踪的旧进程 ${runtime.config.name}（pid ${pid}）\n`);
+      this.log(`[local-agents] ${runtime.config.name}：结束残留进程 pid ${pid}`);
+      kill(pid, "SIGTERM");
+    }
+    return strays;
+  }
+
+  /**
+   * 结束没被跟踪、却还在用这个 Agent 名字的进程（上一个 Server 交接时没接上留下的）：停止、删除、启动前都清，
+   * 否则删掉的 Agent 还挂在在线列表里，新启动的那个也会一直报「名字已在线」。
+   * 命令行找得到的先 SIGTERM、宽限期后 SIGKILL；找不到（比如列不出进程）也经连接请同名 Agent 自己退出
+   */
+  private async stopStrays(runtime: Runtime): Promise<void> {
+    const strays = this.signalStrays(runtime);
+    const kill = this.options.killStray ?? defaultKillStray;
+    if (!runtime.child) this.options.requestShutdown?.(runtime.config.name);
+    if (!strays.length) return;
+    await new Promise<void>((resolve) => {
+      this.setTimer(() => {
+        for (const pid of strays) if (isAlive(pid)) kill(pid, "SIGKILL");
+        resolve();
+      }, STOP_GRACE_MS);
+    });
   }
 
   /** 服务关闭：先 SIGTERM 让 Agent 正常离线，宽限期后仍未退出再 SIGKILL */
@@ -1269,6 +1317,8 @@ export class LocalAgentSupervisor {
       }
     }
     const cwd = fallback ? fallback.to : config.cwd;
+    // 旧进程还占着名字的话新进程上不了线（一直报「名字已在线」）：先请它退出
+    this.signalStrays(runtime);
     const settingsFile = this.writeSettings(runtime.config);
     runtime.settingsApplied = settingsFile !== undefined;
     const args = [
@@ -1434,6 +1484,53 @@ function processHasArgument(pid: number | undefined, argument: string): boolean 
 }
 
 /** 读进程的完整命令行：macOS / Linux 用 ps，Windows 用 PowerShell 查 Win32_Process；读不到返回 undefined */
+/** 命令行里带着这个设置文件的进程（就是这个本机 Agent 的 hive join） */
+function defaultFindStrays(settingsFile: string): number[] {
+  const marker = `--agent-settings=${settingsFile}`;
+  let listing: string;
+  if (process.platform === "win32") {
+    listing = execFileSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.CommandLine)" }',
+      ],
+      { encoding: "utf8", timeout: 15_000, windowsHide: true, maxBuffer: 16 * 1024 * 1024 },
+    );
+  } else {
+    listing = execFileSync("ps", ["-ax", "-o", "pid=,args="], {
+      encoding: "utf8",
+      timeout: 5_000,
+      windowsHide: true,
+      maxBuffer: 16 * 1024 * 1024,
+    });
+  }
+  const pids: number[] = [];
+  for (const line of listing.split(/\r?\n/)) {
+    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (!match || !match[2]!.includes(marker)) continue;
+    // 命令行里的路径后面要么结束、要么是空格或引号，免得 a.json 匹配到 a.json.bak
+    const after = match[2]!.charAt(match[2]!.indexOf(marker) + marker.length);
+    if (after && !/[\s"']/.test(after)) continue;
+    pids.push(Number(match[1]));
+  }
+  return pids;
+}
+
+function defaultKillStray(pid: number, signal: NodeJS.Signals): void {
+  if (process.platform === "win32") {
+    killTree(pid);
+    return;
+  }
+  try {
+    process.kill(pid, signal);
+  } catch {
+    /* 已经退出 */
+  }
+}
+
 function processCommandLine(pid: number): string | undefined {
   try {
     if (process.platform === "win32") {
